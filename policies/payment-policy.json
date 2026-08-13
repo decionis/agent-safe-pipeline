@@ -1,0 +1,6 @@
+{
+  "name": "synthetic-payment-example",
+  "autonomousMaximumMinorUnits": 5000,
+  "humanApprovalMaximumMinorUnits": 50000,
+  "currency": "USD"
+}

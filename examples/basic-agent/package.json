@@ -1,0 +1,16 @@
+{
+  "name": "@decionis/agent-safe-example-basic",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "demo": "pnpm build && node dist/Index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@decionis/agent-safe-pipeline": "workspace:*",
+    "zod": "^3.24.1"
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "synthetic-refund-example",
+  "currency": "USD",
+  "autonomousMaximumMinorUnits": 10000,
+  "humanApprovalMaximumMinorUnits": 100000
+}

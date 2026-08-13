@@ -1,0 +1,41 @@
+{
+  "name": "@decionis/agent-safe-pipeline",
+  "version": "0.1.0",
+  "description": "An execution architecture where AI agents may propose actions but cannot authorize their own execution.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "main": "./dist/Index.js",
+  "types": "./dist/Index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/Index.d.ts",
+      "import": "./dist/Index.js"
+    }
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run --coverage",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@decionis/presence-node": "^0.2.0",
+    "jose": "^5.10.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^2.1.8",
+    "vitest": "^2.1.8"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

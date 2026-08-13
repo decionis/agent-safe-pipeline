@@ -1,0 +1,33 @@
+{
+  "description": "Cross-implementation hash vector for agent-safe.intent/1",
+  "binding": {
+    "protocol_version": "agent-safe.intent/1",
+    "tenant_id": "22222222-2222-4222-8222-222222222222",
+    "intent_id": "11111111-1111-4111-8111-111111111111",
+    "captured_at": "2026-08-14T10:00:00.000Z",
+    "expires_at": "2026-08-14T10:01:00.000Z",
+    "actor": {
+      "id": "refund-agent",
+      "type": "AI_AGENT",
+      "runtime": "mcp"
+    },
+    "action": {
+      "type": "refund_order",
+      "resource": "shopify:order:synthetic-1",
+      "parameters": {
+        "amountMinor": 35000,
+        "currency": "USD",
+        "orderId": "synthetic-1"
+      }
+    },
+    "context": {
+      "source": "conformance"
+    },
+    "downstream_target": {
+      "system": "shopify",
+      "operation": "refund",
+      "endpoint": "POST /refunds"
+    }
+  },
+  "intent_hash": "sha256:d8420fa8ae7420741c03833bd2a61ce644e8b2f01b0523385c0792be35122f60"
+}
