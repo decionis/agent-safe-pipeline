@@ -1,0 +1,26 @@
+name: Discovery
+
+# Validates this repo's llms.txt and the links inside it. The weekly run matters
+# as much as the push run: discovery links rot without anyone touching the repo.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "llms.txt"
+      - "llms-full.txt"
+      - ".github/workflows/discovery.yml"
+  pull_request:
+    paths:
+      - "llms.txt"
+      - "llms-full.txt"
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  discovery:
+    uses: decionis/.github/.github/workflows/discovery-check.yml@master
