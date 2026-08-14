@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AuthorityBaseUrl } from "../http/AuthorityBaseUrl.js";
 import { CanonicalIntentHasher } from "../intent/CanonicalIntentHasher.js";
 import type { CapturedIntent } from "../intent/ExecutionIntent.js";
 import {
@@ -36,14 +37,10 @@ export class DecionisGate implements DecisionAuthority {
   private readonly fetchImpl: typeof fetch;
 
   public constructor(options: DecionisGateOptions) {
-    const url = new URL(options.baseUrl);
-    const loopback =
-      url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "[::1]";
-    if (url.username || url.password) throw new Error("DECIONIS_URL_MUST_NOT_CONTAIN_CREDENTIALS");
-    if (url.protocol !== "https:" && !(options.allowInsecureLoopback === true && loopback)) {
-      throw new Error("DECIONIS_URL_MUST_USE_HTTPS");
-    }
-    this.baseUrl = options.baseUrl.replace(/\/+$/, "");
+    this.baseUrl = AuthorityBaseUrl.normalize(
+      options.baseUrl,
+      options.allowInsecureLoopback === true,
+    );
     this.apiKey = options.apiKey;
     this.timeoutMs = Math.min(Math.max(options.timeoutMs ?? 4_000, 1), 15_000);
     this.fetchImpl = options.fetch ?? fetch;
