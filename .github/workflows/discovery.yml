@@ -5,7 +5,7 @@ name: Discovery
 
 on:
   push:
-    branches: [main]
+    branches: [master]
     paths:
       - "llms.txt"
       - "llms-full.txt"

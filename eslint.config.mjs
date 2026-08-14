@@ -1,11 +1,14 @@
 import eslint from "@eslint/js";
 import tseslint from "@typescript-eslint/eslint-plugin";
 import parser from "@typescript-eslint/parser";
+import regexp from "eslint-plugin-regexp";
 import globals from "globals";
 
 export default [
   { ignores: ["**/dist/**", "**/coverage/**", "**/node_modules/**"] },
   eslint.configs.recommended,
+  regexp.configs["flat/recommended"],
+  { rules: { "regexp/no-super-linear-move": ["error", { report: "potential" }] } },
   {
     files: ["**/*.ts"],
     languageOptions: {

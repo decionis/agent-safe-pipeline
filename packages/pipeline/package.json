@@ -24,6 +24,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "test": "vitest run --coverage",
+    "test:performance": "vitest run test/performance",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

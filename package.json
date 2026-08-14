@@ -19,9 +19,16 @@
     "format": "prettier --check .",
     "format:fix": "prettier --write .",
     "lint": "eslint .",
+    "performance": "pnpm --filter @decionis/agent-safe-pipeline test:performance",
+    "precommit": "pnpm lint && pnpm security && pnpm performance",
+    "prepare": "simple-git-hooks",
+    "security": "pnpm audit --audit-level moderate",
     "test": "pnpm -r test",
     "typecheck": "pnpm --filter @decionis/agent-safe-pipeline build && pnpm -r typecheck",
-    "verify": "pnpm format && pnpm lint && pnpm discovery && pnpm typecheck && pnpm test && pnpm build"
+    "verify": "pnpm format && pnpm lint && pnpm security && pnpm discovery && pnpm typecheck && pnpm test && pnpm build"
+  },
+  "simple-git-hooks": {
+    "pre-commit": "pnpm precommit"
   },
   "devDependencies": {
     "@eslint/js": "^9.16.0",
@@ -31,8 +38,10 @@
     "eslint": "^9.16.0",
     "eslint-import-resolver-typescript": "^4.3.5",
     "eslint-plugin-import": "^2.31.0",
+    "eslint-plugin-regexp": "^2.10.0",
     "globals": "^15.14.0",
     "prettier": "^3.2.5",
+    "simple-git-hooks": "^2.13.1",
     "typescript": "^5.6.3"
   }
 }
