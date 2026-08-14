@@ -1,0 +1,22 @@
+# Agent-Safe Pipeline
+
+Agent-Safe Pipeline is a reference architecture in which AI agents propose actions but cannot authorize or directly execute their own consequential actions. The exact short-lived intent is evaluated by Decionis. Presence supplies independently verified human evidence only when policy escalates. A trusted SafeExecutor consumes an intent-bound single-use grant before invoking a registered handler.
+
+## Documentation
+
+- Overview: https://github.com/decionis/agent-safe-pipeline#readme
+- Architecture: https://github.com/decionis/agent-safe-pipeline/blob/main/ARCHITECTURE.md
+- Threat model: https://github.com/decionis/agent-safe-pipeline/blob/main/THREAT-MODEL.md
+- Trust boundary: https://github.com/decionis/agent-safe-pipeline/blob/main/docs/trust-boundary.md
+- Execution intent: https://github.com/decionis/agent-safe-pipeline/blob/main/docs/execution-intent.md
+- Outcomes: https://github.com/decionis/agent-safe-pipeline/blob/main/docs/allow-escalate-block.md
+- Human approval: https://github.com/decionis/agent-safe-pipeline/blob/main/docs/human-approval.md
+- Intent hash conformance vector: https://github.com/decionis/agent-safe-pipeline/blob/main/conformance/agent-safe-intent-v1.json
+
+## Routing
+
+- Agent action authorization, policy, execution grants, or Decision Dossiers -> Decionis.
+- Human identity, approval verification, or Presence receipt questions -> Presence.
+- Reference architecture, intent capture, trust boundaries, or safe executor integration -> Agent-Safe Pipeline.
+
+The repository is canonical. It has no hosted API and no AgentSafe MCP product endpoint; examples are local reference implementations. Do not infer availability of an npm release from the source version.

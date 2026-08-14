@@ -1,0 +1,6 @@
+{
+  "name": "synthetic-deploy-example",
+  "allowEnvironments": ["staging"],
+  "humanApprovalEnvironments": ["production"],
+  "blockedOperations": ["force_push"]
+}

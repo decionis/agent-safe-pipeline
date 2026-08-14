@@ -1,0 +1,33 @@
+{
+  "name": "agent-safe-pipeline-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Reference architecture for executing AI-agent actions through an independent authorization boundary.",
+  "license": "Apache-2.0",
+  "packageManager": "pnpm@9.15.3",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "discovery": "node scripts/CheckDiscovery.mjs",
+    "format": "prettier --check .",
+    "format:fix": "prettier --write .",
+    "lint": "eslint .",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm --filter @decionis/agent-safe-pipeline build && pnpm -r typecheck",
+    "verify": "pnpm format && pnpm lint && pnpm discovery && pnpm typecheck && pnpm test && pnpm build"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.16.0",
+    "@types/node": "^20.17.0",
+    "@typescript-eslint/eslint-plugin": "^8.44.0",
+    "@typescript-eslint/parser": "^8.44.0",
+    "eslint": "^9.16.0",
+    "eslint-import-resolver-typescript": "^4.3.5",
+    "eslint-plugin-import": "^2.31.0",
+    "globals": "^15.14.0",
+    "prettier": "^3.2.5",
+    "typescript": "^5.6.3"
+  }
+}
