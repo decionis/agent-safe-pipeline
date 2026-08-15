@@ -64,11 +64,18 @@ describe("SafeExecutor", () => {
     const intent = captured();
     const decision = await pair.authority.evaluate(intent);
 
+    expect(Object.isFrozen(decision)).toBe(true);
+    expect(Object.isFrozen(decision.reasonCodes)).toBe(true);
+    expect(Object.isFrozen(decision.authorization)).toBe(true);
+
     const result = await executor.run<{ refundId: string }>(intent, decision);
 
     expect(result.executed).toBe(true);
     expect(execute).toHaveBeenCalledTimes(1);
-    if (result.executed) expect(result.result.refundId).toBe("refund-350");
+    if (result.executed) {
+      expect(result.result.refundId).toBe("refund-350");
+      expect(Object.isFrozen(result.authorization)).toBe(true);
+    }
   });
 
   it("does not execute BLOCK or ESCALATE decisions", async () => {

@@ -9,6 +9,7 @@ import {
   type DecisionEvidence,
   type GateDecision,
 } from "./DecisionAuthority.js";
+import { immutableGateDecision } from "./ImmutableGateDecision.js";
 
 const reasonCode = z
   .string()
@@ -109,7 +110,7 @@ export class DecionisGate implements DecisionAuthority {
       if (verdict === "ALLOW" && !canExecute) {
         return FailClosedDecision.create(captured.intentHash, "AUTHORITY_GRANT_MISSING");
       }
-      return Object.freeze({
+      return immutableGateDecision({
         verdict,
         decisionId: parsed.decision_id,
         dossierId: parsed.dossier_id,
