@@ -1,0 +1,11 @@
+{
+  "description": "Keys sort by UTF-16 code units: 'Z'(0x5A) < 'za'(0x7A) < 'zé'(0x7A,0xE9) < 'Éclair'(0xC9)",
+  "binding": {
+    "Z": 3,
+    "za": 2,
+    "zé": 1,
+    "Éclair": 4
+  },
+  "canonical_json": "{\"Z\":3,\"za\":2,\"zé\":1,\"Éclair\":4}",
+  "intent_hash": "sha256:87fb08703bfcfc2249c4aa2ed144c53b900de74f7bedb432ea690e0b5388f3fa"
+}
