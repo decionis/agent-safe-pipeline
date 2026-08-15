@@ -49,6 +49,7 @@ export class CanonicalIntentHasher {
       protocol_version: intent.version,
       tenant_id: intent.tenantId,
       intent_id: intent.intentId,
+      idempotency_key: intent.idempotencyKey,
       captured_at: intent.capturedAt,
       expires_at: intent.expiresAt,
       actor: {
