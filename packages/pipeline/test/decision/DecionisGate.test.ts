@@ -28,7 +28,7 @@ describe("DecionisGate", () => {
             reason_codes: [],
             action_hash: intent.intentHash,
             execution_token: "token",
-            execution_token_expires_at: "2026-08-14T10:00:30.000Z",
+            execution_token_expires_at: intent.intent.expiresAt,
             dossier_id: "dossier-1",
           }),
           { status: 200 },
@@ -96,6 +96,49 @@ describe("DecionisGate", () => {
     });
   });
 
+  it("bounds response streaming and rejects malformed or schema-invalid responses", async () => {
+    const intent = captured();
+    let cancelled = false;
+    const oversizedBody = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.enqueue(new Uint8Array(60 * 1024));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const responses = [
+      new Response("upstream failure", { status: 503 }),
+      new Response("{not-json", { status: 200 }),
+      new Response(
+        JSON.stringify({
+          decision_id: "decision-1",
+          status: "ALLOW",
+          should_execute: true,
+          reason_codes: [],
+          action_hash: intent.intentHash,
+          execution_token: "token",
+          execution_token_expires_at: intent.intent.expiresAt,
+          dossier_id: "dossier-1",
+          unexpected_execution_mode: "bypass",
+        }),
+        { status: 200 },
+      ),
+      new Response(oversizedBody, { status: 200 }),
+    ];
+
+    for (const response of responses) {
+      const gate = new DecionisGate({
+        baseUrl: "http://localhost:3001",
+        apiKey: "test-key",
+        allowInsecureLoopback: true,
+        fetch: (async () => response) as typeof fetch,
+      });
+      expect(await gate.evaluate(intent)).toMatchObject({ verdict: "BLOCK", failClosed: true });
+    }
+    expect(cancelled).toBe(true);
+  });
+
   it("rejects insecure non-loopback and credential-bearing authority URLs", () => {
     expect(() => new DecionisGate({ baseUrl: "http://example.com", apiKey: "key" })).toThrow(
       "DECIONIS_URL_MUST_USE_HTTPS",
@@ -103,5 +146,8 @@ describe("DecionisGate", () => {
     expect(
       () => new DecionisGate({ baseUrl: "https://user:secret@example.com", apiKey: "key" }),
     ).toThrow("DECIONIS_URL_MUST_NOT_CONTAIN_CREDENTIALS");
+    expect(
+      () => new DecionisGate({ baseUrl: "https://example.com?api_key=secret", apiKey: "key" }),
+    ).toThrow("DECIONIS_URL_MUST_NOT_CONTAIN_QUERY_OR_FRAGMENT");
   });
 });

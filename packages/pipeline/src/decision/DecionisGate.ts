@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AuthorityBaseUrl } from "../http/AuthorityBaseUrl.js";
+import { BoundedResponseBody } from "../http/BoundedResponseBody.js";
 import { CanonicalIntentHasher } from "../intent/CanonicalIntentHasher.js";
 import type { CapturedIntent } from "../intent/ExecutionIntent.js";
 import {
@@ -9,18 +10,30 @@ import {
   type GateDecision,
 } from "./DecisionAuthority.js";
 
+const reasonCode = z
+  .string()
+  .min(1)
+  .max(120)
+  .regex(/^[A-Z][A-Z0-9_:-]*$/);
+
 const AuthorityResponseSchema = z
   .object({
-    decision_id: z.string().min(1),
+    decision_id: z.string().min(1).max(200),
     status: z.enum(["ALLOW", "BLOCK", "ESCALATE", "REVIEW_REQUIRED", "ERROR"]),
     should_execute: z.boolean(),
-    reason_codes: z.array(z.string()),
+    reason_codes: z.array(reasonCode).max(50),
     action_hash: z.string().regex(/^sha256:[0-9a-f]{64}$/),
-    execution_token: z.string().min(1).nullable(),
+    execution_token: z
+      .string()
+      .min(1)
+      .max(100 * 1024)
+      .nullable(),
     execution_token_expires_at: z.string().datetime().nullable(),
-    dossier_id: z.string().nullable(),
+    dossier_id: z.string().min(1).max(200).nullable(),
   })
-  .passthrough();
+  .strict();
+
+const MAX_RESPONSE_BYTES = 100 * 1024;
 
 export interface DecionisGateOptions {
   readonly baseUrl: string;
@@ -68,12 +81,12 @@ export class DecionisGate implements DecisionAuthority {
         }),
         signal: controller.signal,
       });
-      const text = await response.text();
-      if (Buffer.byteLength(text, "utf8") > 100 * 1024) {
-        return FailClosedDecision.create(captured.intentHash, "AUTHORITY_RESPONSE_TOO_LARGE");
-      }
       if (!response.ok) {
         return FailClosedDecision.create(captured.intentHash, "AUTHORITY_REQUEST_FAILED");
+      }
+      const text = await BoundedResponseBody.read(response, MAX_RESPONSE_BYTES);
+      if (text === null) {
+        return FailClosedDecision.create(captured.intentHash, "AUTHORITY_RESPONSE_TOO_LARGE");
       }
       const parsed = AuthorityResponseSchema.parse(JSON.parse(text));
       if (parsed.action_hash !== captured.intentHash) {
@@ -88,8 +101,11 @@ export class DecionisGate implements DecisionAuthority {
       const canExecute =
         verdict === "ALLOW" &&
         parsed.should_execute &&
+        parsed.dossier_id !== null &&
         parsed.execution_token !== null &&
-        parsed.execution_token_expires_at !== null;
+        parsed.execution_token_expires_at !== null &&
+        Date.parse(parsed.execution_token_expires_at) > Date.now() &&
+        Date.parse(parsed.execution_token_expires_at) <= Date.parse(captured.intent.expiresAt);
       if (verdict === "ALLOW" && !canExecute) {
         return FailClosedDecision.create(captured.intentHash, "AUTHORITY_GRANT_MISSING");
       }
