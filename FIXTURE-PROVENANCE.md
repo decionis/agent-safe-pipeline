@@ -2,6 +2,8 @@
 
 All fixtures in this repository are synthetic, hand-authored for the Agent-Safe Pipeline reference implementation, and licensed with the repository under Apache-2.0. They are not exports, samples, or transformations of customer, production, support, or incident data.
 
+The accountable data and security owner is [security@decionis.com](mailto:security@decionis.com). The machine-readable [`fixtures/manifest.json`](./fixtures/manifest.json) inventory names every fixture-bearing file, its family, its synthetic source, and whether it contains customer data.
+
 | Fixture family                    | Location                                 | Provenance                                                                                                                                                                                           | Intended use                                                      |
 | --------------------------------- | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
 | Policy examples                   | `policies/*.json`                        | Hand-authored threshold and environment examples using fictional values                                                                                                                              | Documentation and local demonstrations only                       |
@@ -19,4 +21,4 @@ Contributors must document the source and license of any new fixture. Prefer det
 
 Fixture identity values use the repository-reserved `synthetic-` or `fixture_` prefixes. UUID-shaped fixture tenant and intent values use the sentinel blocks documented in the conformance vector; production integrations must reject those sentinel values. Fixture URLs use IANA-reserved `.example`/`.invalid` domains or loopback. Executable demos may not contain fixed ISO timestamps.
 
-`pnpm fixture:check` discovers every tracked conformance vector, policy, example source, and unit test and enforces these rules. Adding a real-looking actor, customer, order, approver, tenant, hostname, or fixed demo timestamp makes verification fail. This turns provenance from a prose assertion into a repository gate.
+`pnpm fixture:check` discovers every tracked conformance vector, policy, example source, and unit test and requires an exact match with the manifest before enforcing these rules. Adding an unmanifested file, stale manifest entry, real-looking actor, customer, order, approver, tenant, hostname, or fixed demo timestamp makes verification fail. This turns provenance from a prose assertion into a repository gate.

@@ -4,6 +4,8 @@
 
 Do not open a public issue for a suspected vulnerability. Use the [private GitHub vulnerability-reporting form](https://github.com/decionis/agent-safe-pipeline/security/advisories/new) or email the Decionis security contact at [security@decionis.com](mailto:security@decionis.com). Include the affected version, reproduction, impact, and any proposed remediation. Do not include real customer data or credentials; ask for a secure transfer method if sensitive evidence is essential.
 
+The accountable data and security owner for reports and the response targets below is [security@decionis.com](mailto:security@decionis.com).
+
 We will coordinate remediation and publication through a GitHub Security Advisory when practical and credit reporters who want attribution. There is no promise of a bug bounty unless separately agreed in writing.
 
 ## Response and disclosure targets

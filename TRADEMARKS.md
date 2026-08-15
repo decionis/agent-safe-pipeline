@@ -1,5 +1,7 @@
 # Trademark policy
 
+Brand owner: Decionis Inc.
+
 The source code and documentation in this repository are licensed under Apache-2.0. That license does not grant rights to use Decionis trademarks except for reasonable and customary use in describing the origin of the work.
 
 Decionis, Presence, Agent-Safe Pipeline, and their associated names and logos are trademarks or service marks of Decionis, Inc. You may make accurate, non-confusing references to the project and compatibility with it. You may not use these marks to imply sponsorship, endorsement, or official status for a fork, modified distribution, product, or service.
