@@ -1,6 +1,7 @@
 import { access, readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { URL } from "node:url";
+import { DiscoveryUrlPolicyError, probeAllowedDiscoveryUrl } from "./DiscoveryUrlPolicy.mjs";
 
 const root = new URL("../", import.meta.url);
 const read = (path) => readFile(new URL(path, root), "utf8");
@@ -67,15 +68,13 @@ if (process.argv.includes("--check-links")) {
 
     for (const method of ["HEAD", "GET"]) {
       try {
-        const response = await fetch(url, {
-          method,
-          redirect: "follow",
-          signal: AbortSignal.timeout(20_000),
-          headers: { "user-agent": "agent-safe-discovery-check" },
-        });
-        if (response.status < 400) return { ok: true, status: response.status };
-        if (method === "GET") return { ok: false, status: response.status };
+        const status = await probeAllowedDiscoveryUrl(url, method);
+        if (status < 400) return { ok: true, status };
+        if (method === "GET") return { ok: false, status };
       } catch (error) {
+        if (error instanceof DiscoveryUrlPolicyError) {
+          return { ok: false, code: error.code, policy: true };
+        }
         const code = error?.cause?.code ?? error?.code ?? error?.name;
         if (code === "ENOTFOUND" || code === "EAI_AGAIN") return { ok: false, code, dns: true };
         if (method === "GET") return { ok: false, code, transient: true };
@@ -88,8 +87,12 @@ if (process.argv.includes("--check-links")) {
     const result = await probe(url);
     if (result.ok) {
       process.stdout.write(`ok    ${result.status}  ${url}\n`);
-    } else if (result.dns || result.status === 404 || result.status === 410) {
-      const reason = result.dns ? `DNS ${result.code}` : String(result.status);
+    } else if (result.policy || result.dns || result.status === 404 || result.status === 410) {
+      const reason = result.policy
+        ? result.code
+        : result.dns
+          ? `DNS ${result.code}`
+          : String(result.status);
       failures.push(`${url} (${reason})`);
     } else {
       warnings.push(`${url} (${result.status ?? result.code ?? "unreachable"})`);

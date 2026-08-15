@@ -34,6 +34,8 @@ ships. They apply alongside `coding.rules.md` and `security.rules.md`.
 
 - `scripts/CheckDiscovery.mjs` must validate the discovery files and their public links. Extend this
   check whenever a new hand-maintained inventory or discovery surface is added.
+- Automated link checks may contact only explicitly reviewed public HTTPS hosts and must validate
+  every redirect before following it. Pull-request content must not select arbitrary probe targets.
 - Every exported API named in discovery copy must exist in `packages/pipeline/src/Index.ts` and be
   covered by build/type checks.
 - Examples may demonstrate only public exports and documented environment variables. An example is
