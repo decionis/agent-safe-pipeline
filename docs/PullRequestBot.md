@@ -20,7 +20,9 @@ The bot opens a pull request only when all of the following are true:
 Missing authorship, incomplete compare results, an untrusted creator, or mixed
 commit authors fail closed. The bot can read Actions and repository contents
 and create pull requests. It cannot push commits, approve reviews, merge pull
-requests, administer the repository, or access another repository.
+requests, or administer the repository. Each workflow token is narrowed to the
+repository that requested it, even when the App installation includes another
+repository.
 
 `BranchCandidate.yml` records branch creation without using App credentials.
 It dispatches `PullRequestBot.yml`, whose workflow and script are checked out
@@ -31,14 +33,15 @@ created before the workflow existed or received commits after creation.
 
 Create an organization-owned GitHub App named **Decionis PR Bot** with:
 
-- Repository access: only `decionis/agent-safe-pipeline`
+- Repository access: only `decionis/agent-safe-pipeline` and
+  `decionis/steward`
 - Actions: read
 - Contents: read
 - Pull requests: read and write
 - Webhooks: disabled
 
-Install the App on the selected repository, generate a private key, and
-configure the repository:
+Install the App on the two selected repositories, generate a private key, and
+configure this repository:
 
 ```sh
 gh variable set PR_BOT_CLIENT_ID \
@@ -56,6 +59,10 @@ The private key is never committed or stored as a repository variable. The
 workflow requests a repository-scoped installation token, explicitly narrows
 it to Actions read, Contents read, and Pull requests write, and lets the token
 action revoke it when the job ends.
+
+Installing the App on `decionis/steward` does not enable automation there.
+Steward requires its own trusted workflow, repository variables, and encrypted
+secret before it can request a repository-scoped token.
 
 ## Bootstrap and verification
 
