@@ -15,6 +15,42 @@
       "containsCustomerData": false
     },
     {
+      "path": "conformance/vectors/composed-vs-decomposed.json",
+      "family": "Intent conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "conformance/vectors/fractional-exponent.json",
+      "family": "Intent conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "conformance/vectors/negative-zero.json",
+      "family": "Intent conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "conformance/vectors/nested-arrays.json",
+      "family": "Intent conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "conformance/vectors/unicode-astral.json",
+      "family": "Intent conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "conformance/vectors/utf16-sort-order.json",
+      "family": "Intent conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "examples/basic-agent/src/Index.ts",
       "family": "Runnable example",
       "source": "synthetic",
