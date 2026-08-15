@@ -11,9 +11,6 @@ on:
       - "llms-full.txt"
       - ".github/workflows/discovery.yml"
   pull_request:
-    paths:
-      - "llms.txt"
-      - "llms-full.txt"
   schedule:
     - cron: "0 6 * * 1"
   workflow_dispatch:
