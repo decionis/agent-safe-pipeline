@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AuthorityBaseUrl } from "../http/AuthorityBaseUrl.js";
+import { BoundedResponseBody } from "../http/BoundedResponseBody.js";
 import { CanonicalIntentHasher } from "../intent/CanonicalIntentHasher.js";
 import type { CapturedIntent } from "../intent/ExecutionIntent.js";
 import type { GateDecision } from "../decision/DecisionAuthority.js";
@@ -19,16 +20,22 @@ export interface AuthorizationVerifier {
   ): Promise<VerifiedAuthorization | null>;
 }
 
-const ConsumeResponseSchema = z.object({
-  valid: z.literal(true),
-  claims: z.object({
-    jti: z.string().min(1),
-    decision_id: z.string().min(1),
-    dossier_id: z.string().min(1),
-    exp: z.number().int().positive(),
-    binding: z.object({ intent_hash: z.string() }).passthrough(),
-  }),
-});
+const ConsumeResponseSchema = z
+  .object({
+    valid: z.literal(true),
+    claims: z
+      .object({
+        jti: z.string().min(1).max(200),
+        decision_id: z.string().min(1).max(200),
+        dossier_id: z.string().min(1).max(200),
+        exp: z.number().int().positive(),
+        binding: z.object({ intent_hash: z.string().regex(/^sha256:[0-9a-f]{64}$/) }).strict(),
+      })
+      .strict(),
+  })
+  .strict();
+
+const MAX_RESPONSE_BYTES = 100 * 1024;
 
 export interface DecionisGrantVerifierOptions {
   readonly baseUrl: string;
@@ -58,7 +65,15 @@ export class DecionisGrantVerifier implements AuthorizationVerifier {
     captured: CapturedIntent,
     decision: GateDecision,
   ): Promise<VerifiedAuthorization | null> {
-    if (decision.authorization === null) return null;
+    if (
+      decision.verdict !== "ALLOW" ||
+      decision.failClosed ||
+      decision.authorization === null ||
+      decision.dossierId === null ||
+      decision.intentHash !== captured.intentHash
+    ) {
+      return null;
+    }
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
@@ -77,23 +92,30 @@ export class DecionisGrantVerifier implements AuthorizationVerifier {
         signal: controller.signal,
       });
       if (!response.ok) return null;
-      const text = await response.text();
-      if (Buffer.byteLength(text, "utf8") > 100 * 1024) return null;
+      const text = await BoundedResponseBody.read(response, MAX_RESPONSE_BYTES);
+      if (text === null) return null;
       const parsed = ConsumeResponseSchema.parse(JSON.parse(text));
+      const claimExpiryMs = parsed.claims.exp * 1_000;
+      const decisionExpirySeconds = Math.floor(
+        Date.parse(decision.authorization.expiresAt) / 1_000,
+      );
       if (
         parsed.claims.binding.intent_hash !== captured.intentHash ||
         parsed.claims.decision_id !== decision.decisionId ||
-        parsed.claims.dossier_id !== decision.dossierId
+        parsed.claims.dossier_id !== decision.dossierId ||
+        parsed.claims.exp !== decisionExpirySeconds ||
+        claimExpiryMs <= Date.now() ||
+        claimExpiryMs > Date.parse(captured.intent.expiresAt)
       ) {
         return null;
       }
-      return {
+      return Object.freeze({
         decisionId: parsed.claims.decision_id,
         dossierId: parsed.claims.dossier_id,
         grantId: parsed.claims.jti,
         intentHash: parsed.claims.binding.intent_hash,
         expiresAt: new Date(parsed.claims.exp * 1_000).toISOString(),
-      };
+      });
     } catch {
       return null;
     } finally {
