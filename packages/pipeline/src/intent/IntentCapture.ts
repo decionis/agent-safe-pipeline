@@ -30,8 +30,8 @@ export class IntentCapture {
   }
 
   public capture(proposalInput: AgentProposal, trustedInput: TrustedIntentContext): CapturedIntent {
-    IntentCapture.assertSafeKeys(proposalInput);
-    IntentCapture.assertSafeKeys(trustedInput);
+    this.hasher.assertInputBounded(proposalInput);
+    this.hasher.assertInputBounded(trustedInput);
     const proposal = AgentProposalSchema.parse(proposalInput);
     const trusted = TrustedIntentContextSchema.parse(trustedInput);
     const capturedAt = this.clock();
@@ -52,15 +52,5 @@ export class IntentCapture {
       idempotencyKey: trusted.idempotencyKey,
     });
     return this.hasher.capture(intent);
-  }
-
-  private static assertSafeKeys(value: unknown): void {
-    if (value === null || typeof value !== "object") return;
-    for (const key of Object.keys(value)) {
-      if (key === "__proto__" || key === "constructor" || key === "prototype") {
-        throw new Error("UNSAFE_INTENT_KEY");
-      }
-      IntentCapture.assertSafeKeys((value as Record<string, unknown>)[key]);
-    }
   }
 }

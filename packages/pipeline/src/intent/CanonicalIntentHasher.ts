@@ -44,6 +44,58 @@ export class CanonicalIntentHasher {
     });
   }
 
+  public assertInputBounded(value: unknown): void {
+    const pending: Array<{
+      readonly value: unknown;
+      readonly depth: number;
+      readonly leaving: boolean;
+    }> = [{ value, depth: 0, leaving: false }];
+    const ancestors = new WeakSet<object>();
+    let entries = 0;
+
+    while (pending.length > 0) {
+      const current = pending.pop();
+      if (current === undefined || current.value === null || typeof current.value !== "object") {
+        continue;
+      }
+      if (current.leaving) {
+        ancestors.delete(current.value);
+        continue;
+      }
+      if (current.depth > this.limits.maxDepth) throw new Error("INTENT_TOO_DEEP");
+      if (ancestors.has(current.value)) throw new Error("CYCLIC_INTENT");
+      ancestors.add(current.value);
+      pending.push({ value: current.value, depth: current.depth, leaving: true });
+
+      if (Array.isArray(current.value)) {
+        if (current.value.length > this.limits.maxArrayLength) {
+          throw new Error("INTENT_ARRAY_TOO_LARGE");
+        }
+        for (const child of current.value) {
+          entries += 1;
+          if (entries > this.limits.maxEntries) throw new Error("INTENT_TOO_COMPLEX");
+          pending.push({ value: child, depth: current.depth + 1, leaving: false });
+        }
+        continue;
+      }
+
+      const prototype = Object.getPrototypeOf(current.value) as unknown;
+      if (prototype !== Object.prototype && prototype !== null) {
+        throw new Error("INVALID_JSON_OBJECT");
+      }
+      for (const key of Object.keys(current.value)) {
+        if (FORBIDDEN_KEYS.has(key)) throw new Error("UNSAFE_INTENT_KEY");
+        entries += 1;
+        if (entries > this.limits.maxEntries) throw new Error("INTENT_TOO_COMPLEX");
+        pending.push({
+          value: (current.value as Record<string, unknown>)[key],
+          depth: current.depth + 1,
+          leaving: false,
+        });
+      }
+    }
+  }
+
   public static bindingOf(intent: ExecutionIntent): AuthorityIntentBinding {
     return {
       protocol_version: intent.version,

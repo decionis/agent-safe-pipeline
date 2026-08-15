@@ -135,6 +135,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/pipeline/test/performance/IntentCapturePerformance.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/pipeline/test/shadow/ShadowPipeline.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",

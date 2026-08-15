@@ -92,13 +92,19 @@ describe("IntentCapture", () => {
     ).toThrow();
   });
 
-  it("rejects unsafe keys, excessive nesting, and oversized canonical payloads", () => {
+  it("rejects unsafe keys, cycles, excessive nesting, and oversized canonical payloads", () => {
     const unsafe = JSON.parse(
       '{"safe":{"__proto__":{"polluted":true}}}',
     ) as AgentProposal["parameters"];
     expect(() =>
       capture({ action: "refund_order", target: "order:1", parameters: unsafe }),
     ).toThrow("UNSAFE_INTENT_KEY");
+
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    expect(() =>
+      capture({ action: "refund_order", target: "order:1", parameters: cyclic as never }),
+    ).toThrow("CYCLIC_INTENT");
 
     let nested: Record<string, unknown> = {};
     for (let index = 0; index < 22; index += 1) nested = { nested };
@@ -118,5 +124,58 @@ describe("IntentCapture", () => {
         trusted(),
       ),
     ).toThrow("INTENT_TOO_LARGE");
+  });
+
+  it("rejects non-JSON objects and excessive entry or array counts before schema parsing", () => {
+    expect(() =>
+      capture({ action: "refund_order", target: "order:1", parameters: new Date() as never }),
+    ).toThrow("INVALID_JSON_OBJECT");
+
+    const entryLimited = new IntentCapture({
+      hasher: new CanonicalIntentHasher({ maxEntries: 2 }),
+      clock: () => fixedDate,
+      createId: () => fixedId,
+    });
+    expect(() =>
+      entryLimited.capture(
+        { action: "refund_order", target: "order:1", parameters: { a: 1, b: 2, c: 3 } },
+        trusted(),
+      ),
+    ).toThrow("INTENT_TOO_COMPLEX");
+
+    const arrayLimited = new IntentCapture({
+      hasher: new CanonicalIntentHasher({ maxArrayLength: 2 }),
+      clock: () => fixedDate,
+      createId: () => fixedId,
+    });
+    expect(() =>
+      arrayLimited.capture(
+        { action: "refund_order", target: "order:1", parameters: { values: [1, 2, 3] } },
+        trusted(),
+      ),
+    ).toThrow("INTENT_ARRAY_TOO_LARGE");
+
+    const arrayEntryLimited = new IntentCapture({
+      hasher: new CanonicalIntentHasher({ maxEntries: 5 }),
+      clock: () => fixedDate,
+      createId: () => fixedId,
+    });
+    expect(() =>
+      arrayEntryLimited.capture(
+        { action: "refund_order", target: "order:1", parameters: { values: [1, 2] } },
+        trusted(),
+      ),
+    ).toThrow("INTENT_TOO_COMPLEX");
+
+    expect(
+      capture({ action: "refund_order", target: "order:1", parameters: { values: [1, 2] } }).intent
+        .parameters,
+    ).toEqual({ values: [1, 2] });
+
+    const shared = { value: 1 };
+    expect(
+      capture({ action: "refund_order", target: "order:1", parameters: { a: shared, b: shared } })
+        .intent.parameters,
+    ).toEqual({ a: { value: 1 }, b: { value: 1 } });
   });
 });
