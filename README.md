@@ -1,6 +1,6 @@
 # Agent-Safe Pipeline
 
-[![Continuous integration](https://github.com/decionis/agent-safe-pipeline/actions/workflows/ContinuousIntegration.yml/badge.svg?branch=master)](https://github.com/decionis/agent-safe-pipeline/actions/workflows/ContinuousIntegration.yml)
+[![Continuous integration](https://github.com/decionis/agent-safe-pipeline/actions/workflows/deploy.yml/badge.svg?branch=master)](https://github.com/decionis/agent-safe-pipeline/actions/workflows/deploy.yml)
 [![CodeQL](https://github.com/decionis/agent-safe-pipeline/actions/workflows/codeql.yml/badge.svg?branch=master)](https://github.com/decionis/agent-safe-pipeline/actions/workflows/codeql.yml)
 [![Secret scanning](https://github.com/decionis/agent-safe-pipeline/actions/workflows/secrets.yml/badge.svg?branch=master)](https://github.com/decionis/agent-safe-pipeline/actions/workflows/secrets.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/decionis/agent-safe-pipeline/badge)](https://scorecard.dev/viewer/?uri=github.com/decionis/agent-safe-pipeline)
