@@ -1,0 +1,12 @@
+{
+  "description": "Nested arrays canonicalize depth-first",
+  "binding": {
+    "matrix": [
+      [1, 2],
+      [3, 4]
+    ],
+    "flat": [1, [2, [3]]]
+  },
+  "canonical_json": "{\"flat\":[1,[2,[3]]],\"matrix\":[[1,2],[3,4]]}",
+  "intent_hash": "sha256:7e576e1ac9e486dccda1d68df4baf27b2ed22f8d23a39e63748bafe2e4e76e26"
+}
