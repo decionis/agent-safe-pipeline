@@ -1,0 +1,9 @@
+{
+  "description": "Unicode escapes and astral characters (emoji) round-trip verbatim — no normalization applied",
+  "binding": {
+    "note": "🚀 rocket",
+    "label": "café"
+  },
+  "canonical_json": "{\"label\":\"café\",\"note\":\"🚀 rocket\"}",
+  "intent_hash": "sha256:59910e9010a014d9723172c03d890d7527fb7797110d8efa1772a5657437a5e6"
+}

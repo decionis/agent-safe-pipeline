@@ -1,0 +1,9 @@
+{
+  "description": "NFC (café) and NFD (café) are intentionally DISTINCT — no implicit Unicode normalization",
+  "binding": {
+    "text_nfc": "café",
+    "text_nfd": "café"
+  },
+  "canonical_json": "{\"text_nfc\":\"café\",\"text_nfd\":\"café\"}",
+  "intent_hash": "sha256:4783c9bb9e92da817ff30c7f0e10dac952b0b1893e654cb006a067aa4f8d7595"
+}

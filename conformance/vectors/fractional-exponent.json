@@ -1,0 +1,9 @@
+{
+  "description": "Fractional and exponent-form numbers use JS JSON encoding (1e+21)",
+  "binding": {
+    "rate": 1.5,
+    "big": 1e+21
+  },
+  "canonical_json": "{\"big\":1e+21,\"rate\":1.5}",
+  "intent_hash": "sha256:2bf2414e38ed0efe498fa735f624fd758adf2a647b1a14b1208e0734976849f8"
+}

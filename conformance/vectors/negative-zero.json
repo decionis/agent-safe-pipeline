@@ -1,0 +1,8 @@
+{
+  "description": "Negative zero canonicalizes to 0 per JS JSON encoding",
+  "binding": {
+    "amount": 0
+  },
+  "canonical_json": "{\"amount\":0}",
+  "intent_hash": "sha256:e6a312b1d452aa705e11d045f19ba9f7097fbbc3a7ef956573c98e6d81203b6a"
+}
