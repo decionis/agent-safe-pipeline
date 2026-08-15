@@ -1,0 +1,120 @@
+{
+  "schemaVersion": 1,
+  "owner": {
+    "role": "Data and security owner",
+    "contact": "security@decionis.com"
+  },
+  "brandOwner": "Decionis Inc.",
+  "license": "Apache-2.0",
+  "provenance": "Synthetic data created specifically for this repository; no customer, production, support, or incident data was used.",
+  "fixtures": [
+    {
+      "path": "conformance/agent-safe-intent-v1.json",
+      "family": "Intent conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "examples/basic-agent/src/Index.ts",
+      "family": "Runnable example",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "examples/github-deploy-agent/src/Index.ts",
+      "family": "Runnable example",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "examples/mcp-tool-gate/src/Index.ts",
+      "family": "Runnable example",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "examples/shopify-refund-agent/src/Index.ts",
+      "family": "Runnable example",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/pipeline/test/approval/PresenceApprovalCoordinator.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/pipeline/test/decision/DecionisGate.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/pipeline/test/execution/ActionRegistry.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/pipeline/test/execution/AuthorizationVerifier.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/pipeline/test/execution/SafeExecutor.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/pipeline/test/http/AuthorityBaseUrl.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/pipeline/test/intent/IntentCapture.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/pipeline/test/intent/IntentConformance.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/pipeline/test/performance/AuthorityBaseUrlPerformance.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/pipeline/test/shadow/ShadowPipeline.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "policies/deploy-policy.json",
+      "family": "Policy example",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "policies/payment-policy.json",
+      "family": "Policy example",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "policies/refund-policy.json",
+      "family": "Policy example",
+      "source": "synthetic",
+      "containsCustomerData": false
+    }
+  ]
+}

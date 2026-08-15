@@ -23,3 +23,5 @@ CI generates two JSON artifacts: the complete workspace tree, including developm
 ## Platform-conditional dependencies
 
 The workspace toolchain includes optional native binaries selected by operating system and architecture, including Rollup, esbuild, and resolver bindings. Consequently a developer's installed inventory can contain a Darwin or Windows binary while the CI artifact records Linux x64. Every inventory records its OS, architecture, and lockfile SHA-256 so this difference is explicit. The published package's current production graph is platform-independent; the artifact-derived SBOM remains authoritative for each release.
+
+Dependency-consuming CI jobs use Node.js 22.20.0 because Rollup's selected Linux x64 optional compression binary requires Node.js 22.20 or newer. That development-only constraint does not raise the published package's Node.js 22.14 runtime floor.

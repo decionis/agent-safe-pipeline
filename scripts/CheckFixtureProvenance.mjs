@@ -19,6 +19,36 @@ if (git.status !== 0) process.exit(git.status ?? 1);
 const fixtureFiles = [...new Set(git.stdout.split("\0").filter(Boolean))].sort();
 if (fixtureFiles.length < 10) throw new Error("Fixture-family discovery returned too few files");
 
+const manifest = JSON.parse(await readFile("fixtures/manifest.json", "utf8"));
+const manifestFiles = manifest.fixtures?.map(({ path }) => path).sort() ?? [];
+if (manifest.schemaVersion !== 1) throw new Error("Unsupported fixture manifest schema");
+if (manifest.owner?.contact !== "security@decionis.com") {
+  throw new Error("Fixture manifest must name security@decionis.com as data/security owner");
+}
+if (manifest.brandOwner !== "Decionis Inc.") {
+  throw new Error("Fixture manifest must name Decionis Inc. as brand owner");
+}
+if (manifest.license !== "Apache-2.0") {
+  throw new Error("Fixture manifest must declare Apache-2.0");
+}
+if (new Set(manifestFiles).size !== manifestFiles.length) {
+  throw new Error("Fixture manifest contains duplicate paths");
+}
+if (JSON.stringify(manifestFiles) !== JSON.stringify(fixtureFiles)) {
+  const declared = new Set(manifestFiles);
+  const discovered = new Set(fixtureFiles);
+  const missing = fixtureFiles.filter((path) => !declared.has(path));
+  const stale = manifestFiles.filter((path) => !discovered.has(path));
+  throw new Error(
+    `Fixture manifest differs from Git discovery (missing: ${missing.join(", ") || "none"}; stale: ${stale.join(", ") || "none"})`,
+  );
+}
+for (const fixture of manifest.fixtures) {
+  if (fixture.source !== "synthetic" || fixture.containsCustomerData !== false) {
+    throw new Error(`${fixture.path}: fixture manifest must attest synthetic, non-customer data`);
+  }
+}
+
 const syntheticIdentity = /^(?:synthetic-|fixture_)/;
 const reservedFixtureUuid =
   /^(?:00000000-0000-4000-8000-00000000000[1-9]|11111111-1111-4111-8111-111111111111)$/;
@@ -79,5 +109,5 @@ if (!syntheticIdentity.test(conformance.binding.actor.id)) {
 
 if (failures.length > 0) throw new Error(failures.join("\n"));
 process.stdout.write(
-  `Verified ${fixtureFiles.length} fixture-bearing files use reserved synthetic identities and domains.\n`,
+  `Verified ${fixtureFiles.length} manifested fixture-bearing files use reserved synthetic identities and domains.\n`,
 );
