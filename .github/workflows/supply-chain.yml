@@ -42,7 +42,7 @@ jobs:
         with:
           allow-licenses: 0BSD, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, MIT, BlueOak-1.0.0, CC0-1.0, Python-2.0
           allow-dependencies-licenses: pkg:npm/caniuse-lite
-          fail-on-severity: high
+          fail-on-severity: moderate
           fail-on-scopes: development
 
   audit:
