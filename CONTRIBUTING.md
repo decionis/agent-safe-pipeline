@@ -1,6 +1,6 @@
 # Contributing
 
-Use Node.js 20 or 22 and pnpm 9. Create focused changes with production code under `src/` and tests under `test/`.
+Use Node.js 22.14 or later and pnpm 9. Create focused changes with production code under `src/` and tests under `test/`.
 
 ```bash
 pnpm install --frozen-lockfile

@@ -130,4 +130,18 @@ for (const path of manifests) {
   }
 }
 
+const repositoryManifest = JSON.parse(await readFile("package.json", "utf8"));
+const packageManifest = JSON.parse(await readFile("packages/pipeline/package.json", "utf8"));
+const presenceManifest = JSON.parse(
+  await readFile("packages/pipeline/node_modules/@decionis/presence-node/package.json", "utf8"),
+);
+if (
+  repositoryManifest.engines?.node !== packageManifest.engines?.node ||
+  packageManifest.engines?.node !== presenceManifest.engines?.node
+) {
+  throw new Error(
+    "Workspace and package Node.js engines must match the strictest production dependency",
+  );
+}
+
 process.stdout.write("Canonical Apache-2.0 metadata and dependency licenses satisfy policy.\n");

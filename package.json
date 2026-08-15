@@ -21,7 +21,7 @@
     }
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.14.0"
   },
   "scripts": {
     "build": "pnpm -r build",

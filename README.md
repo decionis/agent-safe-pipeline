@@ -22,7 +22,7 @@ Agents can reason, plan, and propose actions. They must not determine whether th
 
 ## Five-minute demo
 
-Requirements: Node.js 20 or later and pnpm 9.
+Requirements: Node.js 22.14 or later and pnpm 9.
 
 ```bash
 git clone https://github.com/decionis/agent-safe-pipeline.git
