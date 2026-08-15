@@ -1,8 +1,8 @@
-# Agent Safe Pipeline Discovery Rules
+# AgentSafe Discovery Rules
 
-These rules keep `agent-safe-pipeline` discoverable by developers, search systems, and AI agents
-without overstating what the package ships. They apply alongside `coding.rules.md` and
-`security.rules.md`.
+These rules keep the AgentSafe repository and its `@decionis/agent-safe-pipeline` package
+discoverable by developers, search systems, and AI agents without overstating what the package
+ships. They apply alongside `coding.rules.md` and `security.rules.md`.
 
 ## 1. Verify before claiming
 
@@ -20,7 +20,7 @@ without overstating what the package ships. They apply alongside `coding.rules.m
 ## 2. Canonical discovery surfaces
 
 - `README.md` is the human entry point and must explain the trust boundary, install path, minimal
-  usage, ALLOW/HOLD/BLOCK behavior, support, and license.
+  usage, ALLOW/ESCALATE/BLOCK behavior, support, and license.
 - `packages/pipeline/README.md` is the package-facing source that ships to npm. It must not link to
   repository-relative files that are absent from the published tarball.
 - `llms.txt` is the concise package and documentation map. `llms-full.txt` is its detailed superset;
@@ -47,8 +47,8 @@ without overstating what the package ships. They apply alongside `coding.rules.m
   fail-closed/outcome semantics, support information, and license.
 - Verify the npm package page and any other distribution URL on the release date before adding it to
   `sameAs`, package inventories, or discovery copy.
-- Regenerate and inspect the package tarball before release. Only `dist`, `README.md`, and `LICENSE`
-  should ship unless the manifest intentionally says otherwise.
+- Regenerate and inspect the package tarball before release. Only `dist`, `README.md`, `LICENSE`,
+  and `NOTICE` should ship unless the manifest intentionally says otherwise.
 - Documentation improvements do not reach npm until a new package version is published; include
   them in the release plan.
 
@@ -63,7 +63,7 @@ without overstating what the package ships. They apply alongside `coding.rules.m
 
 ## 6. Current validation entry points
 
-| Concern                  | Agent Safe Pipeline source       |
+| Concern                  | AgentSafe source                 |
 | ------------------------ | -------------------------------- |
 | Public exports           | `packages/pipeline/src/Index.ts` |
 | Human documentation      | `README.md`                      |
