@@ -122,4 +122,86 @@ describe("PresenceApprovalCoordinator", () => {
     });
     expect(evaluate).not.toHaveBeenCalled();
   });
+
+  it("uses stable fail-closed outcomes for Presence and authority failures", async () => {
+    const intent = captured();
+    const requestFailure = new PresenceApprovalCoordinator(
+      {
+        gate: async () => {
+          throw new Error("raw Presence response");
+        },
+        outcome: vi.fn(),
+      },
+      { evaluate: vi.fn() },
+      "Acme",
+      "synthetic-approver-1",
+    );
+    await expect(requestFailure.request(intent)).rejects.toThrow("PRESENCE_REQUEST_FAILED");
+    const invalidRequest = new PresenceApprovalCoordinator(
+      { gate: async () => ({ verdict: "BYPASS" }) as never, outcome: vi.fn() },
+      { evaluate: vi.fn() },
+      "Acme",
+      "synthetic-approver-1",
+    );
+    await expect(invalidRequest.request(intent)).rejects.toThrow("PRESENCE_REQUEST_FAILED");
+
+    const outcomeFailure = new PresenceApprovalCoordinator(
+      {
+        gate: vi.fn(),
+        outcome: async () => {
+          throw new Error("raw Presence response");
+        },
+      },
+      { evaluate: vi.fn() },
+      "Acme",
+      "synthetic-approver-1",
+    );
+    await expect(
+      outcomeFailure.resolveAndReauthorize(intent, {
+        verdict: "HUMAN_REQUIRED",
+        request_id: "synthetic-presence-request-1",
+      }),
+    ).resolves.toMatchObject({ reasonCodes: ["PRESENCE_UNAVAILABLE"], failClosed: true });
+
+    const authorityFailure = new PresenceApprovalCoordinator(
+      { gate: vi.fn(), outcome: vi.fn() },
+      {
+        evaluate: async () => {
+          throw new Error("raw authority response");
+        },
+      },
+      "Acme",
+      "synthetic-approver-1",
+    );
+    await expect(
+      authorityFailure.resolveAndReauthorize(intent, {
+        verdict: "PROCEED",
+        request_id: "synthetic-presence-request-1",
+        receipt_dossier_id: "synthetic-presence-dossier-1",
+      }),
+    ).resolves.toMatchObject({ reasonCodes: ["AUTHORITY_UNAVAILABLE"], failClosed: true });
+  });
+
+  it("rejects unknown verdicts and unbounded receipt identifiers", async () => {
+    const intent = captured();
+    const evaluate = vi.fn();
+    const coordinator = new PresenceApprovalCoordinator(
+      { gate: vi.fn(), outcome: vi.fn() },
+      { evaluate },
+      "Acme",
+      "synthetic-approver-1",
+    );
+
+    await expect(
+      coordinator.resolveAndReauthorize(intent, { verdict: "BYPASS" } as never),
+    ).resolves.toMatchObject({ reasonCodes: ["PRESENCE_RESPONSE_INVALID"] });
+    await expect(
+      coordinator.resolveAndReauthorize(intent, {
+        verdict: "PROCEED",
+        request_id: "synthetic-r".repeat(21),
+        receipt_dossier_id: "synthetic-presence-dossier-1",
+      }),
+    ).resolves.toMatchObject({ reasonCodes: ["PRESENCE_PROOF_MISSING"] });
+    expect(evaluate).not.toHaveBeenCalled();
+  });
 });
