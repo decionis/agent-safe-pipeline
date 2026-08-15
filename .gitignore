@@ -6,3 +6,16 @@ coverage/
 .env
 .env.*
 !.env.example
+
+# Local-only planning material
+brief.pipeline.md
+
+# Private keys, certificates, and machine-local credentials
+*.key
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
+credentials*.json
+service-account*.json

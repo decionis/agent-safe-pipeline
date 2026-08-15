@@ -5,7 +5,7 @@
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "node ../../scripts/CleanBuildOutput.mjs && tsc -p tsconfig.json",
     "demo": "pnpm --filter @decionis/agent-safe-pipeline build && pnpm build && node dist/Index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

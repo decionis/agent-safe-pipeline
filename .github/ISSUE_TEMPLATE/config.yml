@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a vulnerability privately
+    url: https://github.com/decionis/agent-safe-pipeline/security/advisories/new
+    about: Do not disclose suspected vulnerabilities in a public issue.
+  - name: Security policy and response targets
+    url: https://github.com/decionis/agent-safe-pipeline/security/policy
+    about: Review supported versions, reporting options, and disclosure timelines.

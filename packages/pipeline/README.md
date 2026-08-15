@@ -54,4 +54,4 @@ const result = await executor.run(captured, await gate.evaluate(captured));
 | ESCALATE                          | Stop; obtain Presence receipt and ask Decionis again |
 | BLOCK or any error/mismatch       | Fail closed; do not invoke handler                   |
 
-Support: `security@decionis.com` for vulnerabilities and [GitHub Issues](https://github.com/decionis/agent-safe-pipeline/issues) for non-sensitive problems. Architecture: [Agent-Safe Pipeline README](https://github.com/decionis/agent-safe-pipeline#readme). License: Apache-2.0.
+Support: use [GitHub private vulnerability reporting](https://github.com/decionis/agent-safe-pipeline/security/advisories/new) or `security@decionis.com` for vulnerabilities and [GitHub Issues](https://github.com/decionis/agent-safe-pipeline/issues) for non-sensitive problems. Architecture: [Agent-Safe Pipeline README](https://github.com/decionis/agent-safe-pipeline#readme). License: Apache-2.0. Trademark terms: [TRADEMARKS.md](https://github.com/decionis/agent-safe-pipeline/blob/master/TRADEMARKS.md).

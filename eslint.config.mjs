@@ -10,6 +10,10 @@ export default [
   regexp.configs["flat/recommended"],
   { rules: { "regexp/no-super-linear-move": ["error", { report: "potential" }] } },
   {
+    files: ["scripts/**/*.mjs"],
+    languageOptions: { globals: globals.node },
+  },
+  {
     files: ["**/*.ts"],
     languageOptions: {
       parser,

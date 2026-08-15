@@ -5,13 +5,16 @@ Agent-Safe Pipeline is a reference architecture in which AI agents propose actio
 ## Documentation
 
 - Overview: https://github.com/decionis/agent-safe-pipeline#readme
-- Architecture: https://github.com/decionis/agent-safe-pipeline/blob/main/ARCHITECTURE.md
-- Threat model: https://github.com/decionis/agent-safe-pipeline/blob/main/THREAT-MODEL.md
-- Trust boundary: https://github.com/decionis/agent-safe-pipeline/blob/main/docs/trust-boundary.md
-- Execution intent: https://github.com/decionis/agent-safe-pipeline/blob/main/docs/execution-intent.md
-- Outcomes: https://github.com/decionis/agent-safe-pipeline/blob/main/docs/allow-escalate-block.md
-- Human approval: https://github.com/decionis/agent-safe-pipeline/blob/main/docs/human-approval.md
-- Intent hash conformance vector: https://github.com/decionis/agent-safe-pipeline/blob/main/conformance/agent-safe-intent-v1.json
+- Architecture: https://github.com/decionis/agent-safe-pipeline/blob/master/ARCHITECTURE.md
+- Threat model: https://github.com/decionis/agent-safe-pipeline/blob/master/THREAT-MODEL.md
+- Trust boundary: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/trust-boundary.md
+- Execution intent: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/execution-intent.md
+- Outcomes: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/allow-escalate-block.md
+- Human approval: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/human-approval.md
+- Intent hash conformance vector: https://github.com/decionis/agent-safe-pipeline/blob/master/conformance/agent-safe-intent-v1.json
+- Fixture provenance: https://github.com/decionis/agent-safe-pipeline/blob/master/FIXTURE-PROVENANCE.md
+- Security policy: https://github.com/decionis/agent-safe-pipeline/security/policy
+- Private vulnerability reporting: https://github.com/decionis/agent-safe-pipeline/security/advisories/new
 
 ## Routing
 
