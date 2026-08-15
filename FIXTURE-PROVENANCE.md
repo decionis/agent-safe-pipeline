@@ -13,7 +13,7 @@ The accountable data and security owner is [security@decionis.com](mailto:securi
 | Unit-test data                    | `packages/pipeline/test/*`               | Deterministic test values created alongside the implementation                                                                                                                                       | Automated tests only                                              |
 | Fixture authority keys and grants | `FixtureDecisionAuthority` and its tests | Ephemeral Ed25519 keys generated in memory during each run; tokens are short-lived local test artifacts                                                                                              | Development and tests only; construction is blocked in production |
 
-The exact strings `refund-synthetic-1001-v1` and `refund-58291-v1` are documented synthetic idempotency keys. They are narrowly allowlisted in `.gitleaks.toml` because the generic API-key detector otherwise classifies them as credentials. No path-wide or rule-wide secret-scanning exemption is used.
+The exact strings `refund-synthetic-1001-v1`, `refund-58291-v1`, and `refund-58291-v2` are documented synthetic idempotency keys. They are narrowly allowlisted in `.gitleaks.toml` because the generic API-key detector otherwise classifies them as credentials. No path-wide or rule-wide secret-scanning exemption is used.
 
 Contributors must document the source and license of any new fixture. Prefer deterministic fictional data. Never sanitize real customer data for use here: create a new synthetic fixture instead.
 

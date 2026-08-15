@@ -9,4 +9,5 @@ regexTarget = "secret"
 regexes = [
   '''^refund-synthetic-1001-v1$''',
   '''^refund-58291-v1$''',
+  '''^refund-58291-v2$''',
 ]
