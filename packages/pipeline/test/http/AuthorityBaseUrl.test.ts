@@ -25,4 +25,16 @@ describe("AuthorityBaseUrl", () => {
       "DECIONIS_URL_MUST_NOT_CONTAIN_CREDENTIALS",
     );
   });
+
+  it("rejects query strings and fragments and trims surrounding whitespace", () => {
+    expect(AuthorityBaseUrl.normalize("  https://authority.example/v1/  ")).toBe(
+      "https://authority.example/v1",
+    );
+    expect(() => AuthorityBaseUrl.normalize("https://authority.example?api_key=secret")).toThrow(
+      "DECIONIS_URL_MUST_NOT_CONTAIN_QUERY_OR_FRAGMENT",
+    );
+    expect(() => AuthorityBaseUrl.normalize("https://authority.example#token")).toThrow(
+      "DECIONIS_URL_MUST_NOT_CONTAIN_QUERY_OR_FRAGMENT",
+    );
+  });
 });
