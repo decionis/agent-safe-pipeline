@@ -4,7 +4,7 @@ TypeScript reference implementation of Agent-Safe Pipeline: capture an immutable
 
 ## Install
 
-The package is versioned `0.1.1` but is not claimed as published until a registry release succeeds. Consume it from the workspace today:
+The package is versioned `0.1.2` but is not claimed as published until a registry release succeeds. Consume it from the workspace today:
 
 ```bash
 pnpm install --frozen-lockfile
