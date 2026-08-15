@@ -14,3 +14,9 @@ Security-boundary changes must include negative tests and document their fail-op
 Do not add secrets, production policy data, customer fixtures, generated dependency directories, or claims that an endpoint/package is live without verifying it. Use synthetic identifiers and values in examples.
 
 Contributions are licensed under Apache-2.0. By submitting a contribution, you represent that you have the right to license it on those terms.
+
+## Releases
+
+After verification succeeds on a merge to `master`, CI reads the matching workspace and package versions and creates the corresponding `v<version>` GitHub release. Existing releases are skipped safely, prerelease versions are marked as prereleases, and a tag without a matching GitHub release fails closed for manual review. Increment both versions in the release PR when a new release is intended.
+
+This workflow creates a GitHub release only. Publishing `@decionis/agent-safe-pipeline` to npm remains a separate, explicitly authorized operation.
