@@ -267,7 +267,7 @@ export class PullRequestBot {
     return [
       "## Automated pull request",
       "",
-      "The Decionis PR Bot opened this pull request for " +
+      "Decionis Bot opened this pull request for " +
         quote +
         safeBranch +
         quote +

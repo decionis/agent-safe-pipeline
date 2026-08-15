@@ -31,7 +31,7 @@ created before the workflow existed or received commits after creation.
 
 ## GitHub App configuration
 
-Create an organization-owned GitHub App named **Decionis PR Bot** with:
+Create an organization-owned GitHub App named **Decionis Bot** with:
 
 - Repository access: only `decionis/agent-safe-pipeline` and
   `decionis/steward`
@@ -49,7 +49,7 @@ gh variable set PR_BOT_CLIENT_ID \
   --body "<GitHub App client ID>"
 gh secret set PR_BOT_PRIVATE_KEY \
   --repo decionis/agent-safe-pipeline \
-  < "/secure/path/decionis-pr-bot.pem"
+  < "/secure/path/decionis-bot.pem"
 gh variable set PR_BOT_ENABLED \
   --repo decionis/agent-safe-pipeline \
   --body "true"
@@ -72,7 +72,7 @@ secret before it can request a repository-scoped token.
 3. Mint a one-time token from the installation and use it to open the bootstrap
    pull request. Do not rewrite the branch commits, and remove the downloaded
    private key after storing it as the Actions secret.
-4. Confirm the PR author is `decionis-pr-bot[bot]`, required CI runs, and
+4. Confirm the PR author is `decionis-bot[bot]`, required CI runs, and
    `@ocularminds` can submit the counting CODEOWNER approval.
 5. Merge the approved bootstrap pull request, then set `PR_BOT_ENABLED=true`.
 6. Push a new branch created by `@ocularminds` with at least one commit ahead
