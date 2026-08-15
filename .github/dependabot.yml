@@ -10,6 +10,10 @@ updates:
       timezone: Europe/Stockholm
     open-pull-requests-limit: 10
     groups:
+      vitest:
+        patterns:
+          - vitest
+          - "@vitest/*"
       production-dependencies:
         dependency-type: production
         update-types: [minor, patch]
@@ -25,3 +29,7 @@ updates:
       time: "06:30"
       timezone: Europe/Stockholm
     open-pull-requests-limit: 10
+    groups:
+      codeql:
+        patterns:
+          - "github/codeql-action/*"
