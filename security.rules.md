@@ -1,8 +1,10 @@
-# Agent Safe Pipeline Security and Performance Rules
+# AgentSafe Security and Performance Rules
 
-These rules apply to the `agent-safe-pipeline` workspace. They are release requirements and do not
-authorize testing production, customer, marketplace, or third-party systems. Security and load tests
-must use local injection, loopback, mocks, or an explicitly authorized isolated environment.
+These rules apply to the AgentSafe repository, including the publishable
+`@decionis/agent-safe-pipeline` package, runnable examples, and repository automation. They are
+release requirements and do not authorize testing production, customer, marketplace, or third-party
+systems. Security and load tests must use local injection, loopback, mocks, or an explicitly
+authorized isolated environment.
 
 ## 1. Trust-boundary invariants
 
@@ -88,7 +90,7 @@ must use local injection, loopback, mocks, or an explicitly authorized isolated 
 
 ## 8. Current validation entry points
 
-| Concern                   | Agent Safe Pipeline source                                 |
+| Concern                   | AgentSafe source                                           |
 | ------------------------- | ---------------------------------------------------------- |
 | Canonical intent binding  | `packages/pipeline/src/intent/CanonicalIntentHasher.ts`    |
 | Independent authority     | `packages/pipeline/src/decision/DecionisGate.ts`           |
