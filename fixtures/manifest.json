@@ -99,6 +99,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/pipeline/test/execution/ReplayStore.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/pipeline/test/execution/SafeExecutor.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
