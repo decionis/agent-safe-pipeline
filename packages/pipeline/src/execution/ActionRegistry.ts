@@ -42,9 +42,12 @@ export class ActionRegistry {
   }
 
   public validate(captured: CapturedIntent): void {
+    if (!this.sealed) throw new Error("ACTION_REGISTRY_NOT_SEALED");
     const handler = this.actions.get(captured.intent.action);
     if (!handler) throw new Error("ACTION_NOT_REGISTERED");
-    handler.parametersSchema.parse(captured.intent.parameters);
+    if (!handler.parametersSchema.safeParse(captured.intent.parameters).success) {
+      throw new Error("ACTION_PARAMETERS_INVALID");
+    }
   }
 
   public async execute(
@@ -54,7 +57,8 @@ export class ActionRegistry {
     if (!this.sealed) throw new Error("ACTION_REGISTRY_NOT_SEALED");
     const handler = this.actions.get(captured.intent.action);
     if (!handler) throw new Error("ACTION_NOT_REGISTERED");
-    const parameters = handler.parametersSchema.parse(captured.intent.parameters);
-    return handler.execute({ intent: captured, parameters, authorization });
+    const result = handler.parametersSchema.safeParse(captured.intent.parameters);
+    if (!result.success) throw new Error("ACTION_PARAMETERS_INVALID");
+    return handler.execute({ intent: captured, parameters: result.data, authorization });
   }
 }
