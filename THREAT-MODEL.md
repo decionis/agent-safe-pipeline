@@ -15,18 +15,18 @@ Compromise of the trusted executor host or downstream provider is outside what t
 
 ## Threats and controls
 
-| Threat                                           | Control                                                                       | Residual risk                                                                              |
-| ------------------------------------------------ | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| Prompt injection asks the agent to ignore policy | Gate is outside the prompt and independently decides                          | A developer can still bypass the architecture                                              |
-| Agent changes tool arguments after approval      | Exact canonical parameters and target bind to the intent hash                 | Non-deterministic downstream interpretation must be avoided                                |
-| Approval for action A is swapped onto action B   | Presence display and receipt bind the exact hash; Decionis re-verifies        | Presence integration must preserve immutable fields                                        |
-| Old approval or grant is replayed                | Short expiry, `jti`, idempotency key, and atomic single-use consume           | A downstream timeout after consume needs a fresh decision or provider idempotency recovery |
-| Agent calls the provider directly                | Provider credential and egress live behind the executor                       | Network policy must actually prevent agent egress                                          |
-| Agent chooses arbitrary code to run              | Sealed action registry; no agent-supplied callback                            | Trusted registration code remains security-critical                                        |
-| Authority is unavailable or malformed            | Timeout, bounded response, strict validation, fail closed                     | Reduced availability is accepted over unauthorized execution                               |
-| JSON ambiguity or prototype pollution            | Strict schemas, forbidden keys, bounded canonical JSON, exact SHA-256 binding | Cross-language canonicalization requires conformance tests                                 |
-| Human approves misleading content                | Action, target, and exact hash are mandatory display fields                   | A human can still make a poor but authentic decision                                       |
-| Shadow result is mistaken for authorization      | Separate `SHADOW` result type and no execution grant                          | Consumer logs/UI must preserve the label                                                   |
+| Threat                                           | Control                                                                        | Residual risk                                                                              |
+| ------------------------------------------------ | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
+| Prompt injection asks the agent to ignore policy | Gate is outside the prompt and independently decides                           | A developer can still bypass the architecture                                              |
+| Agent changes tool arguments after approval      | Exact canonical parameters and target bind to the intent hash                  | Non-deterministic downstream interpretation must be avoided                                |
+| Approval for action A is swapped onto action B   | Presence display and receipt bind the exact hash; Decionis re-verifies         | Presence integration must preserve immutable fields                                        |
+| Old approval or grant is replayed                | Short expiry, hash-bound idempotency key, `jti`, and atomic single-use consume | A downstream timeout after consume needs a fresh decision or provider idempotency recovery |
+| Agent calls the provider directly                | Provider credential and egress live behind the executor                        | Network policy must actually prevent agent egress                                          |
+| Agent chooses arbitrary code to run              | Sealed action registry; no agent-supplied callback                             | Trusted registration code remains security-critical                                        |
+| Authority is unavailable or malformed            | Timeout, bounded response, strict validation, fail closed                      | Reduced availability is accepted over unauthorized execution                               |
+| JSON ambiguity or prototype pollution            | Strict schemas, forbidden keys, bounded canonical JSON, exact SHA-256 binding  | Cross-language canonicalization requires conformance tests                                 |
+| Human approves misleading content                | Action, target, and exact hash are mandatory display fields                    | A human can still make a poor but authentic decision                                       |
+| Shadow result is mistaken for authorization      | Separate `SHADOW` result type and no execution grant                           | Consumer logs/UI must preserve the label                                                   |
 
 ## Credential architecture
 
@@ -46,7 +46,7 @@ The agent runtime should have denied-by-default network egress. Open only the pr
 
 ## Security invariants worth testing
 
-- Changing any bound field invalidates authorization.
+- Changing any bound field, including the idempotency key, invalidates authorization.
 - Exactly one of 100 concurrent consume attempts can execute.
 - ALLOW without a grant cannot execute.
 - Presence approval alone cannot execute.

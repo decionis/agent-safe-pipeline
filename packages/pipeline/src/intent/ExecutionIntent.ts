@@ -80,6 +80,7 @@ export interface AuthorityIntentBinding {
   readonly protocol_version: "agent-safe.intent/1";
   readonly tenant_id: string;
   readonly intent_id: string;
+  readonly idempotency_key: string;
   readonly captured_at: string;
   readonly expires_at: string;
   readonly actor: {
