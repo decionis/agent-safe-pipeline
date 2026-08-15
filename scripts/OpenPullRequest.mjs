@@ -1,20 +1,30 @@
 import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
+import { readBoundedJsonResponse } from "./BoundedJsonResponse.mjs";
 
 const apiVersion = "2022-11-28";
 const defaultTimeoutMs = 10_000;
 const defaultMaxAttempts = 2;
+const maxTimeoutMs = 15_000;
+const maxAttemptsLimit = 3;
 const maxPages = 3;
 const perPage = 100;
 const branchCreationWorkflow = ".github/workflows/BranchCandidate.yml";
 
 export class GitHubApiError extends Error {
-  constructor(message, status, responseBody) {
+  constructor(message, status) {
     super(message);
     this.name = "GitHubApiError";
     this.status = status;
-    this.responseBody = responseBody;
   }
+}
+
+function boundedInteger(value, fallback, maximum, name) {
+  const resolved = value === undefined ? fallback : value;
+  if (!Number.isSafeInteger(resolved) || resolved < 1) {
+    throw new Error(name + " must be a positive safe integer");
+  }
+  return Math.min(resolved, maximum);
 }
 
 export class GitHubApiClient {
@@ -28,8 +38,13 @@ export class GitHubApiClient {
     if (typeof fetchImpl !== "function") throw new Error("A fetch implementation is required");
     this.token = token;
     this.fetchImpl = fetchImpl;
-    this.timeoutMs = timeoutMs;
-    this.maxAttempts = maxAttempts;
+    this.timeoutMs = boundedInteger(timeoutMs, defaultTimeoutMs, maxTimeoutMs, "timeoutMs");
+    this.maxAttempts = boundedInteger(
+      maxAttempts,
+      defaultMaxAttempts,
+      maxAttemptsLimit,
+      "maxAttempts",
+    );
   }
 
   async request(method, path, { query, body } = {}) {
@@ -54,9 +69,7 @@ export class GitHubApiClient {
           body: body === undefined ? undefined : JSON.stringify(body),
           signal: AbortSignal.timeout(this.timeoutMs),
         });
-        const text = await response.text();
-        const parsed = text.length === 0 ? null : JSON.parse(text);
-        if (response.ok) return parsed;
+        if (response.ok) return await readBoundedJsonResponse(response);
 
         const error = new GitHubApiError(
           "GitHub API request failed: " +
@@ -67,7 +80,6 @@ export class GitHubApiClient {
             response.status +
             ")",
           response.status,
-          parsed,
         );
         if (!this.isRetryable(response.status) || attempt === this.maxAttempts) throw error;
         lastError = error;

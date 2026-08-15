@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { PullRequestBot, titleFromMessage } from "../../scripts/OpenPullRequest.mjs";
+import {
+  GitHubApiClient,
+  GitHubApiError,
+  PullRequestBot,
+  titleFromMessage,
+} from "../../scripts/OpenPullRequest.mjs";
 
 class FakeApiClient {
   constructor(handler) {
@@ -154,5 +159,46 @@ describe("titleFromMessage", () => {
     const title = titleFromMessage("x".repeat(80) + "\nbody", "feature/long");
     assert.equal(title.length, 72);
     assert.equal(title.endsWith("..."), true);
+  });
+});
+
+describe("GitHubApiClient", () => {
+  it("clamps timeout and retry controls", () => {
+    const api = new GitHubApiClient({
+      token: "x",
+      timeoutMs: 60_000,
+      maxAttempts: 20,
+    });
+
+    assert.equal(api.timeoutMs, 15_000);
+    assert.equal(api.maxAttempts, 3);
+    assert.throws(
+      () => new GitHubApiClient({ token: "x", timeoutMs: Number.POSITIVE_INFINITY }),
+      /timeoutMs must be a positive safe integer/,
+    );
+  });
+
+  it("does not read or retain a failed response body", async () => {
+    let bodyRead = false;
+    const api = new GitHubApiClient({
+      token: "x",
+      maxAttempts: 1,
+      fetchImpl: async () => ({
+        ok: false,
+        status: 403,
+        get body() {
+          bodyRead = true;
+          throw new Error("body must remain unread");
+        },
+      }),
+    });
+
+    await assert.rejects(api.request("GET", "/repos/example/project"), (error) => {
+      assert.equal(error instanceof GitHubApiError, true);
+      assert.equal(error.status, 403);
+      assert.equal("responseBody" in error, false);
+      return true;
+    });
+    assert.equal(bodyRead, false);
   });
 });
