@@ -1,8 +1,16 @@
 # Agent-Safe Pipeline
 
+[![Continuous integration](https://github.com/decionis/agent-safe-pipeline/actions/workflows/ContinuousIntegration.yml/badge.svg?branch=master)](https://github.com/decionis/agent-safe-pipeline/actions/workflows/ContinuousIntegration.yml)
+[![CodeQL](https://github.com/decionis/agent-safe-pipeline/actions/workflows/codeql.yml/badge.svg?branch=master)](https://github.com/decionis/agent-safe-pipeline/actions/workflows/codeql.yml)
+[![Secret scanning](https://github.com/decionis/agent-safe-pipeline/actions/workflows/secrets.yml/badge.svg?branch=master)](https://github.com/decionis/agent-safe-pipeline/actions/workflows/secrets.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/decionis/agent-safe-pipeline/badge)](https://scorecard.dev/viewer/?uri=github.com/decionis/agent-safe-pipeline)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
+
 **Let agents propose. Let policy decide.**
 
 Agent-Safe Pipeline is a reference architecture for executing AI-agent actions through an independent authorization boundary.
+
+This repository is a library and runnable reference implementation, not a hosted authorization service or a substitute for provider-side identity, least privilege, network isolation, and incident response. Its safety claims apply only when the documented trust boundary is preserved.
 
 ```text
 Agent -> immutable intent -> Decionis -> ALLOW / ESCALATE / BLOCK -> SafeExecutor -> API
@@ -42,6 +50,7 @@ The executor accepts a captured intent and a decision. It does not accept an arb
 - [`examples/mcp-tool-gate`](./examples/mcp-tool-gate) — a real stdio MCP server with a governed tool.
 - [`ARCHITECTURE.md`](./ARCHITECTURE.md) and [`THREAT-MODEL.md`](./THREAT-MODEL.md) — trust boundary and abuse analysis.
 - [`conformance/agent-safe-intent-v1.json`](./conformance/agent-safe-intent-v1.json) — portable canonical-hash test vector.
+- [`FIXTURE-PROVENANCE.md`](./FIXTURE-PROVENANCE.md) — origin and permitted use of every fixture family.
 
 ## Production invariants
 
@@ -71,4 +80,6 @@ pnpm install --frozen-lockfile
 pnpm verify
 ```
 
-Apache-2.0 licensed. See [`LICENSE`](./LICENSE), [`SECURITY.md`](./SECURITY.md), and [`CONTRIBUTING.md`](./CONTRIBUTING.md).
+`pnpm verify` enforces formatting, Markdown lint, dependency-license policy, types, tests, and coverage thresholds of 90% for lines/functions/statements and 85% for branches. Installation activates the repository's `simple-git-hooks` pre-commit guardrails.
+
+Apache-2.0 licensed. See [`LICENSE`](./LICENSE), [`TRADEMARKS.md`](./TRADEMARKS.md), [`SECURITY.md`](./SECURITY.md), and [`CONTRIBUTING.md`](./CONTRIBUTING.md). Report suspected vulnerabilities through [GitHub's private advisory form](https://github.com/decionis/agent-safe-pipeline/security/advisories/new), not a public issue.

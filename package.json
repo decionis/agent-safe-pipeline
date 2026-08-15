@@ -4,6 +4,14 @@
   "private": true,
   "description": "Reference architecture for executing AI-agent actions through an independent authorization boundary.",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/decionis/agent-safe-pipeline.git"
+  },
+  "bugs": {
+    "url": "https://github.com/decionis/agent-safe-pipeline/issues"
+  },
+  "homepage": "https://github.com/decionis/agent-safe-pipeline#readme",
   "packageManager": "pnpm@9.15.3",
   "pnpm": {
     "overrides": {
@@ -18,14 +26,17 @@
     "discovery": "node scripts/CheckDiscovery.mjs",
     "format": "prettier --check .",
     "format:fix": "prettier --write .",
-    "lint": "eslint .",
+    "hooks:install": "simple-git-hooks",
+    "license:check": "node scripts/CheckLicenses.mjs",
+    "lint": "eslint . && pnpm lint:markdown",
+    "lint:markdown": "markdownlint-cli2",
     "performance": "pnpm --filter @decionis/agent-safe-pipeline test:performance",
-    "precommit": "pnpm lint && pnpm security && pnpm performance",
+    "precommit": "node scripts/PreCommit.mjs && pnpm lint && pnpm security && pnpm performance",
     "prepare": "simple-git-hooks",
     "security": "pnpm audit --audit-level moderate",
     "test": "pnpm -r test",
     "typecheck": "pnpm --filter @decionis/agent-safe-pipeline build && pnpm -r typecheck",
-    "verify": "pnpm format && pnpm lint && pnpm security && pnpm discovery && pnpm typecheck && pnpm test && pnpm build"
+    "verify": "pnpm format && pnpm lint && pnpm license:check && pnpm security && pnpm discovery && pnpm typecheck && pnpm test && pnpm build"
   },
   "simple-git-hooks": {
     "pre-commit": "pnpm precommit"
@@ -40,6 +51,7 @@
     "eslint-plugin-import": "^2.31.0",
     "eslint-plugin-regexp": "^2.10.0",
     "globals": "^15.14.0",
+    "markdownlint-cli2": "^0.23.2",
     "prettier": "^3.2.5",
     "simple-git-hooks": "^2.13.1",
     "typescript": "^5.6.3"
