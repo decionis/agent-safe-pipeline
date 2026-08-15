@@ -84,6 +84,10 @@ pnpm install --frozen-lockfile
 pnpm verify
 ```
 
-`pnpm verify` enforces formatting, Markdown lint, fixture conventions, canonical licensing, separate production/toolchain audits, types, tests, and coverage thresholds of 90% for lines/functions/statements and 85% for branches. `pnpm mutation` checks that trust-boundary tests kill deliberate code mutations. Installation activates the repository's `simple-git-hooks` pre-commit guardrails.
+`pnpm verify` enforces formatting, Markdown lint, fixture conventions, canonical licensing, separate
+production/toolchain audits, deterministic performance tests, types, tests, and coverage thresholds
+of 90% for lines/functions/statements and 85% for branches. `pnpm mutation` checks that
+trust-boundary tests kill deliberate code mutations. Installation activates the repository's
+`simple-git-hooks` pre-commit guardrails.
 
 Apache-2.0 licensed. See [`LICENSE`](./LICENSE), [`TRADEMARKS.md`](./TRADEMARKS.md), [`SECURITY.md`](./SECURITY.md), and [`CONTRIBUTING.md`](./CONTRIBUTING.md). Report suspected vulnerabilities through [GitHub's private advisory form](https://github.com/decionis/agent-safe-pipeline/security/advisories/new), not a public issue.
