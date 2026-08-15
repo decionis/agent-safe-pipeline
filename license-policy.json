@@ -15,21 +15,6 @@
       "package": "caniuse-lite",
       "license": "CC-BY-4.0",
       "justification": "Development-only browser compatibility data pulled in by mutation-testing tooling; it is not included in the published package, and its attribution remains in the installed dependency metadata."
-    },
-    {
-      "package": "expand-template",
-      "license": "(MIT OR WTFPL)",
-      "justification": "Dual-licensed transitive dependency of development-only SBOM tooling; this project elects the permissive MIT option, and the package is not distributed in the runtime artifact."
-    },
-    {
-      "package": "rc",
-      "license": "(BSD-2-Clause OR MIT OR Apache-2.0)",
-      "justification": "Multi-licensed transitive dependency of development-only SBOM tooling; all offered choices are approved permissive licenses, and it is absent from the runtime artifact."
-    },
-    {
-      "package": "spdx-exceptions",
-      "license": "CC-BY-3.0",
-      "justification": "Development-only SPDX exception metadata used to generate release SBOMs; attribution is preserved in dependency metadata, and the package is not shipped at runtime."
     }
   ]
 }

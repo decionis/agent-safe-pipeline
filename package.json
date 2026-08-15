@@ -49,7 +49,6 @@
     "pre-commit": "pnpm precommit"
   },
   "devDependencies": {
-    "@cyclonedx/cyclonedx-npm": "6.0.1",
     "@eslint/js": "^9.16.0",
     "@types/node": "^26.2.0",
     "@typescript-eslint/eslint-plugin": "^8.44.0",

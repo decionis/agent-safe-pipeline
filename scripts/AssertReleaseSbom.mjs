@@ -16,6 +16,9 @@ const componentName = sbom.metadata?.component?.group
   ? `${sbom.metadata.component.group}/${sbom.metadata.component.name}`
   : sbom.metadata?.component?.name;
 if (sbom.bomFormat !== "CycloneDX") throw new Error("Release SBOM must be CycloneDX");
+if (sbom.metadata?.timestamp !== undefined) {
+  throw new Error("Release SBOM must not contain a volatile generation timestamp");
+}
 if (
   !/^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
     sbom.serialNumber ?? "",

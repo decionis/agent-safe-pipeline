@@ -10,14 +10,13 @@ pnpm license:inventory
 
 `license-policy.json` contains the permissive allowlist and package-scoped exceptions. Every exception requires an exact package, license, and written justification.
 
-| Package           | Reported license                  | Scope and decision                                                                                                                               |
-| ----------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `caniuse-lite`    | CC-BY-4.0                         | Development-only mutation-testing data; attribution remains in dependency metadata and it is absent from the runtime artifact                    |
-| `spdx-exceptions` | CC-BY-3.0                         | Development-only SPDX metadata used by the SBOM generator; attribution remains in dependency metadata and it is absent from the runtime artifact |
-| `expand-template` | MIT OR WTFPL                      | Development-only SBOM transitive dependency; this project elects MIT                                                                             |
-| `rc`              | BSD-2-Clause OR MIT OR Apache-2.0 | Development-only SBOM transitive dependency; every offered license is on the permissive allowlist                                                |
+| Package        | Reported license | Scope and decision                                                                                                            |
+| -------------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `caniuse-lite` | CC-BY-4.0        | Development-only mutation-testing data; attribution remains in dependency metadata and it is absent from the runtime artifact |
 
 No current production dependency requires an exception.
+
+GitHub's dependency-review license evaluation is lockfile-wide even when vulnerability failures are restricted with `fail-on-scopes`. Both workflow passes therefore use this same exact package exception, while `pnpm license:check` and the packed-artifact inventory independently confirm that no production dependency needs one.
 
 CI generates two JSON artifacts: the complete workspace tree, including development tools that execute on the runner, and the production tree of `@decionis/agent-safe-pipeline`. Release assets include both inventories plus an SBOM generated after extracting the packed npm artifact.
 

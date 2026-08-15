@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 
-const [sbomPath, artifactPath] = process.argv.slice(2);
-if (!sbomPath || !artifactPath) {
-  throw new Error("Usage: FinalizeReleaseSbom.mjs <sbom-path> <artifact-path>");
+const [sbomPath, artifactPath, expectedName, expectedVersion] = process.argv.slice(2);
+if (!sbomPath || !artifactPath || !expectedName || !expectedVersion) {
+  throw new Error("Usage: FinalizeReleaseSbom.mjs <sbom-path> <artifact-path> <name> <version>");
 }
 
 const artifactDigest = createHash("sha256")
@@ -21,6 +21,23 @@ const sbom = JSON.parse(await readFile(sbomPath, "utf8"));
 if (sbom.bomFormat !== "CycloneDX" || typeof sbom.specVersion !== "string") {
   throw new Error("Release SBOM must be CycloneDX JSON before finalization");
 }
+const rootComponent = sbom.metadata?.component;
+if (
+  rootComponent?.version !== expectedVersion ||
+  typeof rootComponent.purl !== "string" ||
+  !decodeURIComponent(rootComponent.purl).includes(`${expectedName}@${expectedVersion}`)
+) {
+  throw new Error("Release SBOM root does not match the packed package");
+}
+const scopeSeparator = expectedName.startsWith("@") ? expectedName.indexOf("/") : -1;
+if (scopeSeparator > 0) {
+  rootComponent.group = expectedName.slice(0, scopeSeparator);
+  rootComponent.name = expectedName.slice(scopeSeparator + 1);
+} else {
+  delete rootComponent.group;
+  rootComponent.name = expectedName;
+}
+delete sbom.metadata.timestamp;
 sbom.serialNumber = `urn:uuid:${uuid}`;
 await writeFile(sbomPath, `${JSON.stringify(sbom, null, 2)}\n`);
 process.stdout.write(`Finalized reproducible SBOM ${sbom.serialNumber}.\n`);

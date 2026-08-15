@@ -202,14 +202,14 @@ jobs:
 
           (
             cd "$RUNNER_TEMP/packed/package"
+            npm pkg delete devDependencies scripts
             npm install --ignore-scripts --omit=dev --no-audit --no-fund
-            "$GITHUB_WORKSPACE/node_modules/.bin/cyclonedx-npm" \
-              --package-lock-only --omit dev --output-reproducible --validate \
-              --mc-type library \
-              --output-file "$GITHUB_WORKSPACE/release/$RELEASE_STEM.cdx.json"
+            npm sbom --omit dev --sbom-format cyclonedx --sbom-type library \
+              > "$GITHUB_WORKSPACE/release/$RELEASE_STEM.cdx.json"
           )
           node scripts/FinalizeReleaseSbom.mjs \
-            "release/$RELEASE_STEM.cdx.json" "release/$RELEASE_TARBALL"
+            "release/$RELEASE_STEM.cdx.json" "release/$RELEASE_TARBALL" \
+            "$EXPECTED_NAME" "$EXPECTED_VERSION"
           node scripts/AssertReleaseSbom.mjs \
             "release/$RELEASE_STEM.cdx.json" "$EXPECTED_NAME" "$EXPECTED_VERSION" 5
           pnpm license:inventory release

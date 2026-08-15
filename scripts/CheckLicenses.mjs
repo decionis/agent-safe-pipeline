@@ -16,6 +16,7 @@ if (inventory.status !== 0) {
 const dependenciesByLicense = JSON.parse(inventory.stdout);
 const allowedLicenses = new Set(Object.keys(policy.allowedLicenses));
 const exceptions = policy.packageExceptions ?? [];
+const githubExceptions = policy.githubPackageExceptions ?? [];
 
 for (const [license, justification] of Object.entries(policy.allowedLicenses)) {
   if (typeof justification !== "string" || justification.trim().length < 20) {
@@ -59,6 +60,27 @@ for (const exception of exceptions) {
     )
   ) {
     throw new Error(`Stale license exception: ${exception.package} (${exception.license})`);
+  }
+}
+
+for (const exception of githubExceptions) {
+  if (
+    typeof exception.package !== "string" ||
+    typeof exception.license !== "string" ||
+    typeof exception.justification !== "string" ||
+    exception.justification.trim().length < 20
+  ) {
+    throw new Error(
+      "Every GitHub package-scoped license exception requires package, license, and justification",
+    );
+  }
+}
+
+const supplyChainWorkflow = await readFile(".github/workflows/supply-chain.yml", "utf8");
+for (const exception of [...exceptions, ...githubExceptions]) {
+  const purl = `pkg:npm/${exception.package}`;
+  if (supplyChainWorkflow.split(purl).length - 1 < 2) {
+    throw new Error(`Both dependency-review passes must declare the exception ${purl}`);
   }
 }
 
