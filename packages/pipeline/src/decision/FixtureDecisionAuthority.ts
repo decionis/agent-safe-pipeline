@@ -13,6 +13,7 @@ import type {
   DecisionVerdict,
   GateDecision,
 } from "./DecisionAuthority.js";
+import { immutableGateDecision } from "./ImmutableGateDecision.js";
 
 export type FixtureVerdictResolver = (
   intent: CapturedIntent,
@@ -56,7 +57,7 @@ export class FixtureDecisionAuthority implements DecisionAuthority {
     const decisionId = `fixture_${randomUUID()}`;
     const dossierId = `fixture_dossier_${randomUUID()}`;
     if (verdict !== "ALLOW") {
-      return {
+      return immutableGateDecision({
         verdict,
         decisionId,
         dossierId,
@@ -64,7 +65,7 @@ export class FixtureDecisionAuthority implements DecisionAuthority {
         reasonCodes: [`FIXTURE_${verdict}`],
         authorization: null,
         failClosed: false,
-      };
+      });
     }
     const issuedAt = Math.floor(Date.now() / 1_000);
     const expiresAt = Math.min(
@@ -88,7 +89,7 @@ export class FixtureDecisionAuthority implements DecisionAuthority {
       .setNotBefore(issuedAt)
       .setExpirationTime(expiresAt)
       .sign(this.privateKey);
-    return {
+    return immutableGateDecision({
       verdict,
       decisionId,
       dossierId,
@@ -96,7 +97,7 @@ export class FixtureDecisionAuthority implements DecisionAuthority {
       reasonCodes: ["FIXTURE_ALLOW"],
       authorization: { token, expiresAt: new Date(expiresAt * 1_000).toISOString() },
       failClosed: false,
-    };
+    });
   }
 }
 
@@ -135,13 +136,13 @@ export class FixtureAuthorizationVerifier implements AuthorizationVerifier {
       }
       const expiresAt = new Date(payload.exp * 1_000);
       if (!(await this.replayStore.claim(payload.jti, expiresAt))) return null;
-      return {
+      return Object.freeze({
         decisionId: decision.decisionId,
         dossierId: decision.dossierId,
         grantId: payload.jti,
         intentHash: captured.intentHash,
         expiresAt: expiresAt.toISOString(),
-      };
+      });
     } catch {
       return null;
     }

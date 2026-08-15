@@ -1,4 +1,5 @@
 import type { CapturedIntent } from "../intent/ExecutionIntent.js";
+import { immutableGateDecision } from "./ImmutableGateDecision.js";
 
 export type DecisionVerdict = "ALLOW" | "ESCALATE" | "BLOCK";
 
@@ -31,7 +32,7 @@ export interface DecisionAuthority {
 
 export class FailClosedDecision {
   public static create(intentHash: string, reasonCode: string): GateDecision {
-    return Object.freeze({
+    return immutableGateDecision({
       verdict: "BLOCK",
       decisionId: "unavailable",
       dossierId: null,

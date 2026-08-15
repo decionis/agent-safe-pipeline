@@ -44,6 +44,9 @@ describe("DecionisGate", () => {
     const decision = await gate.evaluate(intent);
 
     expect(decision).toMatchObject({ verdict: "ALLOW", intentHash: intent.intentHash });
+    expect(Object.isFrozen(decision)).toBe(true);
+    expect(Object.isFrozen(decision.reasonCodes)).toBe(true);
+    expect(Object.isFrozen(decision.authorization)).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -79,7 +82,10 @@ describe("DecionisGate", () => {
         allowInsecureLoopback: true,
         fetch: (async () => new Response(JSON.stringify(body), { status: 200 })) as typeof fetch,
       });
-      expect(await gate.evaluate(intent)).toMatchObject({ verdict: "BLOCK", failClosed: true });
+      const decision = await gate.evaluate(intent);
+      expect(decision).toMatchObject({ verdict: "BLOCK", failClosed: true });
+      expect(Object.isFrozen(decision)).toBe(true);
+      expect(Object.isFrozen(decision.reasonCodes)).toBe(true);
     }
 
     const unavailable = new DecionisGate({

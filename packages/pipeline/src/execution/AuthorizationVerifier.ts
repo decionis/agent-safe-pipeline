@@ -109,13 +109,13 @@ export class DecionisGrantVerifier implements AuthorizationVerifier {
       ) {
         return null;
       }
-      return {
+      return Object.freeze({
         decisionId: parsed.claims.decision_id,
         dossierId: parsed.claims.dossier_id,
         grantId: parsed.claims.jti,
         intentHash: parsed.claims.binding.intent_hash,
         expiresAt: new Date(parsed.claims.exp * 1_000).toISOString(),
-      };
+      });
     } catch {
       return null;
     } finally {
