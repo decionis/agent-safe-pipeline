@@ -42,8 +42,9 @@
     "security:production": "pnpm audit --prod --audit-level low",
     "security:toolchain": "pnpm audit --audit-level high",
     "test": "pnpm -r test",
+    "test:automation": "node --test test/automation/OpenPullRequest.test.mjs",
     "typecheck": "pnpm --filter @decionis/agent-safe-pipeline build && pnpm -r typecheck",
-    "verify": "pnpm format && pnpm lint && pnpm fixture:check && pnpm license:check && pnpm security && pnpm discovery && pnpm typecheck && pnpm test && pnpm build"
+    "verify": "pnpm format && pnpm lint && pnpm fixture:check && pnpm license:check && pnpm security && pnpm discovery && pnpm typecheck && pnpm test:automation && pnpm test && pnpm build"
   },
   "simple-git-hooks": {
     "pre-commit": "pnpm precommit"

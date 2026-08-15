@@ -1,0 +1,57 @@
+name: Pull request bot
+
+on:
+  schedule:
+    - cron: "7,22,37,52 * * * *"
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: Optional same-repository branch to evaluate
+        required: false
+        type: string
+      creation_run_id:
+        description: Optional create-event workflow run proving branch ownership
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-safe-pr-bot
+  cancel-in-progress: false
+
+jobs:
+  open-pull-request:
+    if: vars.PR_BOT_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+      - name: Check out the trusted default branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Create repository-scoped GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.PR_BOT_CLIENT_ID }}
+          private-key: ${{ secrets.PR_BOT_PRIVATE_KEY }}
+          permission-actions: read
+          permission-contents: read
+          permission-pull-requests: write
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.20.0
+      - name: Open qualifying pull requests
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          EXPECTED_AUTHOR_LOGIN: ocularminds
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: node scripts/OpenPullRequest.mjs
