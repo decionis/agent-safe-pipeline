@@ -20,16 +20,16 @@ This map is an evidence index, not a claim of certification. Commands are run fr
 
 The following gates were observed failing on 2026-08-15 before their controls were restored and the full suite passed:
 
-| Gate                 | Deliberate break                                                                     | Expected failure observed                                                                                                    |
-| -------------------- | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| Secret scanning      | Redacted GitHub-token canary sent through stdin without writing it to the repository | Gitleaks exited 1; complete history and working tree then passed                                                             |
-| Canonical licensing  | Apache appendix/canonical digest mismatch                                            | `pnpm license:check` rejected the file                                                                                       |
-| License policy       | Unreviewed CC-BY and multi-license development dependencies                          | Package-scoped justification was required before the gate passed                                                             |
-| Fixture provenance   | Non-reserved actor, request, and dossier identities                                  | `pnpm fixture:check` rejected the values                                                                                     |
-| Coverage             | A single-test run left global coverage below threshold                               | Vitest exited nonzero; the complete suite passed all four thresholds                                                         |
-| Mutation assurance   | Pre-consume schema validation was removed by a mutant                                | The test initially allowed the mutation; a grant-consumption assertion was added and the final score is 29/29 mutants killed |
-| SBOM component floor | Valid CycloneDX envelope with zero components                                        | `AssertReleaseSbom.mjs` exited nonzero; the packed artifact reports five runtime components                                  |
-| Workflow syntax      | Malformed release-note shell quoting                                                 | `actionlint` rejected the workflow before the quoting was corrected                                                          |
+| Gate                | Deliberate break                                                                     | Expected failure observed                                                                                                    |
+| ------------------- | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| Secret scanning     | Redacted GitHub-token canary sent through stdin without writing it to the repository | Gitleaks exited 1; complete history and working tree then passed                                                             |
+| Canonical licensing | Apache appendix/canonical digest mismatch                                            | `pnpm license:check` rejected the file                                                                                       |
+| License policy      | Unreviewed CC-BY and multi-license development dependencies                          | Package-scoped justification was required before the gate passed                                                             |
+| Fixture provenance  | Non-reserved actor, request, and dossier identities                                  | `pnpm fixture:check` rejected the values                                                                                     |
+| Coverage            | A single-test run left global coverage below threshold                               | Vitest exited nonzero; the complete suite passed all four thresholds                                                         |
+| Mutation assurance  | Pre-consume schema validation was removed by a mutant                                | The test initially allowed the mutation; a grant-consumption assertion was added and the final score is 29/29 mutants killed |
+| SBOM integrity      | Valid CycloneDX envelope with zero components, then a missing serial number          | The assertion exited nonzero; the packed artifact reports five runtime components and a deterministic artifact-bound UUID    |
+| Workflow syntax     | Malformed release-note shell quoting                                                 | `actionlint` rejected the workflow before the quoting was corrected                                                          |
 
 ## Known gaps and external dependencies
 

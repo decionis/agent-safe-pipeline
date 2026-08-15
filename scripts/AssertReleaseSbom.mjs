@@ -16,6 +16,13 @@ const componentName = sbom.metadata?.component?.group
   ? `${sbom.metadata.component.group}/${sbom.metadata.component.name}`
   : sbom.metadata?.component?.name;
 if (sbom.bomFormat !== "CycloneDX") throw new Error("Release SBOM must be CycloneDX");
+if (
+  !/^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    sbom.serialNumber ?? "",
+  )
+) {
+  throw new Error("Release SBOM must contain a deterministic RFC 4122 UUID serial number");
+}
 if (componentName !== expectedName) {
   throw new Error(`Release SBOM names ${componentName ?? "no component"}`);
 }
