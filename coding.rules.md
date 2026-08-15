@@ -1,12 +1,15 @@
-# Agent Safe Pipeline Coding Rules
+# AgentSafe Coding Rules
 
-These rules apply to the `agent-safe-pipeline` workspace. They are release requirements alongside
-`security.rules.md` and `discovery.rules.md`.
+These rules apply to the AgentSafe repository, including the publishable
+`@decionis/agent-safe-pipeline` package, runnable examples, repository automation, and documentation.
+They are release requirements alongside `security.rules.md` and `discovery.rules.md`.
 
 ## 1. Structure and naming
 
-- Production TypeScript belongs under `packages/pipeline/src/`; tests belong under the sibling
-  `packages/pipeline/test/` tree and should mirror the source feature when useful.
+- Publishable TypeScript belongs under `packages/pipeline/src/`; its tests belong under the sibling
+  `packages/pipeline/test/` tree and should mirror the source feature when useful. Runnable consumer
+  examples belong under `examples/`, repository automation belongs under `scripts/`, and automation
+  tests belong under `test/automation/`.
 - Group code by responsibility: `intent`, `decision`, `approval`, `execution`, `shadow`, and
   narrowly scoped supporting modules such as `http`.
 - Use PascalCase for TypeScript file names, classes, interfaces, and exported types. Use camelCase
