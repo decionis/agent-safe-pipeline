@@ -26,6 +26,26 @@ if (unsupported.length > 0) {
   throw new Error(`Unreviewed workspace dependency licenses: ${unsupported.join(", ")}`);
 }
 
+const repositoryLicense = await readFile("LICENSE", "utf8");
+const packageLicense = await readFile("packages/pipeline/LICENSE", "utf8");
+const apacheLicenseMarkers = [
+  "Apache License",
+  "Version 2.0, January 2004",
+  "TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION",
+  "END OF TERMS AND CONDITIONS",
+  'Licensed under the Apache License, Version 2.0 (the "License")',
+];
+
+for (const marker of apacheLicenseMarkers) {
+  if (!repositoryLicense.includes(marker)) {
+    throw new Error(`LICENSE is not the complete Apache-2.0 license: missing ${marker}`);
+  }
+}
+
+if (packageLicense !== repositoryLicense) {
+  throw new Error("packages/pipeline/LICENSE must match the repository Apache-2.0 license");
+}
+
 const exampleManifests = (await readdir("examples", { withFileTypes: true }))
   .filter((entry) => entry.isDirectory())
   .map((entry) => `examples/${entry.name}/package.json`);
@@ -35,6 +55,13 @@ for (const path of manifests) {
   const manifest = JSON.parse(await readFile(path, "utf8"));
   if (manifest.license !== "Apache-2.0") {
     throw new Error(`${path} must declare Apache-2.0`);
+  }
+
+  if (
+    path === "packages/pipeline/package.json" &&
+    (!Array.isArray(manifest.files) || !manifest.files.includes("LICENSE"))
+  ) {
+    throw new Error("packages/pipeline/package.json must include LICENSE in published files");
   }
 }
 
