@@ -13,6 +13,9 @@ Agent-Safe Pipeline is a reference architecture in which AI agents propose actio
 - Human approval: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/human-approval.md
 - Intent hash conformance vector: https://github.com/decionis/agent-safe-pipeline/blob/master/conformance/agent-safe-intent-v1.json
 - Fixture provenance: https://github.com/decionis/agent-safe-pipeline/blob/master/FIXTURE-PROVENANCE.md
+- Dependency licenses: https://github.com/decionis/agent-safe-pipeline/blob/master/DEPENDENCY-LICENSES.md
+- Security evidence: https://github.com/decionis/agent-safe-pipeline/blob/master/SECURITY-EVIDENCE.md
+- Publication sign-offs: https://github.com/decionis/agent-safe-pipeline/blob/master/PUBLICATION-SIGNOFFS.md
 - Security policy: https://github.com/decionis/agent-safe-pipeline/security/policy
 - Private vulnerability reporting: https://github.com/decionis/agent-safe-pipeline/security/advisories/new
 

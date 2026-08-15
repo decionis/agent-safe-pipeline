@@ -8,7 +8,7 @@ function captured(action = "refund_order") {
     { action, target: "shopify:order:1", parameters: { amount: 10 } },
     {
       tenantId: "00000000-0000-4000-8000-000000000002",
-      actor: { id: "refund-agent", type: "AI_AGENT" },
+      actor: { id: "synthetic-refund-agent", type: "AI_AGENT" },
       downstreamTarget: { system: "shopify", operation: "refund" },
       idempotencyKey: `registry-${action}`,
       context: {},

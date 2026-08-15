@@ -15,7 +15,7 @@ const captured = new IntentCapture().capture(
   },
   {
     tenantId: "00000000-0000-4000-8000-000000000002",
-    actor: { id: "refund-agent", type: "AI_AGENT" },
+    actor: { id: "synthetic-refund-agent", type: "AI_AGENT" },
     downstreamTarget: { system: "shopify", operation: "refund" },
     idempotencyKey: "refund-synthetic-1001-v1",
     context: { source: "shopify-refund-example" },

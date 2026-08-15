@@ -46,7 +46,7 @@ const results = [];
 for (const [index, proposal] of proposals.entries()) {
   const captured = capture.capture(proposal, {
     tenantId: "00000000-0000-4000-8000-000000000003",
-    actor: { id: "deploy-agent", type: "AI_AGENT" },
+    actor: { id: "synthetic-deploy-agent", type: "AI_AGENT" },
     downstreamTarget: { system: "github", operation: proposal.action },
     idempotencyKey: `github-example-${index}`,
     context: { repository: "decionis/example" },

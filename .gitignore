@@ -1,6 +1,9 @@
 node_modules/
 dist/
 coverage/
+artifacts/
+release/
+.stryker-tmp/
 *.log
 .DS_Store
 .env

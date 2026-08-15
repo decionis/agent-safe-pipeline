@@ -9,7 +9,7 @@ describe("ShadowPipeline", () => {
       { action: "refund_order", target: "order:1", parameters: { amount: 350 } },
       {
         tenantId: "00000000-0000-4000-8000-000000000002",
-        actor: { id: "agent", type: "AI_AGENT" },
+        actor: { id: "synthetic-shadow-agent", type: "AI_AGENT" },
         downstreamTarget: { system: "shopify", operation: "refund" },
         idempotencyKey: "shadow-1",
         context: {},

@@ -14,7 +14,7 @@ const captured = new IntentCapture().capture(
   },
   {
     tenantId: "00000000-0000-4000-8000-000000000001",
-    actor: { id: "demo-agent", type: "AI_AGENT" },
+    actor: { id: "synthetic-demo-agent", type: "AI_AGENT" },
     downstreamTarget: { system: "crm", operation: "delete_customer" },
     idempotencyKey: "basic-delete-synthetic-42",
     context: { source: "basic-example" },

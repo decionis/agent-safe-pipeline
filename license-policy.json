@@ -1,0 +1,20 @@
+{
+  "allowedLicenses": {
+    "0BSD": "Permissive zero-clause BSD license.",
+    "Apache-2.0": "Permissive Apache License 2.0; compatible with this distribution.",
+    "BSD-2-Clause": "Permissive two-clause BSD license.",
+    "BSD-3-Clause": "Permissive three-clause BSD license.",
+    "BlueOak-1.0.0": "Permissive Blue Oak Model License 1.0.0.",
+    "CC0-1.0": "Public-domain dedication used for development-only metadata and diagram data.",
+    "ISC": "Permissive ISC license.",
+    "MIT": "Permissive MIT license.",
+    "Python-2.0": "Permissive Python 2.0 license; currently used only by the development dependency argparse."
+  },
+  "packageExceptions": [
+    {
+      "package": "caniuse-lite",
+      "license": "CC-BY-4.0",
+      "justification": "Development-only browser compatibility data pulled in by mutation-testing tooling; it is not included in the published package, and its attribution remains in the installed dependency metadata."
+    }
+  ]
+}
