@@ -21,10 +21,10 @@ function trusted(): TrustedIntentContext {
   };
 }
 
-function capture(proposal: AgentProposal) {
+function capture(proposal: AgentProposal, context = trusted()) {
   return new IntentCapture({ clock: () => fixedDate, createId: () => fixedId }).capture(
     proposal,
-    trusted(),
+    context,
   );
 }
 
@@ -61,6 +61,24 @@ describe("IntentCapture", () => {
     });
 
     expect(manipulated.intentHash).not.toBe(approved.intentHash);
+  });
+
+  it("binds the trusted idempotency key into the canonical intent hash", () => {
+    const proposal = {
+      action: "refund_order",
+      target: "shopify:order:58291",
+      parameters: { amount: 18400 },
+    };
+    const approved = capture(proposal);
+    const replayedAsNewOperation = capture(proposal, {
+      ...trusted(),
+      idempotencyKey: "refund-58291-v2",
+    });
+
+    expect(replayedAsNewOperation.intentHash).not.toBe(approved.intentHash);
+    expect(JSON.parse(approved.canonicalIntent)).toMatchObject({
+      idempotency_key: "refund-58291-v1",
+    });
   });
 
   it("rejects agent-supplied authorization fields", () => {
