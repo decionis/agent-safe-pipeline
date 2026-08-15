@@ -30,12 +30,19 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Review dependency changes
+      - name: Review production dependency changes
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
-          allow-licenses: Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, MIT, BlueOak-1.0.0, Python-2.0
-          fail-on-severity: moderate
-          fail-on-scopes: runtime,development
+          allow-licenses: 0BSD, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, MIT, BlueOak-1.0.0, CC0-1.0, Python-2.0
+          fail-on-severity: low
+          fail-on-scopes: runtime
+      - name: Review toolchain dependency changes
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          allow-licenses: 0BSD, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, MIT, BlueOak-1.0.0, CC0-1.0, Python-2.0
+          allow-dependencies-licenses: pkg:npm/caniuse-lite, pkg:npm/expand-template, pkg:npm/rc, pkg:npm/spdx-exceptions
+          fail-on-severity: high
+          fail-on-scopes: development
 
   audit:
     name: Dependency and license audit
@@ -63,7 +70,18 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - name: Install dependencies without lifecycle scripts
         run: pnpm install --frozen-lockfile --ignore-scripts
-      - name: Audit known vulnerabilities
-        run: pnpm audit --audit-level high
+      - name: Audit production dependencies
+        run: pnpm security:production
+      - name: Audit build toolchain
+        run: pnpm security:toolchain
       - name: Check dependency licenses
         run: pnpm license:check
+      - name: Generate dependency-license inventories
+        run: pnpm license:inventory
+      - name: Upload dependency-license inventories
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dependency-license-inventories
+          path: artifacts/dependency-licenses/
+          if-no-files-found: error
+          retention-days: 30

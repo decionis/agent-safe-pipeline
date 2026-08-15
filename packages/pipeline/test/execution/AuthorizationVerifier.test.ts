@@ -8,7 +8,7 @@ function setup() {
     { action: "deploy", target: "github:repo", parameters: { environment: "production" } },
     {
       tenantId: "00000000-0000-4000-8000-000000000002",
-      actor: { id: "deploy-agent", type: "AI_AGENT" },
+      actor: { id: "synthetic-deploy-agent", type: "AI_AGENT" },
       downstreamTarget: { system: "github", operation: "deploy" },
       idempotencyKey: "deploy-1",
       context: {},

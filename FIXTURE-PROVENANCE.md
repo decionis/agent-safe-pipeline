@@ -13,3 +13,9 @@ All fixtures in this repository are synthetic, hand-authored for the Agent-Safe 
 The exact strings `refund-synthetic-1001-v1` and `refund-58291-v1` are documented synthetic idempotency keys. They are narrowly allowlisted in `.gitleaks.toml` because the generic API-key detector otherwise classifies them as credentials. No path-wide or rule-wide secret-scanning exemption is used.
 
 Contributors must document the source and license of any new fixture. Prefer deterministic fictional data. Never sanitize real customer data for use here: create a new synthetic fixture instead.
+
+## Construction rules
+
+Fixture identity values use the repository-reserved `synthetic-` or `fixture_` prefixes. UUID-shaped fixture tenant and intent values use the sentinel blocks documented in the conformance vector; production integrations must reject those sentinel values. Fixture URLs use IANA-reserved `.example`/`.invalid` domains or loopback. Executable demos may not contain fixed ISO timestamps.
+
+`pnpm fixture:check` discovers every tracked conformance vector, policy, example source, and unit test and enforces these rules. Adding a real-looking actor, customer, order, approver, tenant, hostname, or fixed demo timestamp makes verification fail. This turns provenance from a prose assertion into a repository gate.

@@ -36,7 +36,7 @@ server.registerTool(
       },
       {
         tenantId: "00000000-0000-4000-8000-000000000004",
-        actor: { id: "mcp-agent", type: "AI_AGENT" },
+        actor: { id: "synthetic-mcp-agent", type: "AI_AGENT" },
         downstreamTarget: { system: "crm", operation: "delete_customer" },
         idempotencyKey: `mcp-delete-${customerId}`,
         context: { transport: "mcp-stdio" },

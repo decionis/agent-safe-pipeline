@@ -5,6 +5,12 @@ on:
   push:
     branches: [master]
   workflow_dispatch:
+    inputs:
+      release_dry_run:
+        description: Build and verify release assets without publishing
+        required: false
+        default: true
+        type: boolean
 
 permissions:
   contents: read
@@ -47,17 +53,13 @@ jobs:
         with:
           name: pipeline-coverage
           path: packages/pipeline/coverage/
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 14
 
-  release:
-    name: Release
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-    needs: verify
+  assurance:
+    name: Mutation assurance
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: write
+    timeout-minutes: 15
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
@@ -67,12 +69,48 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 9.15.3
+          run_install: false
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Install dependencies without lifecycle scripts
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Mutation-test trust-boundary tests
+        run: pnpm mutation
+
+  release:
+    name: Release
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/master') ||
+      (github.event_name == 'workflow_dispatch' && inputs.release_dry_run)
+    needs: [verify, assurance]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      attestations: write
+      contents: write
+      id-token: write
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Resolve release version
         id: release
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
@@ -84,62 +122,225 @@ jobs:
             echo "Workspace and package versions must match." >&2
             exit 1
           fi
-
           if [[ "$package_name" != "@decionis/agent-safe-pipeline" ]]; then
             echo "Unexpected release package: $package_name" >&2
             exit 1
           fi
-
           semver='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
           if [[ ! "$package_version" =~ $semver ]]; then
             echo "Package version is not valid semantic versioning: $package_version" >&2
             exit 1
           fi
 
+          release_tag="v${package_version}"
+          if gh release view "$release_tag" >/dev/null 2>&1; then
+            echo "Release $release_tag already exists; nothing to create."
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if gh api "repos/$GH_REPO/git/ref/tags/$release_tag" >/dev/null 2>&1; then
+            echo "Tag $release_tag exists without a GitHub release; refusing to reuse it." >&2
+            exit 1
+          fi
+
           {
+            echo "exists=false"
             echo "package=$package_name"
             echo "version=$package_version"
-            echo "tag=v$package_version"
+            echo "tag=$release_tag"
+            echo "stem=agent-safe-pipeline-$package_version"
+            echo "tarball=decionis-agent-safe-pipeline-$package_version.tgz"
           } >> "$GITHUB_OUTPUT"
-      - name: Create GitHub release
+      - name: Install pnpm
+        if: steps.release.outputs.exists != 'true'
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 9.15.3
+          run_install: false
+      - name: Set up Node.js for release
+        if: steps.release.outputs.exists != 'true'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.18.0
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Verify npm supports trusted publishing
+        if: steps.release.outputs.exists != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm_version="$(npm --version)"
+          node -e '
+            const [major, minor] = process.argv[1].split(".").map(Number);
+            if (major < 11 || (major === 11 && minor < 5)) process.exit(1);
+          ' "$npm_version"
+      - name: Install dependencies without lifecycle scripts
+        if: steps.release.outputs.exists != 'true'
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Build package, SBOM, and license inventories
+        if: steps.release.outputs.exists != 'true'
+        env:
+          EXPECTED_NAME: ${{ steps.release.outputs.package }}
+          EXPECTED_VERSION: ${{ steps.release.outputs.version }}
+          RELEASE_STEM: ${{ steps.release.outputs.stem }}
+          RELEASE_TARBALL: ${{ steps.release.outputs.tarball }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release "$RUNNER_TEMP/packed" "$RUNNER_TEMP/consumer"
+          pnpm --filter "$EXPECTED_NAME" build
+          (
+            cd packages/pipeline
+            pnpm pack --pack-destination "$GITHUB_WORKSPACE/release"
+          )
+          test -s "release/$RELEASE_TARBALL"
+          tar --extract --gzip --file "release/$RELEASE_TARBALL" --directory "$RUNNER_TEMP/packed"
+          test "$(node -p "require('$RUNNER_TEMP/packed/package/package.json').name")" = "$EXPECTED_NAME"
+          test "$(node -p "require('$RUNNER_TEMP/packed/package/package.json').version")" = "$EXPECTED_VERSION"
+          test -s "$RUNNER_TEMP/packed/package/LICENSE"
+          test -s "$RUNNER_TEMP/packed/package/NOTICE"
+
+          (
+            cd "$RUNNER_TEMP/packed/package"
+            npm install --ignore-scripts --omit=dev --no-audit --no-fund
+            "$GITHUB_WORKSPACE/node_modules/.bin/cyclonedx-npm" \
+              --package-lock-only --omit dev --output-reproducible --validate \
+              --mc-type library \
+              --output-file "$GITHUB_WORKSPACE/release/$RELEASE_STEM.cdx.json"
+          )
+          node scripts/AssertReleaseSbom.mjs \
+            "release/$RELEASE_STEM.cdx.json" "$EXPECTED_NAME" "$EXPECTED_VERSION" 5
+          pnpm license:inventory release
+
+          (
+            cd "$RUNNER_TEMP/consumer"
+            npm install "$GITHUB_WORKSPACE/release/$RELEASE_TARBALL" \
+              --ignore-scripts --no-audit --no-fund
+            node --input-type=module -e \
+              "const pkg = await import('$EXPECTED_NAME'); if (typeof pkg.SafeExecutor !== 'function') throw new Error('PACKED_EXPORT_MISSING')"
+          )
+      - name: Attest package provenance
+        if: steps.release.outputs.exists != 'true'
+        id: provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: release/${{ steps.release.outputs.tarball }}
+      - name: Attest package SBOM
+        if: steps.release.outputs.exists != 'true'
+        id: sbom
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: release/${{ steps.release.outputs.tarball }}
+          sbom-path: release/${{ steps.release.outputs.stem }}.cdx.json
+      - name: Prepare offline attestation assets
+        if: steps.release.outputs.exists != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROVENANCE_BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+          RELEASE_STEM: ${{ steps.release.outputs.stem }}
+          RELEASE_TARBALL: ${{ steps.release.outputs.tarball }}
+          SBOM_BUNDLE: ${{ steps.sbom.outputs.bundle-path }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp "$PROVENANCE_BUNDLE" "release/$RELEASE_STEM.provenance.sigstore.json"
+          cp "$SBOM_BUNDLE" "release/$RELEASE_STEM.sbom.sigstore.json"
+          node scripts/ExtractAttestationStatement.mjs \
+            "release/$RELEASE_STEM.provenance.sigstore.json" \
+            "release/$RELEASE_STEM.provenance.intoto.json" \
+            "release/$RELEASE_TARBALL"
+          node scripts/ExtractAttestationStatement.mjs \
+            "release/$RELEASE_STEM.sbom.sigstore.json" \
+            "release/$RELEASE_STEM.sbom.intoto.json" \
+            "release/$RELEASE_TARBALL"
+          gh attestation trusted-root > release/trusted_root.jsonl
+          gh attestation verify "release/$RELEASE_TARBALL" \
+            --repo "$GITHUB_REPOSITORY" \
+            --bundle "release/$RELEASE_STEM.provenance.sigstore.json" \
+            --custom-trusted-root release/trusted_root.jsonl
+
+          checksum_file="$RUNNER_TEMP/SHA256SUMS"
+          (
+            cd release
+            for file in $(find . -maxdepth 1 -type f ! -name SHA256SUMS -print | sort); do
+              sha256sum "${file#./}"
+            done > "$checksum_file"
+            test "$(wc -l < "$checksum_file")" -ge 9
+          )
+          mv "$checksum_file" release/SHA256SUMS
+      - name: Publish package to npm through trusted publishing
+        if: >-
+          steps.release.outputs.exists != 'true' &&
+          github.event_name == 'push' &&
+          vars.NPM_PUBLISH_ENABLED == 'true'
+        env:
+          NPM_PACKAGE: ${{ steps.release.outputs.package }}
+          RELEASE_TARBALL: ${{ steps.release.outputs.tarball }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          published_version="$(npm view "$NPM_PACKAGE@$RELEASE_VERSION" version 2>/dev/null || true)"
+          if [[ "$published_version" == "$RELEASE_VERSION" ]]; then
+            echo "$NPM_PACKAGE@$RELEASE_VERSION is already public; skipping publication."
+          else
+            npm publish "release/$RELEASE_TARBALL" --access public
+            test "$(npm view "$NPM_PACKAGE@$RELEASE_VERSION" version)" = "$RELEASE_VERSION"
+          fi
+      - name: Create verified GitHub release
+        if: steps.release.outputs.exists != 'true' && github.event_name == 'push'
         env:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
+          NPM_PUBLISH_ENABLED: ${{ vars.NPM_PUBLISH_ENABLED }}
           NPM_PACKAGE: ${{ steps.release.outputs.package }}
+          RELEASE_STEM: ${{ steps.release.outputs.stem }}
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_TARBALL: ${{ steps.release.outputs.tarball }}
           RELEASE_VERSION: ${{ steps.release.outputs.version }}
           TARGET_SHA: ${{ github.sha }}
         shell: bash
         run: |
           set -euo pipefail
-
-          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            echo "Release $RELEASE_TAG already exists; nothing to create."
-            exit 0
+          npm_url="https://www.npmjs.com/package/$NPM_PACKAGE/v/$RELEASE_VERSION"
+          if [[ "$NPM_PUBLISH_ENABLED" == "true" ]]; then
+            npm_note="npm: [$NPM_PACKAGE@$RELEASE_VERSION]($npm_url)"
+          else
+            npm_note="npm publication was not enabled for this release."
           fi
-
-          if gh api "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG" >/dev/null 2>&1; then
-            echo "Tag $RELEASE_TAG exists without a GitHub release; refusing to reuse it." >&2
-            exit 1
-          fi
+          {
+            echo "## Verifiable artifacts"
+            echo
+            echo "$npm_note"
+            echo
+            echo '```sh'
+            echo "shasum -a 256 -c SHA256SUMS"
+            echo "gh attestation verify $RELEASE_TARBALL \\"
+            echo "  --repo $GITHUB_REPOSITORY \\"
+            echo "  --bundle $RELEASE_STEM.provenance.sigstore.json \\"
+            echo "  --custom-trusted-root trusted_root.jsonl"
+            echo '```'
+            echo
+            echo "The CycloneDX SBOM was generated from the extracted npm tarball and contains at least five dependency components. Raw in-toto statements and their signed Sigstore bundles are attached for mirrors and offline verification."
+          } > "$RUNNER_TEMP/release-notes.md"
 
           release_args=(
             "$RELEASE_TAG"
+            release/*
             --target "$TARGET_SHA"
             --title "$RELEASE_TAG"
             --generate-notes
+            --notes-file "$RUNNER_TEMP/release-notes.md"
           )
-
-          published_version="$(npm view "$NPM_PACKAGE@$RELEASE_VERSION" version 2>/dev/null || true)"
-          if [[ "$published_version" == "$RELEASE_VERSION" ]]; then
-            npm_url="https://www.npmjs.com/package/$NPM_PACKAGE/v/$RELEASE_VERSION"
-            release_args+=(--notes "npm package: [$NPM_PACKAGE@$RELEASE_VERSION]($npm_url)")
-          else
-            echo "No matching public npm publication found; creating a GitHub-only release."
-          fi
-
           if [[ "$RELEASE_VERSION" == *-* ]]; then
             release_args+=(--prerelease)
           fi
-
           gh release create "${release_args[@]}"
+      - name: Upload verified dry-run assets
+        if: steps.release.outputs.exists != 'true' && github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-dry-run-${{ steps.release.outputs.version }}
+          path: release/
+          if-no-files-found: error
+          retention-days: 7

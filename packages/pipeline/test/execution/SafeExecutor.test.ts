@@ -14,7 +14,7 @@ function captured(amount = 350) {
     },
     {
       tenantId: "00000000-0000-4000-8000-000000000002",
-      actor: { id: "refund-agent", type: "AI_AGENT" },
+      actor: { id: "synthetic-refund-agent", type: "AI_AGENT" },
       downstreamTarget: { system: "shopify", operation: "refund" },
       idempotencyKey: `refund-${amount}`,
       context: {},
@@ -106,6 +106,7 @@ describe("SafeExecutor", () => {
 
     await expect(executor.run(invalid, decision)).rejects.toThrow();
     expect(execute).not.toHaveBeenCalled();
+    expect(await pair.verifier.verifyAndConsume(invalid, decision)).not.toBeNull();
   });
 
   it("forbids the fixture authority in production even with explicit development opt-in", () => {

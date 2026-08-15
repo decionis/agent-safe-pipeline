@@ -9,7 +9,7 @@ const fixedDate = new Date("2026-08-14T10:00:00.000Z");
 function trusted(): TrustedIntentContext {
   return {
     tenantId: "00000000-0000-4000-8000-000000000002",
-    actor: { id: "refund-agent", type: "AI_AGENT", runtime: "mcp" },
+    actor: { id: "synthetic-refund-agent", type: "AI_AGENT", runtime: "mcp" },
     downstreamTarget: {
       system: "shopify",
       operation: "refund",

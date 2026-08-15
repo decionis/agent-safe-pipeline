@@ -9,6 +9,10 @@ updates:
       time: "06:15"
       timezone: Europe/Stockholm
     open-pull-requests-limit: 10
+    # update-types applies only to scheduled version updates; security updates remain enabled.
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       vitest:
         patterns:

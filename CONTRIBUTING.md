@@ -5,6 +5,7 @@ Use Node.js 20 or 22 and pnpm 9. Create focused changes with production code und
 ```bash
 pnpm install --frozen-lockfile
 pnpm verify
+pnpm mutation
 ```
 
 Installation activates the repository's `simple-git-hooks` pre-commit hook. It checks staged files with Prettier, checks staged Markdown with markdownlint, and runs the lint, security-audit, and performance guardrails. Run `pnpm format:fix` before committing if it reports formatting drift; use `pnpm hooks:install` to reinstall the hook manually.
@@ -17,6 +18,21 @@ Contributions are licensed under Apache-2.0. By submitting a contribution, you r
 
 ## Releases
 
-After verification succeeds on a merge to `master`, CI reads the matching workspace and package versions and creates the corresponding `v<version>` GitHub release. Existing releases are skipped safely, prerelease versions are marked as prereleases, and a tag without a matching GitHub release fails closed for manual review. Increment both versions in the release PR when a new release is intended.
+After verification succeeds on a merge to `master`, CI reads the matching workspace and package versions, builds the npm tarball, generates an artifact-derived CycloneDX SBOM and dependency-license inventories, asserts the SBOM component floor, creates signed GitHub artifact and SBOM attestations, verifies the provenance in-run, installs the tarball in a clean consumer directory, and creates the corresponding `v<version>` GitHub release. The tarball, inventories, SBOM, SHA-256 manifest, Sigstore bundles, raw in-toto statements, and trusted root are release assets. Existing releases are skipped safely, prerelease versions are marked as prereleases, and a tag without a matching GitHub release fails closed for manual review. Increment both versions in the release PR when a new release is intended.
 
-If the exact `@decionis/agent-safe-pipeline` version is already public on npm when the job runs, its registry link is prepended to the GitHub release notes. The workflow does not publish to npm; publishing remains a separate, explicitly authorized operation.
+Before merging a release change, exercise the same build and attestation path without publishing:
+
+```sh
+gh workflow run deploy.yml --ref <branch> -f release_dry_run=true
+```
+
+The release can publish the exact tarball to npm without a long-lived token after the package exists. npm currently requires the package to exist before a trusted publisher can be configured, and `@decionis/agent-safe-pipeline` is not yet registered. An npm owner must bootstrap its first public version, then configure the package's trusted publisher for organization `decionis`, repository `agent-safe-pipeline`, workflow `deploy.yml`, and set the GitHub Actions repository variable `NPM_PUBLISH_ENABLED` to `true`. The workflow then uses OIDC, public access, and npm provenance. Without that explicit setup it creates a GitHub-only release and records that npm was skipped.
+
+To verify a release as an outsider, download all assets into an empty directory, run `shasum -a 256 -c SHA256SUMS`, then verify the tarball offline with the matching provenance bundle and `trusted_root.jsonl`:
+
+```sh
+gh attestation verify decionis-agent-safe-pipeline-<version>.tgz \
+  --repo decionis/agent-safe-pipeline \
+  --bundle agent-safe-pipeline-<version>.provenance.sigstore.json \
+  --custom-trusted-root trusted_root.jsonl
+```

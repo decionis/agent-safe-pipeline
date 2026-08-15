@@ -51,6 +51,9 @@ The executor accepts a captured intent and a decision. It does not accept an arb
 - [`ARCHITECTURE.md`](./ARCHITECTURE.md) and [`THREAT-MODEL.md`](./THREAT-MODEL.md) — trust boundary and abuse analysis.
 - [`conformance/agent-safe-intent-v1.json`](./conformance/agent-safe-intent-v1.json) — portable canonical-hash test vector.
 - [`FIXTURE-PROVENANCE.md`](./FIXTURE-PROVENANCE.md) — origin and permitted use of every fixture family.
+- [`DEPENDENCY-LICENSES.md`](./DEPENDENCY-LICENSES.md) — generated inventory method and platform-conditional dependency notes.
+- [`SECURITY-EVIDENCE.md`](./SECURITY-EVIDENCE.md) — control-to-artifact evidence map and published gaps.
+- [`PUBLICATION-SIGNOFFS.md`](./PUBLICATION-SIGNOFFS.md) — human decisions that automation cannot make.
 
 ## Production invariants
 
@@ -71,7 +74,7 @@ Decionis remains the authoritative decision service, Presence remains the human-
 
 ## Status
 
-The workspace package is versioned `0.1.0` but is not claimed as published until the registry release workflow succeeds. Install it from this workspace today. The canonical repository URL was verified on 2026-08-14; availability of future package releases is intentionally not fabricated in these docs.
+The workspace package is versioned `0.1.1` but is not claimed as published until the registry release workflow succeeds. Install it from this workspace today. The canonical repository URL was verified on 2026-08-14; availability of future package releases is intentionally not fabricated in these docs.
 
 ## Development
 
@@ -80,6 +83,6 @@ pnpm install --frozen-lockfile
 pnpm verify
 ```
 
-`pnpm verify` enforces formatting, Markdown lint, dependency-license policy, types, tests, and coverage thresholds of 90% for lines/functions/statements and 85% for branches. Installation activates the repository's `simple-git-hooks` pre-commit guardrails.
+`pnpm verify` enforces formatting, Markdown lint, fixture conventions, canonical licensing, separate production/toolchain audits, types, tests, and coverage thresholds of 90% for lines/functions/statements and 85% for branches. `pnpm mutation` checks that trust-boundary tests kill deliberate code mutations. Installation activates the repository's `simple-git-hooks` pre-commit guardrails.
 
 Apache-2.0 licensed. See [`LICENSE`](./LICENSE), [`TRADEMARKS.md`](./TRADEMARKS.md), [`SECURITY.md`](./SECURITY.md), and [`CONTRIBUTING.md`](./CONTRIBUTING.md). Report suspected vulnerabilities through [GitHub's private advisory form](https://github.com/decionis/agent-safe-pipeline/security/advisories/new), not a public issue.

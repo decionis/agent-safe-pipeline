@@ -11,7 +11,7 @@ function captured() {
     { action: "refund_order", target: "shopify:order:1", parameters: { amount: 350 } },
     {
       tenantId: "00000000-0000-4000-8000-000000000002",
-      actor: { id: "refund-agent", type: "AI_AGENT" },
+      actor: { id: "synthetic-refund-agent", type: "AI_AGENT" },
       downstreamTarget: { system: "shopify", operation: "refund" },
       idempotencyKey: "refund-1",
       context: {},
@@ -28,15 +28,15 @@ describe("PresenceApprovalCoordinator", () => {
         void idempotencyKey;
         return {
           verdict: "HUMAN_REQUIRED" as const,
-          request_id: "presence-request-1",
+          request_id: "synthetic-presence-request-1",
           approval_url: "https://presence.example/approve",
         };
       },
     );
     const outcome = vi.fn(async () => ({
       verdict: "PROCEED" as const,
-      request_id: "presence-request-1",
-      receipt_dossier_id: "presence-dossier-1",
+      request_id: "synthetic-presence-request-1",
+      receipt_dossier_id: "synthetic-presence-dossier-1",
     }));
     const evaluate = vi.fn(async () => ({
       verdict: "ALLOW" as const,
@@ -51,7 +51,7 @@ describe("PresenceApprovalCoordinator", () => {
       { gate, outcome },
       { evaluate } as DecisionAuthority,
       "Acme",
-      "approver-1",
+      "synthetic-approver-1",
     );
 
     const handoff = await coordinator.request(intent);
@@ -62,8 +62,8 @@ describe("PresenceApprovalCoordinator", () => {
     expect(evaluate).toHaveBeenCalledWith(intent, {
       humanApproval: {
         provider: "presence",
-        requestId: "presence-request-1",
-        receiptDossierId: "presence-dossier-1",
+        requestId: "synthetic-presence-request-1",
+        receiptDossierId: "synthetic-presence-dossier-1",
       },
     });
   });
@@ -78,7 +78,7 @@ describe("PresenceApprovalCoordinator", () => {
       },
       { evaluate } as DecisionAuthority,
       "Acme",
-      "approver-1",
+      "synthetic-approver-1",
     );
     expect(await denied.resolveAndReauthorize(intent, { verdict: "DENIED" })).toMatchObject({
       verdict: "BLOCK",
@@ -107,7 +107,7 @@ describe("PresenceApprovalCoordinator", () => {
       { gate: vi.fn(), outcome: vi.fn() },
       { evaluate } as DecisionAuthority,
       "Acme",
-      "approver-1",
+      "synthetic-approver-1",
     );
     const result = await coordinator.resolveAndReauthorize(intent, {
       verdict: "PROCEED",

@@ -1,9 +1,10 @@
 {
   "name": "agent-safe-pipeline-workspace",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Reference architecture for executing AI-agent actions through an independent authorization boundary.",
   "license": "Apache-2.0",
+  "author": "Decionis, Inc.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/decionis/agent-safe-pipeline.git"
@@ -15,6 +16,7 @@
   "packageManager": "pnpm@9.15.3",
   "pnpm": {
     "overrides": {
+      "qs": "6.15.2",
       "vite": "^6.4.3"
     }
   },
@@ -27,21 +29,27 @@
     "format": "prettier --check .",
     "format:fix": "prettier --write .",
     "hooks:install": "simple-git-hooks",
+    "fixture:check": "node scripts/CheckFixtureProvenance.mjs",
+    "license:inventory": "node scripts/GenerateLicenseInventory.mjs",
     "license:check": "node scripts/CheckLicenses.mjs",
     "lint": "eslint . && pnpm lint:markdown",
     "lint:markdown": "markdownlint-cli2",
     "performance": "pnpm --filter @decionis/agent-safe-pipeline test:performance",
-    "precommit": "node scripts/PreCommit.mjs && pnpm lint && pnpm security && pnpm performance",
+    "mutation": "pnpm --filter @decionis/agent-safe-pipeline test:mutation",
+    "precommit": "node scripts/PreCommit.mjs && pnpm fixture:check && pnpm license:check && pnpm lint && pnpm security && pnpm performance",
     "prepare": "simple-git-hooks",
-    "security": "pnpm audit --audit-level moderate",
+    "security": "pnpm security:production && pnpm security:toolchain",
+    "security:production": "pnpm audit --prod --audit-level low",
+    "security:toolchain": "pnpm audit --audit-level high",
     "test": "pnpm -r test",
     "typecheck": "pnpm --filter @decionis/agent-safe-pipeline build && pnpm -r typecheck",
-    "verify": "pnpm format && pnpm lint && pnpm license:check && pnpm security && pnpm discovery && pnpm typecheck && pnpm test && pnpm build"
+    "verify": "pnpm format && pnpm lint && pnpm fixture:check && pnpm license:check && pnpm security && pnpm discovery && pnpm typecheck && pnpm test && pnpm build"
   },
   "simple-git-hooks": {
     "pre-commit": "pnpm precommit"
   },
   "devDependencies": {
+    "@cyclonedx/cyclonedx-npm": "6.0.1",
     "@eslint/js": "^9.16.0",
     "@types/node": "^26.2.0",
     "@typescript-eslint/eslint-plugin": "^8.44.0",
