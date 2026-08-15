@@ -19,4 +19,4 @@ Contributions are licensed under Apache-2.0. By submitting a contribution, you r
 
 After verification succeeds on a merge to `master`, CI reads the matching workspace and package versions and creates the corresponding `v<version>` GitHub release. Existing releases are skipped safely, prerelease versions are marked as prereleases, and a tag without a matching GitHub release fails closed for manual review. Increment both versions in the release PR when a new release is intended.
 
-This workflow creates a GitHub release only. Publishing `@decionis/agent-safe-pipeline` to npm remains a separate, explicitly authorized operation.
+If the exact `@decionis/agent-safe-pipeline` version is already public on npm when the job runs, its registry link is prepended to the GitHub release notes. The workflow does not publish to npm; publishing remains a separate, explicitly authorized operation.
