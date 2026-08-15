@@ -6,11 +6,22 @@ const APACHE_2_CANONICAL_SHA256 =
   "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30";
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const policy = JSON.parse(await readFile("license-policy.json", "utf8"));
-const inventory = spawnSync(pnpm, ["licenses", "list", "--json"], { encoding: "utf8" });
+const inventory = spawnSync(pnpm, ["licenses", "list", "--json"], {
+  encoding: "utf8",
+  env: { ...process.env, FORCE_COLOR: "0", NO_COLOR: "1" },
+  maxBuffer: 16 * 1024 * 1024,
+});
 
 if (inventory.status !== 0) {
-  process.stderr.write(inventory.stderr);
-  process.exit(inventory.status ?? 1);
+  const details = [
+    inventory.error?.stack,
+    inventory.stderr?.trim(),
+    inventory.stdout?.trim(),
+    inventory.signal ? `terminated by signal ${inventory.signal}` : undefined,
+  ].filter(Boolean);
+  throw new Error(
+    `pnpm license inventory failed with status ${inventory.status ?? "unknown"}${details.length > 0 ? `:\n${details.join("\n")}` : " without diagnostic output"}`,
+  );
 }
 
 const dependenciesByLicense = JSON.parse(inventory.stdout);
