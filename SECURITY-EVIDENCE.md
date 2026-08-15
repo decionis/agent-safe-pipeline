@@ -33,7 +33,7 @@ The following gates were observed failing on 2026-08-15 before their controls we
 
 ## Known gaps and external dependencies
 
-- `@decionis/agent-safe-pipeline` does not yet exist on npm. npm requires a package to exist before trusted publishing can be configured, so its initial publication remains an npm-owner bootstrap task. Subsequent releases remain disabled until `deploy.yml` is configured as the trusted publisher and the repository variable documented in `CONTRIBUTING.md` is enabled.
+- `@decionis/agent-safe-pipeline` does not yet exist on npm. npm requires a package to exist before trusted publishing can be configured, so its initial publication remains an npm-owner bootstrap task tracked in [issue #19](https://github.com/decionis/agent-safe-pipeline/issues/19). Subsequent releases remain disabled until `deploy.yml` is configured as the trusted publisher and the repository variable documented in `CONTRIBUTING.md` is enabled.
 - Fixture provenance, trademark ownership, and disclosure targets require the written human decisions tracked in `PUBLICATION-SIGNOFFS.md`; automation cannot manufacture those approvals.
 - Repository-age, contributor-count, and historical review signals improve only with real project activity.
-- OpenSSF Best Practices registration and hosted fuzzing require external service enrollment. They are tracked as public follow-up work rather than represented as complete.
+- OpenSSF Best Practices registration and hosted fuzzing require external service enrollment. They are tracked in [issue #22](https://github.com/decionis/agent-safe-pipeline/issues/22) and [issue #21](https://github.com/decionis/agent-safe-pipeline/issues/21) rather than represented as complete.
