@@ -24,6 +24,11 @@ requests, or administer the repository. Each workflow token is narrowed to the
 repository that requested it, even when the App installation includes another
 repository.
 
+API requests use bounded retry and timeout controls. Successful JSON responses
+are streamed into a 100 KiB maximum buffer before parsing. Oversized or malformed
+responses fail closed with stable error codes, and failed GitHub responses retain
+only the HTTP status rather than a downstream response body.
+
 `BranchCandidate.yml` records branch creation without using App credentials.
 It dispatches `PullRequestBot.yml`, whose workflow and script are checked out
 from the trusted default branch. A scheduled scan covers branches that were
