@@ -14,21 +14,21 @@ keys by UTF-16 code units and encodes strings verbatim via JavaScript's JSON
 encoding. These forms are intentionally **distinct** and produce different
 hashes:
 
-| Form | Example | Note |
-|------|---------|------|
-| NFC composed | `"caf\u00e9"` (é, U+00E9) | distinct from NFD |
-| NFD decomposed | `"cafe\u0301"` (e + combining acute) | distinct from NFC |
-| Astral characters | `"🚀"` (U+1F680) | encoded verbatim as UTF-8, no escaping |
+| Form              | Example                              | Note                                   |
+| ----------------- | ------------------------------------ | -------------------------------------- |
+| NFC composed      | `"caf\u00e9"` (é, U+00E9)            | distinct from NFD                      |
+| NFD decomposed    | `"cafe\u0301"` (e + combining acute) | distinct from NFC                      |
+| Astral characters | `"🚀"` (U+1F680)                     | encoded verbatim as UTF-8, no escaping |
 
 ## Number encoding
 
 JavaScript's JSON encoding is used verbatim:
 
-| Value | Canonical bytes | Note |
-|-------|----------------|------|
-| `-0` | `0` | negative zero collapses to `0` |
-| `1.5` | `1.5` | fractional preserved |
-| `1e21` | `1e+21` | exponent form (`toJSON`-style) |
+| Value  | Canonical bytes | Note                           |
+| ------ | --------------- | ------------------------------ |
+| `-0`   | `0`             | negative zero collapses to `0` |
+| `1.5`  | `1.5`           | fractional preserved           |
+| `1e21` | `1e+21`         | exponent form (`toJSON`-style) |
 
 ## Key sort order
 
