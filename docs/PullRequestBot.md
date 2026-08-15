@@ -59,15 +59,18 @@ action revoke it when the job ends.
 
 ## Bootstrap and verification
 
-1. Merge the workflow implementation using the existing PR-only owner bypass.
-2. Install and configure the App while `PR_BOT_ENABLED` remains absent or
+1. Install and configure the App while `PR_BOT_ENABLED` remains absent or
    `false`.
-3. Set `PR_BOT_ENABLED=true`.
-4. Push a new branch created by `@ocularminds` with at least one commit ahead
-   of `master`.
-5. Confirm the PR author is `decionis-pr-bot[bot]`, required CI runs, and
+2. Push the workflow implementation branch as `@ocularminds`.
+3. Mint a one-time token from the installation and use it to open the bootstrap
+   pull request. Do not rewrite the branch commits, and remove the downloaded
+   private key after storing it as the Actions secret.
+4. Confirm the PR author is `decionis-pr-bot[bot]`, required CI runs, and
    `@ocularminds` can submit the counting CODEOWNER approval.
-6. Remove the owner from the ruleset bypass list only after this path succeeds.
+5. Merge the approved bootstrap pull request, then set `PR_BOT_ENABLED=true`.
+6. Push a new branch created by `@ocularminds` with at least one commit ahead
+   of `master` and verify the automated path end to end.
+7. Remove the owner from the ruleset bypass list only after this path succeeds.
 
 Rotate the App private key through GitHub App settings and update
 `PR_BOT_PRIVATE_KEY` before revoking the old key. Set
