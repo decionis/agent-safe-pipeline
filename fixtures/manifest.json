@@ -69,6 +69,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "examples/procurement-agent/src/Index.ts",
+      "family": "Runnable example",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "examples/shopify-refund-agent/src/Index.ts",
       "family": "Runnable example",
       "source": "synthetic",
