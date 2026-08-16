@@ -34,6 +34,7 @@ The repository is canonical. It has no hosted API and no AgentSafe MCP product e
 - Example: examples/basic-agent
 - Example: examples/shopify-refund-agent
 - Example: examples/github-deploy-agent
+- Example: examples/procurement-agent
 - Example: examples/mcp-tool-gate
 
 Package registry: https://www.npmjs.com/package/@decionis/agent-safe-pipeline. Stable releases use the `latest` tag; prereleases require an explicit version or the `next` tag.
