@@ -289,7 +289,7 @@ jobs:
           if [[ "$published_version" == "$RELEASE_VERSION" ]]; then
             echo "$NPM_PACKAGE@$RELEASE_VERSION is already public; skipping publication."
           else
-            publish_args=("release/$RELEASE_TARBALL" --access public)
+            publish_args=("./release/$RELEASE_TARBALL" --access public)
             if [[ "$RELEASE_VERSION" == *-* ]]; then
               publish_args+=(--tag next)
             fi
