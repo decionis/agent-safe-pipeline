@@ -30,6 +30,7 @@
     "format:fix": "prettier --write .",
     "hooks:install": "simple-git-hooks",
     "fixture:check": "node scripts/CheckFixtureProvenance.mjs",
+    "fuzz": "pnpm --filter @decionis/agent-safe-pipeline test:fuzz",
     "license:inventory": "node scripts/GenerateLicenseInventory.mjs",
     "license:check": "node scripts/CheckLicenses.mjs",
     "lint": "eslint . && pnpm lint:markdown",

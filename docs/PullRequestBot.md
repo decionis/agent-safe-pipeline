@@ -29,10 +29,11 @@ are streamed into a 100 KiB maximum buffer before parsing. Oversized or malforme
 responses fail closed with stable error codes, and failed GitHub responses retain
 only the HTTP status rather than a downstream response body.
 
-`BranchCandidate.yml` records branch creation without using App credentials.
-It dispatches `PullRequestBot.yml`, whose workflow and script are checked out
-from the trusted default branch. A scheduled scan covers branches that were
-created before the workflow existed or received commits after creation.
+`PullRequestBot.yml` handles branch-creation events directly, so its default
+`GITHUB_TOKEN` needs only Contents read. Its workflow and script are checked out
+from the trusted default branch before the narrowly scoped App token is minted.
+A scheduled scan covers branches that were created before the workflow existed
+or received commits after creation.
 
 ## GitHub App configuration
 

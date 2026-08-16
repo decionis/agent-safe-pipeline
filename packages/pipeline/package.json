@@ -35,6 +35,7 @@
   "scripts": {
     "build": "node ../../scripts/CleanBuildOutput.mjs && tsc -p tsconfig.build.json",
     "test": "vitest run --coverage",
+    "test:fuzz": "vitest run test/fuzz",
     "test:mutation": "stryker run",
     "test:performance": "vitest run test/performance",
     "typecheck": "tsc -p tsconfig.json --noEmit"
@@ -48,6 +49,7 @@
     "@stryker-mutator/core": "10.0.0",
     "@stryker-mutator/vitest-runner": "10.0.0",
     "@vitest/coverage-v8": "^4.1.10",
+    "fast-check": "4.9.0",
     "vitest": "^4.1.10"
   },
   "publishConfig": {

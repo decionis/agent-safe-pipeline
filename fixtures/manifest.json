@@ -111,6 +111,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/pipeline/test/fuzz/CanonicalIntentHasher.fuzz.test.ts",
+      "family": "Property-fuzz fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/pipeline/test/http/AuthorityBaseUrl.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
