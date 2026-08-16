@@ -1,0 +1,121 @@
+name: Bootstrap npm package
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type publish-v0.1.2 to authorize the one-time bootstrap
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-package-bootstrap
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >-
+      github.ref == 'refs/heads/master' &&
+      github.actor == 'ocularminds' &&
+      inputs.confirmation == 'publish-v0.1.2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: npm-bootstrap
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+      - name: Check out trusted bootstrap verifier
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Set up Node.js and npm registry
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.18.0
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Verify npm supports provenance and trusted publishing
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm_version="$(npm --version)"
+          node -e '
+            const [major, minor] = process.argv[1].split(".").map(Number);
+            if (major < 11 || (major === 11 && minor < 5)) process.exit(1);
+          ' "$npm_version"
+      - name: Download the fixed GitHub release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/npm-bootstrap"
+          gh release download v0.1.2 \
+            --repo "$GITHUB_REPOSITORY" \
+            --dir "$RUNNER_TEMP/npm-bootstrap" \
+            --pattern decionis-agent-safe-pipeline-0.1.2.tgz \
+            --pattern SHA256SUMS \
+            --pattern agent-safe-pipeline-0.1.2.provenance.sigstore.json \
+            --pattern trusted_root.jsonl
+      - name: Verify checksum, package metadata, and GitHub attestation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          bootstrap="$RUNNER_TEMP/npm-bootstrap"
+          node scripts/VerifyBootstrapTarball.mjs \
+            "$bootstrap/decionis-agent-safe-pipeline-0.1.2.tgz" \
+            "$bootstrap/SHA256SUMS" \
+            "@decionis/agent-safe-pipeline" \
+            "0.1.2" \
+            "4cb14a3906f42fbea23fc4c9cc6450f731f09b18bc15eccbab2e723c30d1a92a"
+          gh attestation verify \
+            "$bootstrap/decionis-agent-safe-pipeline-0.1.2.tgz" \
+            --repo "$GITHUB_REPOSITORY" \
+            --bundle "$bootstrap/agent-safe-pipeline-0.1.2.provenance.sigstore.json" \
+            --custom-trusted-root "$bootstrap/trusted_root.jsonl"
+      - name: Publish the verified tarball once
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_BOOTSTRAP_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          package="@decionis/agent-safe-pipeline"
+          version="0.1.2"
+          tarball="$RUNNER_TEMP/npm-bootstrap/decionis-agent-safe-pipeline-0.1.2.tgz"
+          published_version="$(npm view "$package@$version" version 2>/dev/null || true)"
+          if [[ "$published_version" != "$version" ]]; then
+            if [[ -z "${NODE_AUTH_TOKEN:-}" ]]; then
+              echo "NPM_BOOTSTRAP_TOKEN is required for the initial publication." >&2
+              exit 1
+            fi
+            npm publish "$tarball" --access public --provenance --ignore-scripts
+          fi
+          test "$(npm view "$package@$version" version)" = "$version"
+      - name: Verify npm serves the identical release tarball
+        shell: bash
+        run: |
+          set -euo pipefail
+          registry="$RUNNER_TEMP/npm-registry-copy"
+          mkdir -p "$registry"
+          npm pack "@decionis/agent-safe-pipeline@0.1.2" \
+            --pack-destination "$registry" \
+            --ignore-scripts \
+            --silent
+          node scripts/VerifyBootstrapTarball.mjs \
+            "$registry/decionis-agent-safe-pipeline-0.1.2.tgz" \
+            "$RUNNER_TEMP/npm-bootstrap/SHA256SUMS" \
+            "@decionis/agent-safe-pipeline" \
+            "0.1.2" \
+            "4cb14a3906f42fbea23fc4c9cc6450f731f09b18bc15eccbab2e723c30d1a92a"
+          echo "Verified npm bootstrap package and exact release digest." >> "$GITHUB_STEP_SUMMARY"
