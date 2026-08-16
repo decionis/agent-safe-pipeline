@@ -1,0 +1,81 @@
+name: "Test packed package"
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  packed-package-matrix:
+    name: "Node ${{ matrix.node }} — packed tarball"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["22.14.0", "lts"]
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 9.15.3
+          run_install: false
+          standalone: true
+      - name: Set up Node.js ${{ matrix.node }}
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Install dependencies (lifecycle scripts disabled)
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Build package
+        run: pnpm --filter @decionis/agent-safe-pipeline build
+      - name: Pack tarball
+        run: |
+          pnpm --filter @decionis/agent-safe-pipeline pack --pack-destination /tmp/tarball
+          echo "TARBALL_PATH=$(ls /tmp/tarball/*.tgz)" >> "$GITHUB_ENV"
+      - name: Create isolated consumer workspace
+        run: |
+          mkdir -p /tmp/consumer
+          cp tests/integration/npm-pack/consumer.mjs /tmp/consumer/
+          cat > /tmp/consumer/package.json << 'EOF'
+          {
+            "name": "consumer-test",
+            "version": "0.0.0",
+            "private": true,
+            "type": "module",
+            "dependencies": {
+              "@decionis/agent-safe-pipeline": "file:${{ env.TARBALL_PATH }}"
+            }
+          }
+          EOF
+      - name: Install tarball into consumer (offline after)
+        working-directory: /tmp/consumer
+        run: |
+          npm install --prefer-offline
+          # Freeze the offline store — no registry substitution allowed
+          npm config set registry "https://example.invalid"
+      - name: Run consumer validation (ALLOW + BLOCK)
+        working-directory: /tmp/consumer
+        run: node consumer.mjs
+      - name: Verify offline — no registry access after install
+        working-directory: /tmp/consumer
+        run: |
+          # This MUST fail (registry is blocked) — proves no substitution
+          npm view @decionis/agent-safe-pipeline version 2>/dev/null && {
+            echo "FAIL: registry was reachable after install"
+            exit 1
+          } || echo "PASS: registry unreachable after install (expected)"
