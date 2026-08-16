@@ -98,7 +98,7 @@ describe("npm trusted publish workflow", () => {
 
     assert.equal(result.status, 0, result.stderr);
     assert.equal(count, 4);
-    assert.ok(calls.includes("publish release/package.tgz --access public --tag next"));
+    assert.ok(calls.includes("publish ./release/package.tgz --access public --tag next"));
     assert.match(result.stdout, /became public after 3 verification attempt\(s\)/);
   });
 
@@ -106,7 +106,7 @@ describe("npm trusted publish workflow", () => {
     const { calls, result } = await runPublish({ publicAfter: 2, version: "0.1.3" });
 
     assert.equal(result.status, 0, result.stderr);
-    assert.ok(calls.includes("publish release/package.tgz --access public"));
+    assert.ok(calls.includes("publish ./release/package.tgz --access public"));
     assert.equal(
       calls.some((call) => call.includes("--tag next")),
       false,
