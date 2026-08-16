@@ -75,7 +75,7 @@ Decionis remains the authoritative decision service, Presence remains the human-
 
 ## Status
 
-The package is published as [`@decionis/agent-safe-pipeline`](https://www.npmjs.com/package/@decionis/agent-safe-pipeline). Install the latest stable release with `npm install @decionis/agent-safe-pipeline`; prereleases require an explicit version such as `npm install @decionis/agent-safe-pipeline@0.1.3-rc.1`.
+The package is published as [`@decionis/agent-safe-pipeline`](https://www.npmjs.com/package/@decionis/agent-safe-pipeline). Install the latest stable release with `npm install @decionis/agent-safe-pipeline`; prereleases require an explicit version such as `npm install @decionis/agent-safe-pipeline@0.1.3-rc.2`.
 
 ## Development
 

@@ -13,7 +13,7 @@ npm install @decionis/agent-safe-pipeline
 To evaluate this prerelease explicitly:
 
 ```bash
-npm install @decionis/agent-safe-pipeline@0.1.3-rc.1
+npm install @decionis/agent-safe-pipeline@0.1.3-rc.2
 ```
 
 Production credentials belong in the trusted executor process, never the agent runtime:
