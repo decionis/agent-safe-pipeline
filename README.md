@@ -75,7 +75,7 @@ Decionis remains the authoritative decision service, Presence remains the human-
 
 ## Status
 
-The workspace package is versioned `0.1.2` but is not claimed as published until the registry release workflow succeeds. Install it from this workspace today. The canonical repository URL was verified on 2026-08-14; availability of future package releases is intentionally not fabricated in these docs.
+The package is published as [`@decionis/agent-safe-pipeline`](https://www.npmjs.com/package/@decionis/agent-safe-pipeline). Install the latest stable release with `npm install @decionis/agent-safe-pipeline`; prereleases require an explicit version such as `npm install @decionis/agent-safe-pipeline@0.1.3-rc.1`.
 
 ## Development
 

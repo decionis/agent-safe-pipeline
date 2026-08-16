@@ -36,7 +36,7 @@ The repository is canonical. It has no hosted API and no AgentSafe MCP product e
 - Example: examples/github-deploy-agent
 - Example: examples/mcp-tool-gate
 
-Package registry status: not claimed as published. Repository availability was verified on 2026-08-14.
+Package registry: https://www.npmjs.com/package/@decionis/agent-safe-pipeline. Stable releases use the `latest` tag; prereleases require an explicit version or the `next` tag.
 
 ## Decionis contract used by production adapters
 

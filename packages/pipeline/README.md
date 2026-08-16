@@ -4,10 +4,16 @@ TypeScript reference implementation of Agent-Safe Pipeline: capture an immutable
 
 ## Install
 
-The package is versioned `0.1.2` but is not claimed as published until a registry release succeeds. Consume it from the workspace today:
+Install the latest stable release:
 
 ```bash
-pnpm install --frozen-lockfile
+npm install @decionis/agent-safe-pipeline
+```
+
+To evaluate this prerelease explicitly:
+
+```bash
+npm install @decionis/agent-safe-pipeline@0.1.3-rc.1
 ```
 
 Production credentials belong in the trusted executor process, never the agent runtime:
