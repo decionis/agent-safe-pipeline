@@ -14,7 +14,7 @@ console.log(`Imported ${exports.length} exports:`, exports);
 const EXPECTED_RUNTIME = [
   "CanonicalIntentHasher",
   "IntentCapture",
-  "DecisionAuthority",  // might be type-only; we verify gracefully
+  "DecisionAuthority", // might be type-only; we verify gracefully
   "DecionisGate",
   "FixtureDecisionAuthority",
   "ActionRegistry",
@@ -46,7 +46,13 @@ try {
   CanonicalIntentHasher.stringify({ __proto__: "injected" });
   assert.fail("Expected error for forbidden key __proto__");
 } catch (err) {
-  assert.ok(err.message.includes("INTENT_TOO_COMPLEX") || err.message.includes("unsafe") || err.message.includes("forbidden") || err.message.includes("UNSAFE"), `Unexpected error: ${err.message}`);
+  assert.ok(
+    err.message.includes("INTENT_TOO_COMPLEX") ||
+      err.message.includes("unsafe") ||
+      err.message.includes("forbidden") ||
+      err.message.includes("UNSAFE"),
+    `Unexpected error: ${err.message}`,
+  );
   console.log("BLOCK path passed:", err.message);
 }
 
