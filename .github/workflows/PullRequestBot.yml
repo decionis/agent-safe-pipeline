@@ -1,6 +1,7 @@
 name: Pull request bot
 
 on:
+  create:
   schedule:
     - cron: "7,22,37,52 * * * *"
   workflow_dispatch:
@@ -23,7 +24,10 @@ concurrency:
 
 jobs:
   open-pull-request:
-    if: vars.PR_BOT_ENABLED == 'true'
+    if: >-
+      vars.PR_BOT_ENABLED == 'true' &&
+      (github.event_name != 'create' ||
+      (github.event.ref_type == 'branch' && github.actor == 'ocularminds'))
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

@@ -63,7 +63,7 @@ describe("PullRequestBot", () => {
           head_branch: "feature/owned",
           actor: { login: expectedAuthorLogin },
           repository: { full_name: repository },
-          path: ".github/workflows/BranchCandidate.yml",
+          path: ".github/workflows/PullRequestBot.yml",
         };
       }
       if (path.endsWith("/pulls") && method === "POST") {
@@ -99,6 +99,44 @@ describe("PullRequestBot", () => {
     assert.equal(outcomes.length, 1);
     assert.equal(outcomes[0].status, "created");
     assert.match(outcomes[0].reason, /every commit ahead of master/);
+  });
+
+  it("evaluates only the branch named by a create event", async () => {
+    const { api, bot } = createBot(({ method, path }) => {
+      if (path.endsWith("/pulls") && method === "GET") return [];
+      if (path.includes("/compare/")) return comparison();
+      if (path.endsWith("/actions/runs")) return { workflow_runs: [] };
+      if (path.endsWith("/pulls") && method === "POST") {
+        return { html_url: "https://github.com/decionis/agent-safe-pipeline/pull/101" };
+      }
+      throw new Error("Unexpected request: " + method + " " + path);
+    });
+
+    const outcomes = await bot.run("create", {
+      ref: "feature/direct-create",
+      ref_type: "branch",
+    });
+
+    assert.equal(outcomes[0].status, "created");
+    assert.equal(
+      api.calls.some(({ method }) => method === "PAGINATE"),
+      false,
+    );
+    const compareCall = api.calls.find(({ path }) => path.includes("/compare/"));
+    assert.match(compareCall.path, /feature%2Fdirect-create$/);
+  });
+
+  it("ignores non-branch create events without querying GitHub", async () => {
+    const { api, bot } = createBot(() => {
+      throw new Error("The API must not be called for a tag create event");
+    });
+
+    const outcomes = await bot.run("create", { ref: "v1.0.0", ref_type: "tag" });
+
+    assert.deepEqual(outcomes, [
+      { branch: "v1.0.0", status: "skipped", reason: "non-branch-create-event" },
+    ]);
+    assert.equal(api.calls.length, 0);
   });
 
   it("fails closed when neither creator nor every commit is trusted", async () => {

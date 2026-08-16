@@ -9,7 +9,7 @@ const maxTimeoutMs = 15_000;
 const maxAttemptsLimit = 3;
 const maxPages = 3;
 const perPage = 100;
-const branchCreationWorkflow = ".github/workflows/BranchCandidate.yml";
+const branchCreationWorkflow = ".github/workflows/PullRequestBot.yml";
 
 export class GitHubApiError extends Error {
   constructor(message, status) {
@@ -134,8 +134,15 @@ export class PullRequestBot {
   }
 
   async run(eventName, event) {
+    if (eventName === "create" && event?.ref_type !== "branch") {
+      return [{ branch: event?.ref, status: "skipped", reason: "non-branch-create-event" }];
+    }
     const requestedBranch =
-      eventName === "workflow_dispatch" ? this.readInput(event, "branch") : undefined;
+      eventName === "workflow_dispatch"
+        ? this.readInput(event, "branch")
+        : eventName === "create" && event?.ref_type === "branch"
+          ? event.ref
+          : undefined;
     const creationRunId =
       eventName === "workflow_dispatch" ? this.readInput(event, "creation_run_id") : undefined;
     const branches = requestedBranch ? [requestedBranch] : await this.listCandidateBranches();
