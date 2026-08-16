@@ -17,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ["22.14.0", "lts"]
+        node: ["22.14.0", "22"]
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
@@ -45,8 +45,10 @@ jobs:
         run: pnpm --filter @decionis/agent-safe-pipeline build
       - name: Pack tarball
         run: |
-          pnpm --filter @decionis/agent-safe-pipeline pack --pack-destination /tmp/tarball
+          cd packages/pipeline
+          pnpm pack --pack-destination /tmp/tarball
           echo "TARBALL_PATH=$(ls /tmp/tarball/*.tgz)" >> "$GITHUB_ENV"
+        working-directory: ${{ github.workspace }}
       - name: Create isolated consumer workspace
         run: |
           mkdir -p /tmp/consumer
