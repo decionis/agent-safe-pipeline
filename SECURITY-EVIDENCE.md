@@ -14,6 +14,7 @@ This map is an evidence index, not a claim of certification. Commands are run fr
 | Fixtures are synthetic by construction                      | `FIXTURE-PROVENANCE.md`, `scripts/CheckFixtureProvenance.mjs`       | `pnpm fixture:check`                                                                                                                                                          |
 | Browser framing controls                                    | Not applicable to the current Node.js library and CLI examples      | The repository has no HTTP listener, browser UI, redirects, or hosted demo; any future web surface must test CSP (including `frame-ancestors`) on success and error responses |
 | Releases are independently verifiable                       | `.github/workflows/deploy.yml`, `CONTRIBUTING.md`                   | Release tarball, SBOM, inventories, checksums, Sigstore bundles, raw in-toto statements, and trusted root are attached to the GitHub release                                  |
+| Initial npm publication is owner-gated                      | `.github/workflows/npm-bootstrap.yml`, bootstrap verifier           | Exact actor/ref/confirmation, non-bypassable protected environment approval, fixed release digest, GitHub attestation, short-lived secret, and registry digest verification   |
 | Vulnerabilities have private reporting and response targets | `SECURITY.md`                                                       | GitHub private vulnerability reporting and `security@decionis.com`                                                                                                            |
 | Repository changes are protected                            | `.github/CODEOWNERS`, GitHub branch protection and ruleset APIs     | Up-to-date required checks plus one code-owner review; the named maintainer has PR-only bypass to avoid deadlock                                                              |
 
@@ -36,7 +37,11 @@ The following gates were observed failing on 2026-08-15 before their controls we
 
 ## Known gaps and external dependencies
 
-- `@decionis/agent-safe-pipeline` does not yet exist on npm. npm requires a package to exist before trusted publishing can be configured, so its initial publication remains an npm-owner bootstrap task tracked in [issue #19](https://github.com/decionis/agent-safe-pipeline/issues/19). Subsequent releases remain disabled until `deploy.yml` is configured as the trusted publisher and the repository variable documented in `CONTRIBUTING.md` is enabled.
+- `@decionis/agent-safe-pipeline` does not yet exist on npm. The protected, one-time bootstrap path
+  is implemented, but an npm owner must supply and immediately revoke the temporary granular token,
+  remove the bootstrap workflow after use, configure `deploy.yml` as the trusted publisher, and
+  prove an OIDC prerelease before enabling stable publication. This remains tracked in
+  [issue #19](https://github.com/decionis/agent-safe-pipeline/issues/19).
 - Fixture provenance, trademark ownership, and disclosure targets require the written human decisions tracked in `PUBLICATION-SIGNOFFS.md`; automation cannot manufacture those approvals.
 - Repository-age, contributor-count, and historical review signals improve only with real project activity.
 - OpenSSF Best Practices registration requires an accountable Decionis owner to authenticate and self-certify the public evidence. It remains tracked in [issue #22](https://github.com/decionis/agent-safe-pipeline/issues/22) rather than represented as complete.

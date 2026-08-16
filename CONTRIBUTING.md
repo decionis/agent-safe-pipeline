@@ -30,7 +30,35 @@ Before merging a release change, exercise the same build and attestation path wi
 gh workflow run deploy.yml --ref <branch> -f release_dry_run=true
 ```
 
-The release can publish the exact tarball to npm without a long-lived token after the package exists. npm currently requires the package to exist before a trusted publisher can be configured, and `@decionis/agent-safe-pipeline` is not yet registered. An npm owner must bootstrap its first public version, then configure the package's trusted publisher for organization `decionis`, repository `agent-safe-pipeline`, workflow `deploy.yml`, and set the GitHub Actions repository variable `NPM_PUBLISH_ENABLED` to `true`. The workflow then uses OIDC, public access, and npm provenance. Without that explicit setup it creates a GitHub-only release and records that npm was skipped.
+The release can publish the exact tarball to npm without a long-lived token after the package
+exists. Until issue #19 is complete, keep `NPM_PUBLISH_ENABLED=false`. The one-time
+`npm-bootstrap.yml` workflow is pinned to the signed v0.1.2 release tarball and runs only from
+`master`, as `@ocularminds`, with the exact confirmation `publish-v0.1.2`, through the protected
+`npm-bootstrap` environment.
+
+An npm owner completes the bootstrap as follows:
+
+1. Create the `npm-bootstrap` GitHub environment with `@ocularminds` as required reviewer,
+   protected branches only, and administrator bypass disabled.
+2. Create a one-day granular npm token with read/write package-and-scope access to `@decionis` and
+   2FA bypass. Organization-management permission does not grant package publication permission.
+3. Store it only as the `NPM_BOOTSTRAP_TOKEN` environment secret, dispatch `npm-bootstrap.yml` from
+   `master`, enter `publish-v0.1.2`, and approve the environment deployment.
+4. Confirm the workflow verifies the GitHub checksum and attestation, publishes with provenance,
+   then downloads and verifies the registry tarball against SHA-256
+   `4cb14a3906f42fbea23fc4c9cc6450f731f09b18bc15eccbab2e723c30d1a92a`.
+5. Delete the environment secret, revoke the granular token, and remove `npm-bootstrap.yml` in the
+   next pull request.
+6. Configure npm trusted publishing for organization/user `decionis`, repository
+   `agent-safe-pipeline`, workflow filename `deploy.yml`, with `npm publish` permission. Then select
+   "Require two-factor authentication and disallow tokens" for traditional package publishing.
+7. Increment both manifests to `0.1.3-rc.1` in a release pull request. Temporarily set
+   `NPM_PUBLISH_ENABLED=true` immediately before merging it; `deploy.yml` creates the tag and
+   prerelease, so do not create the tag manually. Verify npm provenance and the registry/GitHub
+   tarball digest before leaving the variable enabled for stable releases.
+
+Without the completed bootstrap and trusted-publisher setup, `deploy.yml` creates a GitHub-only
+release and records that npm was skipped.
 
 To verify a release as an outsider, download all assets into an empty directory, run `shasum -a 256 -c SHA256SUMS`, then verify the tarball offline with the matching provenance bundle and `trusted_root.jsonl`:
 
