@@ -82,6 +82,15 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
 
+  examples/procurement-agent:
+    dependencies:
+      '@decionis/agent-safe-pipeline':
+        specifier: workspace:*
+        version: link:../../packages/pipeline
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+
   examples/shopify-refund-agent:
     dependencies:
       '@decionis/agent-safe-pipeline':
