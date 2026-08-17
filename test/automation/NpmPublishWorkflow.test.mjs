@@ -27,6 +27,52 @@ const publishScript = workflow
   .replace(/^ {10}/gm, "")
   .trim();
 
+describe("keyless release tag workflow", () => {
+  it("signs and verifies the exact target before building release assets", () => {
+    const signingStep = workflow.indexOf("- name: Create and verify keyless signed release tag");
+    const buildStep = workflow.indexOf("- name: Build package, SBOM, and license inventories");
+
+    assert.notEqual(signingStep, -1);
+    assert.notEqual(buildStep, -1);
+    assert.ok(signingStep < buildStep);
+    assert.match(workflow, /GITSIGN_TOKEN_PROVIDER: github-actions/);
+    assert.match(
+      workflow,
+      /EXPECTED_IDENTITY: https:\/\/github\.com\/decionis\/agent-safe-pipeline\/\.github\/workflows\/deploy\.yml@refs\/heads\/master/,
+    );
+    assert.match(workflow, /git tag --sign "\$RELEASE_TAG" "\$TARGET_SHA"/);
+    assert.match(workflow, /gitsign verify/);
+    assert.match(workflow, /tag_target="\$\(git rev-list -n 1 "\$RELEASE_TAG"\)"/);
+  });
+
+  it("pushes the verified tag and requires GitHub to reuse it", () => {
+    const releaseStepStart = workflow.indexOf("- name: Create verified GitHub release");
+    const releaseStep = workflow.slice(releaseStepStart);
+
+    assert.notEqual(releaseStepStart, -1);
+    assert.match(
+      releaseStep,
+      /git push origin "refs\/tags\/\$RELEASE_TAG:refs\/tags\/\$RELEASE_TAG"/,
+    );
+    assert.match(releaseStep, /--verify-tag/);
+    assert.doesNotMatch(releaseStep, /--target/);
+  });
+
+  it("pins gitsign by checksum and retains least-privilege OIDC access", () => {
+    assert.match(workflow, /GITSIGN_VERSION: 0\.17\.1/);
+    assert.match(
+      workflow,
+      /GITSIGN_SHA256: 69213a8a0813a151e5a47d0060862952ff833a845d57309dff76f7ba6600abae/,
+    );
+    assert.match(
+      workflow,
+      /echo "\$GITSIGN_SHA256\x20{2}\$gitsign_path" \| sha256sum --check --strict/,
+    );
+    assert.match(workflow, /id-token: write/);
+    assert.match(workflow, /contents: write/);
+  });
+});
+
 async function runPublish({ publicAfter, version }) {
   const directory = await mkdtemp(join(tmpdir(), "agent-safe-npm-publish-"));
   const npmPath = join(directory, "npm");

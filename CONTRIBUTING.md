@@ -44,6 +44,8 @@ decisions, access continuity, and maintainer changes. Participation is governed 
 
 After verification succeeds on a merge to `master`, CI reads the matching workspace and package versions, builds the npm tarball, generates an artifact-derived CycloneDX SBOM and dependency-license inventories, asserts the SBOM component floor, creates signed GitHub artifact and SBOM attestations, verifies the provenance in-run, installs the tarball in a clean consumer directory, and creates the corresponding `v<version>` GitHub release. The tarball, inventories, SBOM, SHA-256 manifest, Sigstore bundles, raw in-toto statements, and trusted root are release assets. Existing releases are skipped safely, prerelease versions are marked as prereleases, and a tag without a matching GitHub release fails closed for manual review. Increment both versions in the release PR when a new release is intended.
 
+Release tags are annotated and keylessly signed by the protected deploy workflow. Maintainer verification, trust-root rotation, and legacy-tag behavior are documented in [Release tag signing](docs/release-tag-signing.md).
+
 Before merging a release change, exercise the same build and attestation path without publishing:
 
 ```sh
