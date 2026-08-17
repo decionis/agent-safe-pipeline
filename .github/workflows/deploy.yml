@@ -177,6 +177,48 @@ jobs:
             const [major, minor] = process.argv[1].split(".").map(Number);
             if (major < 11 || (major === 11 && minor < 5)) process.exit(1);
           ' "$npm_version"
+      - name: Install checksum-verified gitsign
+        if: steps.release.outputs.exists != 'true' && github.event_name == 'push'
+        env:
+          GITSIGN_VERSION: 0.17.1
+          GITSIGN_SHA256: 69213a8a0813a151e5a47d0060862952ff833a845d57309dff76f7ba6600abae
+        shell: bash
+        run: |
+          set -euo pipefail
+          gitsign_path="$RUNNER_TEMP/gitsign"
+          curl --proto '=https' --tlsv1.2 --fail --location --retry 3 \
+            --output "$gitsign_path" \
+            "https://github.com/sigstore/gitsign/releases/download/v${GITSIGN_VERSION}/gitsign_${GITSIGN_VERSION}_linux_amd64"
+          echo "$GITSIGN_SHA256  $gitsign_path" | sha256sum --check --strict
+          chmod 0755 "$gitsign_path"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - name: Create and verify keyless signed release tag
+        if: steps.release.outputs.exists != 'true' && github.event_name == 'push'
+        env:
+          GITSIGN_TOKEN_PROVIDER: github-actions
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          TARGET_SHA: ${{ github.sha }}
+          EXPECTED_IDENTITY: https://github.com/decionis/agent-safe-pipeline/.github/workflows/deploy.yml@refs/heads/master
+          EXPECTED_ISSUER: https://token.actions.githubusercontent.com
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --local user.name "github-actions[bot]"
+          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --local gpg.format x509
+          git config --local gpg.x509.program gitsign
+          git tag --sign "$RELEASE_TAG" "$TARGET_SHA" --message "Release $RELEASE_TAG"
+
+          tag_target="$(git rev-list -n 1 "$RELEASE_TAG")"
+          if [[ "$tag_target" != "$TARGET_SHA" ]]; then
+            echo "Signed tag target $tag_target does not match release target $TARGET_SHA." >&2
+            exit 1
+          fi
+
+          gitsign verify \
+            --certificate-identity "$EXPECTED_IDENTITY" \
+            --certificate-oidc-issuer "$EXPECTED_ISSUER" \
+            "$RELEASE_TAG"
       - name: Install dependencies without lifecycle scripts
         if: steps.release.outputs.exists != 'true'
         run: pnpm install --frozen-lockfile --ignore-scripts
@@ -319,10 +361,12 @@ jobs:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
           RELEASE_TARBALL: ${{ steps.release.outputs.tarball }}
           RELEASE_VERSION: ${{ steps.release.outputs.version }}
-          TARGET_SHA: ${{ github.sha }}
         shell: bash
         run: |
           set -euo pipefail
+          gh auth setup-git
+          git push origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+
           npm_url="https://www.npmjs.com/package/$NPM_PACKAGE/v/$RELEASE_VERSION"
           if [[ "$NPM_PUBLISH_ENABLED" == "true" ]]; then
             npm_note="npm: [$NPM_PACKAGE@$RELEASE_VERSION]($npm_url)"
@@ -342,13 +386,15 @@ jobs:
             echo "  --custom-trusted-root trusted_root.jsonl"
             echo '```'
             echo
+            echo "The annotated release tag is keylessly signed by the protected deploy workflow. See [release tag signing](https://github.com/decionis/agent-safe-pipeline/blob/master/docs/release-tag-signing.md) for identity-bound verification commands."
+            echo
             echo "The CycloneDX SBOM was generated from the extracted npm tarball and contains at least five dependency components. Raw in-toto statements and their signed Sigstore bundles are attached for mirrors and offline verification."
           } > "$RUNNER_TEMP/release-notes.md"
 
           release_args=(
             "$RELEASE_TAG"
             release/*
-            --target "$TARGET_SHA"
+            --verify-tag
             --title "$RELEASE_TAG"
             --generate-notes
             --notes-file "$RUNNER_TEMP/release-notes.md"
