@@ -25,6 +25,7 @@
   },
   "scripts": {
     "build": "pnpm -r build",
+    "dependabot:check": "node scripts/CheckDependabotCoverage.mjs",
     "discovery": "node scripts/CheckDiscovery.mjs",
     "format": "prettier --check .",
     "format:fix": "prettier --write .",
@@ -46,7 +47,7 @@
     "test": "pnpm -r test",
     "test:automation": "node --test test/automation/*.test.mjs",
     "typecheck": "pnpm --filter @decionis/agent-safe-pipeline build && pnpm -r typecheck",
-    "verify": "pnpm format && pnpm lint && pnpm fixture:check && pnpm license:check && pnpm security && pnpm discovery && pnpm performance && pnpm typecheck && pnpm test:automation && pnpm test && pnpm build"
+    "verify": "pnpm format && pnpm lint && pnpm fixture:check && pnpm license:check && pnpm security && pnpm dependabot:check && pnpm discovery && pnpm performance && pnpm typecheck && pnpm test:automation && pnpm test && pnpm build"
   },
   "simple-git-hooks": {
     "pre-commit": "pnpm precommit"

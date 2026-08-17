@@ -7,6 +7,7 @@ This map is an evidence index, not a claim of independent certification. The Ope
 | Full history contains no detected secret                    | `.github/workflows/secrets.yml`, `.gitleaks.toml`                           | `gitleaks git --log-opts="--all" --redact`                                                                                                                                    |
 | Apache-2.0 text and package metadata are canonical          | `LICENSE`, `NOTICE`, package manifests, `scripts/CheckLicenses.mjs`         | `pnpm license:check`                                                                                                                                                          |
 | Runtime and CI dependency risks are gated separately        | `.github/workflows/supply-chain.yml`, root scripts                          | `pnpm security:production && pnpm security:toolchain`                                                                                                                         |
+| Dependency monitoring covers the workspace and Actions      | `DEPENDENCY-POLICY.md`, `.github/dependabot.yml`                            | `pnpm dependabot:check` proves weekly root npm/pnpm-workspace and GitHub Actions coverage                                                                                     |
 | Dependency licenses are reviewable                          | `license-policy.json`, `DEPENDENCY-LICENSES.md`                             | `pnpm license:inventory`                                                                                                                                                      |
 | CI dependencies are immutable                               | `.github/workflows/*.yml`                                                   | Every `uses:` reference is a 40-character commit SHA; `actionlint` validates syntax                                                                                           |
 | Agent output cannot authorize execution                     | `THREAT-MODEL.md`, `docs/trust-boundary.md`, `SafeExecutor` tests           | `pnpm test` and `pnpm mutation`                                                                                                                                               |
@@ -52,7 +53,6 @@ The following gates were observed failing on 2026-08-15 before their controls we
 - The OpenSSF Best Practices record has achieved Passing. Remaining Silver evidence and controls are
   tracked in [#46](https://github.com/decionis/agent-safe-pipeline/issues/46),
   [#47](https://github.com/decionis/agent-safe-pipeline/issues/47),
-  [#49](https://github.com/decionis/agent-safe-pipeline/issues/49),
   [#50](https://github.com/decionis/agent-safe-pipeline/issues/50),
   [#51](https://github.com/decionis/agent-safe-pipeline/issues/51), and
   [#52](https://github.com/decionis/agent-safe-pipeline/issues/52).
