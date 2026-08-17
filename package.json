@@ -40,6 +40,7 @@
     "mutation": "pnpm --filter @decionis/agent-safe-pipeline test:mutation",
     "precommit": "node scripts/PreCommit.mjs && pnpm fixture:check && pnpm license:check && pnpm lint && pnpm security && pnpm performance",
     "prepare": "simple-git-hooks",
+    "reproducible:compare": "node scripts/ComparePackageBuilds.mjs",
     "security": "pnpm security:production && pnpm security:toolchain",
     "security:production": "pnpm audit --prod --audit-level low",
     "security:toolchain": "pnpm audit --audit-level moderate",
