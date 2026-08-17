@@ -1,0 +1,75 @@
+name: Reproducible package build
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    name: Compare clean package builds
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+      - name: Check out first source tree
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: source-a
+          persist-credentials: false
+      - name: Check out second source tree
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: source-b
+          persist-credentials: false
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 9.15.3
+          run_install: false
+          standalone: true
+      - name: Set up release Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.18.0
+          package-manager-cache: false
+      - name: Install both clean source trees
+        run: |
+          pnpm --dir source-a install --frozen-lockfile --ignore-scripts
+          pnpm --dir source-b install --frozen-lockfile --ignore-scripts
+      - name: Build and pack both source trees
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/build-a artifacts/build-b
+          pnpm --dir source-a --filter @decionis/agent-safe-pipeline build
+          pnpm --dir source-b --filter @decionis/agent-safe-pipeline build
+          (
+            cd source-a/packages/pipeline
+            pnpm pack --pack-destination "$GITHUB_WORKSPACE/artifacts/build-a"
+          )
+          (
+            cd source-b/packages/pipeline
+            pnpm pack --pack-destination "$GITHUB_WORKSPACE/artifacts/build-b"
+          )
+      - name: Compare package bytes and contents
+        run: |
+          node source-a/scripts/ComparePackageBuilds.mjs \
+            artifacts/build-a/*.tgz \
+            artifacts/build-b/*.tgz \
+            artifacts/reproducibility-report.json
+      - name: Upload reproducibility evidence
+        if: ${{ always() && hashFiles('artifacts/**') != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: package-reproducibility
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 14

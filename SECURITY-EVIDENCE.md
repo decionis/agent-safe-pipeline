@@ -14,6 +14,7 @@ This map is an evidence index, not a claim of independent certification. The Ope
 | Fixtures are synthetic by construction                      | `FIXTURE-PROVENANCE.md`, `scripts/CheckFixtureProvenance.mjs`               | `pnpm fixture:check`                                                                                                                                                          |
 | Browser framing controls                                    | Not applicable to the current Node.js library and CLI examples              | The repository has no HTTP listener, browser UI, redirects, or hosted demo; any future web surface must test CSP (including `frame-ancestors`) on success and error responses |
 | Releases are independently verifiable                       | `.github/workflows/deploy.yml`, `CONTRIBUTING.md`                           | Release tarball, SBOM, inventories, checksums, Sigstore bundles, raw in-toto statements, and trusted root are attached to the GitHub release                                  |
+| Package builds are reproducible                             | `.github/workflows/reproducible-build.yml`, `docs/reproducible-builds.md`   | Two isolated checkouts build and pack the same commit; compressed and uncompressed SHA-256 digests, member manifests, and sizes must match                                    |
 | npm bootstrap provenance and digest were verified           | v0.1.2 GitHub release, package manifest, `CONTRIBUTING.md`                  | The public npm tarball SHA-256 matched the signed GitHub release asset; the temporary token and secret were removed and the one-time workflow was retired                     |
 | Vulnerabilities have private reporting and response targets | `SECURITY.md`                                                               | GitHub private vulnerability reporting and `security@decionis.com`                                                                                                            |
 | Repository changes are protected                            | `.github/CODEOWNERS`, GitHub branch protection and ruleset APIs             | Up-to-date required checks plus one code-owner review; the named maintainer has PR-only bypass to avoid deadlock                                                              |
@@ -51,7 +52,6 @@ The following gates were observed failing on 2026-08-15 before their controls we
 - The OpenSSF Best Practices record has achieved Passing. Remaining Silver evidence and controls are
   tracked in [#46](https://github.com/decionis/agent-safe-pipeline/issues/46),
   [#47](https://github.com/decionis/agent-safe-pipeline/issues/47),
-  [#48](https://github.com/decionis/agent-safe-pipeline/issues/48),
   [#49](https://github.com/decionis/agent-safe-pipeline/issues/49),
   [#50](https://github.com/decionis/agent-safe-pipeline/issues/50),
   [#51](https://github.com/decionis/agent-safe-pipeline/issues/51), and
