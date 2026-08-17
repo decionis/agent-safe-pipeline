@@ -17,6 +17,7 @@ This map is an evidence index, not a claim of independent certification. The Ope
 | npm bootstrap provenance and digest were verified           | v0.1.2 GitHub release, package manifest, `CONTRIBUTING.md`                  | The public npm tarball SHA-256 matched the signed GitHub release asset; the temporary token and secret were removed and the one-time workflow was retired                     |
 | Vulnerabilities have private reporting and response targets | `SECURITY.md`                                                               | GitHub private vulnerability reporting and `security@decionis.com`                                                                                                            |
 | Repository changes are protected                            | `.github/CODEOWNERS`, GitHub branch protection and ruleset APIs             | Up-to-date required checks plus one code-owner review; the named maintainer has PR-only bypass to avoid deadlock                                                              |
+| Contribution and governance authority are explicit          | `GOVERNANCE.md`, `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md`                    | The `DCO` workflow enforces author-matching sign-offs; role, escalation, access-continuity, and bus-factor limits are public                                                  |
 | OpenSSF Best Practices Passing evidence is public           | README badge, [project 14098](https://www.bestpractices.dev/projects/14098) | The active record identifies this canonical repository, has achieved Passing, and publishes unanswered Silver criteria for follow-up                                          |
 
 ## Negative-control record
@@ -38,15 +39,17 @@ The following gates were observed failing on 2026-08-15 before their controls we
 
 ## Known gaps and external dependencies
 
-- `@decionis/agent-safe-pipeline` exists on npm, its temporary bootstrap credential was revoked,
-  and the one-time workflow was removed. The trusted-publisher binding is configured, but a
-  successful OIDC prerelease and registry/GitHub digest comparison remain tracked in
-  [issue #19](https://github.com/decionis/agent-safe-pipeline/issues/19).
+- npm trusted publishing produced `v0.1.3-rc.2` with SLSA provenance. The npm and GitHub release
+  tarballs were byte-identical with SHA-256
+  `5b04318b3a73d8bb1e3b2551cc3633ea36891eb1fa6d4976d1ab5f15bc714c82`; the temporary bootstrap
+  credential was revoked and the one-time workflow was removed.
 - Fixture provenance, trademark ownership, and disclosure targets require the written human decisions tracked in `PUBLICATION-SIGNOFFS.md`; automation cannot manufacture those approvals.
 - Repository-age, contributor-count, and historical review signals improve only with real project activity.
+- The project has a lead and a maintainer, but code-owner, private-report, npm-recovery, and
+  emergency-release authority are not independently available to two people. `GOVERNANCE.md`
+  therefore records OpenSSF access continuity and bus factor as unmet rather than overstating them.
 - The OpenSSF Best Practices record has achieved Passing. Remaining Silver evidence and controls are
-  tracked in [#45](https://github.com/decionis/agent-safe-pipeline/issues/45),
-  [#46](https://github.com/decionis/agent-safe-pipeline/issues/46),
+  tracked in [#46](https://github.com/decionis/agent-safe-pipeline/issues/46),
   [#47](https://github.com/decionis/agent-safe-pipeline/issues/47),
   [#48](https://github.com/decionis/agent-safe-pipeline/issues/48),
   [#49](https://github.com/decionis/agent-safe-pipeline/issues/49),

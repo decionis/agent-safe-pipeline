@@ -20,6 +20,26 @@ Do not add secrets, production policy data, customer fixtures, generated depende
 
 Contributions are licensed under Apache-2.0. By submitting a contribution, you represent that you have the right to license it on those terms.
 
+## DCO sign-off and review
+
+Human contributions use the [Developer Certificate of Origin](https://developercertificate.org/).
+Sign every commit with the same name and email as its Git author:
+
+```bash
+git commit -s -m "Describe the change"
+```
+
+The pull-request `DCO` workflow checks every commit between the exact base and head SHAs and rejects
+a missing or mismatched `Signed-off-by` trailer. Exact GitHub-authenticated Dependabot commits on a
+Dependabot-authored pull request are the only bot exemption; human-authored commits are never
+exempt. Rebase and sign an unsigned commit instead of adding a separate sign-off-only commit.
+
+Every change also requires the protected checks and code-owner review configured for `master`.
+Review covers scope, correctness, tests, fail-closed behavior, dependency and license impact,
+documentation claims, and the trust-boundary rules. See [GOVERNANCE.md](./GOVERNANCE.md) for roles,
+decisions, access continuity, and maintainer changes. Participation is governed by the
+[Code of Conduct](./CODE_OF_CONDUCT.md).
+
 ## Releases
 
 After verification succeeds on a merge to `master`, CI reads the matching workspace and package versions, builds the npm tarball, generates an artifact-derived CycloneDX SBOM and dependency-license inventories, asserts the SBOM component floor, creates signed GitHub artifact and SBOM attestations, verifies the provenance in-run, installs the tarball in a clean consumer directory, and creates the corresponding `v<version>` GitHub release. The tarball, inventories, SBOM, SHA-256 manifest, Sigstore bundles, raw in-toto statements, and trusted root are release assets. Existing releases are skipped safely, prerelease versions are marked as prereleases, and a tag without a matching GitHub release fails closed for manual review. Increment both versions in the release PR when a new release is intended.
