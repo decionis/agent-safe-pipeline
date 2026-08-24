@@ -42,7 +42,7 @@
   },
   "dependencies": {
     "@decionis/presence-node": "^0.2.0",
-    "jose": "^6.2.8",
+    "jose": "^6.2.9",
     "zod": "^4.4.3"
   },
   "devDependencies": {
