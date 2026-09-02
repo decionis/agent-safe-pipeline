@@ -71,9 +71,9 @@ See [`docs/trust-boundary.md`](./docs/trust-boundary.md) before integrating a re
 
 ## Public-repository policy
 
-This is intended to be the public, canonical reference implementation. It should not be mirrored: mirrors create contract and security-fix drift. Public content belongs here—architecture, package source, synthetic policies, and runnable examples. Production policy bundles, customer data, credentials, internal infrastructure, and private incident material do not.
+This public repository serves as the canonical reference implementation and must not be mirrored, as mirroring introduces contract drift and delays critical security fixes. While public content like architecture, package source, synthetic policies, and runnable examples belongs here, you must exclude production policy bundles, customer data, credentials, internal infrastructure, and private incident material. 
 
-Decionis remains the authoritative decision service, Presence remains the human-verification service, and their server internals can evolve independently behind versioned contracts.
+However, Decionis remains the authoritative decision service and Presence remains the human-verification service, allowing their server internals to evolve independently behind versioned contracts.
 
 ## Status
 
