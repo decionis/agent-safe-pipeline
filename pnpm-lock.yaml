@@ -14,8 +14,8 @@ importers:
   .:
     devDependencies:
       '@decionis/verify':
-        specifier: 0.1.0
-        version: 0.1.0
+        specifier: 0.2.0
+        version: 0.2.0
       '@eslint/js':
         specifier: ^9.16.0
         version: 9.39.5
@@ -348,8 +348,8 @@ packages:
     resolution: {integrity: sha512-r8u2l0QQMd1W/OToSdGAn/dTufkngcLRG0la/3Gd5G+HLMFfwOnZzTuRZC/urn6Ce3jzMe3PkT6oAYzJzj+Igg==}
     engines: {node: '>=22.14.0'}
 
-  '@decionis/verify@0.1.0':
-    resolution: {integrity: sha512-fIJ0j4nY9cArHZoUwOQ2KMi6j2iR9d4uNwNDFTV0KggMC/XG0yjk0A1pCVVoJ0z2CHsey4l7SMzOVgfOA/tNog==}
+  '@decionis/verify@0.2.0':
+    resolution: {integrity: sha512-KblrgnIZZIfArTrhlDzvorrlmd/ZSYwiPMxWtx60KEZLuNomJD5nN59zVFiLekDD23PlpgAX0C2eT2u1noyL8w==}
     engines: {node: '>=18'}
     hasBin: true
 
@@ -3236,7 +3236,7 @@ snapshots:
     dependencies:
       zod: 3.25.76
 
-  '@decionis/verify@0.1.0': {}
+  '@decionis/verify@0.2.0': {}
 
   '@emnapi/core@1.10.0':
     dependencies:

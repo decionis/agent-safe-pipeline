@@ -79,9 +79,9 @@ Decionis remains the authoritative decision service, Presence remains the human-
 ## Verify Decision Dossiers
 
 The repository-owned [`dossiers/`](./dossiers/) corpus checks the offline verifier against synthetic
-`ALLOW`, `BLOCK`, and `ESCALATE` proof bundles. Its private signing key is intentionally public so
-anyone can regenerate the corpus; it is not a production credential and cannot establish that a
-production dossier is authentic.
+`ALLOW`, `BLOCK`, and `ESCALATE` proof bundles, including an owned-workspace, execution-bound
+vector. Its private signing key is intentionally public so anyone can regenerate the corpus; it is
+not a production credential and cannot establish that a production dossier is authentic.
 
 ```bash
 pnpm exec decionis-verify \
@@ -93,7 +93,7 @@ To verify the distinct production claim, obtain a live dossier through an author
 the pinned verifier against the live JWKS without committing the dossier:
 
 ```bash
-npx -y @decionis/verify@0.1.0 \
+npx -y @decionis/verify@0.2.0 \
   --file /absolute/path/to/live-decision-dossier.json \
   --jwks https://api.decionis.com/v1/.well-known/decision-dossier-jwks.json
 ```

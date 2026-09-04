@@ -2,14 +2,25 @@ import { spawnSync } from "node:child_process";
 import { createHash, createPrivateKey, createPublicKey, type webcrypto } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import type { Jwks, ReproducibilityAssessment, VerifyResult } from "@decionis/verify";
+import type {
+  IssuerAssessment,
+  Jwks,
+  ReproducibilityAssessment,
+  VerifyResult,
+} from "@decionis/verify";
 import { describe, expect, it } from "vitest";
 
 interface VerifyModule {
+  readonly assessDossierIssuer: (
+    dossierPayload: Record<string, unknown>,
+    verifiedArtifactKinds?: ReadonlySet<string>,
+  ) => IssuerAssessment;
   readonly assessDossierReproducibility: (
     dossierPayload: Record<string, unknown>,
   ) => ReproducibilityAssessment;
+  readonly jcsCanonicalize: (value: unknown) => string;
   readonly stableJsonStringify: (value: unknown) => string;
+  readonly verifiedArtifactKinds: (result: VerifyResult) => Set<string>;
   readonly verifyDossierProofBundle: (input: {
     dossier_payload: Record<string, unknown>;
     public_jwks?: Jwks | null;
@@ -19,14 +30,21 @@ interface VerifyModule {
 // The published package's development export names source files that are intentionally
 // absent from its npm tarball. Load the package's shipped production module so Vitest does
 // not select that development-only condition.
-const { assessDossierReproducibility, stableJsonStringify, verifyDossierProofBundle } =
-  (await import(
-    new URL("../../../../node_modules/@decionis/verify/dist/index.js", import.meta.url).href
-  )) as VerifyModule;
+const {
+  assessDossierIssuer,
+  assessDossierReproducibility,
+  jcsCanonicalize,
+  stableJsonStringify,
+  verifiedArtifactKinds,
+  verifyDossierProofBundle,
+} = (await import(
+  new URL("../../../../node_modules/@decionis/verify/dist/index.js", import.meta.url).href
+)) as VerifyModule;
 
 interface ExpectedArtifact {
   readonly artifact_kind: string;
   readonly document_path: string;
+  readonly canonicalization_profile?: string;
   readonly canonical_json: string;
   readonly canonical_document_sha256: string;
   readonly signature: string;
@@ -40,6 +58,11 @@ interface DossierVector {
     readonly artifacts_checked: number;
     readonly key_id: string;
     readonly reproducibility: string;
+    readonly proof_bundle_version: string;
+    readonly issuer: Pick<
+      IssuerAssessment,
+      "tier" | "unknown_tier" | "signature_covered" | "provisional" | "label"
+    >;
   };
   readonly expected_artifacts: readonly ExpectedArtifact[];
   readonly dossier_payload: Record<string, unknown>;
@@ -121,7 +144,9 @@ describe("Decision Dossier conformance corpus", () => {
     const jwks = await readJson<CorpusJwks>(new URL("corpus-jwks.json", DOSSIERS_DIRECTORY));
     const files = (await readdir(VECTORS_DIRECTORY)).filter((name) => name.endsWith(".json"));
     const outcomes = new Set<string>();
-    expect(files).toHaveLength(3);
+    expect(new Set(files)).toEqual(
+      new Set(["allow.json", "block.json", "escalate.json", "owned-execution-bound.json"]),
+    );
 
     for (const file of files) {
       const vector = await readJson<DossierVector>(new URL(file, VECTORS_DIRECTORY));
@@ -129,10 +154,10 @@ describe("Decision Dossier conformance corpus", () => {
       expect(vector.description).toContain("Synthetic");
       expect(vector.expected).toMatchObject({
         verified: true,
-        artifacts_checked: 2,
         key_id: KEY_ID,
         reproducibility: "reproduction_ready",
       });
+      expect(vector.expected.artifacts_checked).toBe(vector.expected_artifacts.length);
 
       const verification = verifyDossierProofBundle({
         dossier_payload: vector.dossier_payload,
@@ -148,13 +173,20 @@ describe("Decision Dossier conformance corpus", () => {
       expect(assessDossierReproducibility(vector.dossier_payload).posture).toBe(
         vector.expected.reproducibility,
       );
+      expect(
+        assessDossierIssuer(vector.dossier_payload, verifiedArtifactKinds(verification)),
+      ).toMatchObject(vector.expected.issuer);
 
       const proofBundle = record(record(vector.dossier_payload["integrity"])["proof_bundle"]);
+      expect(proofBundle["version"]).toBe(vector.expected.proof_bundle_version);
       const proofArtifacts = proofBundle["artifacts"] as Array<Record<string, unknown>>;
       expect(proofArtifacts).toHaveLength(vector.expected_artifacts.length);
       for (const expectedArtifact of vector.expected_artifacts) {
         const document = resolveJsonPointer(vector.dossier_payload, expectedArtifact.document_path);
-        const canonicalJson = stableJsonStringify(document);
+        const canonicalJson =
+          expectedArtifact.canonicalization_profile === "RFC8785/JCS"
+            ? jcsCanonicalize(document)
+            : stableJsonStringify(document);
         const digest = createHash("sha256").update(canonicalJson, "utf8").digest("hex");
         expect(canonicalJson, `${file}: canonical bytes changed`).toBe(
           expectedArtifact.canonical_json,
@@ -166,6 +198,9 @@ describe("Decision Dossier conformance corpus", () => {
           expect.objectContaining({
             artifact_kind: expectedArtifact.artifact_kind,
             document_path: expectedArtifact.document_path,
+            ...(expectedArtifact.canonicalization_profile
+              ? { canonicalization_profile: expectedArtifact.canonicalization_profile }
+              : {}),
             canonical_document_sha256: expectedArtifact.canonical_document_sha256,
             signature: expectedArtifact.signature,
           }),
@@ -184,6 +219,74 @@ describe("Decision Dossier conformance corpus", () => {
     }
 
     expect(outcomes).toEqual(new Set(["ALLOW", "BLOCK", "ESCALATE"]));
+  });
+
+  it("fails closed when signed issuer context is rewritten", async () => {
+    const vector = await readJson<DossierVector>(
+      new URL("owned-execution-bound.json", VECTORS_DIRECTORY),
+    );
+    const jwks = await readJson<CorpusJwks>(new URL("corpus-jwks.json", DOSSIERS_DIRECTORY));
+    const mutated = structuredClone(vector.dossier_payload);
+    const machineReadable = record(record(mutated["portable_artifact"])["machine_readable"]);
+    record(machineReadable["issuer_context"])["tier"] = "provisional_anonymous";
+
+    const verification = verifyDossierProofBundle({
+      dossier_payload: mutated,
+      public_jwks: jwks,
+    });
+    expect(verification.verified).toBe(false);
+    expect(
+      verification.checks.some(
+        ({ key, verified }) => key === "portable_artifact:signature" && !verified,
+      ),
+    ).toBe(true);
+    expect(assessDossierIssuer(mutated, verifiedArtifactKinds(verification))).toMatchObject({
+      tier: "provisional_anonymous",
+      provisional: true,
+      signature_covered: false,
+    });
+  });
+
+  it("fails closed when a v0.2 signed input or execution binding is changed", async () => {
+    const vector = await readJson<DossierVector>(
+      new URL("owned-execution-bound.json", VECTORS_DIRECTORY),
+    );
+    const jwks = await readJson<CorpusJwks>(new URL("corpus-jwks.json", DOSSIERS_DIRECTORY));
+    const mutations = [
+      {
+        artifactKind: "inputs_snapshot",
+        apply(payload: Record<string, unknown>) {
+          record(payload["inputs_snapshot"])["amount_minor"] = 125_001;
+        },
+      },
+      {
+        artifactKind: "execution_binding",
+        apply(payload: Record<string, unknown>) {
+          const target = record(record(payload["execution_binding"])["execution_target"]);
+          target["resource"] = "synthetic-account-daily-limit-substituted";
+        },
+      },
+    ];
+
+    for (const mutation of mutations) {
+      const mutated = structuredClone(vector.dossier_payload);
+      mutation.apply(mutated);
+      const verification = verifyDossierProofBundle({
+        dossier_payload: mutated,
+        public_jwks: jwks,
+      });
+      expect(verification.verified).toBe(false);
+      expect(
+        verification.checks.some(
+          ({ key, verified }) => key === `${mutation.artifactKind}:sha256` && !verified,
+        ),
+      ).toBe(true);
+      expect(
+        verification.checks.some(
+          ({ key, verified }) => key === `${mutation.artifactKind}:signature` && !verified,
+        ),
+      ).toBe(true);
+    }
   });
 
   it("fails closed for a mutated signed artifact or an unrelated JWKS", async () => {
@@ -227,6 +330,6 @@ describe("Decision Dossier conformance corpus", () => {
     });
     expect(result.stderr).toBe("");
     expect(result.status).toBe(0);
-    expect(result.stdout).toContain("Verified 3 reproducible synthetic dossier vectors.");
+    expect(result.stdout).toContain("Verified 4 reproducible synthetic dossier vectors.");
   });
 });

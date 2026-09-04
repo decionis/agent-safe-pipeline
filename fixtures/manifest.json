@@ -81,6 +81,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "dossiers/vectors/owned-execution-bound.json",
+      "family": "Decision Dossier conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "examples/basic-agent/src/Index.ts",
       "family": "Runnable example",
       "source": "synthetic",

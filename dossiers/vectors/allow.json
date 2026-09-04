@@ -1,11 +1,19 @@
 {
   "vector_version": "agent-safe.decision-dossier-conformance/1",
-  "description": "Synthetic ALLOW Decision Dossier with portable JSON and JSON-LD artifacts.",
+  "description": "Synthetic ALLOW Decision Dossier with signed portable JSON, inputs snapshot, and JSON-LD artifacts.",
   "expected": {
     "verified": true,
-    "artifacts_checked": 2,
+    "artifacts_checked": 3,
     "key_id": "agent-safe-synthetic-dossier-corpus-v1",
-    "reproducibility": "reproduction_ready"
+    "reproducibility": "reproduction_ready",
+    "proof_bundle_version": "2.0",
+    "issuer": {
+      "tier": null,
+      "unknown_tier": null,
+      "signature_covered": false,
+      "provisional": false,
+      "label": "Issuer not stated"
+    }
   },
   "expected_artifacts": [
     {
@@ -16,8 +24,15 @@
       "signature": "4t7Qw8osTLE4e2HF1QZ02yFPTKs2_WAC0Wb1Zgxn2pDoh5eZzEL8i9VsX7GlI6eULWHgsJZ-qEXELuK5kcYBBg"
     },
     {
+      "artifact_kind": "inputs_snapshot",
+      "document_path": "/inputs_snapshot",
+      "canonical_json": "{\"action\":\"payment.capture\",\"actor_id\":\"synthetic-dossier-corpus-agent\",\"amount_minor\":4200,\"target\":\"synthetic-merchant-order-1001\",\"tenant_id\":\"00000000-0000-4000-8000-000000000004\"}",
+      "canonical_document_sha256": "167e0ee31e91387342c37ba36202f8d66d26f8669bfab3729e98c5d77611927a",
+      "signature": "ZpgW-0bjPAA8AKVOAzA-coe0GpoFr7mtE7KqFiTXVA6Ihy7EUIS5E559zq20O2zA-qpeL8QsVby4W8YGeXRJAA"
+    },
+    {
       "artifact_kind": "json_ld",
-      "document_path": "/json_ld",
+      "document_path": "/linked_data/document",
       "canonical_json": "{\"@context\":\"https://schema.example/decionis/decision-dossier/v2\",\"@type\":\"DecisionDossier\",\"decision\":\"ALLOW\",\"decisionId\":\"synthetic-decision-allow-001\",\"dossierId\":\"synthetic-dossier-allow-001\",\"generatedAt\":\"2026-09-04T10:00:00.000Z\",\"intentHash\":\"sha256:167e0ee31e91387342c37ba36202f8d66d26f8669bfab3729e98c5d77611927a\",\"policyVersion\":\"synthetic-policy-allow-v1\"}",
       "canonical_document_sha256": "c268f9cce4b90a80c9557e981b81a6b8b1aae60d9ff980f39bfbe4ab739c2396",
       "signature": "OdURmnKdQNWYeX5it_OGv3EV3hgroPIMs6AKcZfT610VEyxBOqNVn_UxrdjHePyNnkKTfiCSJ8c7Pg4Wlz-cCw"
@@ -81,15 +96,17 @@
         "amount_minor": 4200
       }
     },
-    "json_ld": {
-      "@context": "https://schema.example/decionis/decision-dossier/v2",
-      "@type": "DecisionDossier",
-      "dossierId": "synthetic-dossier-allow-001",
-      "decisionId": "synthetic-decision-allow-001",
-      "decision": "ALLOW",
-      "policyVersion": "synthetic-policy-allow-v1",
-      "generatedAt": "2026-09-04T10:00:00.000Z",
-      "intentHash": "sha256:167e0ee31e91387342c37ba36202f8d66d26f8669bfab3729e98c5d77611927a"
+    "linked_data": {
+      "document": {
+        "@context": "https://schema.example/decionis/decision-dossier/v2",
+        "@type": "DecisionDossier",
+        "dossierId": "synthetic-dossier-allow-001",
+        "decisionId": "synthetic-decision-allow-001",
+        "decision": "ALLOW",
+        "policyVersion": "synthetic-policy-allow-v1",
+        "generatedAt": "2026-09-04T10:00:00.000Z",
+        "intentHash": "sha256:167e0ee31e91387342c37ba36202f8d66d26f8669bfab3729e98c5d77611927a"
+      }
     },
     "integrity": {
       "proof_bundle": {
@@ -115,9 +132,16 @@
             "signature": "4t7Qw8osTLE4e2HF1QZ02yFPTKs2_WAC0Wb1Zgxn2pDoh5eZzEL8i9VsX7GlI6eULWHgsJZ-qEXELuK5kcYBBg"
           },
           {
+            "artifact_kind": "inputs_snapshot",
+            "media_type": "application/json",
+            "document_path": "/inputs_snapshot",
+            "canonical_document_sha256": "167e0ee31e91387342c37ba36202f8d66d26f8669bfab3729e98c5d77611927a",
+            "signature": "ZpgW-0bjPAA8AKVOAzA-coe0GpoFr7mtE7KqFiTXVA6Ihy7EUIS5E559zq20O2zA-qpeL8QsVby4W8YGeXRJAA"
+          },
+          {
             "artifact_kind": "json_ld",
             "media_type": "application/ld+json",
-            "document_path": "/json_ld",
+            "document_path": "/linked_data/document",
             "canonical_document_sha256": "c268f9cce4b90a80c9557e981b81a6b8b1aae60d9ff980f39bfbe4ab739c2396",
             "signature": "OdURmnKdQNWYeX5it_OGv3EV3hgroPIMs6AKcZfT610VEyxBOqNVn_UxrdjHePyNnkKTfiCSJ8c7Pg4Wlz-cCw"
           }

@@ -8,6 +8,7 @@ const PRIVATE_KEY_PATH = new URL("../dossiers/synthetic-corpus-private.jwk.json"
 const PUBLIC_JWKS_PATH = new URL("../dossiers/corpus-jwks.json", import.meta.url);
 const KEY_ID = "agent-safe-synthetic-dossier-corpus-v1";
 const FIXED_TIME = "2026-09-04T10:00:00.000Z";
+const FIXED_EXPIRY = "2026-09-04T10:05:00.000Z";
 const FIXTURE_TENANT_ID = "00000000-0000-4000-8000-000000000004";
 
 const CASES = [
@@ -38,6 +39,17 @@ const CASES = [
     reasonCodes: ["SYNTHETIC_DUAL_APPROVAL_REQUIRED"],
     executionGrantIssued: false,
   },
+  {
+    slug: "owned-execution-bound",
+    outcome: "ALLOW",
+    action: "wire.transfer",
+    target: "synthetic-account-daily-limit-1004",
+    amountMinor: 125_000,
+    reasonCodes: ["SYNTHETIC_EXECUTION_BINDING_VALID"],
+    executionGrantIssued: true,
+    issuerTier: "owned",
+    executionBound: true,
+  },
 ];
 
 function canonicalize(value) {
@@ -54,12 +66,39 @@ function stableJsonStringify(value) {
   return JSON.stringify(canonicalize(value));
 }
 
+function jcsCanonicalize(value) {
+  if (value === null) return "null";
+  if (typeof value === "boolean" || typeof value === "string") return JSON.stringify(value);
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) throw new TypeError("JCS_NUMBER_MUST_BE_FINITE");
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) return `[${value.map((item) => jcsCanonicalize(item)).join(",")}]`;
+  if (typeof value === "object") {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${jcsCanonicalize(value[key])}`)
+      .join(",")}}`;
+  }
+  throw new TypeError("JCS_VALUE_MUST_BE_JSON");
+}
+
 function sha256(value) {
   return createHash("sha256").update(value, "utf8").digest("hex");
 }
 
-function signedArtifact(privateKey, artifactKind, mediaType, documentPath, document) {
-  const canonicalJson = stableJsonStringify(document);
+function signedArtifact(
+  privateKey,
+  artifactKind,
+  mediaType,
+  documentPath,
+  document,
+  canonicalizationProfile,
+) {
+  const canonicalJson =
+    canonicalizationProfile === "RFC8785/JCS"
+      ? jcsCanonicalize(document)
+      : stableJsonStringify(document);
   const digest = sha256(canonicalJson);
   const signature = sign(null, Buffer.from(canonicalJson, "utf8"), privateKey).toString(
     "base64url",
@@ -69,12 +108,14 @@ function signedArtifact(privateKey, artifactKind, mediaType, documentPath, docum
       artifact_kind: artifactKind,
       media_type: mediaType,
       document_path: documentPath,
+      ...(canonicalizationProfile ? { canonicalization_profile: canonicalizationProfile } : {}),
       canonical_document_sha256: digest,
       signature,
     },
     expected: {
       artifact_kind: artifactKind,
       document_path: documentPath,
+      ...(canonicalizationProfile ? { canonicalization_profile: canonicalizationProfile } : {}),
       canonical_json: canonicalJson,
       canonical_document_sha256: digest,
       signature,
@@ -115,6 +156,7 @@ function createVector(testCase, privateKey) {
       evaluated_at: FIXED_TIME,
     },
   };
+  const issuerContext = testCase.issuerTier ? { tier: testCase.issuerTier } : null;
   const portableArtifact = {
     artifact_type: "decionis.decision_dossier.portable",
     version: "2.0",
@@ -123,6 +165,13 @@ function createVector(testCase, privateKey) {
     routing_decision: routingDecision,
     governance,
     inputs_snapshot: inputsSnapshot,
+    ...(issuerContext
+      ? {
+          machine_readable: {
+            issuer_context: issuerContext,
+          },
+        }
+      : {}),
   };
   const jsonLd = {
     "@context": "https://schema.example/decionis/decision-dossier/v2",
@@ -134,6 +183,53 @@ function createVector(testCase, privateKey) {
     generatedAt: FIXED_TIME,
     intentHash: `sha256:${sha256(stableJsonStringify(inputsSnapshot))}`,
   };
+  const executionBinding = testCase.executionBound
+    ? {
+        binding_schema_version: "1.0",
+        dossier_id: dossierId,
+        evaluation_id: decisionId,
+        payload: {
+          digest: `sha256:${sha256(jcsCanonicalize(inputsSnapshot))}`,
+          digest_algorithm: "SHA-256",
+          canonicalization_profile: "RFC8785/JCS",
+        },
+        execution_target: {
+          system: "synthetic-bank-core",
+          environment: "synthetic-production",
+          operation: testCase.action,
+          resource: testCase.target,
+          endpoint: "/synthetic/wires",
+        },
+        policy: {
+          identifier: policyId,
+          version: policyId,
+          digest: `sha256:${sha256(jcsCanonicalize(rules))}`,
+          digest_algorithm: "SHA-256",
+        },
+        material_signals: [
+          {
+            signal_id: "synthetic-daily-limit-signal",
+            version: "synthetic-signal-v1",
+            observed_at: FIXED_TIME,
+            value_digest: `sha256:${sha256(jcsCanonicalize({ remaining_minor: 500_000 }))}`,
+            evidence_digest: null,
+          },
+        ],
+        issued_at: FIXED_TIME,
+        not_before: FIXED_TIME,
+        expires_at: FIXED_EXPIRY,
+        nonce: "s".repeat(43),
+        idempotency_key: "fixture_0001",
+        execution_correlation_id: "synthetic-execution-correlation-owned-001",
+        concurrency_scope_digest: `sha256:${sha256(
+          jcsCanonicalize({ resource: testCase.target }),
+        )}`,
+        authorization_state_digest: `sha256:${sha256(
+          jcsCanonicalize({ policy: policyId, outcome: testCase.outcome }),
+        )}`,
+        presence_approval: null,
+      }
+    : null;
   const artifacts = [
     signedArtifact(
       privateKey,
@@ -142,21 +238,43 @@ function createVector(testCase, privateKey) {
       "/portable_artifact",
       portableArtifact,
     ),
-    signedArtifact(privateKey, "json_ld", "application/ld+json", "/json_ld", jsonLd),
+    signedArtifact(
+      privateKey,
+      "inputs_snapshot",
+      "application/json",
+      "/inputs_snapshot",
+      inputsSnapshot,
+    ),
+    signedArtifact(privateKey, "json_ld", "application/ld+json", "/linked_data/document", jsonLd),
+    ...(executionBinding
+      ? [
+          signedArtifact(
+            privateKey,
+            "execution_binding",
+            "application/json",
+            "/execution_binding",
+            executionBinding,
+            "RFC8785/JCS",
+          ),
+        ]
+      : []),
   ];
   const dossierPayload = {
-    schema_version: "decionis.decision_dossier/2.0",
+    schema_version: executionBinding
+      ? "decionis.decision_dossier/2.1"
+      : "decionis.decision_dossier/2.0",
     dossier_id: dossierId,
     generated_at: FIXED_TIME,
     routing_decision: routingDecision,
     governance,
     inputs_snapshot: inputsSnapshot,
     portable_artifact: portableArtifact,
-    json_ld: jsonLd,
+    linked_data: { document: jsonLd },
+    ...(executionBinding ? { execution_binding: executionBinding } : {}),
     integrity: {
       proof_bundle: {
         bundle_type: "decionis.decision_dossier.proof_bundle",
-        version: "2.0",
+        version: executionBinding ? "2.1" : "2.0",
         issued_at: FIXED_TIME,
         algorithm: "Ed25519",
         key_id: KEY_ID,
@@ -175,12 +293,30 @@ function createVector(testCase, privateKey) {
 
   return {
     vector_version: "agent-safe.decision-dossier-conformance/1",
-    description: `Synthetic ${testCase.outcome} Decision Dossier with portable JSON and JSON-LD artifacts.`,
+    description: executionBinding
+      ? "Synthetic ALLOW Decision Dossier from an owned workspace with signed portable JSON, inputs snapshot, JSON-LD, and RFC 8785/JCS execution-binding artifacts."
+      : `Synthetic ${testCase.outcome} Decision Dossier with signed portable JSON, inputs snapshot, and JSON-LD artifacts.`,
     expected: {
       verified: true,
       artifacts_checked: artifacts.length,
       key_id: KEY_ID,
       reproducibility: "reproduction_ready",
+      proof_bundle_version: executionBinding ? "2.1" : "2.0",
+      issuer: issuerContext
+        ? {
+            tier: testCase.issuerTier,
+            unknown_tier: null,
+            signature_covered: true,
+            provisional: false,
+            label: "Owned workspace",
+          }
+        : {
+            tier: null,
+            unknown_tier: null,
+            signature_covered: false,
+            provisional: false,
+            label: "Issuer not stated",
+          },
     },
     expected_artifacts: artifacts.map(({ expected }) => expected),
     dossier_payload: dossierPayload,
