@@ -1,0 +1,128 @@
+{
+  "vector_version": "agent-safe.decision-dossier-conformance/1",
+  "description": "Synthetic ESCALATE Decision Dossier with portable JSON and JSON-LD artifacts.",
+  "expected": {
+    "verified": true,
+    "artifacts_checked": 2,
+    "key_id": "agent-safe-synthetic-dossier-corpus-v1",
+    "reproducibility": "reproduction_ready"
+  },
+  "expected_artifacts": [
+    {
+      "artifact_kind": "portable_artifact",
+      "document_path": "/portable_artifact",
+      "canonical_json": "{\"artifact_type\":\"decionis.decision_dossier.portable\",\"dossier_id\":\"synthetic-dossier-escalate-001\",\"generated_at\":\"2026-09-04T10:00:00.000Z\",\"governance\":{\"policy_snapshot\":{\"evaluated_at\":\"2026-09-04T10:00:00.000Z\",\"policy_id\":\"synthetic-policy-escalate-v1\",\"policy_version\":\"synthetic-policy-escalate-v1\",\"rules_sha256\":\"3dc51a55dc001dcb7b123767a1820661f8a2d6647daede85f2aab92e0e676f0d\"}},\"inputs_snapshot\":{\"action\":\"vendor.payout\",\"actor_id\":\"synthetic-dossier-corpus-agent\",\"amount_minor\":250000,\"target\":\"synthetic-vendor-1003\",\"tenant_id\":\"00000000-0000-4000-8000-000000000004\"},\"routing_decision\":{\"authority\":\"AUTHORITATIVE\",\"decision_id\":\"synthetic-decision-escalate-001\",\"execution_grant_issued\":false,\"outcome\":\"ESCALATE\",\"policy_evaluation\":{\"evaluated_at\":\"2026-09-04T10:00:00.000Z\"},\"policy_version\":\"synthetic-policy-escalate-v1\",\"reason_codes\":[\"SYNTHETIC_DUAL_APPROVAL_REQUIRED\"]},\"version\":\"2.0\"}",
+      "canonical_document_sha256": "28c9057c9153f213302b4404135c992208a65dffb8d9bbbc3800845469e76da5",
+      "signature": "WXVv4g4qt80oCfVKA1byH6pnJUkm4HI-UMUNG7mBpybxfRI1Ng8A8yCV7_mMHZNtCOF_R62AT6rnRvKTY4mVDg"
+    },
+    {
+      "artifact_kind": "json_ld",
+      "document_path": "/json_ld",
+      "canonical_json": "{\"@context\":\"https://schema.example/decionis/decision-dossier/v2\",\"@type\":\"DecisionDossier\",\"decision\":\"ESCALATE\",\"decisionId\":\"synthetic-decision-escalate-001\",\"dossierId\":\"synthetic-dossier-escalate-001\",\"generatedAt\":\"2026-09-04T10:00:00.000Z\",\"intentHash\":\"sha256:9c78539f01554b0837235c6375b1874d16bec39c11e694b447d9074a76804727\",\"policyVersion\":\"synthetic-policy-escalate-v1\"}",
+      "canonical_document_sha256": "633fa7b966f9df90488d7b7dd81e15b89d7c1fe709eec22b50cfb5b01dda5144",
+      "signature": "Peawgbuer7jkPtw2gIm4XEwzld-OEfXjCSkjabxytkDQxJ2uDvIb0ww15O87Liv911igJrZqeKd9Ynu9_DYfDg"
+    }
+  ],
+  "dossier_payload": {
+    "schema_version": "decionis.decision_dossier/2.0",
+    "dossier_id": "synthetic-dossier-escalate-001",
+    "generated_at": "2026-09-04T10:00:00.000Z",
+    "routing_decision": {
+      "decision_id": "synthetic-decision-escalate-001",
+      "outcome": "ESCALATE",
+      "authority": "AUTHORITATIVE",
+      "policy_version": "synthetic-policy-escalate-v1",
+      "reason_codes": ["SYNTHETIC_DUAL_APPROVAL_REQUIRED"],
+      "execution_grant_issued": false,
+      "policy_evaluation": { "evaluated_at": "2026-09-04T10:00:00.000Z" }
+    },
+    "governance": {
+      "policy_snapshot": {
+        "policy_id": "synthetic-policy-escalate-v1",
+        "policy_version": "synthetic-policy-escalate-v1",
+        "rules_sha256": "3dc51a55dc001dcb7b123767a1820661f8a2d6647daede85f2aab92e0e676f0d",
+        "evaluated_at": "2026-09-04T10:00:00.000Z"
+      }
+    },
+    "inputs_snapshot": {
+      "tenant_id": "00000000-0000-4000-8000-000000000004",
+      "actor_id": "synthetic-dossier-corpus-agent",
+      "action": "vendor.payout",
+      "target": "synthetic-vendor-1003",
+      "amount_minor": 250000
+    },
+    "portable_artifact": {
+      "artifact_type": "decionis.decision_dossier.portable",
+      "version": "2.0",
+      "dossier_id": "synthetic-dossier-escalate-001",
+      "generated_at": "2026-09-04T10:00:00.000Z",
+      "routing_decision": {
+        "decision_id": "synthetic-decision-escalate-001",
+        "outcome": "ESCALATE",
+        "authority": "AUTHORITATIVE",
+        "policy_version": "synthetic-policy-escalate-v1",
+        "reason_codes": ["SYNTHETIC_DUAL_APPROVAL_REQUIRED"],
+        "execution_grant_issued": false,
+        "policy_evaluation": { "evaluated_at": "2026-09-04T10:00:00.000Z" }
+      },
+      "governance": {
+        "policy_snapshot": {
+          "policy_id": "synthetic-policy-escalate-v1",
+          "policy_version": "synthetic-policy-escalate-v1",
+          "rules_sha256": "3dc51a55dc001dcb7b123767a1820661f8a2d6647daede85f2aab92e0e676f0d",
+          "evaluated_at": "2026-09-04T10:00:00.000Z"
+        }
+      },
+      "inputs_snapshot": {
+        "tenant_id": "00000000-0000-4000-8000-000000000004",
+        "actor_id": "synthetic-dossier-corpus-agent",
+        "action": "vendor.payout",
+        "target": "synthetic-vendor-1003",
+        "amount_minor": 250000
+      }
+    },
+    "json_ld": {
+      "@context": "https://schema.example/decionis/decision-dossier/v2",
+      "@type": "DecisionDossier",
+      "dossierId": "synthetic-dossier-escalate-001",
+      "decisionId": "synthetic-decision-escalate-001",
+      "decision": "ESCALATE",
+      "policyVersion": "synthetic-policy-escalate-v1",
+      "generatedAt": "2026-09-04T10:00:00.000Z",
+      "intentHash": "sha256:9c78539f01554b0837235c6375b1874d16bec39c11e694b447d9074a76804727"
+    },
+    "integrity": {
+      "proof_bundle": {
+        "bundle_type": "decionis.decision_dossier.proof_bundle",
+        "version": "2.0",
+        "issued_at": "2026-09-04T10:00:00.000Z",
+        "algorithm": "Ed25519",
+        "key_id": "agent-safe-synthetic-dossier-corpus-v1",
+        "rotation_policy": {
+          "strategy": "STATIC_PUBLIC_CORPUS_KEY",
+          "active_key_id": "agent-safe-synthetic-dossier-corpus-v1",
+          "previous_key_ids": [],
+          "verification_grace_period_days": 0,
+          "rotated_at": null,
+          "public_jwks_path": "/dossiers/corpus-jwks.json"
+        },
+        "artifacts": [
+          {
+            "artifact_kind": "portable_artifact",
+            "media_type": "application/json",
+            "document_path": "/portable_artifact",
+            "canonical_document_sha256": "28c9057c9153f213302b4404135c992208a65dffb8d9bbbc3800845469e76da5",
+            "signature": "WXVv4g4qt80oCfVKA1byH6pnJUkm4HI-UMUNG7mBpybxfRI1Ng8A8yCV7_mMHZNtCOF_R62AT6rnRvKTY4mVDg"
+          },
+          {
+            "artifact_kind": "json_ld",
+            "media_type": "application/ld+json",
+            "document_path": "/json_ld",
+            "canonical_document_sha256": "633fa7b966f9df90488d7b7dd81e15b89d7c1fe709eec22b50cfb5b01dda5144",
+            "signature": "Peawgbuer7jkPtw2gIm4XEwzld-OEfXjCSkjabxytkDQxJ2uDvIb0ww15O87Liv911igJrZqeKd9Ynu9_DYfDg"
+          }
+        ]
+      }
+    }
+  }
+}

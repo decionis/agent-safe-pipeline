@@ -1,0 +1,128 @@
+{
+  "vector_version": "agent-safe.decision-dossier-conformance/1",
+  "description": "Synthetic ALLOW Decision Dossier with portable JSON and JSON-LD artifacts.",
+  "expected": {
+    "verified": true,
+    "artifacts_checked": 2,
+    "key_id": "agent-safe-synthetic-dossier-corpus-v1",
+    "reproducibility": "reproduction_ready"
+  },
+  "expected_artifacts": [
+    {
+      "artifact_kind": "portable_artifact",
+      "document_path": "/portable_artifact",
+      "canonical_json": "{\"artifact_type\":\"decionis.decision_dossier.portable\",\"dossier_id\":\"synthetic-dossier-allow-001\",\"generated_at\":\"2026-09-04T10:00:00.000Z\",\"governance\":{\"policy_snapshot\":{\"evaluated_at\":\"2026-09-04T10:00:00.000Z\",\"policy_id\":\"synthetic-policy-allow-v1\",\"policy_version\":\"synthetic-policy-allow-v1\",\"rules_sha256\":\"3d1a2d803e8343fd71c86b0270740737134e338dcaa2b144972b64f828db0a29\"}},\"inputs_snapshot\":{\"action\":\"payment.capture\",\"actor_id\":\"synthetic-dossier-corpus-agent\",\"amount_minor\":4200,\"target\":\"synthetic-merchant-order-1001\",\"tenant_id\":\"00000000-0000-4000-8000-000000000004\"},\"routing_decision\":{\"authority\":\"AUTHORITATIVE\",\"decision_id\":\"synthetic-decision-allow-001\",\"execution_grant_issued\":true,\"outcome\":\"ALLOW\",\"policy_evaluation\":{\"evaluated_at\":\"2026-09-04T10:00:00.000Z\"},\"policy_version\":\"synthetic-policy-allow-v1\",\"reason_codes\":[\"SYNTHETIC_POLICY_ALLOW\"]},\"version\":\"2.0\"}",
+      "canonical_document_sha256": "c4341f7b113128f17fb8180c163bb9816c3a8d6a65ffbf6a25379ccd9212c5cf",
+      "signature": "4t7Qw8osTLE4e2HF1QZ02yFPTKs2_WAC0Wb1Zgxn2pDoh5eZzEL8i9VsX7GlI6eULWHgsJZ-qEXELuK5kcYBBg"
+    },
+    {
+      "artifact_kind": "json_ld",
+      "document_path": "/json_ld",
+      "canonical_json": "{\"@context\":\"https://schema.example/decionis/decision-dossier/v2\",\"@type\":\"DecisionDossier\",\"decision\":\"ALLOW\",\"decisionId\":\"synthetic-decision-allow-001\",\"dossierId\":\"synthetic-dossier-allow-001\",\"generatedAt\":\"2026-09-04T10:00:00.000Z\",\"intentHash\":\"sha256:167e0ee31e91387342c37ba36202f8d66d26f8669bfab3729e98c5d77611927a\",\"policyVersion\":\"synthetic-policy-allow-v1\"}",
+      "canonical_document_sha256": "c268f9cce4b90a80c9557e981b81a6b8b1aae60d9ff980f39bfbe4ab739c2396",
+      "signature": "OdURmnKdQNWYeX5it_OGv3EV3hgroPIMs6AKcZfT610VEyxBOqNVn_UxrdjHePyNnkKTfiCSJ8c7Pg4Wlz-cCw"
+    }
+  ],
+  "dossier_payload": {
+    "schema_version": "decionis.decision_dossier/2.0",
+    "dossier_id": "synthetic-dossier-allow-001",
+    "generated_at": "2026-09-04T10:00:00.000Z",
+    "routing_decision": {
+      "decision_id": "synthetic-decision-allow-001",
+      "outcome": "ALLOW",
+      "authority": "AUTHORITATIVE",
+      "policy_version": "synthetic-policy-allow-v1",
+      "reason_codes": ["SYNTHETIC_POLICY_ALLOW"],
+      "execution_grant_issued": true,
+      "policy_evaluation": { "evaluated_at": "2026-09-04T10:00:00.000Z" }
+    },
+    "governance": {
+      "policy_snapshot": {
+        "policy_id": "synthetic-policy-allow-v1",
+        "policy_version": "synthetic-policy-allow-v1",
+        "rules_sha256": "3d1a2d803e8343fd71c86b0270740737134e338dcaa2b144972b64f828db0a29",
+        "evaluated_at": "2026-09-04T10:00:00.000Z"
+      }
+    },
+    "inputs_snapshot": {
+      "tenant_id": "00000000-0000-4000-8000-000000000004",
+      "actor_id": "synthetic-dossier-corpus-agent",
+      "action": "payment.capture",
+      "target": "synthetic-merchant-order-1001",
+      "amount_minor": 4200
+    },
+    "portable_artifact": {
+      "artifact_type": "decionis.decision_dossier.portable",
+      "version": "2.0",
+      "dossier_id": "synthetic-dossier-allow-001",
+      "generated_at": "2026-09-04T10:00:00.000Z",
+      "routing_decision": {
+        "decision_id": "synthetic-decision-allow-001",
+        "outcome": "ALLOW",
+        "authority": "AUTHORITATIVE",
+        "policy_version": "synthetic-policy-allow-v1",
+        "reason_codes": ["SYNTHETIC_POLICY_ALLOW"],
+        "execution_grant_issued": true,
+        "policy_evaluation": { "evaluated_at": "2026-09-04T10:00:00.000Z" }
+      },
+      "governance": {
+        "policy_snapshot": {
+          "policy_id": "synthetic-policy-allow-v1",
+          "policy_version": "synthetic-policy-allow-v1",
+          "rules_sha256": "3d1a2d803e8343fd71c86b0270740737134e338dcaa2b144972b64f828db0a29",
+          "evaluated_at": "2026-09-04T10:00:00.000Z"
+        }
+      },
+      "inputs_snapshot": {
+        "tenant_id": "00000000-0000-4000-8000-000000000004",
+        "actor_id": "synthetic-dossier-corpus-agent",
+        "action": "payment.capture",
+        "target": "synthetic-merchant-order-1001",
+        "amount_minor": 4200
+      }
+    },
+    "json_ld": {
+      "@context": "https://schema.example/decionis/decision-dossier/v2",
+      "@type": "DecisionDossier",
+      "dossierId": "synthetic-dossier-allow-001",
+      "decisionId": "synthetic-decision-allow-001",
+      "decision": "ALLOW",
+      "policyVersion": "synthetic-policy-allow-v1",
+      "generatedAt": "2026-09-04T10:00:00.000Z",
+      "intentHash": "sha256:167e0ee31e91387342c37ba36202f8d66d26f8669bfab3729e98c5d77611927a"
+    },
+    "integrity": {
+      "proof_bundle": {
+        "bundle_type": "decionis.decision_dossier.proof_bundle",
+        "version": "2.0",
+        "issued_at": "2026-09-04T10:00:00.000Z",
+        "algorithm": "Ed25519",
+        "key_id": "agent-safe-synthetic-dossier-corpus-v1",
+        "rotation_policy": {
+          "strategy": "STATIC_PUBLIC_CORPUS_KEY",
+          "active_key_id": "agent-safe-synthetic-dossier-corpus-v1",
+          "previous_key_ids": [],
+          "verification_grace_period_days": 0,
+          "rotated_at": null,
+          "public_jwks_path": "/dossiers/corpus-jwks.json"
+        },
+        "artifacts": [
+          {
+            "artifact_kind": "portable_artifact",
+            "media_type": "application/json",
+            "document_path": "/portable_artifact",
+            "canonical_document_sha256": "c4341f7b113128f17fb8180c163bb9816c3a8d6a65ffbf6a25379ccd9212c5cf",
+            "signature": "4t7Qw8osTLE4e2HF1QZ02yFPTKs2_WAC0Wb1Zgxn2pDoh5eZzEL8i9VsX7GlI6eULWHgsJZ-qEXELuK5kcYBBg"
+          },
+          {
+            "artifact_kind": "json_ld",
+            "media_type": "application/ld+json",
+            "document_path": "/json_ld",
+            "canonical_document_sha256": "c268f9cce4b90a80c9557e981b81a6b8b1aae60d9ff980f39bfbe4ab739c2396",
+            "signature": "OdURmnKdQNWYeX5it_OGv3EV3hgroPIMs6AKcZfT610VEyxBOqNVn_UxrdjHePyNnkKTfiCSJ8c7Pg4Wlz-cCw"
+          }
+        ]
+      }
+    }
+  }
+}

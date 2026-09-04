@@ -1,0 +1,9 @@
+{
+  "crv": "Ed25519",
+  "d": "BvvAe2oK6pzfgFnsqn-WcqnNWH5aqSjJYOFxdrNz2pw",
+  "x": "j5z9SBAdnfe9fzgJ0G5zwWOIOi3zbJJ2MwdK54yLzfQ",
+  "kty": "OKP",
+  "alg": "EdDSA",
+  "use": "sig",
+  "kid": "agent-safe-synthetic-dossier-corpus-v1"
+}

@@ -16,7 +16,8 @@
   "packageManager": "pnpm@9.15.3",
   "pnpm": {
     "overrides": {
-      "qs": "6.15.2",
+      "fast-uri": "3.1.6",
+      "qs": "6.16.0",
       "vite": "^6.4.3"
     }
   },
@@ -27,6 +28,8 @@
     "build": "pnpm -r build",
     "dependabot:check": "node scripts/CheckDependabotCoverage.mjs",
     "discovery": "node scripts/CheckDiscovery.mjs",
+    "dossiers:check": "node scripts/GenerateDossierCorpus.mjs --check",
+    "dossiers:regenerate": "node scripts/GenerateDossierCorpus.mjs",
     "format": "prettier --check .",
     "format:fix": "prettier --write .",
     "hooks:install": "simple-git-hooks",
@@ -38,7 +41,7 @@
     "lint:markdown": "markdownlint-cli2",
     "performance": "pnpm --filter @decionis/agent-safe-pipeline test:performance",
     "mutation": "pnpm --filter @decionis/agent-safe-pipeline test:mutation",
-    "precommit": "node scripts/PreCommit.mjs && pnpm fixture:check && pnpm license:check && pnpm lint && pnpm security && pnpm performance",
+    "precommit": "node scripts/PreCommit.mjs && pnpm fixture:check && pnpm dossiers:check && pnpm license:check && pnpm lint && pnpm security && pnpm performance",
     "prepare": "simple-git-hooks",
     "reproducible:compare": "node scripts/ComparePackageBuilds.mjs",
     "security": "pnpm security:production && pnpm security:toolchain",
@@ -47,12 +50,13 @@
     "test": "pnpm -r test",
     "test:automation": "node --test test/automation/*.test.mjs",
     "typecheck": "pnpm --filter @decionis/agent-safe-pipeline build && pnpm -r typecheck",
-    "verify": "pnpm format && pnpm lint && pnpm fixture:check && pnpm license:check && pnpm security && pnpm dependabot:check && pnpm discovery && pnpm performance && pnpm typecheck && pnpm test:automation && pnpm test && pnpm build"
+    "verify": "pnpm format && pnpm lint && pnpm fixture:check && pnpm dossiers:check && pnpm license:check && pnpm security && pnpm dependabot:check && pnpm discovery && pnpm performance && pnpm typecheck && pnpm test:automation && pnpm test && pnpm build"
   },
   "simple-git-hooks": {
     "pre-commit": "pnpm precommit"
   },
   "devDependencies": {
+    "@decionis/verify": "0.1.0",
     "@eslint/js": "^9.16.0",
     "@types/node": "^26.2.0",
     "@typescript-eslint/eslint-plugin": "^8.44.0",

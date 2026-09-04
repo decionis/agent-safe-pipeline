@@ -51,6 +51,36 @@
       "containsCustomerData": false
     },
     {
+      "path": "dossiers/corpus-jwks.json",
+      "family": "Decision Dossier corpus key",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "dossiers/synthetic-corpus-private.jwk.json",
+      "family": "Decision Dossier corpus key",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "dossiers/vectors/allow.json",
+      "family": "Decision Dossier conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "dossiers/vectors/block.json",
+      "family": "Decision Dossier conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "dossiers/vectors/escalate.json",
+      "family": "Decision Dossier conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "examples/basic-agent/src/Index.ts",
       "family": "Runnable example",
       "source": "synthetic",
@@ -89,6 +119,12 @@
     {
       "path": "packages/pipeline/test/decision/DecionisGate.test.ts",
       "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/pipeline/test/dossier/DecisionDossierCorpus.test.ts",
+      "family": "Decision Dossier conformance test",
       "source": "synthetic",
       "containsCustomerData": false
     },
