@@ -1,0 +1,19 @@
+{
+  "$schema": "./zenodo-release.schema.json",
+  "schema_version": "1.0",
+  "repository": "decionis/agent-safe-pipeline",
+  "package_name": "@decionis/agent-safe-pipeline",
+  "creators": [
+    {
+      "family_names": "Jejelowo",
+      "given_names": "Festus B.",
+      "affiliation": "Decionis, Inc.",
+      "orcid": "0009-0006-4895-6046"
+    }
+  ],
+  "zenodo": {
+    "concept_doi": "10.5281/zenodo.22312955",
+    "resource_type": "software",
+    "access_right": "open"
+  }
+}
