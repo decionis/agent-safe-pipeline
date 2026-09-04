@@ -35,7 +35,7 @@ Install gitsign using the instructions for your platform, then run:
 ```bash
 tag=vX.Y.Z
 git fetch origin "refs/tags/$tag:refs/tags/$tag"
-gitsign verify \
+gitsign verify-tag \
   --certificate-identity "https://github.com/decionis/agent-safe-pipeline/.github/workflows/deploy.yml@refs/heads/master" \
   --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
   "$tag"
