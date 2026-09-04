@@ -105,6 +105,11 @@ the trust boundary between synthetic conformance and production verification.
 
 The package is published as [`@decionis/agent-safe-pipeline`](https://www.npmjs.com/package/@decionis/agent-safe-pipeline). Install the latest stable release with `npm install @decionis/agent-safe-pipeline`; prereleases require an explicit version such as `npm install @decionis/agent-safe-pipeline@0.1.3-rc.2`.
 
+Archived releases are citable under [Zenodo concept DOI
+`10.5281/zenodo.22312955`](https://doi.org/10.5281/zenodo.22312955). The
+[release-metadata contract](./docs/zenodo-release-metadata.md) explains the
+preflight checks, version-DOI verification, and human publication boundary.
+
 ## Development
 
 ```bash

@@ -37,11 +37,12 @@
     "fuzz": "pnpm --filter @decionis/agent-safe-pipeline test:fuzz",
     "license:inventory": "node scripts/GenerateLicenseInventory.mjs",
     "license:check": "node scripts/CheckLicenses.mjs",
+    "metadata:check": "node scripts/CheckReleaseMetadata.mjs",
     "lint": "eslint . && pnpm lint:markdown",
     "lint:markdown": "markdownlint-cli2",
     "performance": "pnpm --filter @decionis/agent-safe-pipeline test:performance",
     "mutation": "pnpm --filter @decionis/agent-safe-pipeline test:mutation",
-    "precommit": "node scripts/PreCommit.mjs && pnpm fixture:check && pnpm dossiers:check && pnpm license:check && pnpm lint && pnpm security && pnpm performance",
+    "precommit": "node scripts/PreCommit.mjs && pnpm metadata:check && pnpm fixture:check && pnpm dossiers:check && pnpm license:check && pnpm lint && pnpm security && pnpm performance",
     "prepare": "simple-git-hooks",
     "reproducible:compare": "node scripts/ComparePackageBuilds.mjs",
     "security": "pnpm security:production && pnpm security:toolchain",
@@ -50,7 +51,7 @@
     "test": "pnpm -r test",
     "test:automation": "node --test test/automation/*.test.mjs",
     "typecheck": "pnpm --filter @decionis/agent-safe-pipeline build && pnpm -r typecheck",
-    "verify": "pnpm format && pnpm lint && pnpm fixture:check && pnpm dossiers:check && pnpm license:check && pnpm security && pnpm dependabot:check && pnpm discovery && pnpm performance && pnpm typecheck && pnpm test:automation && pnpm test && pnpm build"
+    "verify": "pnpm format && pnpm lint && pnpm metadata:check && pnpm fixture:check && pnpm dossiers:check && pnpm license:check && pnpm security && pnpm dependabot:check && pnpm discovery && pnpm performance && pnpm typecheck && pnpm test:automation && pnpm test && pnpm build"
   },
   "simple-git-hooks": {
     "pre-commit": "pnpm precommit"
@@ -69,6 +70,7 @@
     "markdownlint-cli2": "^0.23.2",
     "prettier": "^3.2.5",
     "simple-git-hooks": "^2.13.1",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "yaml": "^2.9.0"
   }
 }

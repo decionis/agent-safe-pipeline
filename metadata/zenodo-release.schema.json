@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/decionis/agent-safe-pipeline/blob/master/metadata/zenodo-release.schema.json",
+  "title": "Zenodo release identity",
+  "description": "Stable repository identity and archive expectations used by release automation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "repository", "package_name", "creators", "zenodo"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schema_version": { "const": "1.0" },
+    "repository": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" },
+    "package_name": { "type": "string", "minLength": 1 },
+    "creators": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["family_names", "given_names", "affiliation", "orcid"],
+        "properties": {
+          "family_names": { "type": "string", "minLength": 1 },
+          "given_names": { "type": "string", "minLength": 1 },
+          "affiliation": { "type": "string", "minLength": 1 },
+          "orcid": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{4}-[0-9]{4}-[0-9]{3}[0-9X]$" }
+        }
+      }
+    },
+    "zenodo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["concept_doi", "resource_type", "access_right"],
+      "properties": {
+        "concept_doi": { "type": "string", "pattern": "^10\\.5281/zenodo\\.[0-9]+$" },
+        "resource_type": { "const": "software" },
+        "access_right": { "const": "open" }
+      }
+    }
+  }
+}
