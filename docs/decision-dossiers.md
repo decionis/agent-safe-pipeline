@@ -8,5 +8,7 @@ Avoid putting secrets or raw provider payloads in intent context. Prefer opaque 
 
 The repository-owned [synthetic conformance corpus](../dossiers/) publishes exact canonical bytes,
 SHA-256 digests, detached Ed25519 signatures, a public JWKS, and the deliberately public private key
-used to regenerate them. It tests the offline verification contract only. Follow its README's
-separate live-JWKS command to verify a production dossier without committing production evidence.
+used to regenerate them. Its owned-workspace vector proves that issuer context is covered by the
+portable-artifact signature and verifies a version `2.1` execution binding with RFC 8785/JCS. It
+tests the offline verification contract only. Follow its README's separate live-JWKS command to
+verify a production dossier without committing production evidence.

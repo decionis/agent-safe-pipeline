@@ -5,10 +5,10 @@ bundles. It follows the same pattern as [`conformance/vectors/`](../conformance/
 vector publishes the input document, exact canonical JSON bytes, SHA-256 digest, detached Ed25519
 signature, and expected verifier result.
 
-The corpus contains synthetic `ALLOW`, `BLOCK`, and `ESCALATE` dossiers. Each dossier carries a
-portable JSON artifact and a JSON-LD artifact under a version `2.0` proof bundle. The automated test
-discovers every file in [`vectors/`](./vectors/) and verifies it with the separately published
-`@decionis/verify` package.
+The corpus contains synthetic `ALLOW`, `BLOCK`, and `ESCALATE` dossiers. Every vector signs its
+portable JSON, inputs snapshot, and JSON-LD artifacts. A fourth, owned-workspace vector also signs a
+version `2.1` execution binding with RFC 8785/JCS. The automated test discovers every file in
+[`vectors/`](./vectors/) and verifies it with the separately published `@decionis/verify` package.
 
 ## Deliberately public signing key
 
@@ -41,6 +41,12 @@ The command must print `VERIFIED` and exit `0`. `pnpm dossiers:check` independen
 public JWKS, canonical bytes, digests, and signatures in memory and requires them to match the
 committed files byte for byte.
 
+The three baseline vectors deliberately omit issuer context and must report `Issuer not stated`.
+[`owned-execution-bound.json`](./vectors/owned-execution-bound.json) places
+`issuer_context.tier: "owned"` inside the signed portable artifact; the verifier must report an
+`Owned workspace` whose issuer claim is signature-covered. Mutating that tier invalidates the proof
+and removes signature coverage.
+
 To intentionally rebuild the corpus after reviewing a format change:
 
 ```bash
@@ -60,7 +66,7 @@ That claim requires a real dossier and the live Decionis JWKS. Run the following
 dossier obtained through an authorized Decionis route, and do not commit the dossier or its contents:
 
 ```bash
-npx -y @decionis/verify@0.1.0 \
+npx -y @decionis/verify@0.2.0 \
   --file /absolute/path/to/live-decision-dossier.json \
   --jwks https://api.decionis.com/v1/.well-known/decision-dossier-jwks.json
 ```
