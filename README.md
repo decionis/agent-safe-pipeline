@@ -53,6 +53,7 @@ The executor accepts a captured intent and a decision. It does not accept an arb
 - [`ARCHITECTURE.md`](./ARCHITECTURE.md) and [`THREAT-MODEL.md`](./THREAT-MODEL.md) — trust boundary and abuse analysis.
 - [`conformance/agent-safe-intent-v1.json`](./conformance/agent-safe-intent-v1.json) — portable canonical-hash test vector.
 - [`conformance/vectors/`](./conformance/vectors/) — edge-case canonical-hash vectors (Unicode/astral, NFC vs NFD, negative zero, fractional/exponent numbers, nested arrays, UTF-16 key sort order), auto-discovered by the conformance test.
+- [`dossiers/`](./dossiers/) — reproducible synthetic Decision Dossier corpus with canonical bytes, SHA-256 digests, Ed25519 signatures, and a deliberately published corpus key.
 - [`FIXTURE-PROVENANCE.md`](./FIXTURE-PROVENANCE.md) — origin and permitted use of every fixture family.
 - [`DEPENDENCY-LICENSES.md`](./DEPENDENCY-LICENSES.md) — generated inventory method and platform-conditional dependency notes.
 - [`SECURITY-EVIDENCE.md`](./SECURITY-EVIDENCE.md) — control-to-artifact evidence map and published gaps.
@@ -74,6 +75,31 @@ See [`docs/trust-boundary.md`](./docs/trust-boundary.md) before integrating a re
 This is intended to be the public, canonical reference implementation. It should not be mirrored: mirrors create contract and security-fix drift. Public content belongs here—architecture, package source, synthetic policies, and runnable examples. Production policy bundles, customer data, credentials, internal infrastructure, and private incident material do not.
 
 Decionis remains the authoritative decision service, Presence remains the human-verification service, and their server internals can evolve independently behind versioned contracts.
+
+## Verify Decision Dossiers
+
+The repository-owned [`dossiers/`](./dossiers/) corpus checks the offline verifier against synthetic
+`ALLOW`, `BLOCK`, and `ESCALATE` proof bundles. Its private signing key is intentionally public so
+anyone can regenerate the corpus; it is not a production credential and cannot establish that a
+production dossier is authentic.
+
+```bash
+pnpm exec decionis-verify \
+  --file dossiers/vectors/allow.json \
+  --jwks dossiers/corpus-jwks.json
+```
+
+To verify the distinct production claim, obtain a live dossier through an authorized route and run
+the pinned verifier against the live JWKS without committing the dossier:
+
+```bash
+npx -y @decionis/verify@0.1.0 \
+  --file /absolute/path/to/live-decision-dossier.json \
+  --jwks https://api.decionis.com/v1/.well-known/decision-dossier-jwks.json
+```
+
+See the [corpus README](./dossiers/README.md) for regeneration, provenance, expected failures, and
+the trust boundary between synthetic conformance and production verification.
 
 ## Status
 

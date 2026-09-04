@@ -5,3 +5,8 @@ A Decision Dossier records why Decionis allowed, escalated, or blocked an intent
 Do not treat a dossier URL or identifier as an execution credential. Only the signed, short-lived, single-use grant can authorize `SafeExecutor`, and the trusted verifier must consume it atomically.
 
 Avoid putting secrets or raw provider payloads in intent context. Prefer opaque references or precomputed hashes where policy does not need the plaintext.
+
+The repository-owned [synthetic conformance corpus](../dossiers/) publishes exact canonical bytes,
+SHA-256 digests, detached Ed25519 signatures, a public JWKS, and the deliberately public private key
+used to regenerate them. It tests the offline verification contract only. Follow its README's
+separate live-JWKS command to verify a production dossier without committing production evidence.

@@ -7,6 +7,8 @@ const git = spawnSync(
     "ls-files",
     "-z",
     "conformance/*.json",
+    "dossiers/*.json",
+    "dossiers/**/*.json",
     "policies/*.json",
     "examples/*/src/*.ts",
     "packages/pipeline/test/*.ts",

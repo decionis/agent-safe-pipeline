@@ -9,6 +9,7 @@ The accountable data and security owner is [security@decionis.com](mailto:securi
 | Policy examples                   | `policies/*.json`                        | Hand-authored threshold and environment examples using fictional values                                                                                                                              | Documentation and local demonstrations only                       |
 | Intent conformance vector         | `conformance/agent-safe-intent-v1.json`  | Deterministic UUIDs, timestamps, identifiers, and parameters created for this repository; the expected hash is verified by the conformance test                                                      | Cross-implementation canonicalization testing                     |
 | Intent conformance vectors (edge) | `conformance/vectors/*.json`             | Unicode/astral, NFC vs NFD, negative zero, fractional/exponent numbers, nested arrays, UTF-16 key sort order — each with expected canonical bytes + SHA-256, auto-discovered by the conformance test | Cross-implementation canonicalization edge cases                  |
+| Decision Dossier corpus           | `dossiers/**/*.json`                     | Deterministic fictional decisions authored for this repository; each vector publishes canonical bytes, SHA-256 digests, and signatures made with the deliberately public synthetic corpus key        | Offline Decision Dossier verifier conformance only                |
 | Example identities and actions    | `examples/*`                             | Fictional tenants, actors, orders, customers, approvals, and `.invalid` URLs                                                                                                                         | Runnable demonstrations only                                      |
 | Unit-test data                    | `packages/pipeline/test/*`               | Deterministic test values created alongside the implementation                                                                                                                                       | Automated tests only                                              |
 | Fixture authority keys and grants | `FixtureDecisionAuthority` and its tests | Ephemeral Ed25519 keys generated in memory during each run; tokens are short-lived local test artifacts                                                                                              | Development and tests only; construction is blocked in production |
@@ -21,4 +22,12 @@ Contributors must document the source and license of any new fixture. Prefer det
 
 Fixture identity values use the repository-reserved `synthetic-` or `fixture_` prefixes. UUID-shaped fixture tenant and intent values use the sentinel blocks documented in the conformance vector; production integrations must reject those sentinel values. Fixture URLs use IANA-reserved `.example`/`.invalid` domains or loopback. Executable demos may not contain fixed ISO timestamps.
 
-`pnpm fixture:check` discovers every tracked conformance vector, policy, example source, and unit test and requires an exact match with the manifest before enforcing these rules. Adding an unmanifested file, stale manifest entry, real-looking actor, customer, order, approver, tenant, hostname, or fixed demo timestamp makes verification fail. This turns provenance from a prose assertion into a repository gate.
+`pnpm fixture:check` discovers every tracked conformance vector, dossier JSON artifact, policy,
+example source, and unit test and requires an exact match with the manifest before enforcing these
+rules. Adding an unmanifested file, stale manifest entry, real-looking actor, customer, order,
+approver, tenant, hostname, or fixed demo timestamp makes verification fail. This turns provenance
+from a prose assertion into a repository gate.
+
+The dossier corpus private JWK is deliberately published and must never be treated as a secret or a
+production authority key. Its reserved synthetic key ID and absence from the live Decionis JWKS
+keep the conformance trust domain explicit. Real dossiers remain prohibited even if redacted.
