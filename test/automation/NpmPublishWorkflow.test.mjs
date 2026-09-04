@@ -41,7 +41,8 @@ describe("keyless release tag workflow", () => {
       /EXPECTED_IDENTITY: https:\/\/github\.com\/decionis\/agent-safe-pipeline\/\.github\/workflows\/deploy\.yml@refs\/heads\/master/,
     );
     assert.match(workflow, /git tag --sign "\$RELEASE_TAG" "\$TARGET_SHA"/);
-    assert.match(workflow, /gitsign verify/);
+    assert.match(workflow, /gitsign verify-tag/);
+    assert.doesNotMatch(workflow, /gitsign verify \\/);
     assert.match(workflow, /tag_target="\$\(git rev-list -n 1 "\$RELEASE_TAG"\)"/);
   });
 

@@ -215,7 +215,7 @@ jobs:
             exit 1
           fi
 
-          gitsign verify \
+          gitsign verify-tag \
             --certificate-identity "$EXPECTED_IDENTITY" \
             --certificate-oidc-issuer "$EXPECTED_ISSUER" \
             "$RELEASE_TAG"
