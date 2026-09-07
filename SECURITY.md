@@ -8,6 +8,11 @@ The accountable data and security owner for reports and the response targets bel
 
 We will coordinate remediation and publication through a GitHub Security Advisory when practical and credit reporters who want attribution. There is no promise of a bug bounty unless separately agreed in writing.
 
+Reporters may request a specific public credit, anonymous credit, or no credit. Duplicate, invalid,
+and embargoed reports are handled without exposing another reporter or private report content. The
+maintainer triage, remediation, disclosure, release, and tabletop-exercise process is documented in
+the [vulnerability response workflow](./docs/vulnerability-response.md).
+
 ## Response and disclosure targets
 
 These are service targets rather than contractual guarantees. Timing starts when a report reaches either private channel above.
@@ -26,7 +31,9 @@ Active exploitation, credential exposure, or material user risk may require fast
 
 ## Supported versions
 
-Before the first stable release, only the latest tagged `0.x` version receives security fixes. Consumers should pin exact versions and review release notes.
+Before the first stable release, only the latest tagged `0.x` version receives security fixes.
+Consumers should pin exact versions and review release notes. Prerelease and end-of-life behavior is
+defined in the [maintenance and version-support policy](./MAINTENANCE.md).
 
 ## Integration requirements
 

@@ -63,13 +63,14 @@ const registry = new ActionRegistry()
         orderId: z.string(),
       })
       .strict(),
-    execute: ({ parameters, authorization }) => ({
-      providerRequest: {
-        orderId: parameters.orderId,
-        amountMinor: parameters.amountMinor,
-        idempotencyKey: authorization.grantId,
-      },
-    }),
+    execute: async ({ parameters, dispatch }) =>
+      await dispatch.run(async (idempotencyKey) => ({
+        providerRequest: {
+          orderId: parameters.orderId,
+          amountMinor: parameters.amountMinor,
+          idempotencyKey,
+        },
+      })),
   })
   .seal();
 const result = await new SafeExecutor(registry, verifier).run(captured, decision);

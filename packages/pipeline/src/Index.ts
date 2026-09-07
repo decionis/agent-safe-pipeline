@@ -1,4 +1,5 @@
 export * from "./approval/PresenceApprovalCoordinator.js";
+export * from "./audit/AuditRecorder.js";
 export * from "./decision/DecisionAuthority.js";
 export * from "./decision/DecionisGate.js";
 export * from "./decision/FixtureDecisionAuthority.js";

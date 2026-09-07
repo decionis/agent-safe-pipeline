@@ -38,7 +38,9 @@ Agent proposal                         runtime identity/config
 
 `PresenceApprovalCoordinator` presents the action, target, and intent hash to the human. Only a terminal receipt dossier is accepted as evidence. The coordinator sends that evidence back to Decionis; it never turns approval into ALLOW itself.
 
-`SafeExecutor` checks ALLOW, exact intent binding, and the existence of a grant. Its verifier atomically consumes the grant before a registered handler can run. A handler is registered by trusted application startup code and the registry is sealed before use.
+`SafeExecutor` checks ALLOW, exact intent binding, and the existence of a grant. Its verifier atomically consumes the grant before a registered handler can run. A handler is registered by trusted application startup code and the registry is sealed before use. The handler's one-shot provider-dispatch boundary distinguishes a definite pre-dispatch failure from an unknown post-dispatch outcome; read-only reconciliation uses the intent-bound idempotency key and never retries a side effect. See [execution outcomes](./docs/execution-outcomes.md).
+
+`AuditRecorder` sends deeply immutable, bounded, redacted lifecycle events to a consumer sink. It correlates intent, decision, dossier, grant, policy-revision, and execution evidence without copying raw parameters, provider results, credentials, or execution tokens. Its sink policy can preserve availability or require evidence before dispatch, but a sink failure can never allow a blocked action or cause duplicate execution. See [audit events](./docs/audit-events.md).
 
 `ShadowPipeline` observes existing execution and obtains a hypothetical authority decision without granting the shadow result execution authority. Its output is labeled `SHADOW` to prevent accidental enforcement claims.
 

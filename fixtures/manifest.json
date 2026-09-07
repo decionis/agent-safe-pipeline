@@ -123,6 +123,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/pipeline/test/audit/AuditRecorder.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/pipeline/test/decision/DecionisGate.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",

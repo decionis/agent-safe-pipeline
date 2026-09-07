@@ -79,4 +79,53 @@ describe("ActionRegistry", () => {
       "ACTION_PARAMETERS_INVALID",
     );
   });
+
+  it("allows only one provider dispatch and exposes the trusted idempotency key", async () => {
+    const operation = vi.fn(async (idempotencyKey: string) => idempotencyKey);
+    const registry = new ActionRegistry()
+      .register("refund_order", {
+        parametersSchema: z.object({ amount: z.number() }),
+        execute: async ({ dispatch }) => {
+          const result = await dispatch.run(operation);
+          await expect(dispatch.run(operation)).rejects.toThrow(
+            "PROVIDER_DISPATCH_ALREADY_STARTED",
+          );
+          return result;
+        },
+      })
+      .seal();
+    const intent = captured();
+
+    await expect(registry.executeTracked(intent, authorization)).resolves.toMatchObject({
+      status: "COMPLETED",
+      result: intent.intent.idempotencyKey,
+    });
+    expect(operation).toHaveBeenCalledTimes(1);
+    expect(operation).toHaveBeenCalledWith(intent.intent.idempotencyKey);
+  });
+
+  it("converts malformed or rejected reconciliation into UNKNOWN", async () => {
+    const reconcile = vi
+      .fn()
+      .mockResolvedValueOnce({ status: "COMPLETED" })
+      .mockRejectedValueOnce(new Error("private provider response"));
+    const registry = new ActionRegistry()
+      .register("refund_order", {
+        parametersSchema: z.object({ amount: z.number() }),
+        execute: vi.fn(),
+        reconcile,
+      })
+      .seal();
+    const intent = captured();
+
+    await expect(registry.reconcile(intent, intent.intent.idempotencyKey)).resolves.toEqual({
+      status: "UNKNOWN",
+    });
+    await expect(registry.reconcile(intent, intent.intent.idempotencyKey)).resolves.toEqual({
+      status: "UNKNOWN",
+    });
+    await expect(registry.reconcile(intent, "different-key")).rejects.toThrow(
+      "RECONCILIATION_BINDING_MISMATCH",
+    );
+  });
 });

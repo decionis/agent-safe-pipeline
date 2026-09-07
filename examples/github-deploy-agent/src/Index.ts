@@ -20,11 +20,13 @@ const registry = new ActionRegistry()
     parametersSchema: z
       .object({ environment: z.enum(["staging", "production"]), ref: z.string() })
       .strict(),
-    execute: ({ parameters }) => ({ dispatched: true, ...parameters }),
+    execute: async ({ parameters, dispatch }) =>
+      await dispatch.run(async () => ({ dispatched: true, ...parameters })),
   })
   .register("force_push", {
     parametersSchema: z.object({ branch: z.string() }).strict(),
-    execute: ({ parameters }) => ({ pushed: parameters.branch }),
+    execute: async ({ parameters, dispatch }) =>
+      await dispatch.run(async () => ({ pushed: parameters.branch })),
   })
   .seal();
 const executor = new SafeExecutor(registry, verifier);
