@@ -12,26 +12,34 @@ import {
 } from "./DecisionAuthority.js";
 import { immutableGateDecision } from "./ImmutableGateDecision.js";
 
-const reasonCode = z
+const boundedIdentifier = z
   .string()
   .min(1)
-  .max(120)
-  .regex(/^[A-Z][A-Z0-9_:-]*$/);
+  .max(200)
+  .refine(hasNoControlCharacters, { message: "IDENTIFIER_INVALID" });
 
+/**
+ * Mirrors `ExecutionAuthorityDecision` in the Decionis OpenAPI contract, which
+ * declares `additionalProperties: false`; an undocumented field therefore fails
+ * closed instead of being interpreted as execution semantics.
+ */
 const AuthorityResponseSchema = z
   .object({
-    decision_id: z.string().min(1).max(200),
+    decision_id: boundedIdentifier,
+    chain_id: boundedIdentifier.nullable(),
     status: z.enum(["ALLOW", "BLOCK", "ESCALATE", "REVIEW_REQUIRED", "ERROR"]),
     should_execute: z.boolean(),
-    reason_codes: z.array(reasonCode).max(50),
+    reason_codes: z.array(boundedIdentifier).max(50),
     action_hash: z.string().regex(/^sha256:[0-9a-f]{64}$/),
-    execution_token: z
-      .string()
-      .min(1)
-      .max(100 * 1024)
-      .nullable(),
+    policy_version: boundedIdentifier.nullable().optional(),
+    mode: z.enum(["SHADOW", "PARALLEL", "ENFORCEMENT"]).nullable().optional(),
+    execution_token: z.string().min(1).max(20_000).nullable(),
     execution_token_expires_at: z.string().datetime().nullable(),
-    dossier_id: z.string().min(1).max(200).nullable(),
+    dossier_id: boundedIdentifier.nullable(),
+    dossier_sha256: boundedIdentifier.nullable().optional(),
+    dossier_url: z.string().min(1).max(2_000).nullable(),
+    approval_request_id: boundedIdentifier.nullable().optional(),
+    ledger_entry_id: boundedIdentifier.nullable().optional(),
   })
   .strict();
 
@@ -86,7 +94,9 @@ export class DecionisGate implements DecisionAuthority {
         headers: {
           authorization: `Bearer ${this.apiKey}`,
           "content-type": "application/json",
-          "idempotency-key": captured.intent.idempotencyKey,
+          // The contract requires the header to equal the signed intent_id;
+          // intent_id is the authority's grant-issuance boundary.
+          "idempotency-key": captured.intent.intentId,
         },
         body: JSON.stringify({
           ...CanonicalIntentHasher.bindingOf(captured.intent),
@@ -96,16 +106,20 @@ export class DecionisGate implements DecisionAuthority {
         }),
         signal: controller.signal,
       });
-      if (!response.ok) {
-        return FailClosedDecision.create(captured.intentHash, "AUTHORITY_REQUEST_FAILED");
-      }
       const text = await BoundedResponseBody.read(response, MAX_RESPONSE_BYTES);
       if (text === null) {
         return FailClosedDecision.create(captured.intentHash, "AUTHORITY_RESPONSE_TOO_LARGE");
       }
+      if (!response.ok) {
+        return DecionisGate.failedResponse(captured, text);
+      }
       const parsed = AuthorityResponseSchema.parse(JSON.parse(text));
       if (parsed.action_hash !== captured.intentHash) {
         return FailClosedDecision.create(captured.intentHash, "AUTHORITY_BINDING_MISMATCH");
+      }
+      const mode = parsed.mode ?? null;
+      if (mode !== null && mode !== this.evaluationMode) {
+        return FailClosedDecision.create(captured.intentHash, "AUTHORITY_MODE_MISMATCH");
       }
       const verdict =
         parsed.status === "ALLOW"
@@ -124,11 +138,13 @@ export class DecionisGate implements DecisionAuthority {
           reasonCodes: parsed.reason_codes,
           authorization: null,
           failClosed: parsed.status === "ERROR",
+          ...(evidence === undefined ? {} : { evidence }),
         });
       }
       const canExecute =
         verdict === "ALLOW" &&
         parsed.should_execute &&
+        mode === "ENFORCEMENT" &&
         parsed.dossier_id !== null &&
         parsed.execution_token !== null &&
         parsed.execution_token_expires_at !== null &&
@@ -150,6 +166,7 @@ export class DecionisGate implements DecisionAuthority {
             }
           : null,
         failClosed: parsed.status === "ERROR",
+        ...(evidence === undefined ? {} : { evidence }),
       });
     } catch {
       return FailClosedDecision.create(captured.intentHash, "AUTHORITY_UNAVAILABLE");
@@ -157,4 +174,37 @@ export class DecionisGate implements DecisionAuthority {
       clearTimeout(timeout);
     }
   }
+
+  /**
+   * The contract returns an `ERROR` decision body on 409 and 503 so the
+   * refusal is evidence-bearing. Anything else fails closed generically.
+   */
+  private static failedResponse(captured: CapturedIntent, text: string): GateDecision {
+    try {
+      const parsed = AuthorityResponseSchema.parse(JSON.parse(text));
+      if (parsed.status !== "ERROR" || parsed.action_hash !== captured.intentHash) {
+        return FailClosedDecision.create(captured.intentHash, "AUTHORITY_REQUEST_FAILED");
+      }
+      return immutableGateDecision({
+        verdict: "BLOCK",
+        decisionId: parsed.decision_id,
+        dossierId: parsed.dossier_id,
+        intentHash: captured.intentHash,
+        reasonCodes:
+          parsed.reason_codes.length === 0 ? ["AUTHORITY_REQUEST_FAILED"] : parsed.reason_codes,
+        authorization: null,
+        failClosed: true,
+      });
+    } catch {
+      return FailClosedDecision.create(captured.intentHash, "AUTHORITY_REQUEST_FAILED");
+    }
+  }
+}
+
+function hasNoControlCharacters(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const codeUnit = value.charCodeAt(index);
+    if (codeUnit <= 0x1f || codeUnit === 0x7f) return false;
+  }
+  return true;
 }

@@ -13,7 +13,7 @@ business model from the code.
 - **Operated (Decionis, not in this repository):** the policy control plane that evaluates
   intents, issues and atomically consumes execution grants, signs and retains Decision Dossiers,
   and verifies human approval through Presence.
-- **The seam:** two TypeScript interfaces and three versioned HTTP operations. Anyone can implement
+- **The seam:** two TypeScript interfaces and four versioned HTTP operations. Anyone can implement
   the interfaces. The library does not check a plan, key, or entitlement.
 
 ## What is Apache-2.0 here
@@ -66,6 +66,7 @@ interface AuthorizationVerifier {
     captured: CapturedIntent,
     decision: GateDecision,
   ): Promise<VerifiedAuthorization | null>;
+  finalize?(input: AuthorizationFinalizationInput): Promise<"RECORDED" | "PENDING">;
 }
 ```
 
@@ -75,12 +76,13 @@ Decionis-specific code path. A third-party or self-built authority that returns 
 
 **Wire operations** (schemas in the Decionis OpenAPI specification):
 
-| Operation                             | Used by                 | Purpose                                                               |
-| ------------------------------------- | ----------------------- | --------------------------------------------------------------------- |
-| `POST /v1/authority/enforce-and-bind` | `DecionisGate`          | Evaluate the exact binding; grant only for an enforceable `ALLOW`     |
-| `POST /v1/execution/consume-token`    | `DecionisGrantVerifier` | Atomically consume the intent-bound single-use grant before execution |
-| `POST /v1/execution/verify-token`     | diagnostics only        | Verify a grant binding without consuming it                           |
-| Decision Dossier JWKS                 | `@decionis/verify`      | Verify production dossier signatures offline                          |
+| Operation                             | Used by                 | Purpose                                                                 |
+| ------------------------------------- | ----------------------- | ----------------------------------------------------------------------- |
+| `POST /v1/authority/enforce-and-bind` | `DecionisGate`          | Evaluate the exact binding; grant only for an enforceable `ALLOW`       |
+| `POST /v1/execution/claim-token`      | `DecionisGrantVerifier` | Revalidate and atomically claim the single-use grant before dispatch    |
+| `POST /v1/execution/finalize-token`   | `DecionisGrantVerifier` | Record the commit outcome so execution evidence joins the dossier chain |
+| `POST /v1/execution/verify-token`     | diagnostics only        | Verify a grant binding without consuming it                             |
+| Decision Dossier JWKS                 | `@decionis/verify`      | Verify production dossier signatures offline                            |
 
 ## Questions a reviewer will ask
 

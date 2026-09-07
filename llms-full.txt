@@ -47,9 +47,10 @@ Package registry: https://www.npmjs.com/package/@decionis/agent-safe-pipeline. S
 
 ## Decionis contract used by production adapters
 
-- POST /v1/authority/enforce-and-bind — evaluate the exact `agent-safe.intent/1` binding and issue a grant only for an enforceable ALLOW in `ENFORCEMENT` mode; `SHADOW` mode records the decision and dossier without a grant.
+- POST /v1/authority/enforce-and-bind — evaluate the exact `agent-safe.intent/1` binding (the `Idempotency-Key` header equals `intent_id`) and issue a grant only for an enforceable ALLOW in `ENFORCEMENT` mode; `SHADOW` mode records the decision and dossier without a grant.
+- POST /v1/execution/claim-token — revalidate and atomically claim the bound single-use grant immediately before dispatch, presenting the decision's evidence; `/v1/execution/consume-token` is the contract's compatibility alias.
+- POST /v1/execution/finalize-token — record COMMITTED, FAILED, or INDETERMINATE after the downstream attempt so commit evidence joins the Decision Dossier chain.
 - POST /v1/execution/verify-token — verify an exact grant/intent binding without consuming it; diagnostic use only.
-- POST /v1/execution/consume-token — atomically consume the bound single-use grant before execution.
 
 These operations require authenticated Decionis server credentials. The canonical operation schemas live in the Decionis OpenAPI specification. AgentSafe does not proxy them and does not expose a JWKS, webhook, hosted API, or registry MCP server of its own.
 

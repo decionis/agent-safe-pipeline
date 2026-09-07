@@ -3,6 +3,7 @@ import type { AuditRecorder } from "../audit/AuditRecorder.js";
 import {
   AgentProposalSchema,
   ExecutionIntentSchema,
+  RESERVED_CONTEXT_IDEMPOTENCY_KEY,
   TrustedIntentContextSchema,
   type AgentProposal,
   type CapturedIntent,
@@ -38,6 +39,9 @@ export class IntentCapture {
     this.hasher.assertInputBounded(trustedInput);
     const proposal = AgentProposalSchema.parse(proposalInput);
     const trusted = TrustedIntentContextSchema.parse(trustedInput);
+    if (Object.hasOwn(trusted.context, RESERVED_CONTEXT_IDEMPOTENCY_KEY)) {
+      throw new Error("INTENT_CONTEXT_KEY_RESERVED");
+    }
     const capturedAt = this.clock();
     const expiresAt = new Date(capturedAt.valueOf() + this.ttlSeconds * 1_000);
     const intent = ExecutionIntentSchema.parse({

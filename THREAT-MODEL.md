@@ -49,7 +49,8 @@ The agent runtime should have denied-by-default network egress. Open only the pr
 
 ## Security invariants worth testing
 
-- Changing any bound field, including the idempotency key, invalidates authorization.
+- Changing any bound field, including the idempotency key carried in the trusted context, invalidates authorization.
+- The wire binding contains exactly the contract's properties, and the idempotency header equals the intent ID.
 - Exactly one of 100 concurrent consume attempts can execute.
 - ALLOW without a grant cannot execute.
 - Presence approval alone cannot execute.

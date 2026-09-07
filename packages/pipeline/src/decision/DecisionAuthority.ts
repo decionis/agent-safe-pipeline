@@ -31,6 +31,8 @@ export interface GateDecision {
     readonly expiresAt: string;
   } | null;
   readonly failClosed: boolean;
+  /** Evidence the authority evaluated with; a claim must present the same evidence. */
+  readonly evidence?: DecisionEvidence;
 }
 
 export interface DecisionAuthority {

@@ -31,6 +31,7 @@ const EXPECTED_RUNTIME = [
   "JsonObjectSchema",
   "JsonValueSchema",
   "PresenceApprovalCoordinator",
+  "RESERVED_CONTEXT_IDEMPOTENCY_KEY",
   "SafeExecutor",
   "ShadowPipeline",
   "TrustedIntentContextSchema",

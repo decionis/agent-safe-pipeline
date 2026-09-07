@@ -60,6 +60,10 @@ const result = await executor.run(captured, await gate.evaluate(captured));
 | ESCALATE                          | Stop; obtain Presence receipt and ask Decionis again |
 | BLOCK or any error/mismatch       | Fail closed; do not invoke handler                   |
 
+Every outcome that consumed a grant also reports `finalization` (`RECORDED`, `PENDING`, or
+`UNSUPPORTED`): the executor records COMMITTED, FAILED, or INDETERMINATE with Decionis after the
+attempt so commit evidence joins the Decision Dossier chain. Finalization never changes the outcome.
+
 Presence transport/schema failures and Decionis reauthorization failures return stable fail-closed
 decisions; raw downstream error text is never part of the coordinator result.
 

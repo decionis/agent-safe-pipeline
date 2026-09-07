@@ -11,8 +11,11 @@ Every event contains an event ID and timestamp; an explicit `AUTHORITATIVE`, `OB
 `NON_AUTHORITATIVE` classification; intent and optional correlation IDs; bounded reason codes and
 duration; and empty-by-default metadata. Decision events also carry the verdict, decision and
 dossier IDs, an evaluation ID, a material-input digest, and an optional immutable policy revision.
-Grant and execution events add the consumed grant ID. They never include execution tokens, API
-keys, raw intent parameters or context, raw targets, or provider results.
+Grant and execution events add the consumed grant ID, and the terminal execution event's reason codes
+end with `COMMIT_FINALIZATION_RECORDED`, `COMMIT_FINALIZATION_PENDING`, or
+`COMMIT_FINALIZATION_UNSUPPORTED` so the record shows whether commit evidence reached the authority.
+Events never include execution tokens, claim tokens, API keys, raw intent parameters or context, raw
+targets, or provider results.
 
 An observational event remains observational after JSON serialization. Its shape is an audit
 record, not a `GateDecision`, and `SafeExecutor` rejects it with `DECISION_NOT_AUTHORITATIVE` if

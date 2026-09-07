@@ -56,6 +56,7 @@ export class FixtureDecisionAuthority implements DecisionAuthority {
     const verdict = this.resolveVerdict(intent, evidence);
     const decisionId = `fixture_${randomUUID()}`;
     const dossierId = `fixture_dossier_${randomUUID()}`;
+    const evidenceField = evidence === undefined ? {} : { evidence };
     if (verdict !== "ALLOW") {
       return immutableGateDecision({
         verdict,
@@ -65,6 +66,7 @@ export class FixtureDecisionAuthority implements DecisionAuthority {
         reasonCodes: [`FIXTURE_${verdict}`],
         authorization: null,
         failClosed: false,
+        ...evidenceField,
       });
     }
     const issuedAt = Math.floor(Date.now() / 1_000);
@@ -97,6 +99,7 @@ export class FixtureDecisionAuthority implements DecisionAuthority {
       reasonCodes: ["FIXTURE_ALLOW"],
       authorization: { token, expiresAt: new Date(expiresAt * 1_000).toISOString() },
       failClosed: false,
+      ...evidenceField,
     });
   }
 }

@@ -4,7 +4,6 @@
     "protocol_version": "agent-safe.intent/1",
     "tenant_id": "00000000-0000-4000-8000-000000000002",
     "intent_id": "11111111-1111-4111-8111-111111111111",
-    "idempotency_key": "refund-synthetic-1001-v1",
     "captured_at": "2026-08-14T10:00:00.000Z",
     "expires_at": "2026-08-14T10:01:00.000Z",
     "actor": {
@@ -22,7 +21,8 @@
       }
     },
     "context": {
-      "source": "conformance"
+      "source": "conformance",
+      "idempotency_key": "refund-synthetic-1001-v1"
     },
     "downstream_target": {
       "system": "shopify",
@@ -30,5 +30,6 @@
       "endpoint": "POST /refunds"
     }
   },
-  "intent_hash": "sha256:5dd988f21a3e6d342fc2b787ba94deddcfa776170bc4f5814ffccdcf7a0b5d83"
+  "canonical_json": "{\"action\":{\"parameters\":{\"amountMinor\":35000,\"currency\":\"USD\",\"orderId\":\"synthetic-1\"},\"resource\":\"shopify:order:synthetic-1\",\"type\":\"refund_order\"},\"actor\":{\"id\":\"synthetic-refund-agent\",\"runtime\":\"mcp\",\"type\":\"AI_AGENT\"},\"captured_at\":\"2026-08-14T10:00:00.000Z\",\"context\":{\"idempotency_key\":\"refund-synthetic-1001-v1\",\"source\":\"conformance\"},\"downstream_target\":{\"endpoint\":\"POST /refunds\",\"operation\":\"refund\",\"system\":\"shopify\"},\"expires_at\":\"2026-08-14T10:01:00.000Z\",\"intent_id\":\"11111111-1111-4111-8111-111111111111\",\"protocol_version\":\"agent-safe.intent/1\",\"tenant_id\":\"00000000-0000-4000-8000-000000000002\"}",
+  "intent_hash": "sha256:aff2fd3aa1a7557a77f20afa5583f56eb0c39529304b31f69ee78e1e7b53e316"
 }

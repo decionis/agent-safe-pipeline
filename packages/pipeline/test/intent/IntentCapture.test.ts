@@ -104,8 +104,41 @@ describe("IntentCapture", () => {
     });
 
     expect(replayedAsNewOperation.intentHash).not.toBe(approved.intentHash);
-    expect(JSON.parse(approved.canonicalIntent)).toMatchObject({
-      idempotency_key: "refund-58291-v1",
+    const binding = JSON.parse(approved.canonicalIntent) as Record<string, unknown>;
+    // The Decionis ExecutionIntentBinding contract has no top-level idempotency
+    // field, so the key stays hash-bound inside the trusted context.
+    expect("idempotency_key" in binding).toBe(false);
+    expect(binding.context).toEqual({ source: "test", idempotency_key: "refund-58291-v1" });
+    expect(Object.keys(binding)).toEqual([
+      "action",
+      "actor",
+      "captured_at",
+      "context",
+      "downstream_target",
+      "expires_at",
+      "intent_id",
+      "protocol_version",
+      "tenant_id",
+    ]);
+  });
+
+  it("reserves the context idempotency key for the trusted runtime", () => {
+    expect(() =>
+      capture(
+        { action: "refund_order", target: "shopify:order:58291", parameters: {} },
+        { ...trusted(), context: { idempotency_key: "spoofed" } },
+      ),
+    ).toThrow("INTENT_CONTEXT_KEY_RESERVED");
+
+    const environment = capture(
+      { action: "refund_order", target: "shopify:order:58291", parameters: {} },
+      {
+        ...trusted(),
+        downstreamTarget: { system: "shopify", operation: "refund", environment: "staging" },
+      },
+    );
+    expect(JSON.parse(environment.canonicalIntent)).toMatchObject({
+      downstream_target: { environment: "staging" },
     });
   });
 

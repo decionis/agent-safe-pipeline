@@ -3,7 +3,12 @@ import type { AuditEventType, AuditRecorder } from "../audit/AuditRecorder.js";
 import { CanonicalIntentHasher } from "../intent/CanonicalIntentHasher.js";
 import type { CapturedIntent } from "../intent/ExecutionIntent.js";
 import type { ActionRegistry } from "./ActionRegistry.js";
-import type { AuthorizationVerifier, VerifiedAuthorization } from "./AuthorizationVerifier.js";
+import type {
+  AuthorizationVerifier,
+  ExecutionCommitOutcome,
+  ExecutionFinalization,
+  VerifiedAuthorization,
+} from "./AuthorizationVerifier.js";
 
 export type ExecutionBlockReason =
   | "DECISION_NOT_AUTHORITATIVE"
@@ -31,6 +36,20 @@ export interface ExecutionBlockedResult {
   readonly authorization: null;
 }
 
+export interface ProviderOutcomeUnknownResult {
+  readonly outcome: "UNKNOWN_AFTER_DISPATCH";
+  readonly executed: null;
+  readonly reason: "PROVIDER_OUTCOME_UNKNOWN";
+  readonly result: null;
+  readonly authorization: VerifiedAuthorization;
+  readonly recovery: ExecutionRecoveryReference;
+}
+
+/**
+ * Every outcome that consumed a grant reports whether the attempt's commit
+ * evidence reached the authority. Finalization is evidence, not authority;
+ * it never changes `outcome` or `executed`.
+ */
 export type SafeExecutionResult<TResult = unknown> =
   | {
       readonly outcome: "COMPLETED";
@@ -38,6 +57,7 @@ export type SafeExecutionResult<TResult = unknown> =
       readonly recovered: false;
       readonly result: TResult;
       readonly authorization: VerifiedAuthorization;
+      readonly finalization: ExecutionFinalization;
     }
   | ExecutionBlockedResult
   | {
@@ -46,15 +66,9 @@ export type SafeExecutionResult<TResult = unknown> =
       readonly reason: ExecutionPreDispatchFailureReason;
       readonly result: null;
       readonly authorization: VerifiedAuthorization;
+      readonly finalization: ExecutionFinalization;
     }
-  | {
-      readonly outcome: "UNKNOWN_AFTER_DISPATCH";
-      readonly executed: null;
-      readonly reason: "PROVIDER_OUTCOME_UNKNOWN";
-      readonly result: null;
-      readonly authorization: VerifiedAuthorization;
-      readonly recovery: ExecutionRecoveryReference;
-    };
+  | (ProviderOutcomeUnknownResult & { readonly finalization: ExecutionFinalization });
 
 export type ExecutionReconciliationResult<TResult = unknown> =
   | {
@@ -73,7 +87,7 @@ export type ExecutionReconciliationResult<TResult = unknown> =
       readonly authorization: VerifiedAuthorization;
     }
   | ExecutionBlockedResult
-  | Extract<SafeExecutionResult<never>, { readonly outcome: "UNKNOWN_AFTER_DISPATCH" }>;
+  | ProviderOutcomeUnknownResult;
 
 export class SafeExecutor {
   private readonly hasher = new CanonicalIntentHasher();
@@ -194,6 +208,7 @@ export class SafeExecutor {
       );
     }
     if (attempt.status === "UNKNOWN_AFTER_DISPATCH") {
+      const finalization = await this.finalize(captured, decision, authorization, "INDETERMINATE");
       const result: SafeExecutionResult<TResult> = {
         outcome: "UNKNOWN_AFTER_DISPATCH",
         executed: null,
@@ -201,6 +216,7 @@ export class SafeExecutor {
         result: null,
         authorization,
         recovery: SafeExecutor.recoveryReference(captured, authorization),
+        finalization,
       };
       // Stryker disable all: Audit payload mapping is covered by lifecycle event assertions.
       await this.record({
@@ -208,18 +224,20 @@ export class SafeExecutor {
         captured,
         decision,
         authorization,
-        reasonCodes: [result.reason],
+        reasonCodes: [result.reason, SafeExecutor.finalizationCode(finalization)],
         durationMs: Date.now() - startedAt,
       });
       // Stryker restore all
       return result;
     }
+    const finalization = await this.finalize(captured, decision, authorization, "COMMITTED");
     const result: SafeExecutionResult<TResult> = {
       outcome: "COMPLETED",
       executed: true,
       recovered: false,
       result: attempt.result as TResult,
       authorization,
+      finalization,
     };
     // Stryker disable all: Audit payload mapping is covered by lifecycle event assertions.
     await this.record({
@@ -227,10 +245,40 @@ export class SafeExecutor {
       captured,
       decision,
       authorization,
+      reasonCodes: [SafeExecutor.finalizationCode(finalization)],
       durationMs: Date.now() - startedAt,
     });
     // Stryker restore all
     return result;
+  }
+
+  /**
+   * Reports the attempt outcome to the verifier's authority. A missing,
+   * failing, or malformed finalization can never alter the execution result.
+   */
+  private async finalize(
+    captured: CapturedIntent,
+    decision: GateDecision,
+    authorization: VerifiedAuthorization,
+    outcome: ExecutionCommitOutcome,
+  ): Promise<ExecutionFinalization> {
+    const finalize = this.verifier.finalize;
+    if (finalize === undefined) return "UNSUPPORTED";
+    try {
+      const status = await finalize.call(this.verifier, {
+        captured,
+        decision,
+        authorization,
+        outcome,
+      });
+      return status === "RECORDED" ? "RECORDED" : "PENDING";
+    } catch {
+      return "PENDING";
+    }
+  }
+
+  private static finalizationCode(finalization: ExecutionFinalization): string {
+    return `COMMIT_FINALIZATION_${finalization}`;
   }
 
   public async reconcile<TResult = unknown>(
@@ -360,13 +408,15 @@ export class SafeExecutor {
     reason: ExecutionPreDispatchFailureReason,
     startedAt: number,
   ): Promise<Extract<SafeExecutionResult<never>, { outcome: "FAILED_BEFORE_DISPATCH" }>> {
+    // The grant was consumed but no side effect was attempted.
+    const finalization = await this.finalize(captured, decision, authorization, "FAILED");
     // Stryker disable all: Audit payload mapping is covered by lifecycle event assertions.
     await this.record({
       eventType: "EXECUTION_FAILED_BEFORE_DISPATCH",
       captured,
       decision,
       authorization,
-      reasonCodes: [reason],
+      reasonCodes: [reason, SafeExecutor.finalizationCode(finalization)],
       durationMs: Date.now() - startedAt,
     });
     // Stryker restore all
@@ -376,6 +426,7 @@ export class SafeExecutor {
       reason,
       result: null,
       authorization,
+      finalization,
     };
   }
 

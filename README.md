@@ -88,7 +88,7 @@ See the [package README](./packages/pipeline/README.md) for the complete enforce
 2. The exact canonical intent is hashed and expires quickly.
 3. Decionis independently decides. Network errors, malformed responses, missing grants, or binding mismatches fail closed.
 4. Presence proves a human approved that exact intent; Presence never directly authorizes execution. Decionis verifies the receipt and re-evaluates policy.
-5. The grant is bound to the intent, decision, audience, and expiry and is consumed atomically before the handler runs.
+5. The grant is bound to the intent, decision, audience, and expiry and is claimed atomically before the handler runs; the attempt outcome is finalized with the authority afterwards as evidence, never as authority.
 6. Downstream credentials exist only behind the trusted executor.
 7. Every decision is evidence-bearing. An ALLOW whose response lacks a dossier identifier or grant is refused as non-executable, and an executed result retains its consumed `{decisionId, dossierId, grantId}` binding. A dossier identifier is never an execution credential.
 
@@ -115,7 +115,7 @@ Companion notes on the Execution Authority model, the authorization protocol, Pr
 | Research concept              | Implementation in this repository                                                                                                                                                                  |
 | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Execution Authority boundary  | `IntentCapture` -> `DecionisGate` -> `SafeExecutor`                                                                                                                                                |
-| Protocol contract             | The `agent-safe.intent/1` canonical binding; `DecionisGate` and `DecionisGrantVerifier` against the Decionis OpenAPI contract                                                                      |
+| Protocol contract             | Exactly the Decionis `ExecutionAuthorityRequest` and `ExecutionIntentBinding` contract on the wire; `DecionisGate` and `DecionisGrantVerifier` claim and finalize against the published OpenAPI    |
 | Intent integrity              | `CanonicalIntentHasher` plus the [`conformance/`](./conformance) hash vectors                                                                                                                      |
 | Human approval evidence       | `PresenceApprovalCoordinator` receipt verification with Decionis re-evaluation                                                                                                                     |
 | Trusted execution             | Sealed `ActionRegistry` and atomic single-use grant consumption in `SafeExecutor`                                                                                                                  |
