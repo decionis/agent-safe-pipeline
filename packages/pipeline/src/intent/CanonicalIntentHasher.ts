@@ -1,5 +1,10 @@
 import { createHash } from "node:crypto";
-import type { AuthorityIntentBinding, CapturedIntent, ExecutionIntent } from "./ExecutionIntent.js";
+import {
+  RESERVED_CONTEXT_IDEMPOTENCY_KEY,
+  type AuthorityIntentBinding,
+  type CapturedIntent,
+  type ExecutionIntent,
+} from "./ExecutionIntent.js";
 import type { JsonValue } from "./JsonValue.js";
 
 const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);
@@ -101,7 +106,6 @@ export class CanonicalIntentHasher {
       protocol_version: intent.version,
       tenant_id: intent.tenantId,
       intent_id: intent.intentId,
-      idempotency_key: intent.idempotencyKey,
       captured_at: intent.capturedAt,
       expires_at: intent.expiresAt,
       actor: {
@@ -115,10 +119,14 @@ export class CanonicalIntentHasher {
         resource: intent.target,
         parameters: intent.parameters,
       },
-      context: intent.context,
+      // The idempotency key stays hash-bound by riding in the trusted context.
+      context: { ...intent.context, [RESERVED_CONTEXT_IDEMPOTENCY_KEY]: intent.idempotencyKey },
       downstream_target: {
         system: intent.downstreamTarget.system,
         operation: intent.downstreamTarget.operation,
+        ...(intent.downstreamTarget.environment === undefined
+          ? {}
+          : { environment: intent.downstreamTarget.environment }),
         ...(intent.downstreamTarget.endpoint === undefined
           ? {}
           : { endpoint: intent.downstreamTarget.endpoint }),

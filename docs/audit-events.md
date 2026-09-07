@@ -11,13 +11,18 @@ Every event contains an event ID and timestamp; an explicit `AUTHORITATIVE`, `OB
 `NON_AUTHORITATIVE` classification; intent and optional correlation IDs; bounded reason codes and
 duration; and empty-by-default metadata. Decision events also carry the verdict, decision and
 dossier IDs, an evaluation ID, a material-input digest, and an optional immutable policy revision.
-Grant and execution events add the consumed grant ID. They never include execution tokens, API
-keys, raw intent parameters or context, raw targets, or provider results.
+Grant and execution events add the consumed grant ID, and the terminal execution event's reason codes
+end with `COMMIT_FINALIZATION_RECORDED`, `COMMIT_FINALIZATION_PENDING`, or
+`COMMIT_FINALIZATION_UNSUPPORTED` so the record shows whether commit evidence reached the authority.
+Events never include execution tokens, claim tokens, API keys, raw intent parameters or context, raw
+targets, or provider results.
 
 An observational event remains observational after JSON serialization. Its shape is an audit
-record, not a `GateDecision`, and `SafeExecutor` rejects it if application code attempts an unsafe
-cast. Presence events are `NON_AUTHORITATIVE`: a human receipt is evidence for Decionis
-re-evaluation, never execution authority.
+record, not a `GateDecision`, and `SafeExecutor` rejects it with `DECISION_NOT_AUTHORITATIVE` if
+application code attempts an unsafe cast. `ShadowPipeline` emits `SHADOW_EVALUATED`, which is
+always `OBSERVATIONAL`; the recorder refuses a shadow event with any other classification and
+refuses any observational event that references a grant. Presence events are `NON_AUTHORITATIVE`:
+a human receipt is evidence for Decionis re-evaluation, never execution authority.
 
 ## Sink configuration
 
@@ -57,7 +62,8 @@ INTENT_CAPTURED
 ```
 
 `PresenceApprovalCoordinator` emits `PRESENCE_ESCALATED` and `PRESENCE_RESOLVED` with
-`NON_AUTHORITATIVE` classification. `IntentCapture.captureAndAudit` is available when capture must be
+`NON_AUTHORITATIVE` classification. `ShadowPipeline` emits one `SHADOW_EVALUATED` event per
+observation whose reason codes begin with `SHADOW_<status>`; see [shadow mode](./shadow-mode.md). `IntentCapture.captureAndAudit` is available when capture must be
 recorded even if the caller never reaches `SafeExecutor`; avoid using both automatic paths if the
 sink treats two capture observations as duplicates.
 

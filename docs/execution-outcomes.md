@@ -16,6 +16,24 @@ case as an ordinary failure invites a duplicate retry.
 `executed` is `true`, `false`, or `null` respectively so an unknown outcome cannot be mistaken for a
 definite failure.
 
+## Finalization
+
+Every outcome that consumed a grant also reports `finalization`. After the attempt, `SafeExecutor`
+asks the verifier to record the commit outcome with the authority: `COMMITTED` for `COMPLETED`,
+`FAILED` for `FAILED_BEFORE_DISPATCH`, and `INDETERMINATE` for `UNKNOWN_AFTER_DISPATCH`.
+`DecionisGrantVerifier` claims the grant through `/v1/execution/claim-token` and finalizes it through
+`/v1/execution/finalize-token`, so commit evidence joins the Decision Dossier chain.
+
+| `finalization` | Meaning                                                                                 |
+| -------------- | --------------------------------------------------------------------------------------- |
+| `RECORDED`     | The authority accepted the commit evidence                                              |
+| `PENDING`      | Delivery failed or was rejected; the authority's claim-lease recovery owns the evidence |
+| `UNSUPPORTED`  | The verifier has no finalization contract, such as the development fixture              |
+
+Finalization is evidence, never authority. It runs after the dispatch boundary, never retries a side
+effect, never throws, and never changes `outcome` or `executed`. The terminal audit event carries
+`COMMIT_FINALIZATION_<status>` in its reason codes.
+
 ## Trusted handler contract
 
 Put the provider side effect inside `dispatch.run`. The callback receives the idempotency key that

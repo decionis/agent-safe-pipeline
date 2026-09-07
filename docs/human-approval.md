@@ -8,6 +8,10 @@ Transport failures, unknown verdicts, malformed or unbounded receipt identifiers
 reauthorization failures produce stable fail-closed outcomes. Raw Presence or authority errors are
 not returned through the coordinator.
 
+The re-evaluated decision carries the evidence it was made with, and `DecionisGrantVerifier` presents
+the same evidence when it claims the grant, because Decionis re-verifies a Presence-bound decision at
+claim time and rejects a claim that arrives without it.
+
 If the intent changes or expires during approval, capture a new intent and start again.
 
 ## Bounded polling

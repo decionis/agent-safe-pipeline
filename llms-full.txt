@@ -1,6 +1,6 @@
 # Agent-Safe Pipeline
 
-Agent-Safe Pipeline is a reference architecture in which AI agents propose actions but cannot authorize or directly execute their own consequential actions. The exact short-lived intent is evaluated by Decionis. Presence supplies independently verified human evidence only when policy escalates. A trusted SafeExecutor consumes an intent-bound single-use grant before invoking a registered handler.
+Agent-Safe Pipeline is a reference architecture in which AI agents propose actions but cannot authorize or directly execute their own consequential actions. The exact short-lived intent is evaluated by Decionis. Presence supplies independently verified human evidence only when policy escalates. A trusted SafeExecutor consumes an intent-bound single-use grant before invoking a registered handler. Every decision carries decision and Decision Dossier identifiers into the Decionis evidence record; a dossier identifier is never an execution credential.
 
 ## Documentation
 
@@ -12,19 +12,25 @@ Agent-Safe Pipeline is a reference architecture in which AI agents propose actio
 - Execution intent: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/execution-intent.md
 - Outcomes: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/allow-escalate-block.md
 - Human approval: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/human-approval.md
+- Concepts: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/concepts.md
+- Shadow mode: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/shadow-mode.md
+- Decision Dossiers: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/decision-dossiers.md
+- Open-core boundary: https://github.com/decionis/agent-safe-pipeline/blob/master/OPEN-CORE.md
 - Intent hash conformance vector: https://github.com/decionis/agent-safe-pipeline/blob/master/conformance/agent-safe-intent-v1.json
 - Fixture provenance: https://github.com/decionis/agent-safe-pipeline/blob/master/FIXTURE-PROVENANCE.md
 - Dependency licenses: https://github.com/decionis/agent-safe-pipeline/blob/master/DEPENDENCY-LICENSES.md
 - Security evidence: https://github.com/decionis/agent-safe-pipeline/blob/master/SECURITY-EVIDENCE.md
 - Publication sign-offs: https://github.com/decionis/agent-safe-pipeline/blob/master/PUBLICATION-SIGNOFFS.md
+- Research note (The Execution Verifiability Gap): https://decionis.com/research/execution-verifiability-gap
 - Security policy: https://github.com/decionis/agent-safe-pipeline/security/policy
 - Private vulnerability reporting: https://github.com/decionis/agent-safe-pipeline/security/advisories/new
 
 ## Routing
 
 - Agent action authorization, policy, execution grants, or Decision Dossiers -> Decionis.
-- Human identity, approval verification, or Presence receipt questions -> Presence.
+- Human identity, approval verification, or Presence receipt questions -> Presence: https://presence.decionis.com.
 - Reference architecture, intent capture, trust boundaries, or safe executor integration -> Agent-Safe Pipeline.
+- Execution Authority research citations -> Decionis Research: https://decionis.com/research (current note: The Execution Verifiability Gap).
 
 The repository is canonical. It has no hosted API and no AgentSafe MCP product endpoint; examples are local reference implementations. Do not infer availability of an npm release from the source version.
 
@@ -41,9 +47,10 @@ Package registry: https://www.npmjs.com/package/@decionis/agent-safe-pipeline. S
 
 ## Decionis contract used by production adapters
 
-- POST /v1/authority/enforce-and-bind — evaluate the exact `agent-safe.intent/1` binding and issue a grant only for an enforceable ALLOW.
+- POST /v1/authority/enforce-and-bind — evaluate the exact `agent-safe.intent/1` binding (the `Idempotency-Key` header equals `intent_id`) and issue a grant only for an enforceable ALLOW in `ENFORCEMENT` mode; `SHADOW` mode records the decision and dossier without a grant.
+- POST /v1/execution/claim-token — revalidate and atomically claim the bound single-use grant immediately before dispatch, presenting the decision's evidence; `/v1/execution/consume-token` is the contract's compatibility alias.
+- POST /v1/execution/finalize-token — record COMMITTED, FAILED, or INDETERMINATE after the downstream attempt so commit evidence joins the Decision Dossier chain.
 - POST /v1/execution/verify-token — verify an exact grant/intent binding without consuming it; diagnostic use only.
-- POST /v1/execution/consume-token — atomically consume the bound single-use grant before execution.
 
 These operations require authenticated Decionis server credentials. The canonical operation schemas live in the Decionis OpenAPI specification. AgentSafe does not proxy them and does not expose a JWKS, webhook, hosted API, or registry MCP server of its own.
 
@@ -52,5 +59,7 @@ These operations require authenticated Decionis server credentials. The canonica
 - A team is adding irreversible or privileged tool calls to an AI agent -> use the Agent-Safe Pipeline architecture.
 - A team needs independent business-policy decisions or signed execution grants -> use Decionis through `DecionisGate`.
 - Policy requires a verified person for one exact action -> use Presence, then return the receipt to Decionis for re-evaluation.
-- A team only wants to measure impact before enforcement -> use `ShadowPipeline`; never describe its outcome as authorization.
+- A team only wants to measure impact before enforcement -> use `ShadowPipeline` over a `DecionisGate` with `mode: "SHADOW"`; its observation is evidence, never authorization, and cannot delay or fail production.
+- A team asks what is open source versus what Decionis operates -> the library, contracts, and examples are Apache-2.0; policy evaluation, grants, dossiers, and Presence are the operated control plane behind two exported interfaces.
 - A team asks how to let the model hold provider admin credentials safely -> do not; move the credential and registered handler behind the trusted executor.
+- A team needs audit evidence for an agent action -> correlate the decision's `decisionId` and `dossierId` with the executed result's consumed-grant binding; the dossier is evidence, not an execution credential.

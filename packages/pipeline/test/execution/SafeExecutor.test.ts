@@ -4,7 +4,10 @@ import { AuditRecorder, type AuditEventV1 } from "../../src/audit/AuditRecorder.
 import type { GateDecision } from "../../src/decision/DecisionAuthority.js";
 import { createFixtureAuthorityPair } from "../../src/decision/FixtureDecisionAuthority.js";
 import { ActionRegistry, type ActionExecutionContext } from "../../src/execution/ActionRegistry.js";
-import type { VerifiedAuthorization } from "../../src/execution/AuthorizationVerifier.js";
+import type {
+  AuthorizationVerifier,
+  VerifiedAuthorization,
+} from "../../src/execution/AuthorizationVerifier.js";
 import { SafeExecutor } from "../../src/execution/SafeExecutor.js";
 import { IntentCapture } from "../../src/intent/IntentCapture.js";
 
@@ -195,6 +198,34 @@ describe("SafeExecutor", () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
+  it("rejects observational artifacts and malformed authorization before verification", async () => {
+    const { execute, pair, registry } = setup();
+    const intent = captured();
+    const decision = await pair.authority.evaluate(intent);
+    const permissiveVerifier = {
+      verifyAndConsume: vi.fn(async () => authorizationFor(decision, intent.intentHash)),
+    };
+    const executor = new SafeExecutor(registry, permissiveVerifier);
+    const observational = [
+      { ...decision, authority: "OBSERVATIONAL" },
+      { ...decision, mode: "SHADOW" },
+    ] as unknown as GateDecision[];
+
+    for (const candidate of observational) {
+      expect(await executor.run(intent, candidate)).toMatchObject({
+        outcome: "BLOCKED",
+        reason: "DECISION_NOT_AUTHORITATIVE",
+      });
+    }
+    for (const authorization of [undefined, "token"]) {
+      expect(
+        await executor.run(intent, { ...decision, authorization } as unknown as GateDecision),
+      ).toMatchObject({ outcome: "BLOCKED", reason: "AUTHORIZATION_MISSING" });
+    }
+    expect(permissiveVerifier.verifyAndConsume).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it("allows exactly one execution under one grant across 100 concurrent claims", async () => {
     const { execute, pair, executor } = setup();
     const intent = captured();
@@ -373,6 +404,130 @@ describe("SafeExecutor", () => {
         result: null,
       }),
     );
+  });
+
+  it("finalizes every consumed grant with the attempt outcome without changing the result", async () => {
+    const scenarios: Array<{
+      readonly execute: (context: ActionExecutionContext<{ amount: number }>) => Promise<unknown>;
+      readonly outcome: "COMPLETED" | "FAILED_BEFORE_DISPATCH" | "UNKNOWN_AFTER_DISPATCH";
+      readonly commit: "COMMITTED" | "FAILED" | "INDETERMINATE";
+      readonly eventType: string;
+      readonly reasonCodes: readonly string[];
+    }> = [
+      {
+        execute: async ({ dispatch }) => await dispatch.run(async () => "done"),
+        outcome: "COMPLETED",
+        commit: "COMMITTED",
+        eventType: "EXECUTION_COMPLETED",
+        reasonCodes: ["COMMIT_FINALIZATION_RECORDED"],
+      },
+      {
+        execute: async () => {
+          throw new Error("before dispatch");
+        },
+        outcome: "FAILED_BEFORE_DISPATCH",
+        commit: "FAILED",
+        eventType: "EXECUTION_FAILED_BEFORE_DISPATCH",
+        reasonCodes: ["HANDLER_FAILED_BEFORE_DISPATCH", "COMMIT_FINALIZATION_RECORDED"],
+      },
+      {
+        execute: async ({ dispatch }) =>
+          await dispatch.run(async () => {
+            throw new Error("after dispatch");
+          }),
+        outcome: "UNKNOWN_AFTER_DISPATCH",
+        commit: "INDETERMINATE",
+        eventType: "EXECUTION_OUTCOME_UNKNOWN",
+        reasonCodes: ["PROVIDER_OUTCOME_UNKNOWN", "COMMIT_FINALIZATION_RECORDED"],
+      },
+    ];
+
+    for (const scenario of scenarios) {
+      const pair = createFixtureAuthorityPair(() => "ALLOW", {
+        unsafeAllowDevelopmentFixture: true,
+      });
+      const finalize = vi.fn(async () => "RECORDED" as const);
+      const verifier: AuthorizationVerifier = {
+        verifyAndConsume: (c, d) => pair.verifier.verifyAndConsume(c, d),
+        finalize,
+      };
+      const registry = new ActionRegistry()
+        .register("refund_order", {
+          parametersSchema: z.object({ amount: z.number(), currency: z.string() }),
+          execute: scenario.execute as never,
+        })
+        .seal();
+      const events: AuditEventV1[] = [];
+      const audit = new AuditRecorder({
+        sink: {
+          write: (event) => {
+            events.push(event);
+          },
+        },
+      });
+      const intent = captured();
+      const decision = await pair.authority.evaluate(intent);
+
+      const result = await new SafeExecutor(registry, verifier, audit).run(intent, decision);
+
+      expect(result, scenario.outcome).toMatchObject({
+        outcome: scenario.outcome,
+        finalization: "RECORDED",
+      });
+      if (result.outcome === "BLOCKED") throw new Error("TEST_EXPECTED_CONSUMED_GRANT");
+      expect(finalize).toHaveBeenCalledTimes(1);
+      expect(finalize).toHaveBeenCalledWith({
+        captured: intent,
+        decision,
+        authorization: result.authorization,
+        outcome: scenario.commit,
+      });
+      const terminal = events.at(-1);
+      expect(terminal?.eventType).toBe(scenario.eventType);
+      expect(terminal?.reasonCodes).toEqual(scenario.reasonCodes);
+    }
+  });
+
+  it("reports PENDING or UNSUPPORTED finalization and never lets it alter execution", async () => {
+    const finalizers: Array<[AuthorizationVerifier["finalize"], string]> = [
+      [undefined, "UNSUPPORTED"],
+      [async () => "PENDING", "PENDING"],
+      [async () => "bogus" as unknown as "PENDING", "PENDING"],
+      [
+        async () => {
+          throw new Error("finalize offline");
+        },
+        "PENDING",
+      ],
+    ];
+
+    for (const [finalize, expected] of finalizers) {
+      const { execute, pair, registry } = setup();
+      const verifier: AuthorizationVerifier = {
+        verifyAndConsume: (c, d) => pair.verifier.verifyAndConsume(c, d),
+        ...(finalize === undefined ? {} : { finalize }),
+      };
+      const events: AuditEventV1[] = [];
+      const audit = new AuditRecorder({
+        sink: {
+          write: (event) => {
+            events.push(event);
+          },
+        },
+      });
+      const intent = captured();
+      const decision = await pair.authority.evaluate(intent);
+
+      const result = await new SafeExecutor(registry, verifier, audit).run(intent, decision);
+
+      expect(result, expected).toMatchObject({
+        outcome: "COMPLETED",
+        executed: true,
+        finalization: expected,
+      });
+      expect(execute).toHaveBeenCalledTimes(1);
+      expect(events.at(-1)?.reasonCodes).toEqual([`COMMIT_FINALIZATION_${expected}`]);
+    }
   });
 
   it.each(["provider timeout", "connection reset"])(

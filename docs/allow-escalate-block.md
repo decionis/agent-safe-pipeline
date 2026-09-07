@@ -7,4 +7,6 @@
 `BLOCK`, authority or Presence errors, transport failures, malformed responses, binding mismatches,
 replay, and missing authorization all stop execution with stable reason codes.
 
-Shadow mode is observational. Its hypothetical decision never becomes an execution grant.
+Shadow mode is observational. Its observation never becomes an execution grant, never delays or
+fails production, and is rejected by `SafeExecutor` with `DECISION_NOT_AUTHORITATIVE`. See
+[shadow mode](./shadow-mode.md).

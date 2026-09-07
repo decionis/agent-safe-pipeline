@@ -30,9 +30,17 @@ export const DownstreamTargetSchema = z
   .object({
     system: boundedId,
     operation: boundedId,
+    environment: boundedId.optional(),
     endpoint: z.string().trim().min(1).max(500).optional(),
   })
   .strict();
+
+/**
+ * The trusted idempotency key travels inside the hashed wire `context` under
+ * this reserved key, because the Decionis `ExecutionIntentBinding` contract
+ * has no top-level idempotency field and rejects unknown properties.
+ */
+export const RESERVED_CONTEXT_IDEMPOTENCY_KEY = "idempotency_key";
 
 export const TrustedIntentContextSchema = z
   .object({
@@ -76,11 +84,11 @@ export interface CapturedIntent {
   readonly byteLength: number;
 }
 
+/** Exact wire shape of the Decionis `ExecutionIntentBinding` contract. */
 export interface AuthorityIntentBinding {
   readonly protocol_version: "agent-safe.intent/1";
   readonly tenant_id: string;
   readonly intent_id: string;
-  readonly idempotency_key: string;
   readonly captured_at: string;
   readonly expires_at: string;
   readonly actor: {
@@ -94,10 +102,11 @@ export interface AuthorityIntentBinding {
     readonly resource: string;
     readonly parameters: JsonObject;
   };
-  readonly context: JsonObject;
+  readonly context: JsonObject & { readonly idempotency_key: string };
   readonly downstream_target: {
     readonly system: string;
     readonly operation: string;
+    readonly environment?: string;
     readonly endpoint?: string;
   };
 }
