@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { AuditRecorder, type AuditEventV1 } from "../../src/audit/AuditRecorder.js";
 import { CanonicalIntentHasher } from "../../src/intent/CanonicalIntentHasher.js";
 import { IntentCapture } from "../../src/intent/IntentCapture.js";
 import type { AgentProposal, TrustedIntentContext } from "../../src/intent/ExecutionIntent.js";
@@ -29,6 +30,33 @@ function capture(proposal: AgentProposal, context = trusted()) {
 }
 
 describe("IntentCapture", () => {
+  it("can await a bounded capture audit event", async () => {
+    const events: AuditEventV1[] = [];
+    const audit = new AuditRecorder({
+      sink: {
+        write: (event) => {
+          events.push(event);
+        },
+      },
+    });
+    const intentCapture = new IntentCapture({
+      audit,
+      clock: () => fixedDate,
+      createId: () => fixedId,
+    });
+
+    const intent = await intentCapture.captureAndAudit(
+      { action: "refund_order", target: "shopify:order:58291", parameters: {} },
+      trusted(),
+    );
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      eventType: "INTENT_CAPTURED",
+      correlation: { intentHash: intent.intentHash },
+    });
+  });
+
   it("produces the same canonical hash regardless of object insertion order", () => {
     const first = capture({
       action: "refund_order",

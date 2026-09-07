@@ -1,4 +1,5 @@
 import type { GateResult, HumanApprovalGate } from "@decionis/presence-node";
+import type { AuditRecorder } from "../audit/AuditRecorder.js";
 import type {
   DecisionAuthority,
   GateDecision,
@@ -11,6 +12,8 @@ export type PresenceGateResult = GateResult;
 export type PresenceApprovalClient = Pick<HumanApprovalGate, "gate" | "outcome">;
 
 export interface PresenceApprovalCoordinatorOptions {
+  /** Optional bounded lifecycle audit recorder. */
+  readonly audit?: AuditRecorder;
   /** Maximum number of outcome lookups after Presence returns HUMAN_REQUIRED. */
   readonly maxAttempts?: number;
   /** Initial exponential-backoff delay in milliseconds. */
@@ -65,6 +68,7 @@ const MAX_DEADLINE_LIMIT_MS = 300_000;
  */
 export class PresenceApprovalCoordinator {
   private readonly polling: PollingConfiguration;
+  private readonly audit: AuditRecorder | undefined;
 
   public constructor(
     private readonly presence: PresenceApprovalClient,
@@ -74,6 +78,7 @@ export class PresenceApprovalCoordinator {
     options: PresenceApprovalCoordinatorOptions = {},
   ) {
     this.polling = PresenceApprovalCoordinator.pollingConfiguration(options);
+    this.audit = options.audit;
   }
 
   public async request(captured: CapturedIntent): Promise<PresenceGateResult> {
@@ -110,6 +115,11 @@ export class PresenceApprovalCoordinator {
         throw new Error("Presence returned an invalid gate response");
       }
 
+      await this.recordPresence(
+        captured,
+        verdict === "HUMAN_REQUIRED" ? "PRESENCE_ESCALATED" : "PRESENCE_RESOLVED",
+        verdict,
+      );
       return result;
     } catch {
       throw new Error("PRESENCE_REQUEST_FAILED");
@@ -137,6 +147,7 @@ export class PresenceApprovalCoordinator {
     }
 
     if (verdict !== "PROCEED") {
+      await this.recordPresence(captured, "PRESENCE_RESOLVED", verdict);
       return FailClosedDecision.create(captured.intentHash, `PRESENCE_${verdict}`);
     }
 
@@ -144,6 +155,8 @@ export class PresenceApprovalCoordinator {
     if (evidence === null) {
       return FailClosedDecision.create(captured.intentHash, "PRESENCE_PROOF_MISSING");
     }
+
+    await this.recordPresence(captured, "PRESENCE_RESOLVED", verdict, evidence.receiptDossierId);
 
     const preAuthorizationFailure = this.boundaryFailure(captured, options.signal);
     if (preAuthorizationFailure !== null) {
@@ -393,6 +406,21 @@ export class PresenceApprovalCoordinator {
 
   private boundedIdentifier(value: unknown): value is string {
     return typeof value === "string" && value.length > 0 && value.length <= 200;
+  }
+
+  private async recordPresence(
+    captured: CapturedIntent,
+    eventType: "PRESENCE_ESCALATED" | "PRESENCE_RESOLVED",
+    verdict: "PROCEED" | "HUMAN_REQUIRED" | "DENIED" | "ESCALATED",
+    dossierId?: string,
+  ): Promise<void> {
+    await this.audit?.record({
+      eventType,
+      captured,
+      authority: "NON_AUTHORITATIVE",
+      ...(dossierId === undefined ? {} : { dossierId }),
+      reasonCodes: [`PRESENCE_${verdict}`],
+    });
   }
 
   private isRecord(value: unknown): value is Record<string, unknown> {

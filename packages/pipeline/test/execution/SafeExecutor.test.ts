@@ -1,8 +1,9 @@
 import { z } from "zod";
 import { describe, expect, it, vi } from "vitest";
+import { AuditRecorder, type AuditEventV1 } from "../../src/audit/AuditRecorder.js";
 import type { GateDecision } from "../../src/decision/DecisionAuthority.js";
 import { createFixtureAuthorityPair } from "../../src/decision/FixtureDecisionAuthority.js";
-import { ActionRegistry } from "../../src/execution/ActionRegistry.js";
+import { ActionRegistry, type ActionExecutionContext } from "../../src/execution/ActionRegistry.js";
 import type { VerifiedAuthorization } from "../../src/execution/AuthorizationVerifier.js";
 import { SafeExecutor } from "../../src/execution/SafeExecutor.js";
 import { IntentCapture } from "../../src/intent/IntentCapture.js";
@@ -25,9 +26,16 @@ function captured(amount = 350) {
 }
 
 function setup(verdict: "ALLOW" | "BLOCK" | "ESCALATE" = "ALLOW") {
-  const execute = vi.fn(({ parameters }: { parameters: { amount: number; currency: string } }) => ({
-    refundId: `refund-${parameters.amount}`,
-  }));
+  const execute = vi.fn(
+    async ({
+      parameters,
+      dispatch,
+    }: ActionExecutionContext<{ amount: number; currency: string }>) =>
+      await dispatch.run(async (idempotencyKey) => ({
+        refundId: `refund-${parameters.amount}`,
+        idempotencyKey,
+      })),
+  );
   const registry = new ActionRegistry()
     .register("refund_order", {
       parametersSchema: z.object({ amount: z.number().positive(), currency: z.string().length(3) }),
@@ -71,6 +79,7 @@ describe("SafeExecutor", () => {
     const result = await executor.run<{ refundId: string }>(intent, decision);
 
     expect(result.executed).toBe(true);
+    expect(result).toMatchObject({ outcome: "COMPLETED", recovered: false });
     expect(execute).toHaveBeenCalledTimes(1);
     if (result.executed) {
       expect(result.result.refundId).toBe("refund-350");
@@ -340,7 +349,7 @@ describe("SafeExecutor", () => {
     }
   });
 
-  it("does not expose raw handler failures", async () => {
+  it("classifies and redacts a handler failure before provider dispatch", async () => {
     const registry = new ActionRegistry()
       .register("refund_order", {
         parametersSchema: z.object({ amount: z.number(), currency: z.string() }),
@@ -356,7 +365,336 @@ describe("SafeExecutor", () => {
 
     await expect(
       new SafeExecutor(registry, pair.verifier).run(intent, await pair.authority.evaluate(intent)),
-    ).rejects.toThrow("ACTION_EXECUTION_FAILED");
+    ).resolves.toEqual(
+      expect.objectContaining({
+        outcome: "FAILED_BEFORE_DISPATCH",
+        executed: false,
+        reason: "HANDLER_FAILED_BEFORE_DISPATCH",
+        result: null,
+      }),
+    );
+  });
+
+  it.each(["provider timeout", "connection reset"])(
+    "returns an unknown outcome after %s and never invokes the handler twice for one grant",
+    async (failure) => {
+      const execute = vi.fn(
+        async ({ dispatch }: ActionExecutionContext<{ amount: number; currency: string }>) =>
+          await dispatch.run(async () => {
+            throw new Error(failure);
+          }),
+      );
+      const registry = new ActionRegistry()
+        .register("refund_order", {
+          parametersSchema: z.object({ amount: z.number(), currency: z.string() }),
+          execute,
+        })
+        .seal();
+      const pair = createFixtureAuthorityPair(() => "ALLOW", {
+        unsafeAllowDevelopmentFixture: true,
+      });
+      const intent = captured();
+      const decision = await pair.authority.evaluate(intent);
+      const executor = new SafeExecutor(registry, pair.verifier);
+
+      const first = await executor.run(intent, decision);
+      expect(first).toMatchObject({
+        outcome: "UNKNOWN_AFTER_DISPATCH",
+        executed: null,
+        reason: "PROVIDER_OUTCOME_UNKNOWN",
+        recovery: {
+          version: "agent-safe.recovery/1",
+          intentHash: intent.intentHash,
+          idempotencyKey: intent.intent.idempotencyKey,
+        },
+      });
+      await expect(executor.run(intent, decision)).resolves.toMatchObject({
+        outcome: "BLOCKED",
+        reason: "AUTHORIZATION_INVALID",
+      });
+      expect(execute).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("reconciles concurrent recovery attempts once and returns the provider's original result", async () => {
+    let release: (() => void) | undefined;
+    const reconcile = vi.fn(
+      async () =>
+        await new Promise<{ status: "COMPLETED"; result: { refundId: string } }>((resolve) => {
+          release = () => resolve({ status: "COMPLETED", result: { refundId: "provider-123" } });
+        }),
+    );
+    const registry = new ActionRegistry()
+      .register("refund_order", {
+        parametersSchema: z.object({ amount: z.number(), currency: z.string() }),
+        execute: async ({ dispatch }) =>
+          await dispatch.run(async () => {
+            throw new Error("response lost");
+          }),
+        reconcile,
+      })
+      .seal();
+    const pair = createFixtureAuthorityPair(() => "ALLOW", {
+      unsafeAllowDevelopmentFixture: true,
+    });
+    const intent = captured();
+    const executor = new SafeExecutor(registry, pair.verifier);
+    const attempt = await executor.run(intent, await pair.authority.evaluate(intent));
+    if (attempt.outcome !== "UNKNOWN_AFTER_DISPATCH") throw new Error("TEST_EXPECTED_UNKNOWN");
+
+    const first = executor.reconcile<{ refundId: string }>(intent, attempt.recovery);
+    const second = executor.reconcile<{ refundId: string }>(intent, attempt.recovery);
+    await vi.waitFor(() => expect(reconcile).toHaveBeenCalledTimes(1));
+    release?.();
+
+    await expect(first).resolves.toMatchObject({
+      outcome: "COMPLETED",
+      executed: true,
+      recovered: true,
+      result: { refundId: "provider-123" },
+      authorization: {
+        decisionId: attempt.recovery.decisionId,
+        dossierId: attempt.recovery.dossierId,
+        grantId: attempt.recovery.grantId,
+        intentHash: attempt.recovery.intentHash,
+        expiresAt: attempt.recovery.expiresAt,
+      },
+    });
+    await expect(second).resolves.toMatchObject({
+      outcome: "COMPLETED",
+      executed: true,
+      recovered: true,
+    });
+    expect(reconcile).toHaveBeenCalledWith(
+      expect.objectContaining({ idempotencyKey: intent.intent.idempotencyKey }),
+    );
+  });
+
+  it("preserves unknown recovery state and accepts a provider proof that no action occurred", async () => {
+    const reconciliation = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("lookup unavailable"))
+      .mockResolvedValueOnce({ status: "NOT_EXECUTED" as const });
+    const registry = new ActionRegistry()
+      .register("refund_order", {
+        parametersSchema: z.object({ amount: z.number(), currency: z.string() }),
+        execute: async ({ dispatch }) =>
+          await dispatch.run(async () => {
+            throw new Error("response lost");
+          }),
+        reconcile: reconciliation,
+      })
+      .seal();
+    const pair = createFixtureAuthorityPair(() => "ALLOW", {
+      unsafeAllowDevelopmentFixture: true,
+    });
+    const intent = captured();
+    const executor = new SafeExecutor(registry, pair.verifier);
+    const attempt = await executor.run(intent, await pair.authority.evaluate(intent));
+    if (attempt.outcome !== "UNKNOWN_AFTER_DISPATCH") throw new Error("TEST_EXPECTED_UNKNOWN");
+
+    await expect(executor.reconcile(intent, attempt.recovery)).resolves.toMatchObject({
+      outcome: "UNKNOWN_AFTER_DISPATCH",
+      executed: null,
+      reason: "PROVIDER_OUTCOME_UNKNOWN",
+      recovery: attempt.recovery,
+    });
+    await expect(executor.reconcile(intent, attempt.recovery)).resolves.toMatchObject({
+      outcome: "DEFINITELY_NOT_EXECUTED",
+      executed: false,
+      recovered: true,
+      reason: "PROVIDER_CONFIRMED_NOT_EXECUTED",
+    });
+  });
+
+  it("rejects every altered recovery binding independently", async () => {
+    const { pair, executor } = setup();
+    const intent = captured();
+    const decision = await pair.authority.evaluate(intent);
+    const recovery = {
+      version: "agent-safe.recovery/1" as const,
+      ...authorizationFor(decision, intent.intentHash),
+      idempotencyKey: intent.intent.idempotencyKey,
+    };
+    const malformedIntent = { ...intent, canonicalIntent: "{}" };
+    const cases = [
+      { captured: intent, recovery: { ...recovery, version: "agent-safe.recovery/2" } },
+      {
+        captured: intent,
+        recovery: { ...recovery, intentHash: `sha256:${"0".repeat(64)}` },
+      },
+      { captured: intent, recovery: { ...recovery, idempotencyKey: "other-operation" } },
+      { captured: malformedIntent, recovery },
+    ];
+
+    for (const candidate of cases) {
+      await expect(
+        executor.reconcile(candidate.captured, candidate.recovery as never),
+      ).resolves.toMatchObject({
+        outcome: "BLOCKED",
+        reason: "RECOVERY_BINDING_MISMATCH",
+      });
+    }
+  });
+
+  it("emits the ordered, redacted authorization and execution lifecycle", async () => {
+    const { execute, pair, registry } = setup();
+    const events: AuditEventV1[] = [];
+    const audit = new AuditRecorder({
+      sink: {
+        write: (event) => {
+          events.push(event);
+        },
+      },
+    });
+    const intent = captured();
+    const decision = await pair.authority.evaluate(intent);
+
+    await expect(
+      new SafeExecutor(registry, pair.verifier, audit).run(intent, decision),
+    ).resolves.toMatchObject({
+      outcome: "COMPLETED",
+    });
+
+    expect(events.map((event) => event.eventType)).toEqual([
+      "INTENT_CAPTURED",
+      "AUTHORITY_DECISION",
+      "GRANT_CONSUMED",
+      "EXECUTION_STARTED",
+      "EXECUTION_COMPLETED",
+    ]);
+    expect(events[2]?.correlation).toMatchObject({
+      intentId: intent.intent.intentId,
+      intentHash: intent.intentHash,
+      decisionId: decision.decisionId,
+      dossierId: decision.dossierId,
+    });
+    expect(JSON.stringify(events)).not.toContain("fixture-token");
+    expect(JSON.stringify(events)).not.toContain("refundId");
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails before provider dispatch when required audit delivery fails after grant consumption", async () => {
+    const { execute, pair, registry } = setup();
+    const write = vi
+      .fn()
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("audit unavailable"))
+      .mockResolvedValue(undefined);
+    const audit = new AuditRecorder({
+      sink: { write },
+      failurePolicy: "REQUIRE_BEFORE_EXECUTION",
+    });
+    const intent = captured();
+    const decision = await pair.authority.evaluate(intent);
+    const verifyAndConsume = vi.fn(pair.verifier.verifyAndConsume.bind(pair.verifier));
+
+    await expect(
+      new SafeExecutor(registry, { verifyAndConsume }, audit).run(intent, decision),
+    ).resolves.toMatchObject({
+      outcome: "FAILED_BEFORE_DISPATCH",
+      executed: false,
+      reason: "AUDIT_UNAVAILABLE",
+    });
+    expect(verifyAndConsume).toHaveBeenCalledTimes(1);
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("fails before provider dispatch when required execution-start evidence is unavailable", async () => {
+    const { execute, pair, registry } = setup();
+    const write = vi
+      .fn()
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("audit unavailable"))
+      .mockResolvedValue(undefined);
+    const audit = new AuditRecorder({
+      sink: { write },
+      failurePolicy: "REQUIRE_BEFORE_EXECUTION",
+    });
+    const intent = captured();
+    const decision = await pair.authority.evaluate(intent);
+    const verifyAndConsume = vi.fn(pair.verifier.verifyAndConsume.bind(pair.verifier));
+
+    await expect(
+      new SafeExecutor(registry, { verifyAndConsume }, audit).run(intent, decision),
+    ).resolves.toMatchObject({
+      outcome: "FAILED_BEFORE_DISPATCH",
+      executed: false,
+      reason: "AUDIT_UNAVAILABLE",
+    });
+    expect(verifyAndConsume).toHaveBeenCalledTimes(1);
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("does not consume a grant when required initial audit evidence is unavailable", async () => {
+    const { execute, pair, registry } = setup();
+    const audit = new AuditRecorder({
+      sink: {
+        write: async () => {
+          throw new Error("audit unavailable");
+        },
+      },
+      failurePolicy: "REQUIRE_BEFORE_EXECUTION",
+    });
+    const intent = captured();
+    const decision = await pair.authority.evaluate(intent);
+    const verifyAndConsume = vi.fn(pair.verifier.verifyAndConsume.bind(pair.verifier));
+
+    await expect(
+      new SafeExecutor(registry, { verifyAndConsume }, audit).run(intent, decision),
+    ).resolves.toMatchObject({
+      outcome: "BLOCKED",
+      executed: false,
+      reason: "AUDIT_UNAVAILABLE",
+    });
+    expect(verifyAndConsume).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("requires both initial audit events under the strict delivery policy", async () => {
+    const { execute, pair, registry } = setup();
+    const write = vi
+      .fn()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("decision audit unavailable"))
+      .mockResolvedValue(undefined);
+    const audit = new AuditRecorder({
+      sink: { write },
+      failurePolicy: "REQUIRE_BEFORE_EXECUTION",
+    });
+    const intent = captured();
+    const decision = await pair.authority.evaluate(intent);
+    const verifyAndConsume = vi.fn(pair.verifier.verifyAndConsume.bind(pair.verifier));
+
+    await expect(
+      new SafeExecutor(registry, { verifyAndConsume }, audit).run(intent, decision),
+    ).resolves.toMatchObject({ outcome: "BLOCKED", reason: "AUDIT_UNAVAILABLE" });
+    expect(verifyAndConsume).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("keeps best-effort audit failure from changing successful execution", async () => {
+    const { execute, pair, registry } = setup();
+    const audit = new AuditRecorder({
+      sink: {
+        write: async () => {
+          throw new Error("audit unavailable");
+        },
+      },
+      failurePolicy: "BEST_EFFORT",
+    });
+    const intent = captured();
+
+    await expect(
+      new SafeExecutor(registry, pair.verifier, audit).run(
+        intent,
+        await pair.authority.evaluate(intent),
+      ),
+    ).resolves.toMatchObject({ outcome: "COMPLETED", executed: true, recovered: false });
+    expect(execute).toHaveBeenCalledTimes(1);
   });
 
   it("forbids the fixture authority in production even with explicit development opt-in", () => {

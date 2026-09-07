@@ -63,11 +63,12 @@ const registry = new ActionRegistry()
         requestedConcurrentUsers: z.number().int().positive(),
       })
       .strict(),
-    execute: ({ parameters }) => ({
-      purchaseOrderCreated: true,
-      productId: parameters.productId,
-      amountMinor: parameters.amountMinor,
-    }),
+    execute: async ({ parameters, dispatch }) =>
+      await dispatch.run(async () => ({
+        purchaseOrderCreated: true,
+        productId: parameters.productId,
+        amountMinor: parameters.amountMinor,
+      })),
   })
   .seal();
 

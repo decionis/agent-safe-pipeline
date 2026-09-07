@@ -15,6 +15,8 @@ console.log(`Imported ${exports.length} exports:`, exports);
 const EXPECTED_RUNTIME = [
   "ActionRegistry",
   "AgentProposalSchema",
+  "AuditPolicyRevisionVerifier",
+  "AuditRecorder",
   "CanonicalIntentHasher",
   "DecionisGate",
   "DecionisGrantVerifier",

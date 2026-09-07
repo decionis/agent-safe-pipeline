@@ -3,6 +3,7 @@ import {
   PresenceApprovalCoordinator,
   type PresenceApprovalClient,
 } from "../../src/approval/PresenceApprovalCoordinator.js";
+import { AuditRecorder, type AuditEventV1 } from "../../src/audit/AuditRecorder.js";
 import type { DecisionAuthority } from "../../src/decision/DecisionAuthority.js";
 import { IntentCapture } from "../../src/intent/IntentCapture.js";
 
@@ -25,6 +26,59 @@ function captured(clock?: () => number, ttlSeconds = 60) {
 }
 
 describe("PresenceApprovalCoordinator", () => {
+  it("records escalation and receipt resolution as non-authoritative evidence", async () => {
+    const intent = captured();
+    const events: AuditEventV1[] = [];
+    const audit = new AuditRecorder({
+      sink: {
+        write: (event) => {
+          events.push(event);
+        },
+      },
+    });
+    const authority: DecisionAuthority = {
+      evaluate: async () => ({
+        verdict: "BLOCK",
+        decisionId: "decision-after-presence",
+        dossierId: "dossier-after-presence",
+        intentHash: intent.intentHash,
+        reasonCodes: ["POLICY_BLOCK"],
+        authorization: null,
+        failClosed: false,
+      }),
+    };
+    const coordinator = new PresenceApprovalCoordinator(
+      {
+        gate: async () => ({
+          verdict: "HUMAN_REQUIRED",
+          request_id: "synthetic-presence-request-1",
+        }),
+        outcome: async () => ({
+          verdict: "PROCEED",
+          request_id: "synthetic-presence-request-1",
+          receipt_dossier_id: "synthetic-presence-dossier-1",
+        }),
+      },
+      authority,
+      "Acme",
+      "synthetic-approver-1",
+      { audit },
+    );
+
+    await coordinator.request(intent);
+    await coordinator.resolveAndReauthorize(intent, {
+      verdict: "PROCEED",
+      request_id: "synthetic-presence-request-1",
+      receipt_dossier_id: "synthetic-presence-dossier-1",
+    });
+
+    expect(events.map(({ eventType, authority }) => ({ eventType, authority }))).toEqual([
+      { eventType: "PRESENCE_ESCALATED", authority: "NON_AUTHORITATIVE" },
+      { eventType: "PRESENCE_RESOLVED", authority: "NON_AUTHORITATIVE" },
+    ]);
+    expect(events[1]?.correlation.dossierId).toBe("synthetic-presence-dossier-1");
+  });
+
   it("polls pending outcomes and requires Decionis re-authorization of the terminal receipt", async () => {
     let now = FIXED_TIME;
     const intent = captured(() => now);

@@ -27,7 +27,8 @@ const { authority, verifier } = createFixtureAuthorityPair(() => "BLOCK", {
 const registry = new ActionRegistry()
   .register("delete_customer", {
     parametersSchema: z.object({ customerId: z.string() }).strict(),
-    execute: ({ parameters }) => ({ deleted: parameters.customerId }),
+    execute: async ({ parameters, dispatch }) =>
+      await dispatch.run(async () => ({ deleted: parameters.customerId })),
   })
   .seal();
 const decision = await authority.evaluate(captured);

@@ -22,6 +22,8 @@ This map is an evidence index, not a claim of independent certification. The Ope
 | Vulnerabilities have private reporting and response targets | `SECURITY.md`                                                               | GitHub private vulnerability reporting and `security@decionis.com`                                                                                                            |
 | Repository changes are protected                            | `.github/CODEOWNERS`, GitHub branch protection and ruleset APIs             | Up-to-date required checks plus one code-owner review; the named maintainer has PR-only bypass to avoid deadlock                                                              |
 | Contribution and governance authority are explicit          | `GOVERNANCE.md`, `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md`                    | The `DCO` workflow enforces author-matching sign-offs; role, escalation, access-continuity, and bus-factor limits are public                                                  |
+| Supported versions and roadmap status are public            | `MAINTENANCE.md`, `ROADMAP.md`, `CONTRIBUTING.md`                           | Support, prerelease and end-of-life handling, documentation-review triggers, released evidence, committed work, and exploratory work are explicitly separated                 |
+| Vulnerability response and reporter credit are documented   | `SECURITY.md`, `docs/vulnerability-response.md`                             | Private triage, severity, ownership, coordinated disclosure, release, duplicate/invalid/embargo handling, credit choices, and a synthetic tabletop checklist are public       |
 | OpenSSF Best Practices Passing evidence is public           | README badge, [project 14098](https://www.bestpractices.dev/projects/14098) | The active record identifies this canonical repository, has achieved Passing, and publishes unanswered Silver criteria for follow-up                                          |
 
 ## Negative-control record
@@ -52,11 +54,9 @@ The following gates were observed failing on 2026-08-15 before their controls we
 - The project has a lead and a maintainer, but code-owner, private-report, npm-recovery, and
   emergency-release authority are not independently available to two people. `GOVERNANCE.md`
   therefore records OpenSSF access continuity and bus factor as unmet rather than overstating them.
-- The OpenSSF Best Practices record has achieved Passing. Remaining Silver evidence and controls are
-  tracked in [#46](https://github.com/decionis/agent-safe-pipeline/issues/46),
-  [#47](https://github.com/decionis/agent-safe-pipeline/issues/47),
-  [#51](https://github.com/decionis/agent-safe-pipeline/issues/51), and
-  [#52](https://github.com/decionis/agent-safe-pipeline/issues/52).
+- The OpenSSF Best Practices record has achieved Passing. The public maintenance, roadmap, and
+  vulnerability-response evidence is checked in here; remaining independent continuity and other
+  Silver controls must stay marked unmet until their real-world prerequisites are satisfied.
 - The release job alone receives job-scoped `contents: write` so it can create tags and GitHub Releases after verification. OpenSSF Scorecard does not recognize the custom `gh release create` path as a release exception, so its Token-Permissions check may continue to report that necessary permission even though every workflow declares a read-only default.
 - The synthetic dossier corpus proves the public verifier's deterministic behavior, not that a
   production dossier verifies. The root and corpus READMEs therefore publish a separate command for
