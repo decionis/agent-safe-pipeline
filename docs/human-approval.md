@@ -14,6 +14,23 @@ claim time and rejects a claim that arrives without it.
 
 If the intent changes or expires during approval, capture a new intent and start again.
 
+## Ceremony requirements and delivery
+
+`PresenceApprovalCoordinator` accepts `requirements`, the docs/22 verification requirements Presence
+enforces before it seals a receipt, and `ttlSeconds`, the approval-request lifetime (30 to 600
+seconds). A FIDO2 approval is `{ level: "STANDARD", methods: ["WEBAUTHN"] }`; adding active liveness
+is `{ level: "HIGH_CONFIDENCE", methods: ["WEBAUTHN", "ACTIVE_LIVENESS"] }`. Omitted, Presence applies
+its default standard-confidence device proof.
+
+The approver identity passed to the coordinator is the subject Presence routes the request to.
+Presence pushes to enrolled mobile devices bound to that identity; it does not send email, and
+neither does the Decionis execution-authority path. When no enrolled device exists, deliver the
+`approval_url` from the `HUMAN_REQUIRED` result to the person over your own channel. Putting the
+approver's email in the trusted intent context, for example under `approver_email`, keeps the
+routing identity hash-bound and recorded in the Decision Dossier. The
+[live approval example](../examples/presence-live-approval) runs both ceremonies against the real
+services.
+
 ## Bounded polling
 
 `PresenceApprovalCoordinator.resolveAndReauthorize` polls a `HUMAN_REQUIRED` request until Presence

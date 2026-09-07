@@ -89,6 +89,18 @@ importers:
         specifier: ^4.5.4
         version: 4.5.4
 
+  examples/presence-live-approval:
+    dependencies:
+      '@decionis/agent-safe-pipeline':
+        specifier: workspace:*
+        version: link:../../packages/pipeline
+      '@decionis/presence-node':
+        specifier: ^0.2.0
+        version: 0.2.0
+      zod:
+        specifier: ^4.5.4
+        version: 4.5.4
+
   examples/procurement-agent:
     dependencies:
       '@decionis/agent-safe-pipeline':

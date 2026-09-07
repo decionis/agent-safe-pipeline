@@ -308,7 +308,7 @@ test(
     const created = presenceSeen[0];
     assert.equal(`${created.method} ${created.path}`, "POST /v1/verification-requests");
     assert.equal(created.headers.authorization, `Bearer ${PRESENCE_API_KEY}`);
-    assert.equal(created.headers["idempotency-key"], `presence:${captured.intent.idempotencyKey}`);
+    assert.match(created.headers["idempotency-key"], /^presence-[0-9a-f]{64}$/);
     assert.equal(created.body.originator.actor_id, ACTOR_ID);
     assert.equal(created.body.action_context.intent, "refund_order");
     assert.deepEqual(

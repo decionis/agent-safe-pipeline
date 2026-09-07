@@ -1,0 +1,17 @@
+{
+  "name": "@decionis/agent-safe-example-presence-live-approval",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "build": "node ../../scripts/CleanBuildOutput.mjs && tsc -p tsconfig.json",
+    "demo": "pnpm --filter @decionis/agent-safe-pipeline build && pnpm build && node --env-file-if-exists=../../.env.presence-live dist/Index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@decionis/agent-safe-pipeline": "workspace:*",
+    "@decionis/presence-node": "^0.2.0",
+    "zod": "^4.5.4"
+  }
+}

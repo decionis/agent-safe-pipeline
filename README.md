@@ -71,6 +71,7 @@ See the [package README](./packages/pipeline/README.md) for the complete enforce
 - [`examples/github-deploy-agent`](./examples/github-deploy-agent) — environment and force-push controls.
 - [`examples/procurement-agent`](./examples/procurement-agent) — an in-budget software request held when existing tools still have user capacity.
 - [`examples/mcp-tool-gate`](./examples/mcp-tool-gate) — a real stdio MCP server with a governed tool.
+- [`examples/presence-live-approval`](./examples/presence-live-approval) — a Presence-bound enforcement against the real services with a FIDO2 or FIDO2-plus-liveness ceremony; needs real credentials.
 - [`ARCHITECTURE.md`](./ARCHITECTURE.md) and [`THREAT-MODEL.md`](./THREAT-MODEL.md) — trust boundary and abuse analysis.
 - [`OPEN-CORE.md`](./OPEN-CORE.md) — what is Apache-2.0 here, what Decionis operates, and the seam between them.
 - [`docs/`](./docs) — concepts, execution intent, outcomes, human approval, shadow mode, Decision Dossiers, trust boundary, and assurance notes.
