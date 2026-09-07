@@ -15,20 +15,21 @@ Compromise of the trusted executor host or downstream provider is outside what t
 
 ## Threats and controls
 
-| Threat                                            | Control                                                                         | Residual risk                                                                         |
-| ------------------------------------------------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| Prompt injection asks the agent to ignore policy  | Gate is outside the prompt and independently decides                            | A developer can still bypass the architecture                                         |
-| Agent changes tool arguments after approval       | Exact canonical parameters and target bind to the intent hash                   | Non-deterministic downstream interpretation must be avoided                           |
-| Approval for action A is swapped onto action B    | Presence display and receipt bind the exact hash; Decionis re-verifies          | Presence integration must preserve immutable fields                                   |
-| Old approval or grant is replayed                 | Short expiry, hash-bound idempotency key, `jti`, and atomic single-use consume  | Provider records must remain available for reconciliation                             |
-| Agent calls the provider directly                 | Provider credential and egress live behind the executor                         | Network policy must actually prevent agent egress                                     |
-| Agent chooses arbitrary code to run               | Sealed action registry; no agent-supplied callback                              | Trusted registration code remains security-critical                                   |
-| Authority is unavailable or malformed             | Timeout, bounded response, strict validation, fail closed                       | Reduced availability is accepted over unauthorized execution                          |
-| JSON ambiguity or prototype pollution             | Strict schemas, forbidden keys, bounded canonical JSON, exact SHA-256 binding   | Cross-language canonicalization requires conformance tests                            |
-| Human approves misleading content                 | Action, target, and exact hash are mandatory display fields                     | A human can still make a poor but authentic decision                                  |
-| Shadow result is mistaken for authorization       | Separate `SHADOW` result type and no execution grant                            | Consumer logs/UI must preserve the label                                              |
-| Provider accepts an action but loses the response | One-shot dispatch tracking returns unknown; read-only lookup uses the bound key | A provider without idempotency or durable lookup may remain permanently ambiguous     |
-| Audit sink leaks or changes execution             | Redacted allowlist, bounded one-shot delivery, explicit failure policy          | Best-effort delivery can leave evidence gaps; strict delivery can reduce availability |
+| Threat                                            | Control                                                                                                                     | Residual risk                                                                         |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| Prompt injection asks the agent to ignore policy  | Gate is outside the prompt and independently decides                                                                        | A developer can still bypass the architecture                                         |
+| Agent changes tool arguments after approval       | Exact canonical parameters and target bind to the intent hash                                                               | Non-deterministic downstream interpretation must be avoided                           |
+| Approval for action A is swapped onto action B    | Presence display and receipt bind the exact hash; Decionis re-verifies                                                      | Presence integration must preserve immutable fields                                   |
+| Old approval or grant is replayed                 | Short expiry, hash-bound idempotency key, `jti`, and atomic single-use consume                                              | Provider records must remain available for reconciliation                             |
+| Agent calls the provider directly                 | Provider credential and egress live behind the executor                                                                     | Network policy must actually prevent agent egress                                     |
+| Agent chooses arbitrary code to run               | Sealed action registry; no agent-supplied callback                                                                          | Trusted registration code remains security-critical                                   |
+| Authority is unavailable or malformed             | Timeout, bounded response, strict validation, fail closed                                                                   | Reduced availability is accepted over unauthorized execution                          |
+| JSON ambiguity or prototype pollution             | Strict schemas, forbidden keys, bounded canonical JSON, exact SHA-256 binding                                               | Cross-language canonicalization requires conformance tests                            |
+| Human approves misleading content                 | Action, target, and exact hash are mandatory display fields                                                                 | A human can still make a poor but authentic decision                                  |
+| Shadow result is mistaken for authorization       | Observation has no grant, carries `OBSERVATIONAL` markers, and is rejected by the executor after casts and JSON round trips | Consumer logs/UI must preserve the label                                              |
+| Shadow traffic obtains or delays real authority   | `SHADOW` wire mode issues no grant; pipeline refuses `ENFORCEMENT` authorities and runs on its own bound                    | A custom authority may still mint a grant; the pipeline discards and reports it       |
+| Provider accepts an action but loses the response | One-shot dispatch tracking returns unknown; read-only lookup uses the bound key                                             | A provider without idempotency or durable lookup may remain permanently ambiguous     |
+| Audit sink leaks or changes execution             | Redacted allowlist, bounded one-shot delivery, explicit failure policy                                                      | Best-effort delivery can leave evidence gaps; strict delivery can reduce availability |
 
 ## Credential architecture
 
@@ -57,6 +58,7 @@ The agent runtime should have denied-by-default network egress. Open only the pr
 - A provider exception before dispatch is distinct from an unknown exception after dispatch.
 - Reconciliation cannot initiate a side effect and concurrent lookups share one in-flight request.
 - Audit events contain no token, raw parameters, raw context, or provider result by default.
+- A shadow observation cannot execute, cannot delay production, and never correlates to a grant.
 
 ## Accepted risks
 

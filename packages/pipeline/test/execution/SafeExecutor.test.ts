@@ -195,6 +195,34 @@ describe("SafeExecutor", () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
+  it("rejects observational artifacts and malformed authorization before verification", async () => {
+    const { execute, pair, registry } = setup();
+    const intent = captured();
+    const decision = await pair.authority.evaluate(intent);
+    const permissiveVerifier = {
+      verifyAndConsume: vi.fn(async () => authorizationFor(decision, intent.intentHash)),
+    };
+    const executor = new SafeExecutor(registry, permissiveVerifier);
+    const observational = [
+      { ...decision, authority: "OBSERVATIONAL" },
+      { ...decision, mode: "SHADOW" },
+    ] as unknown as GateDecision[];
+
+    for (const candidate of observational) {
+      expect(await executor.run(intent, candidate)).toMatchObject({
+        outcome: "BLOCKED",
+        reason: "DECISION_NOT_AUTHORITATIVE",
+      });
+    }
+    for (const authorization of [undefined, "token"]) {
+      expect(
+        await executor.run(intent, { ...decision, authorization } as unknown as GateDecision),
+      ).toMatchObject({ outcome: "BLOCKED", reason: "AUTHORIZATION_MISSING" });
+    }
+    expect(permissiveVerifier.verifyAndConsume).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it("allows exactly one execution under one grant across 100 concurrent claims", async () => {
     const { execute, pair, executor } = setup();
     const intent = captured();

@@ -1,6 +1,6 @@
 # `@decionis/agent-safe-pipeline`
 
-TypeScript reference implementation of Agent-Safe Pipeline: capture an immutable agent proposal, obtain an independent Decionis decision, coordinate Presence escalation, and execute only through an intent-bound single-use grant and sealed trusted handler registry.
+TypeScript reference implementation of Agent-Safe Pipeline, the Execution Authority architecture: capture an immutable agent proposal, obtain an independent Decionis decision, coordinate Presence escalation, and execute only through an intent-bound single-use grant and sealed trusted handler registry.
 
 ## Install
 
@@ -63,4 +63,9 @@ const result = await executor.run(captured, await gate.evaluate(captured));
 Presence transport/schema failures and Decionis reauthorization failures return stable fail-closed
 decisions; raw downstream error text is never part of the coordinator result.
 
-Support: use [GitHub private vulnerability reporting](https://github.com/decionis/agent-safe-pipeline/security/advisories/new) or `security@decionis.com` for vulnerabilities and [GitHub Issues](https://github.com/decionis/agent-safe-pipeline/issues) for non-sensitive problems. Architecture: [Agent-Safe Pipeline README](https://github.com/decionis/agent-safe-pipeline#readme). License: Apache-2.0. Trademark terms: [TRADEMARKS.md](https://github.com/decionis/agent-safe-pipeline/blob/master/TRADEMARKS.md).
+To measure before enforcing, wrap an existing execution with `ShadowPipeline` over a gate built
+with `mode: "SHADOW"`. Production runs unchanged and returns immediately; the observation is
+bounded, never rejects, carries no grant, and is refused by `SafeExecutor`. See
+[shadow mode](https://github.com/decionis/agent-safe-pipeline/blob/master/docs/shadow-mode.md).
+
+Support: use [GitHub private vulnerability reporting](https://github.com/decionis/agent-safe-pipeline/security/advisories/new) or `security@decionis.com` for vulnerabilities and [GitHub Issues](https://github.com/decionis/agent-safe-pipeline/issues) for non-sensitive problems. Architecture: [Agent-Safe Pipeline README](https://github.com/decionis/agent-safe-pipeline#readme). Research: [The Execution Verifiability Gap](https://decionis.com/research/execution-verifiability-gap) (Decionis Research). License: Apache-2.0. Trademark terms: [TRADEMARKS.md](https://github.com/decionis/agent-safe-pipeline/blob/master/TRADEMARKS.md).

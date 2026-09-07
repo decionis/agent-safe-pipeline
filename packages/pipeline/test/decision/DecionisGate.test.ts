@@ -50,6 +50,101 @@ describe("DecionisGate", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("sends SHADOW mode and never returns authorization from a shadow evaluation", async () => {
+    const intent = captured();
+    const bodies = [
+      {
+        decision_id: "decision-1",
+        status: "ALLOW",
+        should_execute: true,
+        reason_codes: ["POLICY_ALLOW"],
+        action_hash: intent.intentHash,
+        execution_token: "token-that-must-be-discarded",
+        execution_token_expires_at: intent.intent.expiresAt,
+        dossier_id: "dossier-1",
+      },
+      {
+        decision_id: "decision-2",
+        status: "ALLOW",
+        should_execute: false,
+        reason_codes: [],
+        action_hash: intent.intentHash,
+        execution_token: null,
+        execution_token_expires_at: null,
+        dossier_id: "dossier-2",
+      },
+      {
+        decision_id: "decision-3",
+        status: "ESCALATE",
+        should_execute: false,
+        reason_codes: ["HUMAN_REQUIRED"],
+        action_hash: intent.intentHash,
+        execution_token: null,
+        execution_token_expires_at: null,
+        dossier_id: "dossier-3",
+      },
+      {
+        decision_id: "decision-4",
+        status: "ERROR",
+        should_execute: false,
+        reason_codes: ["DEPENDENCY_FAILED"],
+        action_hash: intent.intentHash,
+        execution_token: null,
+        execution_token_expires_at: null,
+        dossier_id: null,
+      },
+    ];
+    const expected = [
+      { verdict: "ALLOW", failClosed: false, dossierId: "dossier-1" },
+      { verdict: "ALLOW", failClosed: false, dossierId: "dossier-2" },
+      { verdict: "ESCALATE", failClosed: false, dossierId: "dossier-3" },
+      { verdict: "BLOCK", failClosed: true, dossierId: null },
+    ];
+
+    for (const [index, body] of bodies.entries()) {
+      const fetchMock = vi.fn<typeof fetch>(
+        async () => new Response(JSON.stringify(body), { status: 200 }),
+      );
+      const gate = new DecionisGate({
+        baseUrl: "http://127.0.0.1:3001",
+        apiKey: "test-key",
+        allowInsecureLoopback: true,
+        mode: "SHADOW",
+        fetch: fetchMock as typeof fetch,
+      });
+      expect(gate.evaluationMode).toBe("SHADOW");
+
+      const decision = await gate.evaluate(intent);
+
+      expect(decision).toMatchObject({ ...expected[index], authorization: null });
+      expect(Object.isFrozen(decision)).toBe(true);
+      const request = fetchMock.mock.calls[0]?.[1] as RequestInit;
+      expect(JSON.parse(request.body as string)).toMatchObject({ mode: "SHADOW" });
+      expect(JSON.stringify(decision)).not.toContain("token-that-must-be-discarded");
+    }
+
+    const enforcementFetch = vi.fn<typeof fetch>(async () => new Response("", { status: 503 }));
+    const enforcement = new DecionisGate({
+      baseUrl: "http://127.0.0.1:3001",
+      apiKey: "test-key",
+      allowInsecureLoopback: true,
+      fetch: enforcementFetch as typeof fetch,
+    });
+    expect(enforcement.evaluationMode).toBe("ENFORCEMENT");
+    await enforcement.evaluate(intent);
+    const enforcementRequest = enforcementFetch.mock.calls[0]?.[1] as RequestInit;
+    expect(JSON.parse(enforcementRequest.body as string)).toMatchObject({ mode: "ENFORCEMENT" });
+    expect(
+      () =>
+        new DecionisGate({
+          baseUrl: "http://127.0.0.1:3001",
+          apiKey: "test-key",
+          allowInsecureLoopback: true,
+          mode: "PARALLEL" as unknown as "SHADOW",
+        }),
+    ).toThrow("DECIONIS_GATE_MODE_INVALID");
+  });
+
   it("fails closed on a hash mismatch, transport error, or missing ALLOW grant", async () => {
     const intent = captured();
     const bodies = [

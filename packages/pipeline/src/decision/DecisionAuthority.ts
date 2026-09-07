@@ -3,6 +3,13 @@ import { immutableGateDecision } from "./ImmutableGateDecision.js";
 
 export type DecisionVerdict = "ALLOW" | "ESCALATE" | "BLOCK";
 
+/**
+ * `ENFORCEMENT` evaluations may produce execution authority. `SHADOW`
+ * evaluations are observational: the authority records the same intent and
+ * dossier evidence but never issues a grant.
+ */
+export type DecisionEvaluationMode = "ENFORCEMENT" | "SHADOW";
+
 export interface HumanApprovalEvidence {
   readonly provider: "presence";
   readonly requestId: string;
@@ -27,6 +34,12 @@ export interface GateDecision {
 }
 
 export interface DecisionAuthority {
+  /**
+   * Declared evaluation mode, when the authority knows it. `ShadowPipeline`
+   * refuses an authority that declares `ENFORCEMENT` so observational traffic
+   * cannot be sent through a grant-issuing path by mistake.
+   */
+  readonly evaluationMode?: DecisionEvaluationMode;
   evaluate(intent: CapturedIntent, evidence?: DecisionEvidence): Promise<GateDecision>;
 }
 

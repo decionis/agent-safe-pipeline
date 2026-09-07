@@ -6,6 +6,7 @@ import type { ActionRegistry } from "./ActionRegistry.js";
 import type { AuthorizationVerifier, VerifiedAuthorization } from "./AuthorizationVerifier.js";
 
 export type ExecutionBlockReason =
+  | "DECISION_NOT_AUTHORITATIVE"
   | "DECISION_NOT_ALLOW"
   | "INTENT_BINDING_MISMATCH"
   | "INTENT_CONFORMANCE_FAILED"
@@ -90,6 +91,11 @@ export class SafeExecutor {
     const startedAt = Date.now();
     // Stryker disable next-line all: Audit payload mapping is covered by lifecycle event assertions.
     const intentRecorded = await this.record({ eventType: "INTENT_CAPTURED", captured });
+    // An observational artifact (shadow observation, serialized audit event) is
+    // rejected before it is recorded or inspected as if it were a decision.
+    if (!SafeExecutor.isAuthoritativeDecision(decision)) {
+      return await this.block(captured, undefined, "DECISION_NOT_AUTHORITATIVE", startedAt);
+    }
     // Stryker disable all: Audit payload mapping is covered by lifecycle event assertions.
     const decisionRecorded = await this.record({
       eventType: decision.failClosed ? "AUTHORITY_FAILED_CLOSED" : "AUTHORITY_DECISION",
@@ -109,7 +115,7 @@ export class SafeExecutor {
     if (decision.intentHash !== captured.intentHash) {
       return await this.block(captured, decision, "INTENT_BINDING_MISMATCH", startedAt);
     }
-    if (decision.authorization === null) {
+    if (decision.authorization === null || typeof decision.authorization !== "object") {
       return await this.block(captured, decision, "AUTHORIZATION_MISSING", startedAt);
     }
     if (!this.intentConforms(captured)) {
@@ -299,6 +305,19 @@ export class SafeExecutor {
     });
     // Stryker restore all
     return result;
+  }
+
+  /**
+   * Observational artifacts carry an explicit non-authoritative marker. They
+   * must never be interpreted as a `GateDecision`, even after an unsafe cast
+   * or a JSON round trip.
+   */
+  private static isAuthoritativeDecision(decision: GateDecision): boolean {
+    const candidate = decision as unknown as {
+      readonly authority?: unknown;
+      readonly mode?: unknown;
+    };
+    return candidate.authority !== "OBSERVATIONAL" && candidate.mode !== "SHADOW";
   }
 
   private intentConforms(captured: CapturedIntent): boolean {

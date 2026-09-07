@@ -42,7 +42,7 @@ Agent proposal                         runtime identity/config
 
 `AuditRecorder` sends deeply immutable, bounded, redacted lifecycle events to a consumer sink. It correlates intent, decision, dossier, grant, policy-revision, and execution evidence without copying raw parameters, provider results, credentials, or execution tokens. Its sink policy can preserve availability or require evidence before dispatch, but a sink failure can never allow a blocked action or cause duplicate execution. See [audit events](./docs/audit-events.md).
 
-`ShadowPipeline` observes existing execution and obtains a hypothetical authority decision without granting the shadow result execution authority. Its output is labeled `SHADOW` to prevent accidental enforcement claims.
+`ShadowPipeline` runs an existing execution unchanged while asking a `SHADOW`-mode authority what it would have decided. The observation is bounded by its own timeout, never rejects, and cannot delay or fail production. It has no `authorization` field, is marked `mode: "SHADOW"` and `authority: "OBSERVATIONAL"`, discards any grant an authority returns, and is refused by `SafeExecutor` with `DECISION_NOT_AUTHORITATIVE`. `ShadowPipeline` refuses an authority that declares `ENFORCEMENT` mode. See [shadow mode](./docs/shadow-mode.md).
 
 ## Trust and data boundaries
 

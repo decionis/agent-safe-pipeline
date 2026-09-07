@@ -8,7 +8,7 @@ pnpm verify
 pnpm mutation
 ```
 
-Installation activates the repository's `simple-git-hooks` pre-commit hook. It checks staged files with Prettier, checks staged Markdown with markdownlint, and runs the lint, security-audit, and performance guardrails. Run `pnpm format:fix` before committing if it reports formatting drift; use `pnpm hooks:install` to reinstall the hook manually.
+Installation activates the repository's `simple-git-hooks` pre-commit hook. It checks staged files with Prettier, checks staged Markdown with markdownlint, and runs the lint, security-audit, and performance guardrails. Run `pnpm format:fix` before committing if it reports formatting drift; use `pnpm hooks:install` to reinstall the hook manually. The hook needs network access for the dependency audit; for an offline or work-in-progress commit on a branch, `SKIP_SIMPLE_GIT_HOOKS=1 git commit` skips it, and `pnpm verify` must still pass before the pull request is opened. An `.nvmrc` pins the supported Node.js line for `nvm use` and `fnm use`.
 
 `pnpm verify` includes the deterministic performance suite and audits the complete development
 toolchain at moderate severity. `pnpm mutation` remains a separate, required assurance check for

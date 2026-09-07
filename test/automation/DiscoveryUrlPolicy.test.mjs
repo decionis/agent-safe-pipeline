@@ -14,10 +14,19 @@ function response(status, location) {
 }
 
 describe("DiscoveryUrlPolicy", () => {
-  it("accepts the canonical HTTPS GitHub origin", () => {
+  it("accepts only the reviewed HTTPS origins", () => {
     assert.equal(
       assertAllowedDiscoveryUrl("https://github.com/decionis/agent-safe-pipeline").hostname,
       "github.com",
+    );
+    assert.equal(
+      assertAllowedDiscoveryUrl("https://decionis.com/research/execution-verifiability-gap")
+        .hostname,
+      "decionis.com",
+    );
+    assert.equal(
+      assertAllowedDiscoveryUrl("https://presence.decionis.com/").hostname,
+      "presence.decionis.com",
     );
   });
 
@@ -27,6 +36,8 @@ describe("DiscoveryUrlPolicy", () => {
       "https://user:password@github.com/decionis/agent-safe-pipeline",
       "https://github.com:444/decionis/agent-safe-pipeline",
       "https://github.com.example/",
+      "https://www.decionis.com/research",
+      "https://api.decionis.com/",
       "https://127.0.0.1/",
     ];
 

@@ -1,4 +1,4 @@
-const allowedHostnames = new Set(["github.com"]);
+const allowedHostnames = new Set(["github.com", "decionis.com", "presence.decionis.com"]);
 const maxRedirects = 5;
 
 export class DiscoveryUrlPolicyError extends Error {

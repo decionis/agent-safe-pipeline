@@ -10,6 +10,7 @@ export type AuditEventType =
   | "AUTHORITY_FAILED_CLOSED"
   | "PRESENCE_ESCALATED"
   | "PRESENCE_RESOLVED"
+  | "SHADOW_EVALUATED"
   | "GRANT_CONSUMED"
   | "EXECUTION_STARTED"
   | "EXECUTION_COMPLETED"
@@ -75,6 +76,8 @@ export interface AuditRecordInput {
   readonly decisionId?: string;
   readonly dossierId?: string;
   readonly grantId?: string;
+  /** Verdict for events that carry no `GateDecision`, such as shadow observations. */
+  readonly verdict?: GateDecision["verdict"];
   readonly evaluation?: AuditEvaluationEvidence;
   readonly reasonCodes?: readonly string[];
   readonly durationMs?: number;
@@ -117,6 +120,7 @@ const AUDIT_AUTHORITIES = new Set<AuditAuthority>([
   "OBSERVATIONAL",
   "NON_AUTHORITATIVE",
 ]);
+const AUDIT_VERDICTS = new Set<GateDecision["verdict"]>(["ALLOW", "ESCALATE", "BLOCK"]);
 const RESTRICTED_METADATA_KEY =
   /authorization|credential|password|secret|token|parameters|context|provider[_-]?result/i;
 const MAX_METADATA_DEPTH = 4;
@@ -194,10 +198,21 @@ export class AuditRecorder {
     }
     const authority = input.authority ?? AuditRecorder.defaultAuthority(input.eventType);
     if (!AUDIT_AUTHORITIES.has(authority)) throw new Error("AUDIT_AUTHORITY_INVALID");
+    if (input.eventType === "SHADOW_EVALUATED" && authority !== "OBSERVATIONAL") {
+      throw new Error("AUDIT_SHADOW_MUST_BE_OBSERVATIONAL");
+    }
+    const verdict = input.verdict ?? input.decision?.verdict ?? null;
+    if (verdict !== null && !AUDIT_VERDICTS.has(verdict)) {
+      throw new Error("AUDIT_VERDICT_INVALID");
+    }
 
     const decisionId = input.decisionId ?? input.decision?.decisionId;
     const dossierId = input.dossierId ?? input.decision?.dossierId ?? undefined;
     const grantId = input.grantId ?? input.authorization?.grantId;
+    // Observational evidence must never correlate to an execution grant.
+    if (authority === "OBSERVATIONAL" && (grantId !== undefined || input.authorization)) {
+      throw new Error("AUDIT_OBSERVATIONAL_GRANT_FORBIDDEN");
+    }
     if (decisionId !== undefined) AuditRecorder.assertIdentifier(decisionId);
     if (dossierId !== undefined) AuditRecorder.assertIdentifier(dossierId);
     if (grantId !== undefined) AuditRecorder.assertIdentifier(grantId);
@@ -225,7 +240,7 @@ export class AuditRecorder {
         ...(grantId === undefined ? {} : { grantId }),
       },
       evaluation,
-      verdict: input.decision?.verdict ?? null,
+      verdict,
       reasonCodes: [...reasonCodes],
       durationMs:
         input.durationMs === undefined ? null : Math.round(input.durationMs * 1_000) / 1_000,
@@ -330,6 +345,7 @@ export class AuditRecorder {
 
   private static defaultAuthority(eventType: AuditEventType): AuditAuthority {
     if (eventType === "INTENT_CAPTURED") return "NON_AUTHORITATIVE";
+    if (eventType === "SHADOW_EVALUATED") return "OBSERVATIONAL";
     if (eventType === "PRESENCE_ESCALATED" || eventType === "PRESENCE_RESOLVED") {
       return "NON_AUTHORITATIVE";
     }

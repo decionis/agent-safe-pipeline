@@ -388,9 +388,60 @@ describe("AuditRecorder", () => {
       new SafeExecutor(registry, { verifyAndConsume }).run(intent, persisted),
     ).resolves.toMatchObject({
       outcome: "BLOCKED",
-      reason: "INTENT_BINDING_MISMATCH",
+      reason: "DECISION_NOT_AUTHORITATIVE",
     });
     expect(verifyAndConsume).not.toHaveBeenCalled();
     expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("classifies shadow evaluations as observational and refuses grant correlation", async () => {
+    const events: AuditEventV1[] = [];
+    const recorder = new AuditRecorder({
+      sink: {
+        write: (event) => {
+          events.push(event);
+        },
+      },
+    });
+    const intent = captured();
+
+    expect(
+      await recorder.record({
+        eventType: "SHADOW_EVALUATED",
+        captured: intent,
+        verdict: "ESCALATE",
+        decisionId: "decision-shadow",
+        reasonCodes: ["SHADOW_OBSERVED"],
+      }),
+    ).toBe(true);
+    expect(events[0]).toMatchObject({
+      eventType: "SHADOW_EVALUATED",
+      authority: "OBSERVATIONAL",
+      verdict: "ESCALATE",
+      evaluation: null,
+      correlation: { decisionId: "decision-shadow" },
+    });
+
+    const rejected = [
+      { eventType: "SHADOW_EVALUATED" as const, authority: "AUTHORITATIVE" as const },
+      { eventType: "SHADOW_EVALUATED" as const, grantId: "grant-1" },
+      {
+        eventType: "AUTHORITY_DECISION" as const,
+        authority: "OBSERVATIONAL" as const,
+        decision: decision(intent.intentHash),
+        authorization: {
+          decisionId: "decision-1",
+          dossierId: "dossier-1",
+          grantId: "grant-1",
+          intentHash: intent.intentHash,
+          expiresAt: "2026-09-07T10:00:30.000Z",
+        },
+      },
+      { eventType: "SHADOW_EVALUATED" as const, verdict: "APPROVED" as unknown as "ALLOW" },
+    ];
+    for (const input of rejected) {
+      expect(await recorder.record({ captured: intent, ...input })).toBe(false);
+    }
+    expect(events).toHaveLength(1);
   });
 });

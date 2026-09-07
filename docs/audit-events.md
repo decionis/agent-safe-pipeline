@@ -15,9 +15,11 @@ Grant and execution events add the consumed grant ID. They never include executi
 keys, raw intent parameters or context, raw targets, or provider results.
 
 An observational event remains observational after JSON serialization. Its shape is an audit
-record, not a `GateDecision`, and `SafeExecutor` rejects it if application code attempts an unsafe
-cast. Presence events are `NON_AUTHORITATIVE`: a human receipt is evidence for Decionis
-re-evaluation, never execution authority.
+record, not a `GateDecision`, and `SafeExecutor` rejects it with `DECISION_NOT_AUTHORITATIVE` if
+application code attempts an unsafe cast. `ShadowPipeline` emits `SHADOW_EVALUATED`, which is
+always `OBSERVATIONAL`; the recorder refuses a shadow event with any other classification and
+refuses any observational event that references a grant. Presence events are `NON_AUTHORITATIVE`:
+a human receipt is evidence for Decionis re-evaluation, never execution authority.
 
 ## Sink configuration
 
@@ -57,7 +59,8 @@ INTENT_CAPTURED
 ```
 
 `PresenceApprovalCoordinator` emits `PRESENCE_ESCALATED` and `PRESENCE_RESOLVED` with
-`NON_AUTHORITATIVE` classification. `IntentCapture.captureAndAudit` is available when capture must be
+`NON_AUTHORITATIVE` classification. `ShadowPipeline` emits one `SHADOW_EVALUATED` event per
+observation whose reason codes begin with `SHADOW_<status>`; see [shadow mode](./shadow-mode.md). `IntentCapture.captureAndAudit` is available when capture must be
 recorded even if the caller never reaches `SafeExecutor`; avoid using both automatic paths if the
 sink treats two capture observations as duplicates.
 

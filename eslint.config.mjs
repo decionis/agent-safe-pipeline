@@ -5,7 +5,7 @@ import regexp from "eslint-plugin-regexp";
 import globals from "globals";
 
 export default [
-  { ignores: ["**/dist/**", "**/coverage/**", "**/node_modules/**"] },
+  { ignores: ["**/dist/**", "**/coverage/**", "**/node_modules/**", "**/.stryker-tmp/**"] },
   eslint.configs.recommended,
   regexp.configs["flat/recommended"],
   { rules: { "regexp/no-super-linear-move": ["error", { report: "potential" }] } },

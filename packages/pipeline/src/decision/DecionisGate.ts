@@ -6,6 +6,7 @@ import type { CapturedIntent } from "../intent/ExecutionIntent.js";
 import {
   FailClosedDecision,
   type DecisionAuthority,
+  type DecisionEvaluationMode,
   type DecisionEvidence,
   type GateDecision,
 } from "./DecisionAuthority.js";
@@ -42,9 +43,17 @@ export interface DecionisGateOptions {
   readonly timeoutMs?: number;
   readonly fetch?: typeof fetch;
   readonly allowInsecureLoopback?: boolean;
+  /**
+   * `ENFORCEMENT` (default) asks Decionis for an executable decision.
+   * `SHADOW` asks Decionis to evaluate and record the exact intent without
+   * issuing a grant; the gate then never returns an authorization, even if a
+   * response carries one.
+   */
+  readonly mode?: DecisionEvaluationMode;
 }
 
 export class DecionisGate implements DecisionAuthority {
+  public readonly evaluationMode: DecisionEvaluationMode;
   private readonly baseUrl: string;
   private readonly apiKey: string;
   private readonly timeoutMs: number;
@@ -58,6 +67,11 @@ export class DecionisGate implements DecisionAuthority {
     this.apiKey = options.apiKey;
     this.timeoutMs = Math.min(Math.max(options.timeoutMs ?? 4_000, 1), 15_000);
     this.fetchImpl = options.fetch ?? fetch;
+    const mode = options.mode ?? "ENFORCEMENT";
+    if (mode !== "ENFORCEMENT" && mode !== "SHADOW") {
+      throw new Error("DECIONIS_GATE_MODE_INVALID");
+    }
+    this.evaluationMode = mode;
   }
 
   public async evaluate(
@@ -77,7 +91,7 @@ export class DecionisGate implements DecisionAuthority {
         body: JSON.stringify({
           ...CanonicalIntentHasher.bindingOf(captured.intent),
           intent_hash: captured.intentHash,
-          mode: "ENFORCEMENT",
+          mode: this.evaluationMode,
           ...(evidence === undefined ? {} : { evidence }),
         }),
         signal: controller.signal,
@@ -99,6 +113,19 @@ export class DecionisGate implements DecisionAuthority {
           : parsed.status === "ESCALATE" || parsed.status === "REVIEW_REQUIRED"
             ? "ESCALATE"
             : "BLOCK";
+      if (this.evaluationMode === "SHADOW") {
+        // Observational traffic never yields execution authority. A token in a
+        // shadow response is discarded here so it cannot reach a verifier.
+        return immutableGateDecision({
+          verdict,
+          decisionId: parsed.decision_id,
+          dossierId: parsed.dossier_id,
+          intentHash: parsed.action_hash,
+          reasonCodes: parsed.reason_codes,
+          authorization: null,
+          failClosed: parsed.status === "ERROR",
+        });
+      }
       const canExecute =
         verdict === "ALLOW" &&
         parsed.should_execute &&
