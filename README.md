@@ -184,4 +184,29 @@ trust-boundary tests kill deliberate code mutations. `pnpm fuzz` runs determinis
 against canonical intent handling; CI also runs them weekly with a larger bounded sample.
 Installation activates the repository's `simple-git-hooks` pre-commit guardrails.
 
+### Fixture provenance and loopback origins
+
+Every fixture-bearing file is listed in [`fixtures/manifest.json`](./fixtures/manifest.json) and
+checked by `pnpm fixture:check`: the unit tests under `packages/pipeline/test`, example sources,
+conformance vectors, the dossier corpus, synthetic policies, and the integration harness under
+`tests/integration`. The gate requires synthetic identities (`synthetic-` or `fixture_` prefixes,
+tenants in the reserved UUID block) and parses every URL-shaped literal it finds, which must resolve
+to `localhost`, `127.0.0.1`, `example.com`, or a `.example` or `.invalid` domain. Nothing in the
+tests, examples, or harness reaches the network beyond loopback.
+
+Two consequences matter when you add or evaluate tests:
+
+- Loopback stubs bind to `127.0.0.1` on an ephemeral port and build their base URL from a plain
+  string constant, `const LOOPBACK_ORIGIN = "http://127.0.0.1"`, appending the port separately. A
+  template literal that interpolates inside the URL, such as `` `http://127.0.0.1:${port}` ``, is
+  read by the gate as literal text and rejected as an invalid URL. That is deliberate: the gate does
+  not guess what an interpolated host would resolve to.
+- A new fixture-bearing file needs its manifest entry in the same change. Discovery uses
+  `git ls-files`, so an untracked file is invisible to the gate until it is staged, and the manifest
+  and discovery must match exactly.
+
+See [`FIXTURE-PROVENANCE.md`](./FIXTURE-PROVENANCE.md) for the full construction rules and
+[`tests/integration/contract/`](./tests/integration/contract/) for the loopback harness that
+follows them.
+
 Apache-2.0 licensed. See [`LICENSE`](./LICENSE), [`TRADEMARKS.md`](./TRADEMARKS.md), [`SECURITY.md`](./SECURITY.md), and [`CONTRIBUTING.md`](./CONTRIBUTING.md). Report suspected vulnerabilities through [GitHub's private advisory form](https://github.com/decionis/agent-safe-pipeline/security/advisories/new), not a public issue.

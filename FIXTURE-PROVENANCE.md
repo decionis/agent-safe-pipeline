@@ -23,6 +23,11 @@ Contributors must document the source and license of any new fixture. Prefer det
 
 Fixture identity values use the repository-reserved `synthetic-` or `fixture_` prefixes. UUID-shaped fixture tenant and intent values use the sentinel blocks documented in the conformance vector; production integrations must reject those sentinel values. Fixture URLs use IANA-reserved `.example`/`.invalid` domains or loopback. Executable demos may not contain fixed ISO timestamps.
 
+The gate parses every URL-shaped literal verbatim, so a loopback stub must build its base URL from a
+plain `http://127.0.0.1` string constant and append its ephemeral port separately. Interpolation
+inside a URL literal, such as `` `http://127.0.0.1:${port}` ``, is rejected as an invalid URL rather
+than guessed at. The harness under `tests/integration/contract` is the reference for this pattern.
+
 `pnpm fixture:check` discovers every tracked conformance vector, dossier JSON artifact, policy,
 example source, unit test, and integration harness and requires an exact match with the manifest before enforcing these
 rules. Adding an unmanifested file, stale manifest entry, real-looking actor, customer, order,
