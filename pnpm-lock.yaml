@@ -135,6 +135,18 @@ importers:
         specifier: ^4.1.11
         version: 4.1.11(@types/node@26.2.0)(@vitest/coverage-v8@4.1.10)(vite@6.4.3(@types/node@26.2.0)(yaml@2.9.0))
 
+  tests/integration/contract:
+    dependencies:
+      '@decionis/agent-safe-pipeline':
+        specifier: workspace:*
+        version: link:../../../packages/pipeline
+      '@decionis/presence-node':
+        specifier: ^0.2.0
+        version: 0.2.0
+      zod:
+        specifier: ^4.5.4
+        version: 4.5.4
+
 packages:
 
   '@babel/code-frame@8.0.0':

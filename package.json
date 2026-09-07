@@ -50,6 +50,7 @@
     "security:toolchain": "pnpm audit --audit-level moderate",
     "test": "pnpm -r test",
     "test:automation": "node --test test/automation/*.test.mjs",
+    "test:contract": "pnpm --filter @decionis/agent-safe-contract-tests test",
     "typecheck": "pnpm --filter @decionis/agent-safe-pipeline build && pnpm -r typecheck",
     "verify": "pnpm format && pnpm lint && pnpm metadata:check && pnpm fixture:check && pnpm dossiers:check && pnpm license:check && pnpm security && pnpm dependabot:check && pnpm discovery && pnpm performance && pnpm typecheck && pnpm test:automation && pnpm test && pnpm build"
   },

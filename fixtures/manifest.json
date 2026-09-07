@@ -223,6 +223,30 @@
       "family": "Policy example",
       "source": "synthetic",
       "containsCustomerData": false
+    },
+    {
+      "path": "tests/integration/contract/AuthorityStub.mjs",
+      "family": "Integration harness",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "tests/integration/contract/Contract.test.mjs",
+      "family": "Integration harness",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "tests/integration/contract/PresenceStub.mjs",
+      "family": "Integration harness",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "tests/integration/npm-pack/consumer.mjs",
+      "family": "Integration harness",
+      "source": "synthetic",
+      "containsCustomerData": false
     }
   ]
 }

@@ -12,6 +12,7 @@ The accountable data and security owner is [security@decionis.com](mailto:securi
 | Decision Dossier corpus           | `dossiers/**/*.json`                     | Deterministic fictional decisions authored for this repository; each vector publishes canonical bytes, SHA-256 digests, and signatures made with the deliberately public synthetic corpus key        | Offline Decision Dossier verifier conformance only                |
 | Example identities and actions    | `examples/*`                             | Fictional tenants, actors, orders, customers, approvals, and `.invalid` URLs                                                                                                                         | Runnable demonstrations only                                      |
 | Unit-test data                    | `packages/pipeline/test/*`               | Deterministic test values created alongside the implementation                                                                                                                                       | Automated tests only                                              |
+| Integration harness               | `tests/integration/*/*.mjs`              | Loopback Decionis and Presence stubs plus packed-package consumers using synthetic tenants, actors, orders, grants, receipts, and reserved-domain URLs                                               | Packed-package and wire-contract tests only                       |
 | Fixture authority keys and grants | `FixtureDecisionAuthority` and its tests | Ephemeral Ed25519 keys generated in memory during each run; tokens are short-lived local test artifacts                                                                                              | Development and tests only; construction is blocked in production |
 
 The exact strings `refund-synthetic-1001-v1`, `refund-58291-v1`, and `refund-58291-v2` are documented synthetic idempotency keys. They are narrowly allowlisted in `.gitleaks.toml` because the generic API-key detector otherwise classifies them as credentials. No path-wide or rule-wide secret-scanning exemption is used.
@@ -23,7 +24,7 @@ Contributors must document the source and license of any new fixture. Prefer det
 Fixture identity values use the repository-reserved `synthetic-` or `fixture_` prefixes. UUID-shaped fixture tenant and intent values use the sentinel blocks documented in the conformance vector; production integrations must reject those sentinel values. Fixture URLs use IANA-reserved `.example`/`.invalid` domains or loopback. Executable demos may not contain fixed ISO timestamps.
 
 `pnpm fixture:check` discovers every tracked conformance vector, dossier JSON artifact, policy,
-example source, and unit test and requires an exact match with the manifest before enforcing these
+example source, unit test, and integration harness and requires an exact match with the manifest before enforcing these
 rules. Adding an unmanifested file, stale manifest entry, real-looking actor, customer, order,
 approver, tenant, hostname, or fixed demo timestamp makes verification fail. This turns provenance
 from a prose assertion into a repository gate.

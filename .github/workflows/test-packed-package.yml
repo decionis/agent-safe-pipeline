@@ -61,7 +61,9 @@ jobs:
             "private": true,
             "type": "module",
             "dependencies": {
-              "@decionis/agent-safe-pipeline": "file:${{ env.TARBALL_PATH }}"
+              "@decionis/agent-safe-pipeline": "file:${{ env.TARBALL_PATH }}",
+              "@decionis/presence-node": "^0.2.0",
+              "zod": "^4.5.4"
             }
           }
           EOF
@@ -74,6 +76,23 @@ jobs:
       - name: Run consumer validation (ALLOW + BLOCK)
         working-directory: /tmp/consumer
         run: node consumer.mjs
+      - name: Copy the wire-contract harness into the consumer
+        run: |
+          mkdir -p /tmp/consumer/contract
+          cp tests/integration/contract/*.mjs /tmp/consumer/contract/
+      - name: Run the wire-contract harness against the packed tarball
+        working-directory: /tmp/consumer
+        env:
+          CONTRACT_DIAGNOSTICS_DIR: /tmp/consumer/diagnostics
+        run: node --test --test-concurrency=1 contract/Contract.test.mjs
+      - name: Upload contract diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: contract-diagnostics-node-${{ matrix.node }}
+          path: /tmp/consumer/diagnostics
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Verify offline — no registry access after install
         working-directory: /tmp/consumer
         run: |

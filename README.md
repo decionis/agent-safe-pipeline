@@ -77,6 +77,7 @@ See the [package README](./packages/pipeline/README.md) for the complete enforce
 - [`conformance/agent-safe-intent-v1.json`](./conformance/agent-safe-intent-v1.json) — portable canonical-hash test vector.
 - [`conformance/vectors/`](./conformance/vectors/) — edge-case canonical-hash vectors (Unicode/astral, NFC vs NFD, negative zero, fractional/exponent numbers, nested arrays, UTF-16 key sort order), auto-discovered by the conformance test.
 - [`dossiers/`](./dossiers/) — reproducible synthetic Decision Dossier corpus with canonical bytes, SHA-256 digests, Ed25519 signatures, and a deliberately published corpus key.
+- [`tests/integration/contract/`](./tests/integration/contract/) — loopback Decionis and Presence stubs that exercise the packed package's complete wire contract over real HTTP.
 - [`FIXTURE-PROVENANCE.md`](./FIXTURE-PROVENANCE.md) — origin and permitted use of every fixture family.
 - [`DEPENDENCY-LICENSES.md`](./DEPENDENCY-LICENSES.md) — generated inventory method and platform-conditional dependency notes.
 - [`SECURITY-EVIDENCE.md`](./SECURITY-EVIDENCE.md) — control-to-artifact evidence map and published gaps.

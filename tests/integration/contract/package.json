@@ -1,0 +1,16 @@
+{
+  "name": "@decionis/agent-safe-contract-tests",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Wire-contract harness: loopback Decionis and Presence stubs exercised through the package's public entry point.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "test": "pnpm --filter @decionis/agent-safe-pipeline build && node --test --test-concurrency=1 Contract.test.mjs"
+  },
+  "dependencies": {
+    "@decionis/agent-safe-pipeline": "workspace:*",
+    "@decionis/presence-node": "^0.2.0",
+    "zod": "^4.5.4"
+  }
+}
