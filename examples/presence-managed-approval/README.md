@@ -28,8 +28,8 @@ self-assign that role.
 ## Run
 
 ```bash
-pnpm --filter @decionis/agent-safe-example-presence-managed-approval demo -- --ceremony fido
-pnpm --filter @decionis/agent-safe-example-presence-managed-approval demo -- --ceremony fido-liveness
+pnpm --filter @decionis/agent-safe-example-presence-managed-approval demo --ceremony fido
+pnpm --filter @decionis/agent-safe-example-presence-managed-approval demo --ceremony fido-liveness
 ```
 
 | Ceremony        | Managed verification requirements                                |
