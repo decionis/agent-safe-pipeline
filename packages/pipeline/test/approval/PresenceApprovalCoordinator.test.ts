@@ -26,6 +26,76 @@ function captured(clock?: () => number, ttlSeconds = 60) {
 }
 
 describe("PresenceApprovalCoordinator", () => {
+  it("forwards ceremony requirements and the request lifetime to the Presence gate", async () => {
+    const intent = captured();
+    const unusedAuthority: DecisionAuthority = {
+      evaluate: async () => {
+        throw new Error("TEST_AUTHORITY_UNUSED");
+      },
+    };
+    const handoff = {
+      verdict: "HUMAN_REQUIRED" as const,
+      request_id: "synthetic-presence-request-1",
+    };
+    const requirements = {
+      level: "HIGH_CONFIDENCE" as const,
+      methods: ["WEBAUTHN" as const, "ACTIVE_LIVENESS" as const],
+      hardware_pki_required: false,
+      disallow_virtual_cameras: true,
+    };
+    const gate = vi.fn<PresenceApprovalClient["gate"]>(async () => handoff);
+    const coordinator = new PresenceApprovalCoordinator(
+      { gate, outcome: async () => handoff },
+      unusedAuthority,
+      "Acme",
+      "synthetic-approver-1",
+      { requirements, ttlSeconds: 300 },
+    );
+
+    await coordinator.request(intent);
+
+    expect(gate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        approver: { id: "synthetic-approver-1" },
+        requirements,
+        ttlSeconds: 300,
+      }),
+      PresenceApprovalCoordinator.presenceIdempotencyKey(intent, "synthetic-approver-1"),
+    );
+    const idempotencyKey = gate.mock.calls[0]?.[1] as string;
+    expect(idempotencyKey).toMatch(/^presence-[0-9a-f]{64}$/);
+    expect(idempotencyKey).not.toBe(
+      PresenceApprovalCoordinator.presenceIdempotencyKey(intent, "synthetic-approver-2"),
+    );
+    expect(idempotencyKey).not.toBe(
+      PresenceApprovalCoordinator.presenceIdempotencyKey(captured(), "synthetic-approver-1"),
+    );
+
+    const plainGate = vi.fn<PresenceApprovalClient["gate"]>(async () => handoff);
+    await new PresenceApprovalCoordinator(
+      { gate: plainGate, outcome: async () => handoff },
+      unusedAuthority,
+      "Acme",
+      "synthetic-approver-1",
+    ).request(intent);
+    const plainRequest = plainGate.mock.calls[0]?.[0] as Record<string, unknown> | undefined;
+    expect(plainRequest).not.toHaveProperty("requirements");
+    expect(plainRequest).not.toHaveProperty("ttlSeconds");
+
+    for (const ttlSeconds of [29, 601, 30.5, Number.NaN]) {
+      expect(
+        () =>
+          new PresenceApprovalCoordinator(
+            { gate, outcome: async () => handoff },
+            unusedAuthority,
+            "Acme",
+            "synthetic-approver-1",
+            { ttlSeconds },
+          ),
+      ).toThrow("PRESENCE_TTL_INVALID");
+    }
+  });
+
   it("records escalation and receipt resolution as non-authoritative evidence", async () => {
     const intent = captured();
     const events: AuditEventV1[] = [];

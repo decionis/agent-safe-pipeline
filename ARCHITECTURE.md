@@ -34,9 +34,14 @@ Agent proposal                         runtime identity/config
 
 `IntentCapture` validates the limited agent proposal separately from trusted context, assigns UUID/timestamps, applies a maximum five-minute lifetime, canonicalizes sorted-key JSON, and hashes the authority binding with SHA-256.
 
-`DecionisGate` sends exactly the Decionis `ExecutionAuthorityRequest` contract to the authenticated authority API: the nine-property intent binding, its hash, the evaluation mode, and any Presence evidence, with the `Idempotency-Key` header equal to the intent ID. It requires HTTPS except for an explicitly enabled loopback development endpoint, applies a finite timeout and response-size limit, parses the documented decision shape strictly, and converts every ambiguous state to a fail-closed BLOCK.
+`DecionisGate` sends exactly the Decionis `ExecutionAuthorityRequest` contract to the authenticated authority API: the nine-property intent binding, its hash, the evaluation mode, optional direct Presence evidence, and optional managed-escalation constraints outside the canonical intent, with the `Idempotency-Key` header equal to the intent ID. It requires HTTPS except for an explicitly enabled loopback development endpoint, applies a finite timeout and response-size limit, parses the documented decision shape strictly, and converts every ambiguous state to a fail-closed BLOCK. A managed ESCALATE response is grant-free; the gate polls Decionis only, checks escalation ID, intent ID, action hash, expiry, and monotonic pending state, and accepts only a normal ALLOW grant in `GRANT_READY` before the original intent expires.
 
 `PresenceApprovalCoordinator` presents the action, target, and intent hash to the human. Only a terminal receipt dossier is accepted as evidence. The coordinator sends that evidence back to Decionis; it never turns approval into ALLOW itself.
+
+These are complementary integration levels. DIRECT keeps Presence request creation and polling in the
+trusted executor through `PresenceApprovalCoordinator`. MANAGED keeps those operations inside
+Decionis and exposes only secret-free lifecycle status through `DecionisGate`. Presence still signs
+its own evidence independently in both modes; delivery of an opaque invitation is not authority.
 
 `SafeExecutor` checks ALLOW, exact intent binding, and the existence of a grant. Its verifier atomically claims the grant before a registered handler can run, and after the attempt the executor finalizes the outcome with the authority as commit evidence that can never alter the result. A handler is registered by trusted application startup code and the registry is sealed before use. The handler's one-shot provider-dispatch boundary distinguishes a definite pre-dispatch failure from an unknown post-dispatch outcome; read-only reconciliation uses the intent-bound idempotency key and never retries a side effect. See [execution outcomes](./docs/execution-outcomes.md).
 

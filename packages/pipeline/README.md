@@ -54,11 +54,11 @@ const executor = new SafeExecutor(
 const result = await executor.run(captured, await gate.evaluate(captured));
 ```
 
-| Outcome                           | Execution behavior                                   |
-| --------------------------------- | ---------------------------------------------------- |
-| ALLOW plus valid single-use grant | Consume grant, then invoke registered handler        |
-| ESCALATE                          | Stop; obtain Presence receipt and ask Decionis again |
-| BLOCK or any error/mismatch       | Fail closed; do not invoke handler                   |
+| Outcome                           | Execution behavior                                  |
+| --------------------------------- | --------------------------------------------------- |
+| ALLOW plus valid single-use grant | Consume grant, then invoke registered handler       |
+| ESCALATE                          | Stop; resolve direct or managed Presence escalation |
+| BLOCK or any error/mismatch       | Fail closed; do not invoke handler                  |
 
 Every outcome that consumed a grant also reports `finalization` (`RECORDED`, `PENDING`, or
 `UNSUPPORTED`): the executor records COMMITTED, FAILED, or INDETERMINATE with Decionis after the
@@ -66,6 +66,28 @@ attempt so commit evidence joins the Decision Dossier chain. Finalization never 
 
 Presence transport/schema failures and Decionis reauthorization failures return stable fail-closed
 decisions; raw downstream error text is never part of the coordinator result.
+
+For Decionis-managed Presence, pass constraints outside the canonical intent and then poll Decionis
+only:
+
+```ts
+const pending = await gate.evaluate(captured, undefined, {
+  escalation: {
+    mode: "MANAGED",
+    approver: { principal_id: approverId, role_id: "APPROVER" },
+    verification_requirements: { methods: ["WEBAUTHN"] },
+  },
+});
+const authorized = await gate.waitForAuthorization(captured, pending, { signal });
+const result = await executor.run(captured, authorized);
+```
+
+An initial managed result remains `ESCALATE`, carries `managedEscalation`, has no authorization, and
+cannot execute. `waitForAuthorization` uses capped exponential backoff with bounded jitter and stops
+at the intent or escalation expiry. It returns a normal ALLOW grant only after Decionis verifies the
+Presence evidence and re-evaluates current policy. The executor never needs Presence credentials and
+does not send managed Presence evidence during claim. The existing `PresenceApprovalCoordinator`
+continues to support developer-controlled DIRECT mode.
 
 To measure before enforcing, wrap an existing execution with `ShadowPipeline` over a gate built
 with `mode: "SHADOW"`. Production runs unchanged and returns immediately; the observation is

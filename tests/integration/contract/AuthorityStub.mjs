@@ -26,6 +26,7 @@ const CLAIM_LEASE_MS = 30_000;
 
 const boundedId = z.string().trim().min(1).max(200);
 const sha256Digest = z.string().regex(/^sha256:[0-9a-f]{64}$/);
+const roleId = z.string().regex(/^[A-Z][A-Z0-9_]{1,63}$/);
 
 /** `ExecutionIntentBinding` from the Decionis OpenAPI contract; extra properties are rejected. */
 const IntentBindingSchema = z.strictObject({
@@ -68,12 +69,32 @@ const EvidenceSchema = z.strictObject({
     .optional(),
 });
 
+const ManagedEscalationRequestSchema = z.strictObject({
+  mode: z.literal("MANAGED"),
+  approver: z
+    .strictObject({
+      principal_id: boundedId.optional(),
+      role_id: roleId.optional(),
+    })
+    .optional(),
+  verification_requirements: z
+    .strictObject({
+      methods: z
+        .array(z.enum(["WEBAUTHN", "ACTIVE_LIVENESS"]))
+        .min(1)
+        .max(3),
+      level: z.enum(["STANDARD", "HIGH_CONFIDENCE"]).optional(),
+    })
+    .optional(),
+});
+
 /** `ExecutionAuthorityRequest`: the binding plus hash, mode, and optional evidence. */
 const AuthorityRequestSchema = z.strictObject({
   ...IntentBindingSchema.shape,
   intent_hash: sha256Digest,
   mode: z.enum(["SHADOW", "ENFORCEMENT"]),
   evidence: EvidenceSchema.optional(),
+  escalation: ManagedEscalationRequestSchema.optional(),
 });
 
 /** `ExecutionTokenRequest`. */
@@ -137,11 +158,15 @@ export class AuthorityStub {
   requests = [];
   /** Issued grants keyed by execution token. */
   grants = new Map();
+  /** Decionis-managed escalation records keyed by their opaque identifier. */
+  escalations = new Map();
   #decisions = 0;
   #server = null;
   #port = 0;
-  #overrides = { enforce: [], claim: [], finalize: [] };
+  #overrides = { enforce: [], status: [], claim: [], finalize: [] };
   #verifyReceipt;
+  #managedByIntent = new Map();
+  #nextManagedLifecycle = null;
 
   /**
    * @param {{ verifyReceipt?: (approval: { requestId: string, receiptDossierId: string }, intentHash: string) => boolean }} options
@@ -175,10 +200,15 @@ export class AuthorityStub {
    * computed body; `body` replaces it (an object or a raw string); `status`,
    * `delayMs`, `truncateTo`, and `destroy` shape the transport behavior.
    *
-   * @param {"enforce" | "claim" | "finalize"} route
+   * @param {"enforce" | "status" | "claim" | "finalize"} route
    */
   scriptOnce(route, override) {
     this.#overrides[route].push(override);
+  }
+
+  /** Statuses returned, in order, for the next managed escalation. */
+  scriptNextManagedLifecycle(statuses) {
+    this.#nextManagedLifecycle = [...statuses];
   }
 
   async #handle(req, res) {
@@ -208,10 +238,22 @@ export class AuthorityStub {
       record.body = truncate(raw);
       return this.#send(res, record, 400, { error: "REQUEST_MALFORMED" });
     }
-    if (req.method !== "POST") return this.#send(res, record, 405, { error: "METHOD_NOT_ALLOWED" });
     if (req.headers.authorization !== `Bearer ${STUB_API_KEY}`) {
       return this.#send(res, record, 401, { error: "UNAUTHORIZED" });
     }
+    const escalationLookup = url.pathname.match(/^\/v1\/authority\/escalations\/([^/]+)$/);
+    if (req.method === "GET" && escalationLookup !== null) {
+      return this.#respond(
+        res,
+        record,
+        "status",
+        this.#managedStatus(decodeURIComponent(escalationLookup[1])),
+      );
+    }
+    if (req.method === "DELETE" && escalationLookup !== null) {
+      return this.#cancelManaged(res, record, decodeURIComponent(escalationLookup[1]));
+    }
+    if (req.method !== "POST") return this.#send(res, record, 405, { error: "METHOD_NOT_ALLOWED" });
     if (req.headers["content-type"] !== "application/json") {
       return this.#send(res, record, 415, { error: "UNSUPPORTED_MEDIA_TYPE" });
     }
@@ -280,11 +322,49 @@ export class AuthorityStub {
       dossier_url: `/v1/protocol/dossiers/${dossierId}`,
       approval_request_id: status === "ESCALATE" ? `synthetic-approval-${sequence}` : null,
       ledger_entry_id: `synthetic-ledger-${sequence}`,
+      authority_classification: request.mode === "ENFORCEMENT" ? "AUTHORITATIVE" : "OBSERVATIONAL",
+      execution_eligible: false,
+      execution_binding_digest: null,
+      execution_token_jti: null,
+      execution_token_key_id: null,
     };
+    if (status === "ESCALATE" && request.escalation?.mode === "MANAGED") {
+      const existing = this.#managedByIntent.get(request.intent_id);
+      if (existing !== undefined) return { status: 200, body: existing.initialDecision };
+      const escalationId = `synthetic-escalation-${randomUUID()}`;
+      const lifecycle = this.#nextManagedLifecycle ?? ["AWAITING_APPROVER", "GRANT_READY"];
+      this.#nextManagedLifecycle = null;
+      const managed = {
+        escalationId,
+        request,
+        lifecycle: [...lifecycle],
+        lookup: 0,
+        finalDecision: null,
+        initialDecision: null,
+      };
+      const initialDecision = {
+        ...decision,
+        managed_escalation: {
+          outcome: "ESCALATE_PENDING",
+          escalation_id: escalationId,
+          intent_id: request.intent_id,
+          status: "PENDING_PRESENCE",
+          expires_at: request.expires_at,
+          reason_codes: ["PRESENCE_PENDING"],
+        },
+      };
+      managed.initialDecision = initialDecision;
+      this.escalations.set(escalationId, managed);
+      this.#managedByIntent.set(request.intent_id, managed);
+      return { status: 200, body: initialDecision };
+    }
     if (status !== "ALLOW" || request.mode !== "ENFORCEMENT") {
       return { status: 200, body: decision };
     }
+    return this.#grantDecision(request, decision, approval);
+  }
 
+  #grantDecision(request, decision, approval = null) {
     const issuedAt = Math.floor(Date.now() / 1_000);
     const expiresAt = Math.min(
       Math.floor((Date.now() + GRANT_TTL_MS) / 1_000),
@@ -292,19 +372,21 @@ export class AuthorityStub {
     );
     const jti = `synthetic-jti-${randomUUID()}`;
     const token = `synthetic-grant.${jti}`;
+    const bindingDigest = `sha256:${createHash("sha256").update(request.intent_hash).digest("hex")}`;
+    const keyId = "synthetic-key-1";
     this.grants.set(token, {
       jti,
       tenantId: request.tenant_id,
       actorId: request.actor.id,
       action: request.action.type,
       audience: `${request.downstream_target.system}:${request.downstream_target.operation}`,
-      decisionId,
-      dossierId,
+      decisionId: decision.decision_id,
+      dossierId: decision.dossier_id,
       intentHash: request.intent_hash,
       issuedAt,
       expiresAt,
       nonce: randomBytes(32).toString("base64url"),
-      bindingDigest: `sha256:${createHash("sha256").update(request.intent_hash).digest("hex")}`,
+      bindingDigest,
       receiptDossierId: approval?.receiptDossierId ?? null,
       claimed: false,
       claimToken: null,
@@ -319,8 +401,95 @@ export class AuthorityStub {
         should_execute: true,
         execution_token: token,
         execution_token_expires_at: new Date(expiresAt * 1_000).toISOString(),
+        execution_eligible: true,
+        execution_binding_digest: bindingDigest,
+        execution_token_jti: jti,
+        execution_token_key_id: keyId,
       },
     };
+  }
+
+  #managedStatus(escalationId) {
+    const managed = this.escalations.get(escalationId);
+    if (managed === undefined) return { status: 404, body: { error: "NOT_FOUND" } };
+    const index = Math.min(managed.lookup, managed.lifecycle.length - 1);
+    const lifecycleEntry = managed.lifecycle[index] ?? "FAILED";
+    const state =
+      typeof lifecycleEntry === "string" ? lifecycleEntry : (lifecycleEntry.status ?? "FAILED");
+    const scriptedReasonCodes =
+      typeof lifecycleEntry === "string" ? null : (lifecycleEntry.reasonCodes ?? null);
+    managed.lookup += 1;
+    let outcome = "ESCALATE_PENDING";
+    let reasonCodes = ["PRESENCE_PENDING"];
+    let decision = null;
+    if (state === "GRANT_READY") {
+      outcome = "ALLOW";
+      reasonCodes = ["PRESENCE_RECEIPT_VERIFIED"];
+      if (managed.finalDecision === null) {
+        this.#decisions += 1;
+        const sequence = this.#decisions;
+        const dossierId = `synthetic-dossier-${sequence}`;
+        managed.finalDecision = this.#grantDecision(managed.request, {
+          decision_id: `synthetic-decision-${sequence}`,
+          chain_id: "synthetic-chain-1",
+          status: "ALLOW",
+          should_execute: false,
+          reason_codes: reasonCodes,
+          action_hash: managed.request.intent_hash,
+          policy_version: "synthetic-policy-v1",
+          mode: "ENFORCEMENT",
+          execution_token: null,
+          execution_token_expires_at: null,
+          dossier_id: dossierId,
+          dossier_sha256: `sha256:${createHash("sha256").update(dossierId).digest("hex")}`,
+          dossier_url: `/v1/protocol/dossiers/${dossierId}`,
+          approval_request_id: null,
+          ledger_entry_id: `synthetic-ledger-${sequence}`,
+          authority_classification: "AUTHORITATIVE",
+          execution_eligible: false,
+          execution_binding_digest: null,
+          execution_token_jti: null,
+          execution_token_key_id: null,
+        }).body;
+      }
+      decision = managed.finalDecision;
+    } else if (["EXPIRED", "REJECTED", "BLOCKED", "CANCELLED"].includes(state)) {
+      outcome = "BLOCK";
+      reasonCodes =
+        state === "EXPIRED"
+          ? ["INTENT_EXPIRED", "RECAPTURE_REQUIRED"]
+          : state === "REJECTED"
+            ? ["PRESENCE_REJECTED"]
+            : state === "CANCELLED"
+              ? ["CANCELLED"]
+              : ["REAUTHORIZATION_BLOCKED"];
+    } else if (state === "FAILED") {
+      outcome = "ERROR";
+      reasonCodes = ["PRESENCE_VERIFICATION_FAILED"];
+    }
+    if (scriptedReasonCodes !== null) reasonCodes = [...scriptedReasonCodes];
+    return {
+      status: 200,
+      body: {
+        escalation_id: managed.escalationId,
+        intent_id: managed.request.intent_id,
+        action_hash: managed.request.intent_hash,
+        status: state,
+        outcome,
+        expires_at: managed.request.expires_at,
+        reason_codes: reasonCodes,
+        decision,
+      },
+    };
+  }
+
+  #cancelManaged(res, record, escalationId) {
+    const managed = this.escalations.get(escalationId);
+    if (managed === undefined) return this.#send(res, record, 404, { error: "NOT_FOUND" });
+    managed.lifecycle = ["CANCELLED"];
+    managed.lookup = 0;
+    const result = this.#managedStatus(escalationId);
+    return this.#send(res, record, result.status, result.body);
   }
 
   #claim(record) {

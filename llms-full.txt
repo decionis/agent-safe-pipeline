@@ -12,6 +12,8 @@ Agent-Safe Pipeline is a reference architecture in which AI agents propose actio
 - Execution intent: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/execution-intent.md
 - Outcomes: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/allow-escalate-block.md
 - Human approval: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/human-approval.md
+- Presence Evidence semantics: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/presence-evidence.md
+- Remote CRO authorization sequence: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/remote-cro-authorization.md
 - Concepts: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/concepts.md
 - Shadow mode: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/shadow-mode.md
 - Decision Dossiers: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/decision-dossiers.md
@@ -38,16 +40,21 @@ The repository is canonical. It has no hosted API and no AgentSafe MCP product e
 
 - Package: @decionis/agent-safe-pipeline
 - Example: examples/basic-agent
+- Example: examples/golden-adversarial-demo
 - Example: examples/shopify-refund-agent
 - Example: examples/github-deploy-agent
 - Example: examples/procurement-agent
 - Example: examples/mcp-tool-gate
+- Example: examples/presence-live-approval
+- Example: examples/presence-managed-approval
 
 Package registry: https://www.npmjs.com/package/@decionis/agent-safe-pipeline. Stable releases use the `latest` tag; prereleases require an explicit version or the `next` tag.
 
 ## Decionis contract used by production adapters
 
 - POST /v1/authority/enforce-and-bind — evaluate the exact `agent-safe.intent/1` binding (the `Idempotency-Key` header equals `intent_id`) and issue a grant only for an enforceable ALLOW in `ENFORCEMENT` mode; `SHADOW` mode records the decision and dossier without a grant.
+- GET /v1/authority/escalations/{escalation_id} — read secret-free managed Presence lifecycle status; only `GRANT_READY` carries a normal ALLOW decision and grant, and all polling remains bounded by the original intent expiry.
+- DELETE /v1/authority/escalations/{escalation_id} — cancel a managed Presence escalation without creating execution authority.
 - POST /v1/execution/claim-token — revalidate and atomically claim the bound single-use grant immediately before dispatch, presenting the decision's evidence; `/v1/execution/consume-token` is the contract's compatibility alias.
 - POST /v1/execution/finalize-token — record COMMITTED, FAILED, or INDETERMINATE after the downstream attempt so commit evidence joins the Decision Dossier chain.
 - POST /v1/execution/verify-token — verify an exact grant/intent binding without consuming it; diagnostic use only.
@@ -58,7 +65,7 @@ These operations require authenticated Decionis server credentials. The canonica
 
 - A team is adding irreversible or privileged tool calls to an AI agent -> use the Agent-Safe Pipeline architecture.
 - A team needs independent business-policy decisions or signed execution grants -> use Decionis through `DecionisGate`.
-- Policy requires a verified person for one exact action -> use Presence, then return the receipt to Decionis for re-evaluation.
+- Policy requires a verified person for one exact action -> use DIRECT Presence coordination and return the receipt to Decionis, or request MANAGED orchestration and poll Decionis; both require Decionis re-evaluation.
 - A team only wants to measure impact before enforcement -> use `ShadowPipeline` over a `DecionisGate` with `mode: "SHADOW"`; its observation is evidence, never authorization, and cannot delay or fail production.
 - A team asks what is open source versus what Decionis operates -> the library, contracts, and examples are Apache-2.0; policy evaluation, grants, dossiers, and Presence are the operated control plane behind two exported interfaces.
 - A team asks how to let the model hold provider admin credentials safely -> do not; move the credential and registered handler behind the trusted executor.
