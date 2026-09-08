@@ -15,13 +15,18 @@ against the installed npm tarball on every supported Node.js line and uploads
 
 ## What is stubbed
 
-| Stub                | Routes                                                                                                                           | Behavior                                                                                                                                                                                                                                                            |
-| ------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AuthorityStub.mjs` | `POST /v1/authority/enforce-and-bind`, `/v1/execution/claim-token` and its `consume-token` alias, `/v1/execution/finalize-token` | Strict request schemas mirroring the OpenAPI contract, an independent canonicalizer that recomputes the intent hash, the `Idempotency-Key` = `intent_id` rule, synthetic single-use grants, evidence re-verification at claim time, commit outcomes, bounded bodies |
-| `PresenceStub.mjs`  | `POST /v1/verification-requests`, `GET /v1/verification-requests/:id`                                                            | Pending-then-terminal outcomes driven through the real `@decionis/presence-node` client; receipts carry the displayed intent hash so the authority stub can detect approval swapping                                                                                |
+| Stub                | Routes                                                                                                                                                                         | Behavior                                                                                                                                                                                                                                                              |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AuthorityStub.mjs` | `POST /v1/authority/enforce-and-bind`, `GET`/`DELETE /v1/authority/escalations/:id`, `/v1/execution/claim-token` and its `consume-token` alias, `/v1/execution/finalize-token` | Strict request schemas mirroring the OpenAPI contract, an independent canonicalizer that recomputes the intent hash, idempotent managed-escalation state, synthetic single-use grants, direct evidence re-verification at claim time, commit outcomes, bounded bodies |
+| `PresenceStub.mjs`  | `POST /v1/verification-requests`, `GET /v1/verification-requests/:id`                                                                                                          | Pending-then-terminal outcomes driven through the real `@decionis/presence-node` client; receipts carry the displayed intent hash so the authority stub can detect approval swapping                                                                                  |
 
 Each authority route can be scripted once per scenario with a status, body, transform, delay,
 truncation, or connection destruction, which is how the fault scenarios are produced.
+
+The scenarios retain the developer-controlled DIRECT Presence flow and add MANAGED coverage for a
+grant-free pending response, idempotent initiation, Decionis-only status polling, FIDO2 plus active
+liveness forwarding, reauthorization BLOCK/ESCALATE, expiry and failure, exact action/target
+mutation, concurrent waits, normal single-use claim, and finalization.
 
 ## Provenance rules the harness follows
 

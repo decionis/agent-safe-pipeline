@@ -16,5 +16,13 @@ export function immutableGateDecision(decision: GateDecision): GateDecision {
               : { humanApproval: Object.freeze({ ...decision.evidence.humanApproval }) }),
           }),
         }),
+    ...(decision.managedEscalation === undefined
+      ? {}
+      : {
+          managedEscalation: Object.freeze({
+            ...decision.managedEscalation,
+            reasonCodes: Object.freeze([...decision.managedEscalation.reasonCodes]),
+          }),
+        }),
   });
 }

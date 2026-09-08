@@ -68,18 +68,19 @@ after(async () => {
   await presence.stop();
 });
 
-function capture(amountMinor) {
+function capture(amountMinor, target = "shopify:order:synthetic-2001", action = "refund_order") {
+  const orderId = target.split(":").at(-1);
   return new IntentCapture().capture(
     {
-      action: "refund_order",
-      target: "shopify:order:synthetic-2001",
-      parameters: { amountMinor, currency: "USD", orderId: "synthetic-2001" },
+      action,
+      target,
+      parameters: { amountMinor, currency: "USD", orderId },
     },
     {
       tenantId: TENANT_ID,
       actor: { id: ACTOR_ID, type: "AI_AGENT", runtime: "contract-harness" },
       downstreamTarget: { system: "shopify", operation: "refund", environment: "synthetic" },
-      idempotencyKey: `refund-synthetic-2001-${amountMinor}`,
+      idempotencyKey: `${action}-${orderId}-${amountMinor}`,
       context: { source: "contract-harness" },
     },
   );
@@ -308,7 +309,7 @@ test(
     const created = presenceSeen[0];
     assert.equal(`${created.method} ${created.path}`, "POST /v1/verification-requests");
     assert.equal(created.headers.authorization, `Bearer ${PRESENCE_API_KEY}`);
-    assert.equal(created.headers["idempotency-key"], `presence:${captured.intent.idempotencyKey}`);
+    assert.match(created.headers["idempotency-key"], /^presence-[0-9a-f]{64}$/);
     assert.equal(created.body.originator.actor_id, ACTOR_ID);
     assert.equal(created.body.action_context.intent, "refund_order");
     assert.deepEqual(
@@ -383,6 +384,234 @@ test(
     assert.deepEqual(deniedDecision.reasonCodes, ["PRESENCE_DENIED"]);
   },
 );
+
+test(
+  "MANAGED: Decionis-only polling yields a normal single-use grant and finalization",
+  TEST_OPTIONS,
+  async () => {
+    const from = authority.requests.length;
+    const presenceFrom = presence.requests.length;
+    const escalationsBefore = authority.escalations.size;
+    const captured = capture(50_000, "shopify:order:synthetic-managed-4001");
+    const authorityGate = gate();
+    const escalation = {
+      escalation: {
+        mode: "MANAGED",
+        approver: { principal_id: "synthetic-approver", role_id: "APPROVER" },
+        verification_requirements: { methods: ["WEBAUTHN"], level: "STANDARD" },
+      },
+    };
+    authority.scriptNextManagedLifecycle([
+      "AWAITING_APPROVER",
+      "PRESENCE_VERIFIED",
+      "REAUTHORIZING",
+      "GRANT_READY",
+    ]);
+
+    const pending = await authorityGate.evaluate(captured, undefined, escalation);
+    assert.equal(pending.verdict, "ESCALATE");
+    assert.equal(pending.authorization, null);
+    assert.equal(pending.evidence, undefined);
+    assert.equal(pending.managedEscalation?.outcome, "ESCALATE_PENDING");
+    assert.equal(pending.managedEscalation?.status, "PENDING_PRESENCE");
+    assert.equal(pending.managedEscalation?.intentId, captured.intent.intentId);
+
+    const repeated = await authorityGate.evaluate(captured, undefined, escalation);
+    assert.equal(repeated.managedEscalation?.escalationId, pending.managedEscalation?.escalationId);
+    assert.equal(authority.escalations.size, escalationsBefore + 1);
+
+    const enforceRequests = requestsSince(from, ENFORCE_PATH);
+    assert.equal(enforceRequests.length, 2);
+    assert.deepEqual(enforceRequests[0].body.escalation, escalation.escalation);
+    assert.equal(enforceRequests[0].headers["idempotency-key"], captured.intent.intentId);
+    assert.equal(enforceRequests[1].headers["idempotency-key"], captured.intent.intentId);
+    assert.equal(enforceRequests[0].body.intent_hash, captured.intentHash);
+    assert.equal(enforceRequests[0].response.body.execution_token, null);
+    assert.equal(enforceRequests[0].response.body.execution_token_expires_at, null);
+
+    const firstStatus = await authorityGate.getManagedEscalationStatus(
+      captured,
+      pending.managedEscalation,
+    );
+    assert.equal(firstStatus.status, "AWAITING_APPROVER");
+    assert.equal(firstStatus.outcome, "ESCALATE_PENDING");
+    assert.equal(firstStatus.decision, null);
+
+    const authorized = await authorityGate.waitForAuthorization(captured, pending, {
+      initialDelayMs: 1,
+      maxDelayMs: 2,
+      random: () => 1,
+    });
+    assert.equal(authorized.verdict, "ALLOW");
+    assert.equal(authorized.failClosed, false);
+    assert.ok(authorized.authorization);
+    assert.equal(authorized.evidence, undefined);
+    assert.equal(authorized.managedEscalation?.status, "GRANT_READY");
+    assert.equal(authorized.managedEscalation?.outcome, "ALLOW");
+
+    const { calls, sealed } = registry();
+    const executor = new SafeExecutor(sealed, verifier());
+    const completed = await executor.run(captured, authorized);
+    const replayed = await executor.run(captured, authorized);
+
+    assert.equal(completed.outcome, "COMPLETED");
+    assert.equal(completed.finalization, "RECORDED");
+    assert.equal(replayed.outcome, "BLOCKED");
+    assert.equal(replayed.reason, "AUTHORIZATION_INVALID");
+    assert.deepEqual(calls, [captured.intent.idempotencyKey]);
+    const managedClaims = requestsSince(from, CLAIM_PATH);
+    assert.equal(managedClaims.length, 2);
+    assert.equal(managedClaims[0].body.evidence, undefined);
+    assert.equal(managedClaims[0].response.status, 200);
+    assert.equal(managedClaims[1].response.status, 409);
+    assert.equal(requestsSince(from, FINALIZE_PATH).length, 1);
+    assert.equal(
+      presence.requests.length,
+      presenceFrom,
+      "managed executor never contacted Presence",
+    );
+  },
+);
+
+test(
+  "MANAGED: liveness is forwarded and reauthorization BLOCK, ESCALATE, expiry, and failure stay grant-free",
+  TEST_OPTIONS,
+  async () => {
+    const presenceFrom = presence.requests.length;
+    const scenarios = [
+      {
+        lifecycle: { status: "BLOCKED", reasonCodes: ["REAUTHORIZATION_BLOCKED"] },
+        reason: "REAUTHORIZATION_BLOCKED",
+        failClosed: false,
+      },
+      {
+        lifecycle: { status: "BLOCKED", reasonCodes: ["REAUTHORIZATION_ESCALATED"] },
+        reason: "REAUTHORIZATION_ESCALATED",
+        failClosed: false,
+      },
+      {
+        lifecycle: { status: "EXPIRED", reasonCodes: ["INTENT_EXPIRED", "RECAPTURE_REQUIRED"] },
+        reason: "INTENT_EXPIRED",
+        failClosed: false,
+      },
+      {
+        lifecycle: { status: "FAILED", reasonCodes: ["PRESENCE_VERIFICATION_FAILED"] },
+        reason: "PRESENCE_VERIFICATION_FAILED",
+        failClosed: true,
+      },
+    ];
+
+    for (const [index, scenario] of scenarios.entries()) {
+      const from = authority.requests.length;
+      const captured = capture(51_000 + index, `shopify:order:synthetic-managed-${4100 + index}`);
+      authority.scriptNextManagedLifecycle([scenario.lifecycle]);
+      const authorityGate = gate();
+      const pending = await authorityGate.evaluate(captured, undefined, {
+        escalation: {
+          mode: "MANAGED",
+          approver: { role_id: "TREASURY_APPROVER" },
+          verification_requirements: {
+            methods: ["WEBAUTHN", "ACTIVE_LIVENESS"],
+            level: "HIGH_CONFIDENCE",
+          },
+        },
+      });
+      const request = requestsSince(from, ENFORCE_PATH)[0];
+      assert.deepEqual(request.body.escalation.verification_requirements, {
+        methods: ["WEBAUTHN", "ACTIVE_LIVENESS"],
+        level: "HIGH_CONFIDENCE",
+      });
+
+      const terminal = await authorityGate.waitForAuthorization(captured, pending, {
+        maxAttempts: 1,
+      });
+      assert.equal(terminal.verdict, "BLOCK", scenario.reason);
+      assert.equal(terminal.authorization, null, scenario.reason);
+      assert.equal(terminal.failClosed, scenario.failClosed, scenario.reason);
+      assert.equal(terminal.reasonCodes[0], scenario.reason);
+
+      const { calls, sealed } = registry();
+      const result = await new SafeExecutor(sealed, verifier()).run(captured, terminal);
+      assert.equal(result.outcome, "BLOCKED");
+      assert.deepEqual(calls, []);
+      assert.equal(requestsSince(from, CLAIM_PATH).length, 0);
+      assert.equal(requestsSince(from, FINALIZE_PATH).length, 0);
+    }
+    assert.equal(presence.requests.length, presenceFrom);
+  },
+);
+
+test(
+  "MANAGED: changed action target cannot use another escalation or its ready grant",
+  TEST_OPTIONS,
+  async () => {
+    const approved = capture(50_000, "shopify:order:synthetic-managed-4201");
+    const changedTarget = capture(50_000, "shopify:order:synthetic-managed-4202");
+    const changedAction = capture(
+      50_000,
+      "shopify:order:synthetic-managed-4201",
+      "capture_payment",
+    );
+    authority.scriptNextManagedLifecycle(["GRANT_READY"]);
+    const authorityGate = gate();
+    const pending = await authorityGate.evaluate(approved, undefined, {
+      escalation: { mode: "MANAGED" },
+    });
+
+    const statusFrom = authority.requests.length;
+    for (const changed of [changedTarget, changedAction]) {
+      const swappedStatus = await authorityGate.getManagedEscalationStatus(
+        changed,
+        pending.managedEscalation,
+      );
+      assert.equal(swappedStatus.status, "FAILED");
+      assert.deepEqual(swappedStatus.reasonCodes, ["MANAGED_ESCALATION_INTENT_MISMATCH"]);
+    }
+    assert.equal(
+      authority.requests.length,
+      statusFrom,
+      "binding mismatch was rejected before polling",
+    );
+
+    const authorized = await authorityGate.waitForAuthorization(approved, pending, {
+      maxAttempts: 1,
+    });
+    assert.equal(authorized.verdict, "ALLOW");
+    const from = authority.requests.length;
+    const { calls, sealed } = registry();
+    const executor = new SafeExecutor(sealed, verifier());
+    for (const changed of [changedTarget, changedAction]) {
+      const swappedExecution = await executor.run(changed, authorized);
+      assert.equal(swappedExecution.outcome, "BLOCKED");
+      assert.equal(swappedExecution.reason, "INTENT_BINDING_MISMATCH");
+    }
+    assert.deepEqual(calls, []);
+    assert.equal(requestsSince(from, CLAIM_PATH).length, 0);
+  },
+);
+
+test("MANAGED: concurrent waits share one bounded status lookup", TEST_OPTIONS, async () => {
+  const captured = capture(50_000, "shopify:order:synthetic-managed-4301");
+  authority.scriptNextManagedLifecycle(["GRANT_READY"]);
+  const authorityGate = gate();
+  const pending = await authorityGate.evaluate(captured, undefined, {
+    escalation: { mode: "MANAGED" },
+  });
+  const from = authority.requests.length;
+
+  const decisions = await Promise.all(
+    Array.from(
+      { length: 20 },
+      async () => await authorityGate.waitForAuthorization(captured, pending),
+    ),
+  );
+
+  assert.ok(decisions.every((decision) => decision.verdict === "ALLOW"));
+  assert.equal(
+    authority.requests.slice(from).filter((request) => request.method === "GET").length,
+    1,
+  );
+});
 
 test("Shadow mode records the decision on the wire without a grant", TEST_OPTIONS, async () => {
   const captured = capture(5_000);

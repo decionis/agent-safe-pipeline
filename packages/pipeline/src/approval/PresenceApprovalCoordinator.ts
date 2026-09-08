@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { GateResult, HumanApprovalGate } from "@decionis/presence-node";
 import type { AuditRecorder } from "../audit/AuditRecorder.js";
 import type {
@@ -10,10 +11,25 @@ import type { CapturedIntent } from "../intent/ExecutionIntent.js";
 
 export type PresenceGateResult = GateResult;
 export type PresenceApprovalClient = Pick<HumanApprovalGate, "gate" | "outcome">;
+/** Verification requirements Presence enforces for the approval ceremony (docs/22). */
+export type PresenceVerificationRequirements = NonNullable<
+  Parameters<HumanApprovalGate["gate"]>[0]["requirements"]
+>;
+
+const MIN_PRESENCE_TTL_SECONDS = 30;
+const MAX_PRESENCE_TTL_SECONDS = 600;
 
 export interface PresenceApprovalCoordinatorOptions {
   /** Optional bounded lifecycle audit recorder. */
   readonly audit?: AuditRecorder;
+  /**
+   * Ceremony Presence must complete before it seals a receipt, such as WebAuthn
+   * alone or WebAuthn with active liveness. Omitted, Presence applies its
+   * default standard-confidence device proof.
+   */
+  readonly requirements?: PresenceVerificationRequirements;
+  /** Approval-request lifetime in seconds (30-600); omitted, Presence applies its default. */
+  readonly ttlSeconds?: number;
   /** Maximum number of outcome lookups after Presence returns HUMAN_REQUIRED. */
   readonly maxAttempts?: number;
   /** Initial exponential-backoff delay in milliseconds. */
@@ -69,6 +85,8 @@ const MAX_DEADLINE_LIMIT_MS = 300_000;
 export class PresenceApprovalCoordinator {
   private readonly polling: PollingConfiguration;
   private readonly audit: AuditRecorder | undefined;
+  private readonly requirements: PresenceVerificationRequirements | undefined;
+  private readonly ttlSeconds: number | undefined;
 
   public constructor(
     private readonly presence: PresenceApprovalClient,
@@ -79,6 +97,16 @@ export class PresenceApprovalCoordinator {
   ) {
     this.polling = PresenceApprovalCoordinator.pollingConfiguration(options);
     this.audit = options.audit;
+    this.requirements = options.requirements;
+    if (
+      options.ttlSeconds !== undefined &&
+      (!Number.isInteger(options.ttlSeconds) ||
+        options.ttlSeconds < MIN_PRESENCE_TTL_SECONDS ||
+        options.ttlSeconds > MAX_PRESENCE_TTL_SECONDS)
+    ) {
+      throw new Error("PRESENCE_TTL_INVALID");
+    }
+    this.ttlSeconds = options.ttlSeconds;
   }
 
   public async request(captured: CapturedIntent): Promise<PresenceGateResult> {
@@ -106,8 +134,10 @@ export class PresenceApprovalCoordinator {
               { key: "intent_hash", label: "Intent hash", value: captured.intentHash },
             ],
           },
+          ...(this.requirements === undefined ? {} : { requirements: this.requirements }),
+          ...(this.ttlSeconds === undefined ? {} : { ttlSeconds: this.ttlSeconds }),
         },
-        `presence:${captured.intent.idempotencyKey}`,
+        PresenceApprovalCoordinator.presenceIdempotencyKey(captured, this.approverId),
       );
 
       const verdict = this.verdictOf(result);
@@ -425,6 +455,22 @@ export class PresenceApprovalCoordinator {
 
   private isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
+  }
+
+  /**
+   * Presence replays a sealed answer for a repeated idempotency key, so the key
+   * must identify exactly one captured intent for one approver: a re-captured
+   * intent has a new hash and must get a new request. The digest keeps the key
+   * inside Presence's `[A-Za-z0-9._:-]{8,128}` alphabet whatever the runtime's
+   * business key or the approver identity contain.
+   */
+  public static presenceIdempotencyKey(captured: CapturedIntent, approverId: string): string {
+    const digest = createHash("sha256")
+      .update(captured.intentHash)
+      .update("\u0000")
+      .update(approverId)
+      .digest("hex");
+    return `presence-${digest}`;
   }
 
   private static pollingConfiguration(

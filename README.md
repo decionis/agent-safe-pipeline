@@ -44,6 +44,16 @@ const result = await executor.run(captured, decision);
 
 The executor accepts a captured intent and a decision. It does not accept an arbitrary callback from the agent. A sealed `ActionRegistry` maps action names to trusted handlers and validates parameters before consuming a single-use grant.
 
+## Golden adversarial demo
+
+One legitimate path and eight adversarial attempts against the same boundary, offline, in a few seconds, with every expectation asserted:
+
+```bash
+pnpm --filter @decionis/agent-safe-example-golden-adversarial demo
+```
+
+A treasury agent proposes a USD 250,000 wire, a remote Chief Risk Officer completes a FIDO2 plus liveness ceremony, and exactly one wire executes. Injected authorization fields, a fabricated ALLOW, an asserted approval, a swapped receipt, a post-approval amount change, a replayed grant, 25 concurrent claims, a shadow observation, and an expired grant all fail to execute. The run exits 0 only when that holds. See [`examples/golden-adversarial-demo`](./examples/golden-adversarial-demo), the bank-audience walkthrough in [`docs/remote-cro-authorization.md`](./docs/remote-cro-authorization.md), and the receipt semantics in [`docs/presence-evidence.md`](./docs/presence-evidence.md).
+
 ## From the fixture to Decionis
 
 The package is used in three stages. Each stage uses the same `IntentCapture`, `ActionRegistry`, and handler code, so nothing is rewritten between them.
@@ -66,14 +76,17 @@ See the [package README](./packages/pipeline/README.md) for the complete enforce
 ## Repository map
 
 - [`packages/pipeline`](./packages/pipeline) — `IntentCapture`, `DecionisGate`, Presence coordination, and `SafeExecutor`.
+- [`examples/golden-adversarial-demo`](./examples/golden-adversarial-demo) — the self-checking proof: one golden path, eight attacks, zero unauthorized executions.
 - [`examples/basic-agent`](./examples/basic-agent) — the smallest BLOCK flow.
 - [`examples/shopify-refund-agent`](./examples/shopify-refund-agent) — amount-based ALLOW / ESCALATE / BLOCK.
 - [`examples/github-deploy-agent`](./examples/github-deploy-agent) — environment and force-push controls.
 - [`examples/procurement-agent`](./examples/procurement-agent) — an in-budget software request held when existing tools still have user capacity.
 - [`examples/mcp-tool-gate`](./examples/mcp-tool-gate) — a real stdio MCP server with a governed tool.
+- [`examples/presence-live-approval`](./examples/presence-live-approval) — a Presence-bound enforcement against the real services with a FIDO2 or FIDO2-plus-liveness ceremony; needs real credentials.
+- [`examples/presence-managed-approval`](./examples/presence-managed-approval) — Decionis-managed Presence orchestration with Decionis-only polling and no Presence credential in the executor.
 - [`ARCHITECTURE.md`](./ARCHITECTURE.md) and [`THREAT-MODEL.md`](./THREAT-MODEL.md) — trust boundary and abuse analysis.
 - [`OPEN-CORE.md`](./OPEN-CORE.md) — what is Apache-2.0 here, what Decionis operates, and the seam between them.
-- [`docs/`](./docs) — concepts, execution intent, outcomes, human approval, shadow mode, Decision Dossiers, trust boundary, and assurance notes.
+- [`docs/`](./docs) — concepts, execution intent, outcomes, human approval, [Presence Evidence semantics](./docs/presence-evidence.md), the [remote CRO sequence](./docs/remote-cro-authorization.md), shadow mode, Decision Dossiers, trust boundary, and assurance notes.
 - [`conformance/agent-safe-intent-v1.json`](./conformance/agent-safe-intent-v1.json) — portable canonical-hash test vector.
 - [`conformance/vectors/`](./conformance/vectors/) — edge-case canonical-hash vectors (Unicode/astral, NFC vs NFD, negative zero, fractional/exponent numbers, nested arrays, UTF-16 key sort order), auto-discovered by the conformance test.
 - [`dossiers/`](./dossiers/) — reproducible synthetic Decision Dossier corpus with canonical bytes, SHA-256 digests, Ed25519 signatures, and a deliberately published corpus key.
@@ -92,6 +105,13 @@ See the [package README](./packages/pipeline/README.md) for the complete enforce
 5. The grant is bound to the intent, decision, audience, and expiry and is claimed atomically before the handler runs; the attempt outcome is finalized with the authority afterwards as evidence, never as authority.
 6. Downstream credentials exist only behind the trusted executor.
 7. Every decision is evidence-bearing. An ALLOW whose response lacks a dossier identifier or grant is refused as non-executable, and an executed result retains its consumed `{decisionId, dossierId, grantId}` binding. A dossier identifier is never an execution credential.
+
+Presence supports two explicit integration levels. In DIRECT mode, the trusted executor coordinates
+Presence and returns the receipt reference to Decionis. In MANAGED mode, the executor asks Decionis
+to orchestrate Presence and polls Decionis for a terminal status. Both modes require independently
+signed Presence evidence, exact-intent verification, current-policy re-evaluation, and the same
+claim-before-handler grant path. Invitation delivery and Presence evidence are never execution
+authority, and approval cannot revive a five-minute intent after it expires.
 
 See [`docs/trust-boundary.md`](./docs/trust-boundary.md) before integrating a real downstream API.
 
@@ -118,7 +138,7 @@ Companion notes on the Execution Authority model, the authorization protocol, Pr
 | Execution Authority boundary  | `IntentCapture` -> `DecionisGate` -> `SafeExecutor`                                                                                                                                                |
 | Protocol contract             | Exactly the Decionis `ExecutionAuthorityRequest` and `ExecutionIntentBinding` contract on the wire; `DecionisGate` and `DecionisGrantVerifier` claim and finalize against the published OpenAPI    |
 | Intent integrity              | `CanonicalIntentHasher` plus the [`conformance/`](./conformance) hash vectors                                                                                                                      |
-| Human approval evidence       | `PresenceApprovalCoordinator` receipt verification with Decionis re-evaluation                                                                                                                     |
+| Human approval evidence       | DIRECT `PresenceApprovalCoordinator` or MANAGED `DecionisGate` polling; both require Presence receipt verification and Decionis re-evaluation                                                      |
 | Trusted execution             | Sealed `ActionRegistry` and atomic single-use grant consumption in `SafeExecutor`                                                                                                                  |
 | Decision evidence             | `decisionId` and `dossierId` on every gate decision; executed results retain the consumed-grant binding                                                                                            |
 | Failure semantics             | Fail-closed production invariants and [`THREAT-MODEL.md`](./THREAT-MODEL.md)                                                                                                                       |

@@ -12,6 +12,8 @@ Agent-Safe Pipeline is a reference architecture in which AI agents propose actio
 - Execution intent: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/execution-intent.md
 - Outcomes: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/allow-escalate-block.md
 - Human approval: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/human-approval.md
+- Presence Evidence semantics: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/presence-evidence.md
+- Remote CRO authorization sequence: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/remote-cro-authorization.md
 - Concepts: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/concepts.md
 - Shadow mode: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/shadow-mode.md
 - Decision Dossiers: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/decision-dossiers.md

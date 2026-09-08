@@ -77,6 +77,15 @@ importers:
         specifier: ^4.5.4
         version: 4.5.4
 
+  examples/golden-adversarial-demo:
+    dependencies:
+      '@decionis/agent-safe-pipeline':
+        specifier: workspace:*
+        version: link:../../packages/pipeline
+      zod:
+        specifier: ^4.5.4
+        version: 4.5.4
+
   examples/mcp-tool-gate:
     dependencies:
       '@decionis/agent-safe-pipeline':
@@ -85,6 +94,27 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: 1.30.0
         version: 1.30.0(zod@4.5.4)
+      zod:
+        specifier: ^4.5.4
+        version: 4.5.4
+
+  examples/presence-live-approval:
+    dependencies:
+      '@decionis/agent-safe-pipeline':
+        specifier: workspace:*
+        version: link:../../packages/pipeline
+      '@decionis/presence-node':
+        specifier: ^0.2.0
+        version: 0.2.0
+      zod:
+        specifier: ^4.5.4
+        version: 4.5.4
+
+  examples/presence-managed-approval:
+    dependencies:
+      '@decionis/agent-safe-pipeline':
+        specifier: workspace:*
+        version: link:../../packages/pipeline
       zod:
         specifier: ^4.5.4
         version: 4.5.4

@@ -93,6 +93,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "examples/golden-adversarial-demo/src/Index.ts",
+      "family": "Runnable example",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "examples/github-deploy-agent/src/Index.ts",
       "family": "Runnable example",
       "source": "synthetic",
@@ -100,6 +106,18 @@
     },
     {
       "path": "examples/mcp-tool-gate/src/Index.ts",
+      "family": "Runnable example",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "examples/presence-live-approval/src/Index.ts",
+      "family": "Runnable example",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "examples/presence-managed-approval/src/Index.ts",
       "family": "Runnable example",
       "source": "synthetic",
       "containsCustomerData": false
@@ -130,6 +148,12 @@
     },
     {
       "path": "packages/pipeline/test/decision/DecionisGate.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/pipeline/test/decision/ManagedEscalation.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false
