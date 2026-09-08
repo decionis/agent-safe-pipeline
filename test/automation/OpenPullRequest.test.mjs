@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  compareMaxJsonResponseBytes,
   GitHubApiClient,
   GitHubApiError,
   PullRequestBot,
   titleFromMessage,
 } from "../../scripts/OpenPullRequest.mjs";
+import { defaultMaxJsonResponseBytes } from "../../scripts/BoundedJsonResponse.mjs";
 
 class FakeApiClient {
   constructor(handler) {
@@ -238,5 +240,40 @@ describe("GitHubApiClient", () => {
       return true;
     });
     assert.equal(bodyRead, false);
+  });
+
+  it("allows larger bounded JSON only for compare responses", async () => {
+    const padding = "x".repeat(defaultMaxJsonResponseBytes);
+    const api = new GitHubApiClient({
+      token: "x",
+      maxAttempts: 1,
+      fetchImpl: async () => new globalThis.Response(JSON.stringify({ padding })),
+    });
+
+    const comparison = await api.request(
+      "GET",
+      "/repos/example/project/compare/master...feature%2Flarge",
+    );
+    assert.equal(comparison.padding.length, padding.length);
+    await assert.rejects(
+      api.request("GET", "/repos/example/project/pulls"),
+      /GITHUB_API_RESPONSE_TOO_LARGE/,
+    );
+  });
+
+  it("keeps compare responses bounded at 512 KiB", async () => {
+    const api = new GitHubApiClient({
+      token: "x",
+      maxAttempts: 1,
+      fetchImpl: async () =>
+        new globalThis.Response(
+          JSON.stringify({ padding: "x".repeat(compareMaxJsonResponseBytes) }),
+        ),
+    });
+
+    await assert.rejects(
+      api.request("GET", "/repos/example/project/compare/master...feature%2Ftoo-large"),
+      /GITHUB_API_RESPONSE_TOO_LARGE/,
+    );
   });
 });

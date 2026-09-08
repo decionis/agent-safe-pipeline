@@ -10,6 +10,14 @@ const maxAttemptsLimit = 3;
 const maxPages = 3;
 const perPage = 100;
 const branchCreationWorkflow = ".github/workflows/PullRequestBot.yml";
+export const compareMaxJsonResponseBytes = 512 * 1024;
+
+function jsonResponseOptions(method, pathname) {
+  // GitHub embeds textual patches in compare responses. Keep the wider bound
+  // specific to that read-only endpoint; every other response retains 100 KiB.
+  const isCompare = method === "GET" && /^\/repos\/[^/]+\/[^/]+\/compare\/[^/]+$/.test(pathname);
+  return isCompare ? { maxBytes: compareMaxJsonResponseBytes } : undefined;
+}
 
 export class GitHubApiError extends Error {
   constructor(message, status) {
@@ -69,7 +77,9 @@ export class GitHubApiClient {
           body: body === undefined ? undefined : JSON.stringify(body),
           signal: AbortSignal.timeout(this.timeoutMs),
         });
-        if (response.ok) return await readBoundedJsonResponse(response);
+        if (response.ok) {
+          return await readBoundedJsonResponse(response, jsonResponseOptions(method, url.pathname));
+        }
 
         const error = new GitHubApiError(
           "GitHub API request failed: " +
