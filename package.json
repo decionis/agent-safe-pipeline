@@ -1,0 +1,67 @@
+{
+  "name": "@decionis/commerce",
+  "version": "0.1.1",
+  "description": "CommerceGate MCP server for Shadow Mode order and price preflight, signed Decision Dossiers, proof packets, and operations reports.",
+  "author": "Decionis",
+  "license": "Apache-2.0",
+  "type": "module",
+  "mcpName": "com.decionis/commerce-gate",
+  "keywords": [
+    "commercegate",
+    "decionis",
+    "commerce",
+    "ecommerce",
+    "commerce-operations",
+    "marketplace-operations",
+    "erp",
+    "mcp",
+    "model-context-protocol",
+    "ai-agents",
+    "agentic-commerce",
+    "commerce-governance",
+    "order-acceptance",
+    "price-change",
+    "shadow-mode",
+    "decision-dossier",
+    "proof-packet",
+    "agent-guardrails"
+  ],
+  "homepage": "https://commerce.decionis.com",
+  "bin": {
+    "commercegate-mcp": "dist/Index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "server.json",
+    "smithery.yaml",
+    "glama.json"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "dev": "tsx src/Index.ts",
+    "mcp": "node --import tsx src/Index.ts",
+    "build": "tsup src/Index.ts --format esm --dts --sourcemap --out-dir dist --clean",
+    "prepack": "pnpm run build",
+    "start": "node dist/Index.js",
+    "test": "vitest run && pnpm run verify:package",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --check . --ignore-path ../../.prettierignore",
+    "format:fix": "prettier --write . --ignore-path ../../.prettierignore",
+    "verify:package": "node scripts/VerifyPackage.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+    "tsup": "^8.5.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.9"
+  }
+}

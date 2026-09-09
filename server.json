@@ -1,0 +1,39 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "com.decionis/commerce-gate",
+  "title": "Decionis CommerceGate MCP",
+  "description": "Commerce MCP for order and price preflight, signed dossiers, proof packets, and Shadow Mode reports",
+  "websiteUrl": "https://commerce.decionis.com",
+  "version": "0.1.1",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@decionis/commerce",
+      "version": "0.1.1",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "DECIONIS_API_KEY",
+          "description": "Decionis API key. Required only for tenant evaluation and evidence calls.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "DECIONIS_ORG_ID",
+          "description": "Organization UUID that binds every tenant call made by this process.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "DECIONIS_API_BASE",
+          "description": "Optional Decionis API origin. Defaults to https://api.decionis.com.",
+          "isRequired": false,
+          "isSecret": false
+        }
+      ]
+    }
+  ]
+}

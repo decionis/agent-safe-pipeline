@@ -1,0 +1,28 @@
+# Public npm-backed Smithery manifest for @decionis/commerce@0.1.1.
+# The stable version is pinned so installations cannot drift across releases.
+# The server starts without credentials for capability discovery; tenant calls
+# fail closed until apiKey and orgId are provided.
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    properties:
+      apiKey:
+        type: string
+        description: Decionis API key for tenant-bound calls.
+      orgId:
+        type: string
+        description: Organization UUID that binds every tenant call.
+      apiBase:
+        type: string
+        description: Optional API origin; defaults to https://api.decionis.com.
+  commandFunction: |-
+    (config) => ({
+      command: "npx",
+      args: ["-y", "@decionis/commerce@0.1.1"],
+      env: {
+        ...(config.apiKey ? { DECIONIS_API_KEY: config.apiKey } : {}),
+        ...(config.orgId ? { DECIONIS_ORG_ID: config.orgId } : {}),
+        ...(config.apiBase ? { DECIONIS_API_BASE: config.apiBase } : {})
+      }
+    })
