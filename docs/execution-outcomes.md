@@ -24,11 +24,11 @@ asks the verifier to record the commit outcome with the authority: `COMMITTED` f
 `DecionisGrantVerifier` claims the grant through `/v1/execution/claim-token` and finalizes it through
 `/v1/execution/finalize-token`, so commit evidence joins the Decision Dossier chain.
 
-| `finalization` | Meaning                                                                                 |
-| -------------- | --------------------------------------------------------------------------------------- |
-| `RECORDED`     | The authority accepted the commit evidence                                              |
-| `PENDING`      | Delivery failed or was rejected; the authority's claim-lease recovery owns the evidence |
-| `UNSUPPORTED`  | The verifier has no finalization contract, such as the development fixture              |
+| `finalization` | Meaning                                                                                                                                   |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `RECORDED`     | The authority accepted the commit evidence                                                                                                |
+| `PENDING`      | Delivery failed or was rejected; the authority's claim-lease recovery owns the evidence                                                   |
+| `UNSUPPORTED`  | The verifier has no finalization contract at all; the development fixture does have one and records each outcome in an inspectable ledger |
 
 Finalization is evidence, never authority. It runs after the dispatch boundary, never retries a side
 effect, never throws, and never changes `outcome` or `executed`. The terminal audit event carries

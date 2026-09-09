@@ -39,6 +39,10 @@
     ".": {
       "types": "./dist/Index.d.ts",
       "import": "./dist/Index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/Index.d.ts",
+      "import": "./dist/testing/Index.js"
     }
   },
   "engines": {

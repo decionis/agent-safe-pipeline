@@ -27,8 +27,13 @@ import {
   SafeExecutor,
   ShadowPipeline,
 } from "@decionis/agent-safe-pipeline";
-import { AuthorityStub, STUB_API_KEY, hashBinding } from "./AuthorityStub.mjs";
-import { PRESENCE_API_KEY, PresenceStub } from "./PresenceStub.mjs";
+import {
+  LOCAL_AUTHORITY_API_KEY as STUB_API_KEY,
+  LOCAL_PRESENCE_API_KEY as PRESENCE_API_KEY,
+  LocalAuthority as AuthorityStub,
+  LocalPresence as PresenceStub,
+  hashBinding,
+} from "@decionis/agent-safe-pipeline/testing";
 
 const TENANT_ID = "00000000-0000-4000-8000-000000000003";
 const ACTOR_ID = "synthetic-contract-agent";

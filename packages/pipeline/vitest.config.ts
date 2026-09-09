@@ -7,7 +7,9 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "text-summary", "json-summary", "lcov"],
       include: ["src/**/*.ts"],
-      exclude: ["src/Index.ts"],
+      // The loopback doubles are exercised by the wire-contract harness against
+      // the packed tarball; their fault-injection paths are not coverage-gated.
+      exclude: ["src/Index.ts", "src/testing/**"],
       thresholds: { lines: 90, functions: 90, statements: 90, branches: 85 },
     },
   },

@@ -47,9 +47,9 @@ Each block names the attempt, prints what Presence and the authority did, and en
 Attack 7 executes once by design: the point is that 25 simultaneous claims of one grant yield one
 execution, and that count is excluded from the unauthorized total.
 
-Finalization shows `UNSUPPORTED` because the development fixture has no commit-evidence contract; the
-production verifier finalizes each attempt with Decionis so the outcome joins the Decision Dossier
-chain.
+Finalization shows `RECORDED` because the development fixture keeps an inspectable commit ledger:
+the run prints the ledger entry for the golden grant and asserts its outcome is `COMMITTED`. The
+production verifier records the same outcome with Decionis so it joins the Decision Dossier chain.
 
 For the same sequence drawn for a bank audience, see
 [`docs/remote-cro-authorization.md`](../../docs/remote-cro-authorization.md). For what the receipt

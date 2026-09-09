@@ -40,6 +40,19 @@ const EXPECTED_RUNTIME = [
 assert.deepStrictEqual(exports, EXPECTED_RUNTIME);
 console.log(`All ${exports.length} runtime exports imported successfully.`);
 
+// --- 1b. The local testing entry ships with the tarball ---
+const testing = await import("@decionis/agent-safe-pipeline/testing");
+for (const name of [
+  "LocalAuthority",
+  "LocalPresence",
+  "createFixtureAuthorityPair",
+  "InMemoryReplayStore",
+  "hashBinding",
+]) {
+  assert.ok(name in testing, `testing entry is missing ${name}`);
+}
+console.log("Testing entry exports present.");
+
 // --- 2. ALLOW path: capture with valid binding ---
 const { CanonicalIntentHasher } = mod;
 const hasher = new CanonicalIntentHasher();

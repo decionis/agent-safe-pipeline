@@ -94,4 +94,15 @@ with `mode: "SHADOW"`. Production runs unchanged and returns immediately; the ob
 bounded, never rejects, carries no grant, and is refused by `SafeExecutor`. See
 [shadow mode](https://github.com/decionis/agent-safe-pipeline/blob/master/docs/shadow-mode.md).
 
+## Local testing
+
+`@decionis/agent-safe-pipeline/testing` exports `LocalPresence` and `LocalAuthority`, loopback
+doubles the production clients talk to unchanged, plus the development fixture primitives. Test
+direct and managed escalations locally, complete the ceremony with `presence.approve(requestId)`,
+and assert on grants, receipts, and recorded commits. Both doubles refuse to construct under
+`NODE_ENV=production`. See
+[local testing](https://github.com/decionis/agent-safe-pipeline/blob/master/docs/local-testing.md).
+The fixture primitives remain at the package root until 1.0; new code should import them from the
+testing entry.
+
 Support: use [GitHub private vulnerability reporting](https://github.com/decionis/agent-safe-pipeline/security/advisories/new) or `security@decionis.com` for vulnerabilities and [GitHub Issues](https://github.com/decionis/agent-safe-pipeline/issues) for non-sensitive problems. Architecture: [Agent-Safe Pipeline README](https://github.com/decionis/agent-safe-pipeline#readme). Research: [The Execution Verifiability Gap](https://decionis.com/research/execution-verifiability-gap) (Decionis Research). License: Apache-2.0. Trademark terms: [TRADEMARKS.md](https://github.com/decionis/agent-safe-pipeline/blob/master/TRADEMARKS.md).

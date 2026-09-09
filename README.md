@@ -84,6 +84,7 @@ See the [package README](./packages/pipeline/README.md) for the complete enforce
 - [`examples/mcp-tool-gate`](./examples/mcp-tool-gate) — a real stdio MCP server with a governed tool.
 - [`examples/presence-live-approval`](./examples/presence-live-approval) — a Presence-bound enforcement against the real services with a FIDO2 or FIDO2-plus-liveness ceremony; needs real credentials.
 - [`examples/presence-managed-approval`](./examples/presence-managed-approval) — Decionis-managed Presence orchestration with Decionis-only polling and no Presence credential in the executor.
+- [`examples/local-escalation`](./examples/local-escalation) — both Presence integration modes against loopback Decionis and Presence doubles, no credentials, ceremony simulated.
 - [`ARCHITECTURE.md`](./ARCHITECTURE.md) and [`THREAT-MODEL.md`](./THREAT-MODEL.md) — trust boundary and abuse analysis.
 - [`OPEN-CORE.md`](./OPEN-CORE.md) — what is Apache-2.0 here, what Decionis operates, and the seam between them.
 - [`docs/`](./docs) — concepts, execution intent, outcomes, human approval, [Presence Evidence semantics](./docs/presence-evidence.md), the [remote CRO sequence](./docs/remote-cro-authorization.md), shadow mode, Decision Dossiers, trust boundary, and assurance notes.
@@ -203,6 +204,14 @@ of 90% for lines/functions/statements and 85% for branches. `pnpm mutation` chec
 trust-boundary tests kill deliberate code mutations. `pnpm fuzz` runs deterministic property tests
 against canonical intent handling; CI also runs them weekly with a larger bounded sample.
 Installation activates the repository's `simple-git-hooks` pre-commit guardrails.
+
+### Testing escalations locally
+
+`@decionis/agent-safe-pipeline/testing` ships `LocalPresence` and `LocalAuthority`, loopback doubles
+that the production clients talk to unchanged. They enforce the structural intent-hash binding,
+verify receipts the way Decionis does, issue single-use grants, orchestrate managed escalations, and
+record finalization. The person's ceremony is a method call or a local control route. See
+[`docs/local-testing.md`](./docs/local-testing.md) and [`examples/local-escalation`](./examples/local-escalation).
 
 ### Fixture provenance and loopback origins
 
