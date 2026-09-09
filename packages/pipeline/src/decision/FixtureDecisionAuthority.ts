@@ -2,7 +2,9 @@ import { createPublicKey, generateKeyPairSync, randomUUID, type KeyObject } from
 import { SignJWT, jwtVerify } from "jose";
 import type { CapturedIntent } from "../intent/ExecutionIntent.js";
 import type {
+  AuthorizationFinalizationInput,
   AuthorizationVerifier,
+  ExecutionCommitOutcome,
   VerifiedAuthorization,
 } from "../execution/AuthorizationVerifier.js";
 import type { ReplayStore } from "../execution/ReplayStore.js";
@@ -104,13 +106,68 @@ export class FixtureDecisionAuthority implements DecisionAuthority {
   }
 }
 
+/** One claimed fixture grant and, once finalized, the commit outcome recorded for it. */
+export interface FixtureCommitRecord {
+  readonly grantId: string;
+  readonly decisionId: string;
+  readonly dossierId: string;
+  readonly intentHash: string;
+  readonly claimedAt: string;
+  readonly outcome: ExecutionCommitOutcome | null;
+  readonly finalizedAt: string | null;
+}
+
+/**
+ * Development verifier. It verifies the fixture authority's signed grant,
+ * claims it once through the replay store, and keeps an inspectable commit
+ * ledger: `finalize` records the attempt outcome exactly once per claimed
+ * grant, so `RECORDED` from this verifier means the entry exists in
+ * `ledger()`, never that anything was sent anywhere.
+ */
 export class FixtureAuthorizationVerifier implements AuthorizationVerifier {
+  private readonly commits = new Map<string, FixtureCommitRecord>();
+
   public constructor(
     private readonly publicKey: KeyObject,
     private readonly replayStore: ReplayStore,
     unsafeAllowDevelopmentFixture: true,
   ) {
     assertDevelopmentFixtureAllowed(unsafeAllowDevelopmentFixture);
+  }
+
+  /** Every claimed grant with its recorded outcome, oldest first. */
+  public ledger(): readonly FixtureCommitRecord[] {
+    return [...this.commits.values()];
+  }
+
+  public commitOf(grantId: string): FixtureCommitRecord | null {
+    return this.commits.get(grantId) ?? null;
+  }
+
+  /**
+   * Records the outcome for an authorization this verifier claimed. Unknown,
+   * foreign, or already finalized grants stay `PENDING`; nothing throws.
+   */
+  public async finalize(input: AuthorizationFinalizationInput): Promise<"RECORDED" | "PENDING"> {
+    const entry = this.commits.get(input.authorization.grantId);
+    if (
+      entry === undefined ||
+      entry.outcome !== null ||
+      entry.decisionId !== input.authorization.decisionId ||
+      entry.dossierId !== input.authorization.dossierId ||
+      entry.intentHash !== input.authorization.intentHash
+    ) {
+      return "PENDING";
+    }
+    this.commits.set(
+      entry.grantId,
+      Object.freeze({
+        ...entry,
+        outcome: input.outcome,
+        finalizedAt: new Date().toISOString(),
+      }),
+    );
+    return "RECORDED";
   }
 
   public async verifyAndConsume(
@@ -139,6 +196,18 @@ export class FixtureAuthorizationVerifier implements AuthorizationVerifier {
       }
       const expiresAt = new Date(payload.exp * 1_000);
       if (!(await this.replayStore.claim(payload.jti, expiresAt))) return null;
+      this.commits.set(
+        payload.jti,
+        Object.freeze({
+          grantId: payload.jti,
+          decisionId: decision.decisionId,
+          dossierId: decision.dossierId,
+          intentHash: captured.intentHash,
+          claimedAt: new Date().toISOString(),
+          outcome: null,
+          finalizedAt: null,
+        }),
+      );
       return Object.freeze({
         decisionId: decision.decisionId,
         dossierId: decision.dossierId,

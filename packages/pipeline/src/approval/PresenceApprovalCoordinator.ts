@@ -111,13 +111,17 @@ export class PresenceApprovalCoordinator {
 
   public async request(captured: CapturedIntent): Promise<PresenceGateResult> {
     try {
+      // `intentHash` is the structural binding Presence seals into the envelope
+      // when the SDK supports it; the display field below stays the human copy.
+      const action = {
+        intent: captured.intent.action,
+        target: captured.intent.target,
+        surface: "agent_safe_pipeline",
+        intentHash: captured.intentHash,
+      };
       const result = await this.presence.gate(
         {
-          action: {
-            intent: captured.intent.action,
-            target: captured.intent.target,
-            surface: "agent_safe_pipeline",
-          },
+          action,
           agent: {
             id: captured.intent.actor.id,
             display: captured.intent.actor.id,

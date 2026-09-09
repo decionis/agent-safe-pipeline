@@ -105,6 +105,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "examples/local-escalation/src/Index.ts",
+      "family": "Runnable example",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "examples/mcp-tool-gate/src/Index.ts",
       "family": "Runnable example",
       "source": "synthetic",
@@ -177,6 +183,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/pipeline/test/execution/FixtureFinalization.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/pipeline/test/execution/ReplayStore.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
@@ -231,6 +243,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/pipeline/test/testing/LocalEscalation.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "policies/deploy-policy.json",
       "family": "Policy example",
       "source": "synthetic",
@@ -249,19 +267,7 @@
       "containsCustomerData": false
     },
     {
-      "path": "tests/integration/contract/AuthorityStub.mjs",
-      "family": "Integration harness",
-      "source": "synthetic",
-      "containsCustomerData": false
-    },
-    {
       "path": "tests/integration/contract/Contract.test.mjs",
-      "family": "Integration harness",
-      "source": "synthetic",
-      "containsCustomerData": false
-    },
-    {
-      "path": "tests/integration/contract/PresenceStub.mjs",
       "family": "Integration harness",
       "source": "synthetic",
       "containsCustomerData": false

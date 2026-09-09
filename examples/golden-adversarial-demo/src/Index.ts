@@ -251,11 +251,17 @@ out(
   `    Authority after receipt: ${decisionA.verdict}; grant ${decisionA.authorization === null ? "none" : "present"}; evidence ${short(decisionA.evidence?.humanApproval?.receiptDossierId)}`,
 );
 const golden = await executor.run(wireA, decisionA);
+const ledgerEntry =
+  golden.outcome === "BLOCKED" ? null : pair.verifier.commitOf(golden.authorization.grantId);
+out(
+  `    Fixture ledger: grant ${short(ledgerEntry?.grantId)} outcome ${ledgerEntry?.outcome ?? "none"} recorded at ${ledgerEntry?.finalizedAt ?? "never"}`,
+);
 const goldenOk =
   first.verdict === "ESCALATE" &&
   first.authorization === null &&
   decisionA.verdict === "ALLOW" &&
   golden.outcome === "COMPLETED" &&
+  ledgerEntry?.outcome === "COMMITTED" &&
   wires.length === 1;
 record(
   "Golden path",
