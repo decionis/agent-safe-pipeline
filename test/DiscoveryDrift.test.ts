@@ -17,17 +17,24 @@ import type {
   EvaluateActionInput,
   ShadowReportQuery,
 } from "../src/CommerceGateClient.js";
-import { COMMERCEGATE_API_OPERATIONS } from "../src/CommerceGateClient.js";
+import { COMMERCEGATE_API_OPERATIONS, SUPPORTED_ACTION_TYPES } from "../src/CommerceGateClient.js";
 import { CommerceGateConfiguration } from "../src/Configuration.js";
-import { COMMERCEGATE_TOOL_NAMES, CommerceGateTools } from "../src/Tools.js";
+import {
+  COMMERCEGATE_ACTION_SUPPORT,
+  COMMERCEGATE_TOOL_NAMES,
+  CommerceGateTools,
+} from "../src/Tools.js";
 
 interface JsonSchema {
   type?: string | string[];
   const?: unknown;
+  description?: string;
   enum?: unknown[];
   format?: string;
   minimum?: number;
   maximum?: number;
+  maxLength?: number;
+  exclusiveMinimum?: number;
   minItems?: number;
   maxItems?: number;
   required?: string[];
@@ -218,6 +225,13 @@ describe("CommerceGate discovery drift", () => {
     );
   });
 
+  it("keeps machine discovery aligned with the MCP action and connector boundary", () => {
+    const card = commerceGateMcpCard();
+
+    expect(card.supported_action_types).toEqual(SUPPORTED_ACTION_TYPES);
+    expect(card.action_support).toEqual(COMMERCEGATE_ACTION_SUPPORT);
+  });
+
   it("publishes the response fields and bounds required by the CommerceGate client", async () => {
     const { schemas } = (await readPublishedOpenApi()).components;
     const evaluation = schemas.CommerceEvaluationResponse;
@@ -228,6 +242,8 @@ describe("CommerceGate discovery drift", () => {
     const shadowReport = schemas.ShadowReportDocument;
     const shadowSummary = schemas.ShadowReportSummary;
     const shadowEvaluation = schemas.ShadowReportEvaluation;
+    const guardRequest = schemas.GuardRequest;
+    const guardResponse = schemas.GuardResponse;
 
     expect(schemaRequired(evaluation)).toEqual(
       [
@@ -253,6 +269,22 @@ describe("CommerceGate discovery drift", () => {
     expect(evaluation.properties?.dossier_id?.format).toBe("uuid");
     expect(evaluation.properties?.evaluation_id?.format).toBe("uuid");
     expect(evaluation.properties?.confidence).toMatchObject({ minimum: 0, maximum: 1 });
+
+    expect(schemaRequired(guardRequest)).toEqual(
+      [
+        "agent_id",
+        "currency",
+        "erp_type",
+        "lines",
+        "tenant_id",
+        "timestamp",
+        "transaction_id",
+      ].sort(),
+    );
+    expect(schemaRequired(guardResponse)).toEqual(
+      ["decision", "execution_time_ms", "message", "reason_code", "transaction_id"].sort(),
+    );
+    expect(guardResponse.properties?.decision?.enum).toEqual(["ALLOW", "BLOCK"]);
 
     expect(schemaRequired(dossier)).toEqual(["dossier", "protocol_version", "service"]);
     expect(schemaRequired(dossierRecord)).toEqual(
@@ -320,6 +352,35 @@ describe("CommerceGate discovery drift", () => {
     expect(shadowSummary.properties?.near_miss_rate).toMatchObject({ minimum: 0, maximum: 1 });
     expect(shadowEvaluation.properties?.confidence).toMatchObject({ minimum: 0, maximum: 1 });
     expect(shadowEvaluation.properties?.reason_codes?.maxItems).toBe(20);
+  });
+
+  it("publishes every canonical commerce action accepted by the MCP request contract", async () => {
+    const request = (await readPublishedOpenApi()).components.schemas.CommerceEvaluationRequest;
+    const actionTypes = [...SUPPORTED_ACTION_TYPES];
+    const transactionTypes = actionTypes.map((actionType) => actionType.toLowerCase());
+    const workflowKeys = transactionTypes.map((transactionType) => `commerce_${transactionType}`);
+
+    expect(schemaRequired(request)).toEqual(
+      [
+        "channel",
+        "context",
+        "decision_type",
+        "idempotency_key",
+        "mode",
+        "org_id",
+        "source",
+        "transaction_type",
+        "workflow_key",
+      ].sort(),
+    );
+    expect(request.properties?.decision_type?.enum).toEqual(actionTypes);
+    expect(request.properties?.transaction_type?.enum).toEqual(transactionTypes);
+    expect(request.properties?.workflow_key?.enum).toEqual(workflowKeys);
+    expect(request.properties?.mode?.const).toBe("SHADOW");
+    expect(request.properties?.idempotency_key?.maxLength).toBe(180);
+    expect(request.properties?.context?.description).toContain(
+      "does not assert that a connected platform can execute the action",
+    );
   });
 
   it("keeps both Shadow Report tool projections inside the published response contract", async () => {
@@ -394,6 +455,13 @@ describe("CommerceGate discovery drift", () => {
       ],
     };
     const api: CommerceGateApi = {
+      validateErpTransaction: async () => ({
+        decision: "ALLOW",
+        transaction_id: "sales-order:1001",
+        execution_time_ms: 1,
+        reason_code: "AGENT_BUDGET_PASSED",
+        message: "Allowed.",
+      }),
       evaluateAction: async (_input: EvaluateActionInput) => ({}),
       getDossier: async (_dossierId: string) => ({}),
       getProofPacket: async (_dossierId: string) => ({}),

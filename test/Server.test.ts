@@ -43,12 +43,16 @@ describe("CommerceGateMcpHandler", () => {
       id: 1,
       result: {
         protocolVersion: "2025-06-18",
-        serverInfo: { name: "commercegate", version: "0.1.1" },
+        serverInfo: { name: "commercegate", version: "0.1.2" },
         instructions: COMMERCEGATE_MCP_INSTRUCTIONS,
       },
     });
-    expect(COMMERCEGATE_MCP_INSTRUCTIONS).toContain("never accepts orders");
+    expect(COMMERCEGATE_MCP_INSTRUCTIONS).toContain("REFUND_REQUEST");
+    expect(COMMERCEGATE_MCP_INSTRUCTIONS).toContain("INVENTORY_MUTATION");
+    expect(COMMERCEGATE_MCP_INSTRUCTIONS).toContain("Connector execution");
     expect(COMMERCEGATE_MCP_INSTRUCTIONS).toContain("hard-locked to SHADOW");
+    expect(COMMERCEGATE_MCP_INSTRUCTIONS).toContain("enforced binary policy");
+    expect(COMMERCEGATE_MCP_INSTRUCTIONS).toContain("never writes, posts, releases, or modifies");
   });
 
   it("lists tool metadata and invokes a tool", async () => {

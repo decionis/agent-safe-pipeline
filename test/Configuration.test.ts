@@ -12,7 +12,9 @@ describe("CommerceGateConfiguration", () => {
     expect(configuration.describe()).toEqual({
       api_base: DEFAULT_DECIONIS_API_BASE,
       connected: false,
-      organization_bound_by_environment: true,
+      erp_guard_ready: false,
+      protocol_tools_ready: false,
+      protocol_organization_bound_by_environment: true,
       api_key_configured: false,
       org_id_configured: false,
       configuration_issues: [],
@@ -31,6 +33,8 @@ describe("CommerceGateConfiguration", () => {
     expect(configuration.describe()).toMatchObject({
       api_base: "https://api.example.test",
       connected: true,
+      erp_guard_ready: true,
+      protocol_tools_ready: true,
       api_key_configured: true,
       org_id_configured: true,
     });
@@ -50,7 +54,27 @@ describe("CommerceGateConfiguration", () => {
       configuration_issues: ["DECIONIS_ORG_ID must be a UUID."],
     });
     expect(() => configuration.requireTenantConnection()).toThrow(
-      "CommerceGate configuration is invalid",
+      "CommerceGate Protocol tenant configuration is invalid",
+    );
+  });
+
+  it("keeps the ERP guard available when only Protocol tenant configuration is invalid", () => {
+    const configuration = new CommerceGateConfiguration({
+      DECIONIS_API_KEY: "secret-key",
+      DECIONIS_ORG_ID: "not-an-org",
+    });
+
+    expect(configuration.describe()).toMatchObject({
+      connected: false,
+      erp_guard_ready: true,
+      protocol_tools_ready: false,
+    });
+    expect(configuration.requireApiConnection()).toMatchObject({
+      apiBaseUrl: DEFAULT_DECIONIS_API_BASE,
+      apiKey: "secret-key",
+    });
+    expect(() => configuration.requireTenantConnection()).toThrow(
+      "CommerceGate Protocol tenant configuration is invalid",
     );
   });
 

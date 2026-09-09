@@ -12,6 +12,15 @@ const maximumOutputBytes = 1024 * 1024;
 const smokeTimeoutMilliseconds = 10_000;
 const credentialSentinel = "commercegate-release-smoke-secret";
 const organizationSentinel = "00000000-0000-4000-8000-000000000001";
+const expectedToolNames = [
+  "commercegate_describe_capabilities",
+  "commercegate_validate_erp_transaction",
+  "commercegate_evaluate_action",
+  "commercegate_get_dossier",
+  "commercegate_get_proof_packet",
+  "commercegate_list_shadow_reports",
+  "commercegate_summarize_shadow_reports",
+];
 
 function safeEnvironment() {
   const allowedNames = new Set([
@@ -194,11 +203,10 @@ async function verifyPackage() {
       expectedVersion,
       "Packed MCP reported a different implementation version.",
     );
-    assert.ok(
-      responses
-        .get(2)
-        ?.result?.tools?.some((tool) => tool.name === "commercegate_describe_capabilities"),
-      "Packed MCP tool catalog is missing commercegate_describe_capabilities.",
+    assert.deepEqual(
+      responses.get(2)?.result?.tools?.map((tool) => tool.name),
+      expectedToolNames,
+      "Packed MCP tool catalog drifted from the seven public tools.",
     );
     assert.equal(
       responses.get(3)?.result?.structuredContent?.guarantees?.credential_values_are_never_returned,

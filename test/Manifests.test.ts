@@ -16,12 +16,17 @@ describe("CommerceGate distribution metadata", () => {
 
     expect(packageJson).toMatchObject({
       name: "@decionis/commerce",
-      version: "0.1.1",
+      version: "0.1.2",
       mcpName: "com.decionis/commerce-gate",
       author: "Decionis",
       bin: { "commercegate-mcp": "dist/Index.js" },
       scripts: { mcp: "node --import tsx src/Index.ts" },
       license: "Apache-2.0",
+      repository: {
+        type: "git",
+        url: "git+https://github.com/decionis/Commerce.git",
+        directory: "apps/mcp",
+      },
     });
     expect(packageJson.version).toBe(MCP_SERVER_VERSION);
     expect(server).toMatchObject({
@@ -40,7 +45,6 @@ describe("CommerceGate distribution metadata", () => {
     });
     expect(server.packages).toHaveLength(1);
     expect(server._meta).toBeUndefined();
-    expect(packageJson.repository).toBeUndefined();
     expect(server.repository).toBeUndefined();
     expect(server.remotes).toBeUndefined();
   });
@@ -56,25 +60,29 @@ describe("CommerceGate distribution metadata", () => {
     ]);
   });
 
-  it("documents the SHADOW-only, no-marketplace-write boundary in every entry point", async () => {
+  it("documents every preflight, ERP guard, and no-external-write boundary", async () => {
     const readme = await text("README.md");
     const smithery = await text("smithery.yaml");
     const server = await text("server.json");
 
     expect(readme).toContain("hard-locked to `SHADOW`");
-    expect(readme).toContain(
-      "exposes no order, price, refund, fulfillment, or inventory mutation tool",
-    );
+    expect(readme).toContain("`INVENTORY_MUTATION`");
+    expect(readme).toContain("`REFUND_REQUEST`");
+    expect(readme).toContain("does not execute the proposed action");
+    expect(readme).toContain("enforced `ALLOW`/`BLOCK`");
+    expect(readme).toContain("It never writes the transaction to Dynamics 365");
     expect(readme).toContain("APPROVE` is evidence, not user consent");
-    expect(readme).toContain("npx -y @decionis/commerce@0.1.1");
+    expect(readme).toContain("npx -y @decionis/commerce@0.1.2");
     expect(readme).toContain("https://www.npmjs.com/package/@decionis/commerce");
     expect(readme).toContain("## Support and license");
     expect(readme).not.toContain("local-source-only");
     expect(smithery).toContain("fail closed");
     expect(smithery).toContain('command: "npx"');
-    expect(smithery).toContain('args: ["-y", "@decionis/commerce@0.1.1"]');
+    expect(smithery).toContain('args: ["-y", "@decionis/commerce@0.1.2"]');
     expect(smithery).not.toContain('command: "pnpm"');
     expect(server).toContain("Shadow Mode");
+    expect(server).toContain("enforced Dynamics 365 transaction authorization");
+    expect(server).toContain("ERP writes are never executed");
     for (const toolName of COMMERCEGATE_TOOL_NAMES) expect(readme).toContain(toolName);
   });
 

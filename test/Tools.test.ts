@@ -2,11 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 
 import type {
   CommerceGateApi,
+  ErpGuardResponse,
   EvaluateActionInput,
   ShadowReportQuery,
 } from "../src/CommerceGateClient.js";
 import { CommerceGateConfiguration } from "../src/Configuration.js";
 import {
+  COMMERCEGATE_ACTION_SUPPORT,
   COMMERCEGATE_OUTCOME_MAP,
   COMMERCEGATE_TOOL_NAMES,
   CommerceGateTools,
@@ -26,6 +28,13 @@ const SHADOW_REPORT = {
 };
 
 class StubApi implements CommerceGateApi {
+  readonly validateErpTransaction = vi.fn(async (): Promise<ErpGuardResponse> => ({
+    decision: "ALLOW" as const,
+    transaction_id: "sales-order:1001",
+    execution_time_ms: 8.5,
+    reason_code: "AGENT_BUDGET_PASSED",
+    message: "Transaction cleared all margin and spend guards.",
+  }));
   readonly evaluateAction = vi.fn(async (_input: EvaluateActionInput): Promise<unknown> => ({
     outcome: "REVIEW",
     mode: "SHADOW",
@@ -57,13 +66,89 @@ const ORDER = {
   },
 } as const;
 
+const ERP_GUARD = {
+  erp_region: "westeurope",
+  request: {
+    transaction_id: "sales-order:1001",
+    erp_type: "D365_BC",
+    tenant_id: "44444444-4444-4444-8444-444444444444",
+    timestamp: "2026-09-10T08:30:00.000Z",
+    agent_id: "copilot:finance",
+    currency: "USD",
+    lines: [{ line_id: 1, sku: "SKU-1", quantity: 2, unit_price: 50, cost_base: 30 }],
+  },
+} as const;
+
+const ADDITIONAL_ACTIONS = [
+  {
+    label: "inventory mutation",
+    action: {
+      action_type: "INVENTORY_MUTATION",
+      actor: { type: "ERP", id: "inventory-sync" },
+      platform: "walmart-marketplace",
+      idempotency_key: "sku:42:inventory:v2",
+      payload: { sku: "SKU-42", from: 18, to: 7, location_id: null },
+    },
+  },
+  {
+    label: "fulfillment action",
+    action: {
+      action_type: "FULFILLMENT_ACTION",
+      actor: { type: "WORKFLOW", id: "warehouse-flow" },
+      platform: "walmart-marketplace",
+      idempotency_key: "order:42:fulfillment:v2",
+      payload: { order_id: "42", action: "hold" },
+    },
+  },
+  {
+    label: "promotion change",
+    action: {
+      action_type: "PROMOTION_CHANGE",
+      actor: { type: "HUMAN", id: "merchandiser" },
+      platform: "shopify",
+      idempotency_key: "promotion:42:update:v2",
+      payload: {
+        promotion_id: null,
+        percentage_fraction: 0.2,
+        ends_at: null,
+        status: "ACTIVE",
+        combines_with: {
+          order_discounts: true,
+          product_discounts: false,
+          shipping_discounts: true,
+        },
+      },
+    },
+  },
+  {
+    label: "refund request",
+    action: {
+      action_type: "REFUND_REQUEST",
+      actor: { type: "AGENT", id: "support-agent" },
+      platform: "walmart-marketplace",
+      idempotency_key: "order:42:refund:v2",
+      payload: { order_id: "42", amount: 10, reason_code: null },
+    },
+  },
+  {
+    label: "return authorization",
+    action: {
+      action_type: "RETURN_AUTHORIZATION",
+      actor: { type: "HUMAN", id: "returns-operator" },
+      platform: "shopify",
+      idempotency_key: "order:42:return:v2",
+      payload: { order_id: "42", rma_id: null, amount: null },
+    },
+  },
+] as const;
+
 function catalog(api = new StubApi()) {
   const configuration = new CommerceGateConfiguration({});
   return { api, tools: new CommerceGateTools(configuration, api).build() };
 }
 
 describe("CommerceGateTools", () => {
-  it("exposes exactly the six bounded CommerceGate tools", () => {
+  it("exposes exactly the seven bounded CommerceGate tools", () => {
     const { tools } = catalog();
 
     expect(tools.map(({ name }) => name)).toEqual(COMMERCEGATE_TOOL_NAMES);
@@ -78,6 +163,67 @@ describe("CommerceGateTools", () => {
     );
   });
 
+  it("performs enforced binary ERP authorization without claiming an ERP write", async () => {
+    const { api, tools } = catalog();
+    const tool = tools.find(({ name }) => name === "commercegate_validate_erp_transaction")!;
+
+    const response = await tool.handler(ERP_GUARD as unknown as Record<string, unknown>);
+
+    expect(api.validateErpTransaction).toHaveBeenCalledWith(ERP_GUARD);
+    expect(response.isError).toBeUndefined();
+    expect(response.structuredContent).toMatchObject({
+      ok: true,
+      mode: "ENFORCED",
+      budget_authorization_status: "AUTHORIZED",
+      no_erp_write_executed: true,
+      allow_is_not_execution_consent: true,
+      commercegate_disposition: "PROCEED",
+      validation: { decision: "ALLOW", transaction_id: ERP_GUARD.request.transaction_id },
+    });
+  });
+
+  it("reports when a margin-policy block stops before agent-budget authorization", async () => {
+    const { api, tools } = catalog();
+    api.validateErpTransaction.mockResolvedValueOnce({
+      decision: "BLOCK",
+      transaction_id: ERP_GUARD.request.transaction_id,
+      execution_time_ms: 4.2,
+      reason_code: "MARGIN_BELOW_FLOOR",
+      message: "Transaction blocked by the central CommerceGate policy.",
+    });
+    const tool = tools.find(({ name }) => name === "commercegate_validate_erp_transaction")!;
+
+    const response = await tool.handler(ERP_GUARD as unknown as Record<string, unknown>);
+
+    expect(response.structuredContent).toMatchObject({
+      budget_authorization_status: "NOT_REACHED",
+      commercegate_disposition: "BLOCK",
+    });
+  });
+
+  it.each([
+    ["extra request field", { ...ERP_GUARD.request, org_id: "not-accepted" }],
+    ["bad tenant", { ...ERP_GUARD.request, tenant_id: "not-a-uuid" }],
+    ["invalid date", { ...ERP_GUARD.request, timestamp: "2026-02-30T08:30:00Z" }],
+    ["empty lines", { ...ERP_GUARD.request, lines: [] }],
+    [
+      "non-positive quantity",
+      {
+        ...ERP_GUARD.request,
+        lines: [{ ...ERP_GUARD.request.lines[0], quantity: 0 }],
+      },
+    ],
+  ])("rejects an ERP guard request with %s", async (_label, request) => {
+    const { api, tools } = catalog();
+    const tool = tools.find(({ name }) => name === "commercegate_validate_erp_transaction")!;
+
+    const response = await tool.handler({ erp_region: "westeurope", request });
+
+    expect(response.isError).toBe(true);
+    expect(response.structuredContent).toMatchObject({ error: { code: "INVALID_INPUT" } });
+    expect(api.validateErpTransaction).not.toHaveBeenCalled();
+  });
+
   it("describes safety and setup without credentials or a network call", async () => {
     const { api, tools } = catalog();
     const tool = tools.find(({ name }) => name === "commercegate_describe_capabilities")!;
@@ -90,13 +236,52 @@ describe("CommerceGateTools", () => {
       identity: "com.decionis/commerce-gate",
       evaluation_mode: "SHADOW",
       outcome_mapping: COMMERCEGATE_OUTCOME_MAP,
+      action_support: COMMERCEGATE_ACTION_SUPPORT,
       connection: { connected: false },
+      erp_guard: {
+        mode: "ENFORCED",
+        agent_budget_authorization_after_policy_approval: true,
+        configuration_ready: false,
+        erp_writes: false,
+      },
       guarantees: {
         marketplace_writes: false,
         approve_is_not_execution_consent: true,
       },
     });
     expect(api.evaluateAction).not.toHaveBeenCalled();
+  });
+
+  it("makes every canonical action branch independently discoverable", () => {
+    const { tools } = catalog();
+    const evaluation = tools.find(({ name }) => name === "commercegate_evaluate_action")!;
+    const action = (
+      evaluation.inputSchema.properties as Record<
+        string,
+        { oneOf?: Array<Record<string, unknown>> }
+      >
+    ).action;
+    const branches = action.oneOf ?? [];
+
+    expect(branches).toHaveLength(7);
+    expect(branches.map((branch) => branch.title)).toEqual([
+      "Price change preflight",
+      "Inventory mutation or oversell preflight",
+      "Order acceptance preflight",
+      "Fulfillment action preflight",
+      "Promotion change preflight",
+      "Refund request preflight",
+      "Return authorization preflight",
+    ]);
+    expect(
+      branches.every(
+        (branch) =>
+          typeof branch.description === "string" &&
+          branch.description.length > 0 &&
+          Array.isArray(branch.examples) &&
+          branch.examples.length > 0,
+      ),
+    ).toBe(true);
   });
 
   it("validates and evaluates a canonical order action", async () => {
@@ -117,12 +302,12 @@ describe("CommerceGateTools", () => {
     expect(String(response.structuredContent.agent_guidance)).toContain("HOLD");
   });
 
-  it("rejects unsupported action types without calling the API", async () => {
+  it("rejects unknown action types without calling the API", async () => {
     const { api, tools } = catalog();
     const tool = tools.find(({ name }) => name === "commercegate_evaluate_action")!;
 
     const response = await tool.handler({
-      action: { ...ORDER.action, action_type: "REFUND_REQUEST" },
+      action: { ...ORDER.action, action_type: "GIFT_CARD_ISSUE" },
     });
 
     expect(response.isError).toBe(true);
@@ -132,6 +317,22 @@ describe("CommerceGateTools", () => {
       safety: { fail_closed: true, no_downstream_action_executed: true },
     });
     expect(api.evaluateAction).not.toHaveBeenCalled();
+  });
+
+  it.each(ADDITIONAL_ACTIONS)("accepts the canonical $label shape", async ({ action }) => {
+    const { api, tools } = catalog();
+    const tool = tools.find(({ name }) => name === "commercegate_evaluate_action")!;
+
+    const response = await tool.handler({ action } as unknown as Record<string, unknown>);
+
+    expect(response.isError).toBeUndefined();
+    expect(api.evaluateAction).toHaveBeenCalledWith({ action });
+    expect(response.structuredContent).toMatchObject({
+      ok: true,
+      mode: "SHADOW",
+      action_type: action.action_type,
+      no_downstream_action_executed: true,
+    });
   });
 
   it("rejects incomplete economics and lowercase currency", async () => {
@@ -179,6 +380,22 @@ describe("CommerceGateTools", () => {
     expect(api.evaluateAction).not.toHaveBeenCalled();
   });
 
+  it("matches the Protocol API's 180-character idempotency-key limit", async () => {
+    const { api, tools } = catalog();
+    const tool = tools.find(({ name }) => name === "commercegate_evaluate_action")!;
+
+    const accepted = await tool.handler({
+      action: { ...ORDER.action, idempotency_key: "a".repeat(180) },
+    });
+    const rejected = await tool.handler({
+      action: { ...ORDER.action, idempotency_key: "a".repeat(181) },
+    });
+
+    expect(accepted.isError).toBeUndefined();
+    expect(rejected.isError).toBe(true);
+    expect(api.evaluateAction).toHaveBeenCalledOnce();
+  });
+
   it("accepts the discriminated price-change shape", async () => {
     const { api, tools } = catalog();
     const tool = tools.find(({ name }) => name === "commercegate_evaluate_action")!;
@@ -203,6 +420,97 @@ describe("CommerceGateTools", () => {
 
     expect(response.isError).toBeUndefined();
     expect(api.evaluateAction).toHaveBeenCalledWith(input);
+  });
+
+  it("accepts contract-nullable and optional order and price fields", async () => {
+    const { api, tools } = catalog();
+    const tool = tools.find(({ name }) => name === "commercegate_evaluate_action")!;
+    const order = {
+      action: {
+        ...ORDER.action,
+        idempotency_key: "order:unknown:accept",
+        payload: {
+          order_id: null,
+          gross_amount: 100,
+          discount_amount: 0,
+          estimated_cost: 70,
+        },
+      },
+    };
+    const price = {
+      action: {
+        action_type: "PRICE_CHANGE",
+        actor: { type: "REPRICER", id: "reprice-agent" },
+        platform: "walmart-marketplace",
+        idempotency_key: "sku:42:price:unknown-cost",
+        payload: { sku: "SKU-42", from_price: null, to_price: 19.5, estimated_cost: null },
+      },
+    };
+
+    const orderResponse = await tool.handler(order as unknown as Record<string, unknown>);
+    const priceResponse = await tool.handler(price);
+
+    expect(orderResponse.isError).toBeUndefined();
+    expect(priceResponse.isError).toBeUndefined();
+    expect(api.evaluateAction).toHaveBeenNthCalledWith(1, order);
+    expect(api.evaluateAction).toHaveBeenNthCalledWith(2, price);
+  });
+
+  it.each([
+    [
+      "negative inventory",
+      {
+        ...ADDITIONAL_ACTIONS[0].action,
+        payload: { ...ADDITIONAL_ACTIONS[0].action.payload, to: -1 },
+      },
+    ],
+    [
+      "unsupported fulfillment transition",
+      {
+        ...ADDITIONAL_ACTIONS[1].action,
+        payload: { ...ADDITIONAL_ACTIONS[1].action.payload, action: "refund" },
+      },
+    ],
+    [
+      "out-of-range promotion fraction",
+      {
+        ...ADDITIONAL_ACTIONS[2].action,
+        payload: { ...ADDITIONAL_ACTIONS[2].action.payload, percentage_fraction: 1.01 },
+      },
+    ],
+    [
+      "incomplete promotion combination",
+      {
+        ...ADDITIONAL_ACTIONS[2].action,
+        payload: {
+          ...ADDITIONAL_ACTIONS[2].action.payload,
+          combines_with: { order_discounts: true, product_discounts: false },
+        },
+      },
+    ],
+    [
+      "refund extra field",
+      {
+        ...ADDITIONAL_ACTIONS[3].action,
+        payload: { ...ADDITIONAL_ACTIONS[3].action.payload, approval_limit: 100 },
+      },
+    ],
+    [
+      "negative return amount",
+      {
+        ...ADDITIONAL_ACTIONS[4].action,
+        payload: { ...ADDITIONAL_ACTIONS[4].action.payload, amount: -1 },
+      },
+    ],
+  ])("rejects %s before calling the API", async (_label, action) => {
+    const { api, tools } = catalog();
+    const tool = tools.find(({ name }) => name === "commercegate_evaluate_action")!;
+
+    const response = await tool.handler({ action } as unknown as Record<string, unknown>);
+
+    expect(response.isError).toBe(true);
+    expect(response.structuredContent).toMatchObject({ error: { code: "INVALID_INPUT" } });
+    expect(api.evaluateAction).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -293,8 +601,16 @@ describe("CommerceGateTools", () => {
 
     expect(serialized).not.toContain("org_id");
     expect(serialized).not.toContain('"mode"');
-    expect(serialized).not.toContain("REFUND_REQUEST");
-    expect(serialized).toContain("ORDER_ACCEPTANCE");
-    expect(serialized).toContain("PRICE_CHANGE");
+    for (const actionType of [
+      "PRICE_CHANGE",
+      "INVENTORY_MUTATION",
+      "ORDER_ACCEPTANCE",
+      "FULFILLMENT_ACTION",
+      "PROMOTION_CHANGE",
+      "REFUND_REQUEST",
+      "RETURN_AUTHORIZATION",
+    ]) {
+      expect(serialized).toContain(actionType);
+    }
   });
 });
