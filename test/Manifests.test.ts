@@ -64,6 +64,7 @@ describe("CommerceGate distribution metadata", () => {
     const readme = await text("README.md");
     const smithery = await text("smithery.yaml");
     const server = await text("server.json");
+    const registryManifest = JSON.parse(server);
 
     expect(readme).toContain("hard-locked to `SHADOW`");
     expect(readme).toContain("`INVENTORY_MUTATION`");
@@ -80,9 +81,10 @@ describe("CommerceGate distribution metadata", () => {
     expect(smithery).toContain('command: "npx"');
     expect(smithery).toContain('args: ["-y", "@decionis/commerce@0.1.2"]');
     expect(smithery).not.toContain('command: "pnpm"');
-    expect(server).toContain("Shadow Mode");
-    expect(server).toContain("enforced Dynamics 365 transaction authorization");
-    expect(server).toContain("ERP writes are never executed");
+    expect(registryManifest.description.length).toBeLessThanOrEqual(100);
+    expect(registryManifest.description).toContain("Commerce preflights");
+    expect(registryManifest.description).toContain("D365 authorization");
+    expect(registryManifest.description).toContain("no marketplace or ERP writes");
     for (const toolName of COMMERCEGATE_TOOL_NAMES) expect(readme).toContain(toolName);
   });
 

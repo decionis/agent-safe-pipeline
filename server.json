@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "com.decionis/commerce-gate",
   "title": "Decionis CommerceGate MCP",
-  "description": "Seven Shadow Mode commerce preflights, enforced Dynamics 365 transaction authorization, signed Decision Dossiers, proof packets, and reports. Local STDIO; marketplace and ERP writes are never executed",
+  "description": "Commerce preflights, D365 authorization, signed evidence, and reports; no marketplace or ERP writes.",
   "websiteUrl": "https://commerce.decionis.com",
   "version": "0.1.2",
   "packages": [
