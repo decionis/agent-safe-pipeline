@@ -285,9 +285,9 @@ const priceChangeActionSchema = {
 } as const;
 
 const inventoryMutationActionSchema = {
-  title: "Inventory mutation or oversell preflight",
+  title: "Stock change or oversell preflight",
   description:
-    "Evaluate a proposed inventory quantity change or an inventory-floor signal before a separate connector writes stock or releases an order.",
+    "Check a stock quantity change, or an inventory-floor signal, against policy before the ERP or connector writes stock or releases an order.",
   type: "object",
   required: ["action_type", "actor", "platform", "idempotency_key", "payload"],
   properties: {
@@ -419,7 +419,7 @@ const promotionChangeActionSchema = {
 const refundRequestActionSchema = {
   title: "Refund request preflight",
   description:
-    "Evaluate a proposed refund amount and reason before any connector-specific lifecycle, balance, scope, and confirmation checks execute it.",
+    "Check a refund amount and reason against policy before the platform's own order-state, refundable-balance, scope and operator-confirmation checks run and the refund is executed.",
   type: "object",
   required: ["action_type", "actor", "platform", "idempotency_key", "payload"],
   properties: {

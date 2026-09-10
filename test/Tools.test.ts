@@ -266,7 +266,7 @@ describe("CommerceGateTools", () => {
     expect(branches).toHaveLength(7);
     expect(branches.map((branch) => branch.title)).toEqual([
       "Price change preflight",
-      "Inventory mutation or oversell preflight",
+      "Stock change or oversell preflight",
       "Order acceptance preflight",
       "Fulfillment action preflight",
       "Promotion change preflight",

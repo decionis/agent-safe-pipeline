@@ -60,15 +60,15 @@ enabled_tools = [
 
 ## Tools
 
-| Tool                                    | Purpose                                                                                | External effect                                                |
-| --------------------------------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| `commercegate_describe_capabilities`    | Inspect action coverage, safety guarantees, connector boundaries, and connection state | None; local only                                               |
-| `commercegate_validate_erp_transaction` | Enforced binary authorization for one complete D365 transaction                        | Policy decision and idempotent agent-budget authorization only |
-| `commercegate_evaluate_action`          | Preflight any of the seven canonical commerce action types                             | Writes only a Shadow Mode evaluation/evidence record           |
-| `commercegate_get_dossier`              | Read a signed Decision Dossier by UUID                                                 | Protocol tenant read                                           |
-| `commercegate_get_proof_packet`         | Read a dossier proof packet by UUID                                                    | Protocol tenant read                                           |
-| `commercegate_list_shadow_reports`      | Read recent Shadow Mode evaluation rows                                                | Protocol tenant read                                           |
-| `commercegate_summarize_shadow_reports` | Read aggregate Shadow Mode outcomes and near misses                                    | Protocol tenant read                                           |
+| Tool                                    | Purpose                                                                                  | External effect                                                |
+| --------------------------------------- | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `commercegate_describe_capabilities`    | Inspect action coverage, safety guarantees, connector boundaries, and connection state   | None; local only                                               |
+| `commercegate_validate_erp_transaction` | Enforced binary authorization for one complete D365 transaction                          | Policy decision and idempotent agent-budget authorization only |
+| `commercegate_evaluate_action`          | Check a price change, stock change, order, fulfillment step, promotion, refund or return | Writes only a Shadow Mode evaluation/evidence record           |
+| `commercegate_get_dossier`              | Read a signed Decision Dossier by UUID                                                   | Protocol tenant read                                           |
+| `commercegate_get_proof_packet`         | Read a dossier proof packet by UUID                                                      | Protocol tenant read                                           |
+| `commercegate_list_shadow_reports`      | Read recent Shadow Mode evaluation rows                                                  | Protocol tenant read                                           |
+| `commercegate_summarize_shadow_reports` | Read aggregate Shadow Mode outcomes and near misses                                      | Protocol tenant read                                           |
 
 ### Action contract
 
@@ -84,7 +84,7 @@ Every action includes a stable `actor`, a `platform`, and a bounded `idempotency
 | `REFUND_REQUEST`       | `order_id`, `amount`, optional `currency` and `reason_code`                                       |
 | `RETURN_AUTHORIZATION` | `order_id`, optional `rma_id` and `amount`                                                        |
 
-Order acceptance and price change have native CommerceGate margin mappings. The other five action types are generic Protocol Shadow evaluations: the server validates and normalizes their canonical shape, but the result is only as complete as the active tenant policy and the submitted facts. They do not prove that a connector can execute the action.
+Order acceptance and price change have native CommerceGate margin mappings. The other five action types are generic Protocol Shadow evaluations: the server validates and normalizes their shape, but the result is only as complete as the active tenant policy and the submitted facts. A verdict says whether the action clears policy, not whether the platform's connector can carry it out.
 
 The ERP guard accepts a bounded `erp_region` and the complete canonical D365 request: `transaction_id`, `erp_type`, `tenant_id`, `timestamp`, `agent_id`, `currency`, and 1–200 line records. It sends the configured API key as `X-Decionis-API-Key` and the region as `X-ERP-Region`. An `ALLOW` response means the exact request cleared enforced policy and its idempotent agent-budget authorization; it is not user consent and the MCP still performs no ERP write. The guard returns a reason code and message but does not promise a retrievable Decision Dossier or proof packet for that call.
 
