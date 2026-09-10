@@ -164,6 +164,22 @@ pnpm --filter @decionis/commerce build
 pnpm --silent --filter @decionis/commerce mcp
 ```
 
+## Privacy Policy
+
+CommerceGate MCP runs on your machine and talks to one service: the Decionis API at `https://api.decionis.com` (or the origin you set in `DECIONIS_API_BASE`). It has no telemetry, no analytics, no crash reporting and no other network destination. The full Decionis privacy policy is at <https://decionis.com/privacy>; this section describes what this server specifically does.
+
+**What it collects.** Nothing on its own. Everything it sends is what the agent passes into a tool call: the commerce facts being checked (SKU, current and new price or quantity, landed cost, order amounts, discount, refund amount and reason, promotion facts, actor type and a non-secret actor identifier, platform, idempotency key), a dossier UUID for evidence reads, and a report window for Shadow reports. It never reads files, browser data, clipboard or anything else on the machine.
+
+**Where it goes and why.** Tool inputs are sent over HTTPS to the Decionis API to evaluate them against your organization's policy and to read evidence you already own. The request carries your `DECIONIS_API_KEY` as a bearer token, your `DECIONIS_ORG_ID` to scope the call to your organization, and a `user-agent` naming this package and version. Credentials are read from the process environment, never written to disk or logs by this server, and never returned in any tool result.
+
+**What is stored.** Decionis stores the evaluation as a signed Decision Dossier in your organization's workspace so it can be verified later; that is the product. Retention follows your Decionis plan and the Decionis privacy policy. This server itself stores nothing: no cache, no log file, no local database. On a failed request it writes one fixed line to stderr with no request contents.
+
+**Third parties.** None. Decionis does not sell or share tool inputs, and this server contacts no third-party service. Your MCP client (Claude Desktop, Codex, VS Code or another host) may log tool calls under its own policy.
+
+**Personal data.** Commerce facts can include order identifiers and, if you pass them, customer-related amounts. Send only what the policy check needs; the server accepts a bounded, typed action and rejects unknown fields.
+
+**Your controls.** Remove `DECIONIS_API_KEY` and `DECIONIS_ORG_ID` and the server can only describe its capabilities. Uninstall the package or extension to stop all processing. To access, correct or delete dossiers held by Decionis, or to ask anything about this policy, write to <mailto:commerce@decionis.com>; security reports go to <mailto:security@decionis.com> (see <https://commerce.decionis.com/.well-known/security.txt>).
+
 ## Support and license
 
 - Support: [Contact Decionis](https://decionis.com/contact)
