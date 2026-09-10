@@ -23,6 +23,7 @@ import {
   TOOL_NAMES,
   VENDORED_RUNTIME_PACKAGE,
 } from "./BundleContract.mjs";
+import { canonicalizeZipFile } from "./CanonicalizeZip.mjs";
 
 const packageDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const commercePackageDirectory = path.resolve(packageDirectory, "../commerce-mcp");
@@ -30,7 +31,6 @@ const repositoryDirectory = path.resolve(packageDirectory, "../..");
 const maximumOutputBytes = 1024 * 1024;
 const smokeTimeoutMilliseconds = 10_000;
 const reproducibleTimestamp = new Date("2000-01-01T00:00:00.000Z");
-const reproducibleDosDate = ((2000 - 1980) << 9) | (1 << 5) | 1;
 
 const sourceFiles = new Map([
   ["LICENSE", path.join(packageDirectory, "LICENSE")],
@@ -156,51 +156,6 @@ async function stageBundle(stagingDirectory) {
   await normalizeTimestamps(stagingDirectory);
 }
 
-async function normalizeZipMetadata(bundlePath) {
-  const archive = await readFile(bundlePath);
-  const endOfCentralDirectorySignature = 0x06054b50;
-  const centralDirectorySignature = 0x02014b50;
-  const localFileSignature = 0x04034b50;
-  let endOffset = archive.length - 22;
-  while (endOffset >= 0 && archive.readUInt32LE(endOffset) !== endOfCentralDirectorySignature) {
-    endOffset -= 1;
-  }
-  assert.ok(endOffset >= 0, "MCPB must contain a ZIP end-of-central-directory record.");
-
-  const entryCount = archive.readUInt16LE(endOffset + 10);
-  let centralOffset = archive.readUInt32LE(endOffset + 16);
-  for (let index = 0; index < entryCount; index += 1) {
-    assert.equal(
-      archive.readUInt32LE(centralOffset),
-      centralDirectorySignature,
-      "MCPB central-directory entry is malformed.",
-    );
-    // MCPB's ZIP library records the host OS and POSIX file mode in central-directory fields.
-    // Normalize both so the same reviewed inputs produce identical bytes on macOS and Windows.
-    archive.writeUInt16LE(20, centralOffset + 4);
-    archive.writeUInt16LE(0, centralOffset + 12);
-    archive.writeUInt16LE(reproducibleDosDate, centralOffset + 14);
-    archive.writeUInt16LE(0, centralOffset + 36);
-    archive.writeUInt32LE(0, centralOffset + 38);
-
-    const localOffset = archive.readUInt32LE(centralOffset + 42);
-    assert.equal(
-      archive.readUInt32LE(localOffset),
-      localFileSignature,
-      "MCPB local ZIP entry is malformed.",
-    );
-    archive.writeUInt16LE(0, localOffset + 10);
-    archive.writeUInt16LE(reproducibleDosDate, localOffset + 12);
-
-    centralOffset +=
-      46 +
-      archive.readUInt16LE(centralOffset + 28) +
-      archive.readUInt16LE(centralOffset + 30) +
-      archive.readUInt16LE(centralOffset + 32);
-  }
-  await writeFile(bundlePath, archive);
-}
-
 function parseResponses(stdout) {
   const lines = stdout
     .split(/\r?\n/u)
@@ -304,8 +259,8 @@ async function verifyMcpb() {
     runCli(cliPath, ["validate", path.join(stagingDirectory, "manifest.json")]);
     runCli(cliPath, ["pack", stagingDirectory, bundlePath]);
     runCli(cliPath, ["pack", stagingDirectory, repeatedBundlePath]);
-    await normalizeZipMetadata(bundlePath);
-    await normalizeZipMetadata(repeatedBundlePath);
+    await canonicalizeZipFile(bundlePath);
+    await canonicalizeZipFile(repeatedBundlePath);
     const bundle = await readFile(bundlePath);
     assert.deepEqual(
       await readFile(repeatedBundlePath),
