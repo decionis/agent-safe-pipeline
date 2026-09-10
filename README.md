@@ -185,7 +185,7 @@ the trust boundary between synthetic conformance and production verification.
 
 ## Status
 
-The package is published as [`@decionis/agent-safe-pipeline`](https://www.npmjs.com/package/@decionis/agent-safe-pipeline). Install the latest stable release with `npm install @decionis/agent-safe-pipeline`; prereleases require an explicit version such as `npm install @decionis/agent-safe-pipeline@0.1.3-rc.2`.
+The package is published as [`@decionis/agent-safe-pipeline`](https://www.npmjs.com/package/@decionis/agent-safe-pipeline). Install the latest stable release with `npm install @decionis/agent-safe-pipeline`; prereleases publish under the `next` dist-tag and require an explicit request such as `npm install @decionis/agent-safe-pipeline@next`.
 
 Archived releases are citable under [Zenodo concept DOI
 `10.5281/zenodo.22312955`](https://doi.org/10.5281/zenodo.22312955). The
