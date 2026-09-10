@@ -433,6 +433,18 @@ const refundRequestActionSchema = {
         amount: { type: "number", minimum: 0 },
         currency: currencySchema,
         reason_code: nullableIdentifierSchema,
+        remaining_refundable: {
+          type: "number",
+          minimum: 0,
+          description:
+            "Product amount the order still has left to refund. Enables the refundable-balance rule.",
+        },
+        prior_refund_count: {
+          type: "integer",
+          minimum: 0,
+          description:
+            "Refunds already applied to the same order line. Enables the repeat-refund rule.",
+        },
       },
       additionalProperties: false,
     },

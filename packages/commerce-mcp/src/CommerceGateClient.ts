@@ -123,6 +123,10 @@ export interface RefundRequestAction extends ActionBase {
     amount: number;
     currency?: string;
     reason_code?: string | null;
+    /** Product amount the order still has left to refund, when the agent knows it. */
+    remaining_refundable?: number;
+    /** Refunds already applied to the same order line (the double-refund signal). */
+    prior_refund_count?: number;
   };
 }
 
@@ -465,7 +469,17 @@ function evaluationFacts(action: CommerceAction): EvaluationFacts {
       };
     }
     case "REFUND_REQUEST": {
-      const refund = { refund_amount: action.payload.amount };
+      const remaining = action.payload.remaining_refundable;
+      // Starter policy v2 reads refund_amount (unattended limit),
+      // refund_exceeds_refundable (refundable balance) and prior_refund_count
+      // (repeat refund). The two derived facts exist only when the agent supplied
+      // the balance, so a rule on them cannot fire on a guess.
+      const refund = {
+        refund_amount: action.payload.amount,
+        ...(remaining === undefined
+          ? {}
+          : { refund_exceeds_refundable: action.payload.amount > remaining + 0.00001 }),
+      };
       return {
         amount: action.payload.amount,
         derived: refund,
