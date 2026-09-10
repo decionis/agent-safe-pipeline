@@ -9,12 +9,24 @@ const short = (await read("llms.txt")).trim();
 const full = await read("llms-full.txt");
 if (!full.startsWith(`${short}\n`)) throw new Error("llms-full.txt must embed llms.txt verbatim");
 
-const packageManifest = JSON.parse(await read("packages/pipeline/package.json"));
+const packageDirectories = (await readdir(new URL("packages/", root), { withFileTypes: true }))
+  .filter((entry) => entry.isDirectory())
+  .map((entry) => `packages/${entry.name}`);
+const workspacePackages = new Set();
+for (const directory of packageDirectories) {
+  const manifest = JSON.parse(await read(`${directory}/package.json`));
+  if (!manifest.private) workspacePackages.add(manifest.name);
+}
 const packageInventory = new Set(
   [...full.matchAll(/^- Package: (.+)$/gm)].map((match) => match[1]),
 );
-if (packageInventory.size !== 1 || !packageInventory.has(packageManifest.name)) {
-  throw new Error("llms-full package inventory drifted from packages/pipeline/package.json");
+if (
+  packageInventory.size !== workspacePackages.size ||
+  [...workspacePackages].some((name) => !packageInventory.has(name))
+) {
+  throw new Error(
+    `llms-full package inventory drifted from packages/*/package.json (expected: ${[...workspacePackages].join(", ")})`,
+  );
 }
 
 const exampleDirectories = (await readdir(new URL("examples/", root), { withFileTypes: true }))

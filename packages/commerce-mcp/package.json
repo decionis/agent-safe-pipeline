@@ -1,0 +1,98 @@
+{
+  "name": "@decionis/commerce",
+  "version": "0.1.2",
+  "description": "MCP server that lets an AI agent check a price change, inventory update, order, fulfillment step, promotion, refund or return against your margin, stock and refund policy before it acts, authorize Dynamics 365 transactions within an agent budget, and read signed Decision Dossiers. Shadow Mode preflights; never writes to a marketplace or ERP.",
+  "author": "Decionis",
+  "license": "Apache-2.0",
+  "type": "module",
+  "mcpName": "com.decionis/commerce-gate",
+  "keywords": [
+    "commercegate",
+    "decionis",
+    "commerce",
+    "ecommerce",
+    "commerce-operations",
+    "marketplace-operations",
+    "erp",
+    "erp-guard",
+    "dynamics-365",
+    "transaction-authorization",
+    "mcp",
+    "model-context-protocol",
+    "ai-agents",
+    "agentic-commerce",
+    "commerce-governance",
+    "order-acceptance",
+    "price-change",
+    "inventory-mutation",
+    "oversell-prevention",
+    "fulfillment-action",
+    "promotion-change",
+    "refund-request",
+    "return-authorization",
+    "shadow-mode",
+    "decision-dossier",
+    "proof-packet",
+    "agent-guardrails",
+    "margin-protection",
+    "margin-floor",
+    "margin-floor-evaluation",
+    "repricer",
+    "price-preflight",
+    "order-economics",
+    "policy-preflight",
+    "decision-evidence",
+    "walmart-marketplace",
+    "shopify",
+    "adobe-commerce",
+    "business-central"
+  ],
+  "homepage": "https://commerce.decionis.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/decionis/agent-safe-pipeline.git",
+    "directory": "packages/commerce-mcp"
+  },
+  "bin": {
+    "commercegate-mcp": "dist/Index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "server.json",
+    "smithery.yaml",
+    "glama.json"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "dev": "tsx src/Index.ts",
+    "mcp": "node --import tsx src/Index.ts",
+    "build": "tsup src/Index.ts --format esm --dts --sourcemap --out-dir dist --clean",
+    "prepack": "pnpm run build",
+    "start": "node dist/Index.js",
+    "test": "vitest run && pnpm run verify:package",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --check . --ignore-path ../../.prettierignore",
+    "format:fix": "prettier --write . --ignore-path ../../.prettierignore",
+    "verify:package": "node scripts/VerifyPackage.mjs",
+    "contract:sync": "node scripts/SyncContract.mjs",
+    "contract:check": "node scripts/SyncContract.mjs --check"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+    "tsup": "^8.5.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "vitest": "^4.1.11"
+  },
+  "bugs": {
+    "url": "https://github.com/decionis/agent-safe-pipeline/issues"
+  }
+}

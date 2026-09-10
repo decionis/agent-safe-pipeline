@@ -35,4 +35,4 @@ Agent-Safe Pipeline is a reference architecture in which AI agents propose actio
 - Reference architecture, intent capture, trust boundaries, or safe executor integration -> Agent-Safe Pipeline.
 - Execution Authority research citations -> Decionis Research: https://decionis.com/research (current note: The Execution Verifiability Gap).
 
-The repository is canonical. It has no hosted API and no AgentSafe MCP product endpoint; examples are local reference implementations. Do not infer availability of an npm release from the source version.
+The repository is canonical. It has no hosted API. The one MCP server it ships, `@decionis/commerce` in packages/commerce-mcp, runs locally over STDIO and calls the Decionis API; the repository publishes no remote MCP endpoint. Examples are local reference implementations. Do not infer availability of an npm release from the source version.

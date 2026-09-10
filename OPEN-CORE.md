@@ -18,18 +18,19 @@ business model from the code.
 
 ## What is Apache-2.0 here
 
-| Component                                                                 | Where                                         | Why it is open                                                                                           |
-| ------------------------------------------------------------------------- | --------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `IntentCapture`, `CanonicalIntentHasher`, `agent-safe.intent/1`           | `packages/pipeline/src/intent`                | The intent contract must be independently implementable or the hash binding proves nothing               |
-| `SafeExecutor`, `ActionRegistry`, `AuthorizationVerifier`, `ReplayStore`  | `packages/pipeline/src/execution`             | The execution boundary runs inside the customer's trust domain and must be inspectable                   |
-| `DecionisGate`, `DecionisGrantVerifier`                                   | `packages/pipeline/src/decision`, `execution` | Client adapters for the published Decionis contract; they hold no policy logic                           |
-| `PresenceApprovalCoordinator`                                             | `packages/pipeline/src/approval`              | The evidence-not-authority rule for human approval is part of the architecture, not the product          |
-| `AuditRecorder`, `AuditPolicyRevisionVerifier`, `agent-safe.audit/1`      | `packages/pipeline/src/audit`                 | Customers own their evidence stream; the redaction and immutability rules are public                     |
-| `ShadowPipeline`                                                          | `packages/pipeline/src/shadow`                | The adoption path has to be trustworthy before enforcement is; see [shadow mode](./docs/shadow-mode.md)  |
-| `FixtureDecisionAuthority` and fixture verifier                           | `packages/pipeline/src/decision`              | Development test doubles; refuse to construct under `NODE_ENV=production`                                |
-| `LocalPresence`, `LocalAuthority` (`./testing` entry)                     | `packages/pipeline/src/testing`               | Loopback doubles so anyone can test escalations locally; refuse to construct under `NODE_ENV=production` |
-| Conformance vectors and synthetic Decision Dossier corpus                 | `conformance/`, `dossiers/`                   | Cross-implementation proof that canonicalization and offline verification are stable                     |
-| Examples, synthetic policies, threat model, architecture, release tooling | `examples/`, `policies/`, root docs           | Reference material and reproducible supply-chain evidence                                                |
+| Component                                                                 | Where                                         | Why it is open                                                                                                            |
+| ------------------------------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `IntentCapture`, `CanonicalIntentHasher`, `agent-safe.intent/1`           | `packages/pipeline/src/intent`                | The intent contract must be independently implementable or the hash binding proves nothing                                |
+| `SafeExecutor`, `ActionRegistry`, `AuthorizationVerifier`, `ReplayStore`  | `packages/pipeline/src/execution`             | The execution boundary runs inside the customer's trust domain and must be inspectable                                    |
+| `DecionisGate`, `DecionisGrantVerifier`                                   | `packages/pipeline/src/decision`, `execution` | Client adapters for the published Decionis contract; they hold no policy logic                                            |
+| `PresenceApprovalCoordinator`                                             | `packages/pipeline/src/approval`              | The evidence-not-authority rule for human approval is part of the architecture, not the product                           |
+| CommerceGate MCP server (`@decionis/commerce`)                            | `packages/commerce-mcp`                       | A local STDIO client adapter over the published CommerceGate contract; it holds no policy logic and no marketplace client |
+| `AuditRecorder`, `AuditPolicyRevisionVerifier`, `agent-safe.audit/1`      | `packages/pipeline/src/audit`                 | Customers own their evidence stream; the redaction and immutability rules are public                                      |
+| `ShadowPipeline`                                                          | `packages/pipeline/src/shadow`                | The adoption path has to be trustworthy before enforcement is; see [shadow mode](./docs/shadow-mode.md)                   |
+| `FixtureDecisionAuthority` and fixture verifier                           | `packages/pipeline/src/decision`              | Development test doubles; refuse to construct under `NODE_ENV=production`                                                 |
+| `LocalPresence`, `LocalAuthority` (`./testing` entry)                     | `packages/pipeline/src/testing`               | Loopback doubles so anyone can test escalations locally; refuse to construct under `NODE_ENV=production`                  |
+| Conformance vectors and synthetic Decision Dossier corpus                 | `conformance/`, `dossiers/`                   | Cross-implementation proof that canonicalization and offline verification are stable                                      |
+| Examples, synthetic policies, threat model, architecture, release tooling | `examples/`, `policies/`, root docs           | Reference material and reproducible supply-chain evidence                                                                 |
 
 The two runtime dependencies published by Decionis, `@decionis/presence-node` and
 `@decionis/verify`, are also Apache-2.0.

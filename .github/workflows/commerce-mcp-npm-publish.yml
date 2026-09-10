@@ -1,0 +1,175 @@
+name: Publish CommerceGate MCP to npm
+
+on:
+  workflow_dispatch:
+    inputs:
+      npm_package:
+        description: npm package to verify or publish
+        required: true
+        default: commerce-mcp
+        type: choice
+        options:
+          - commerce-mcp
+      mode:
+        description: Verify only or publish to npm
+        required: true
+        default: verify
+        type: choice
+        options:
+          - verify
+          - publish
+      npm_tag:
+        description: npm dist-tag
+        required: false
+        default: latest
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  NPM_VERSION: "11.16.0"
+
+jobs:
+  npm:
+    if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    name: ${{ inputs.mode }} ${{ inputs.npm_package }}
+    runs-on: ubuntu-latest
+    environment: package-publish
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 9.15.3
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Setup npm with trusted-publishing support
+        run: npm install --global npm@${{ env.NPM_VERSION }} --no-audit --no-fund
+
+      - name: Resolve selected package
+        id: package
+        shell: bash
+        env:
+          SELECTED_PACKAGE: ${{ inputs.npm_package }}
+        run: |
+          set -euo pipefail
+
+          case "${SELECTED_PACKAGE}" in
+            commerce-mcp)
+              package_directory="packages/commerce-mcp"
+              gate_action="npm-publish-decionis-commerce-mcp"
+              ;;
+            *)
+              echo "::error::Unsupported npm package selector: ${SELECTED_PACKAGE}"
+              exit 1
+              ;;
+          esac
+
+          package_manifest="${package_directory}/package.json"
+          package_name="$(node -p "require('./${package_manifest}').name")"
+          package_version="$(node -p "require('./${package_manifest}').version")"
+
+          test -n "${package_name}"
+          test -n "${package_version}"
+
+          {
+            echo "directory=${package_directory}"
+            echo "name=${package_name}"
+            echo "version=${package_version}"
+            echo "gate_action=${gate_action}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck selected package
+        env:
+          PACKAGE_NAME: ${{ steps.package.outputs.name }}
+        run: pnpm --filter "${PACKAGE_NAME}" typecheck
+
+      - name: Test selected package
+        env:
+          PACKAGE_NAME: ${{ steps.package.outputs.name }}
+        run: pnpm --filter "${PACKAGE_NAME}" test
+
+      - name: Build selected package
+        env:
+          PACKAGE_NAME: ${{ steps.package.outputs.name }}
+        run: pnpm --filter "${PACKAGE_NAME}" build
+
+      - name: Lint selected package
+        env:
+          PACKAGE_NAME: ${{ steps.package.outputs.name }}
+        run: pnpm --filter "${PACKAGE_NAME}" lint
+
+      # Publishes through npm trusted publishing over GitHub OIDC. This repository
+      # is public, so npm provenance is available once the trusted publisher for
+      # @decionis/commerce points at this repository and workflow. NODE_AUTH_TOKEN
+      # stays as the fallback until that is configured. The Decionis gate runs
+      # before the mutation, as in every other Decionis release workflow.
+      - name: Decionis Action Gate (shadow)
+        if: ${{ inputs.mode == 'publish' }}
+        continue-on-error: true
+        uses: decionis/govern@v1
+        with:
+          api-key: ${{ secrets.DECIONIS_API_KEY }}
+          org-id: ${{ secrets.DECIONIS_ORG_ID }}
+          workflow-key: github_deploy_approval
+          action: ${{ steps.package.outputs.gate_action }}
+          mode: shadow
+          payload: |
+            {
+              "artifact": "${{ steps.package.outputs.name }}",
+              "version": "${{ steps.package.outputs.version }}",
+              "npm_tag": "${{ inputs.npm_tag }}",
+              "sha": "${{ github.sha }}",
+              "actor": "${{ github.actor }}"
+            }
+
+      - name: Publish selected package
+        if: ${{ inputs.mode == 'publish' }}
+        shell: bash
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_TAG: ${{ inputs.npm_tag }}
+          PACKAGE_DIRECTORY: ${{ steps.package.outputs.directory }}
+          PACKAGE_NAME: ${{ steps.package.outputs.name }}
+          PACKAGE_VERSION: ${{ steps.package.outputs.version }}
+        run: |
+          set -euo pipefail
+          test -n "${NPM_TAG}"
+
+          if published_version="$(npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version \
+            --json --registry https://registry.npmjs.org 2>/dev/null)"; then
+            published_version="$(jq -er 'if type == "array" then .[0] else . end' <<< "${published_version}")"
+            if [[ "${published_version}" != "${PACKAGE_VERSION}" ]]; then
+              echo "::error::npm returned ${published_version} for ${PACKAGE_NAME}@${PACKAGE_VERSION}; refusing to skip publication."
+              exit 1
+            fi
+
+            if ! dist_tags="$(npm view "${PACKAGE_NAME}" dist-tags \
+              --json --registry https://registry.npmjs.org)"; then
+              echo "::error::Unable to read dist-tags for existing package ${PACKAGE_NAME}."
+              exit 1
+            fi
+            tagged_version="$(jq -r --arg tag "${NPM_TAG}" '.[$tag] // ""' <<< "${dist_tags}")"
+
+            if [[ "${tagged_version}" != "${PACKAGE_VERSION}" ]]; then
+              echo "::error::${PACKAGE_NAME}@${PACKAGE_VERSION} already exists, but dist-tag '${NPM_TAG}' resolves to '${tagged_version:-<unset>}' instead of '${PACKAGE_VERSION}'. Refusing to skip or mutate the tag."
+              exit 1
+            fi
+
+            echo "${PACKAGE_NAME}@${PACKAGE_VERSION} is already published and dist-tag '${NPM_TAG}' matches; skipping."
+            exit 0
+          fi
+
+          cd "${PACKAGE_DIRECTORY}"
+          npm publish \
+            --access public \
+            --tag "${NPM_TAG}"
