@@ -76,68 +76,20 @@ function objectKeys(value: unknown): string[] {
 }
 
 describe("CommerceGate discovery drift", () => {
-  it("set-compares registered tools with the README, registry manifest and desktop-extension manifest", async () => {
-    const [readme, serverManifest, mcpbManifest] = await Promise.all([
+  it("set-compares registered tools with the README and canonical directory listing", async () => {
+    const [readme, serverManifest, directoryListingText] = await Promise.all([
       readFile(new URL("../README.md", import.meta.url), "utf8"),
       readFile(new URL("../server.json", import.meta.url), "utf8"),
-      readFile(new URL("../manifest.json", import.meta.url), "utf8"),
+      readFile(new URL("../directory-listing.json", import.meta.url), "utf8"),
     ]);
-    const mcpb = JSON.parse(mcpbManifest) as { tools: Array<{ name: string }> };
+    const directoryListing = JSON.parse(directoryListingText) as {
+      tools: Array<{ name: string }>;
+    };
 
     expect(namesIn(readme)).toEqual(expectedNames);
-    expect(mcpb.tools.map((tool) => tool.name).sort()).toEqual(expectedNames);
+    expect(directoryListing.tools.map((tool) => tool.name).sort()).toEqual(expectedNames);
     // server.json carries no tool list by design; it must at least not name a tool we do not ship.
     expect(namesIn(serverManifest).every((name) => expectedNameSet.has(name))).toBe(true);
-  });
-
-  it("keeps the MCPB desktop-extension manifest in step with the package and the privacy policy", async () => {
-    const [manifestText, packageText, readme] = await Promise.all([
-      readFile(new URL("../manifest.json", import.meta.url), "utf8"),
-      readFile(new URL("../package.json", import.meta.url), "utf8"),
-      readFile(new URL("../README.md", import.meta.url), "utf8"),
-    ]);
-    const manifest = JSON.parse(manifestText) as {
-      manifest_version: string;
-      version: string;
-      tools: Array<{ name: string; description: string }>;
-      privacy_policies: string[];
-      server: { type: string; entry_point: string; mcp_config: { env: Record<string, string> } };
-      user_config: Record<string, { sensitive?: boolean }>;
-      compatibility: { runtimes: { node: string } };
-    };
-    const packageManifest = JSON.parse(packageText) as {
-      version: string;
-      bin: Record<string, string>;
-      engines: { node: string };
-    };
-
-    expect(Number(manifest.manifest_version)).toBeGreaterThanOrEqual(0.2);
-    expect(manifest.version).toBe(packageManifest.version);
-    expect(manifest.tools.map((tool) => tool.name).sort()).toEqual(expectedNames);
-    for (const tool of manifest.tools) expect(tool.description.length).toBeGreaterThan(20);
-    expect(manifest.server.type).toBe("node");
-    expect(Object.values(packageManifest.bin)).toContain(manifest.server.entry_point);
-    expect(Object.keys(manifest.server.mcp_config.env).sort()).toEqual([
-      "DECIONIS_API_BASE",
-      "DECIONIS_API_KEY",
-      "DECIONIS_ORG_ID",
-    ]);
-    expect(manifest.user_config.decionis_api_key.sensitive).toBe(true);
-    expect(manifest.compatibility.runtimes.node).toBe(`${packageManifest.engines.node}.0.0`);
-
-    // Anthropic rejects desktop extensions without a privacy policy in both places.
-    expect(manifest.privacy_policies.length).toBeGreaterThan(0);
-    for (const url of manifest.privacy_policies) expect(url).toMatch(/^https:\/\//);
-    expect(readme).toMatch(/^## Privacy Policy$/m);
-    for (const topic of [
-      "collect",
-      "stor",
-      "Third parties",
-      "retention",
-      "commerce@decionis.com",
-    ]) {
-      expect(readme.slice(readme.indexOf("## Privacy Policy"))).toMatch(new RegExp(topic, "i"));
-    }
   });
 
   it("derives every public package entry point from the npm package manifest", async () => {

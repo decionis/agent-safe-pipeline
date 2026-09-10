@@ -2,7 +2,9 @@
 
 Agent-Safe Pipeline is maintained as the public reference implementation for an execution boundary
 where agents may propose actions but cannot authorize their own execution. Governance decisions
-must preserve that boundary, the Apache-2.0 license, and truthful public evidence.
+must preserve that boundary, the package-specific license boundaries, and truthful public evidence.
+The pipeline and CommerceGate runtime remain Apache-2.0; the dedicated Claude Desktop wrapper
+remains MIT-licensed and preserves the runtime's Apache attribution.
 
 ## Roles and current maintainers
 

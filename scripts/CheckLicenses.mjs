@@ -4,6 +4,9 @@ import { spawnSync } from "node:child_process";
 
 const APACHE_2_CANONICAL_SHA256 =
   "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30";
+const COMMERCEGATE_EXTENSION_MIT_SHA256 =
+  "cbc49796baa849d838099985b54644fd837896b2554825bd540559f0816209b9";
+const REPOSITORY_NOTICE_SHA256 = "a30e1a182522a04ad586c296730a588f310ab5f0f5ba914bc148f3486cd015e6";
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const policy = JSON.parse(await readFile("license-policy.json", "utf8"));
 const inventory = spawnSync(pnpm, ["licenses", "list", "--json"], {
@@ -99,7 +102,21 @@ const repositoryLicense = await readFile("LICENSE", "utf8");
 const packageLicense = await readFile("packages/pipeline/LICENSE", "utf8");
 const repositoryNotice = await readFile("NOTICE", "utf8");
 const packageNotice = await readFile("packages/pipeline/NOTICE", "utf8");
+const commercePackageLicense = await readFile("packages/commerce-mcp/LICENSE", "utf8");
+const commercePackageManifest = JSON.parse(
+  await readFile("packages/commerce-mcp/package.json", "utf8"),
+);
+const extensionLicense = await readFile("packages/commerce-mcp-claude-extension/LICENSE", "utf8");
+const extensionManifest = JSON.parse(
+  await readFile("packages/commerce-mcp-claude-extension/package.json", "utf8"),
+);
+const extensionNotices = await readFile(
+  "packages/commerce-mcp-claude-extension/THIRD_PARTY_NOTICES.md",
+  "utf8",
+);
 const licenseDigest = createHash("sha256").update(repositoryLicense).digest("hex");
+const noticeDigest = createHash("sha256").update(repositoryNotice).digest("hex");
+const extensionLicenseDigest = createHash("sha256").update(extensionLicense).digest("hex");
 
 if (licenseDigest !== APACHE_2_CANONICAL_SHA256) {
   throw new Error(
@@ -111,6 +128,41 @@ if (packageLicense !== repositoryLicense) {
 }
 if (packageNotice !== repositoryNotice) {
   throw new Error("packages/pipeline/NOTICE must match the repository NOTICE");
+}
+if (noticeDigest !== REPOSITORY_NOTICE_SHA256) {
+  throw new Error(
+    `NOTICE drifted from the reviewed attribution text (expected SHA-256 ${REPOSITORY_NOTICE_SHA256})`,
+  );
+}
+if (
+  commercePackageManifest.license !== "Apache-2.0" ||
+  commercePackageLicense !== repositoryLicense.slice(1)
+) {
+  throw new Error("packages/commerce-mcp must retain the canonical Apache-2.0 license");
+}
+if (
+  extensionManifest.license !== "MIT" ||
+  extensionLicenseDigest !== COMMERCEGATE_EXTENSION_MIT_SHA256
+) {
+  throw new Error("packages/commerce-mcp-claude-extension must retain its canonical MIT license");
+}
+if (
+  extensionManifest.devDependencies?.["@decionis/commerce"] !==
+  `workspace:${commercePackageManifest.version}`
+) {
+  throw new Error(
+    "Claude extension must pin the Apache CommerceGate runtime as a build dependency",
+  );
+}
+for (const requiredAttribution of [
+  "runtime remains licensed under Apache License 2.0",
+  "vendor/commerce-mcp/LICENSE",
+  "vendor/commerce-mcp/NOTICE",
+  "vendor/commerce-mcp/package.json",
+]) {
+  if (!extensionNotices.includes(requiredAttribution)) {
+    throw new Error(`Claude extension third-party notice is missing: ${requiredAttribution}`);
+  }
 }
 
 const exampleManifests = (await readdir("examples", { withFileTypes: true }))

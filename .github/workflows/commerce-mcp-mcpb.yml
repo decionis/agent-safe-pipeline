@@ -1,11 +1,14 @@
-name: Validate CommerceGate Claude Desktop bundle
+name: Validate CommerceGate Claude Desktop extension
 
 on:
   pull_request:
     branches: [master]
     paths:
+      - ".gitattributes"
       - ".github/workflows/commerce-mcp-mcpb.yml"
+      - "NOTICE"
       - "packages/commerce-mcp/**"
+      - "packages/commerce-mcp-claude-extension/**"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
   workflow_dispatch:
@@ -34,7 +37,7 @@ jobs:
           mode: shadow
           payload: |
             {
-              "artifact": "@decionis/commerce",
+              "artifact": "@decionis/commercegate-claude-extension",
               "platform": "${{ matrix.os }}",
               "sha": "${{ github.event.pull_request.head.sha || github.sha }}",
               "actor": "${{ github.actor }}"
@@ -70,10 +73,42 @@ jobs:
       - name: Build CommerceGate MCP
         run: pnpm --filter @decionis/commerce build
 
-      - name: Install pinned MCPB CLI
-        run: npm install --prefix "${{ runner.temp }}/commerce-mcpb-cli" @anthropic-ai/mcpb@2.1.2 --ignore-scripts --no-audit --no-fund
+      - name: Build and test MIT extension wrapper
+        run: pnpm --filter @decionis/commercegate-claude-extension build && pnpm --filter @decionis/commercegate-claude-extension test
 
       - name: Validate, pack, unpack, and smoke test MCPB
         env:
-          MCPB_CLI_PATH: ${{ runner.temp }}/commerce-mcpb-cli/node_modules/@anthropic-ai/mcpb/dist/cli/cli.js
-        run: node packages/commerce-mcp/scripts/VerifyMcpb.mjs
+          MCPB_CLI_PATH: packages/commerce-mcp-claude-extension/node_modules/@anthropic-ai/mcpb/dist/cli/cli.js
+        run: node packages/commerce-mcp-claude-extension/scripts/VerifyMcpb.mjs --output "${{ runner.temp }}/decionis-commercegate.mcpb"
+
+      - name: Upload deterministic MCPB
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: commercegate-mcpb-${{ matrix.os }}
+          path: ${{ runner.temp }}/decionis-commercegate.mcpb
+          if-no-files-found: error
+          retention-days: 1
+
+  reproducibility:
+    name: MCPB — cross-platform reproducibility
+    needs: mcpb
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+
+      - name: Download platform bundles
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: commercegate-mcpb-*
+          path: artifacts
+
+      - name: Compare macOS and Windows bytes
+        run: |
+          cmp \
+            artifacts/commercegate-mcpb-macos-latest/decionis-commercegate.mcpb \
+            artifacts/commercegate-mcpb-windows-latest/decionis-commercegate.mcpb
+          sha256sum artifacts/commercegate-mcpb-*/decionis-commercegate.mcpb

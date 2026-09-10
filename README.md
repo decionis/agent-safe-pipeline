@@ -77,6 +77,7 @@ See the [package README](./packages/pipeline/README.md) for the complete enforce
 
 - [`packages/pipeline`](./packages/pipeline) — `IntentCapture`, `DecionisGate`, Presence coordination, and `SafeExecutor`.
 - [`packages/commerce-mcp`](./packages/commerce-mcp) — `@decionis/commerce`, the CommerceGate MCP server: lets an AI agent check a price change, stock change, order, fulfillment step, promotion, refund or return against the merchant's policy before acting, and read the signed record afterwards. A client adapter over the published Decionis contract; it holds no policy and contains no marketplace client.
+- [`packages/commerce-mcp-claude-extension`](./packages/commerce-mcp-claude-extension) — the dedicated MIT-licensed Claude Desktop wrapper and packaging checks. Its MCPB vendors the unchanged Apache-2.0 CommerceGate runtime with that runtime's license and notice.
 - [`examples/golden-adversarial-demo`](./examples/golden-adversarial-demo) — the self-checking proof: one golden path, eight attacks, zero unauthorized executions.
 - [`examples/basic-agent`](./examples/basic-agent) — the smallest BLOCK flow.
 - [`examples/shopify-refund-agent`](./examples/shopify-refund-agent) — amount-based ALLOW / ESCALATE / BLOCK.
@@ -150,7 +151,7 @@ Companion notes on the Execution Authority model, the authorization protocol, Pr
 
 ## Open core
 
-Everything in this repository is Apache-2.0: the architecture, the intent contract, the execution boundary, the client adapters, the audit contract, shadow mode, the conformance vectors, and the examples. Decionis operates the policy control plane behind `DecionisGate`: policy evaluation, grant issuance and atomic consumption, Decision Dossier signing and retention, and Presence. The seam is two exported interfaces, `DecisionAuthority` and `AuthorizationVerifier`, plus a published OpenAPI contract; the library checks no plan, key, or entitlement. [`OPEN-CORE.md`](./OPEN-CORE.md) states the boundary and the commitments that keep it stable.
+The architecture, intent contract, execution boundary, client adapters, audit contract, shadow mode, conformance vectors, examples, and `@decionis/commerce` runtime are Apache-2.0. The narrowly scoped Claude Desktop wrapper in [`packages/commerce-mcp-claude-extension`](./packages/commerce-mcp-claude-extension) is MIT-licensed to satisfy that directory's extension requirement; its bundle preserves the CommerceGate runtime as a separate Apache-2.0 artifact with license and notice. Decionis operates the policy control plane behind `DecionisGate`: policy evaluation, grant issuance and atomic consumption, Decision Dossier signing and retention, and Presence. The seam is two exported interfaces, `DecisionAuthority` and `AuthorizationVerifier`, plus a published OpenAPI contract; the library checks no plan, key, or entitlement. [`OPEN-CORE.md`](./OPEN-CORE.md) states the boundary and the commitments that keep it stable.
 
 ## Public-repository policy
 
@@ -239,4 +240,4 @@ See [`FIXTURE-PROVENANCE.md`](./FIXTURE-PROVENANCE.md) for the full construction
 [`tests/integration/contract/`](./tests/integration/contract/) for the loopback harness that
 follows them.
 
-Apache-2.0 licensed. See [`LICENSE`](./LICENSE), [`TRADEMARKS.md`](./TRADEMARKS.md), [`SECURITY.md`](./SECURITY.md), and [`CONTRIBUTING.md`](./CONTRIBUTING.md). Report suspected vulnerabilities through [GitHub's private advisory form](https://github.com/decionis/agent-safe-pipeline/security/advisories/new), not a public issue.
+Apache-2.0 licensed except for the explicitly scoped MIT Claude Desktop wrapper in [`packages/commerce-mcp-claude-extension`](./packages/commerce-mcp-claude-extension). See [`LICENSE`](./LICENSE), [`OPEN-CORE.md`](./OPEN-CORE.md), [`TRADEMARKS.md`](./TRADEMARKS.md), [`SECURITY.md`](./SECURITY.md), and [`CONTRIBUTING.md`](./CONTRIBUTING.md). Report suspected vulnerabilities through [GitHub's private advisory form](https://github.com/decionis/agent-safe-pipeline/security/advisories/new), not a public issue.

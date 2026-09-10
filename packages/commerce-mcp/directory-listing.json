@@ -1,0 +1,81 @@
+{
+  "name": "decionis-commercegate",
+  "display_name": "Decionis CommerceGate",
+  "description": "Check a price change, order, refund or return against your commerce policy before an agent acts. Never writes to a marketplace.",
+  "long_description": "Decionis CommerceGate lets an AI agent ask one question before it touches a marketplace: is this allowed under our policy?\n\nIt checks seven kinds of commerce action in Shadow Mode: a price change, a stock change, accepting an order, a fulfillment step, a promotion change, a refund, or a return authorization. The answer is PROCEED, HOLD or BLOCK with the math behind it: net margin after landed cost and marketplace fees against your margin floor, quantity against your inventory floor, refund amount against what the order has left to refund. Every policy decision is recorded in a signed Decision Dossier that finance can verify months later.\n\nAsk it things like:\n\n- \"Would repricing this SKU to $89 on Walmart still clear our margin floor after the referral fee?\"\n- \"Is it safe to accept this 40-unit order with the stock we have left?\"\n- \"Can the support bot refund $2,850 on this order?\"\n- \"What would Shadow Mode have held this month, and why?\"\n\nFor Dynamics 365 Business Central, a separate tool returns an enforced ALLOW or BLOCK for one complete transaction within the agent's spend budget.\n\nWhat it never does: CommerceGate does not accept, ship, cancel, refund, reprice or change stock on any platform. It evaluates and reads evidence; a person or the connected system still executes. A PROCEED is a policy result, not consent.\n\nSetup: runs locally as a Node.js process. Capability discovery works with no credentials. Tenant checks need DECIONIS_API_KEY and DECIONIS_ORG_ID from your Decionis workspace (free Shadow Mode, no time limit).\n\nBuilt by Decionis for marketplace operations, pricing, finance and automation teams on Walmart Marketplace, Shopify, Adobe Commerce and Dynamics 365 Business Central. Documentation: https://commerce.decionis.com/mcp",
+  "user_config": {
+    "decionis_api_key": {
+      "type": "string",
+      "title": "Decionis API key",
+      "description": "From your Decionis workspace. Needed for policy checks and evidence reads; leave empty to run in describe-only mode.",
+      "required": false,
+      "sensitive": true
+    },
+    "decionis_org_id": {
+      "type": "string",
+      "title": "Decionis organization ID",
+      "description": "The organization UUID every policy check is scoped to. Cannot be overridden by a tool call.",
+      "required": false,
+      "sensitive": false
+    },
+    "decionis_api_base": {
+      "type": "string",
+      "title": "Decionis API origin",
+      "description": "Leave as the default unless Decionis gave you a dedicated origin.",
+      "required": false,
+      "sensitive": false,
+      "default": "https://api.decionis.com"
+    }
+  },
+  "tools": [
+    {
+      "name": "commercegate_describe_capabilities",
+      "description": "What CommerceGate can check, how it answers, and whether it is connected to a workspace. Works without credentials."
+    },
+    {
+      "name": "commercegate_evaluate_action",
+      "description": "Check a price change, stock change, order acceptance, fulfillment step, promotion change, refund or return against policy in Shadow Mode before acting."
+    },
+    {
+      "name": "commercegate_validate_erp_transaction",
+      "description": "Enforced ALLOW or BLOCK for one complete Dynamics 365 Business Central transaction within the agent's spend budget."
+    },
+    {
+      "name": "commercegate_get_dossier",
+      "description": "Read the signed Decision Dossier behind a decision: why it was held, allowed or blocked and under which policy version."
+    },
+    {
+      "name": "commercegate_get_proof_packet",
+      "description": "Read the proof packet for a dossier when finance or an auditor asks for signed evidence."
+    },
+    {
+      "name": "commercegate_list_shadow_reports",
+      "description": "List what Shadow Mode would have held or blocked recently, and why."
+    },
+    {
+      "name": "commercegate_summarize_shadow_reports",
+      "description": "Totals for a period: near misses, policy mismatches and the order value reviewed, to judge whether to turn enforcement on."
+    }
+  ],
+  "keywords": [
+    "ecommerce",
+    "marketplace operations",
+    "pricing",
+    "margin floor",
+    "overselling",
+    "refund limits",
+    "guardrails",
+    "walmart",
+    "shopify",
+    "adobe commerce",
+    "dynamics 365",
+    "audit trail"
+  ],
+  "compatibility": {
+    "claude_desktop": ">=1.0.0",
+    "platforms": ["darwin", "win32"],
+    "runtimes": {
+      "node": ">=20.0.0"
+    }
+  }
+}
