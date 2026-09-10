@@ -50,8 +50,8 @@
   "homepage": "https://commerce.decionis.com",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/decionis/Commerce.git",
-    "directory": "apps/mcp"
+    "url": "git+https://github.com/decionis/agent-safe-pipeline.git",
+    "directory": "packages/commerce-mcp"
   },
   "bin": {
     "commercegate-mcp": "dist/Index.js"
@@ -81,13 +81,18 @@
     "lint": "eslint .",
     "format": "prettier --check . --ignore-path ../../.prettierignore",
     "format:fix": "prettier --write . --ignore-path ../../.prettierignore",
-    "verify:package": "node scripts/VerifyPackage.mjs"
+    "verify:package": "node scripts/VerifyPackage.mjs",
+    "contract:sync": "node scripts/SyncContract.mjs",
+    "contract:check": "node scripts/SyncContract.mjs --check"
   },
   "devDependencies": {
     "@types/node": "^20.11.30",
     "tsup": "^8.5.1",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3",
-    "vitest": "^2.1.9"
+    "vitest": "^4.1.11"
+  },
+  "bugs": {
+    "url": "https://github.com/decionis/agent-safe-pipeline/issues"
   }
 }

@@ -35,5 +35,10 @@
         }
       ]
     }
-  ]
+  ],
+  "repository": {
+    "url": "https://github.com/decionis/agent-safe-pipeline",
+    "source": "github",
+    "subfolder": "packages/commerce-mcp"
+  }
 }

@@ -1,17 +1,7 @@
-import { readdir, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 
 import { describe, expect, it } from "vitest";
 
-import {
-  COMMERCEGATE_NPM_INSTALL_COMMAND,
-  COMMERCEGATE_NPM_PACKAGE,
-  COMMERCEGATE_NPM_SPECIFIER,
-  COMMERCEGATE_NPM_URL,
-  COMMERCEGATE_NPM_VERSION,
-  buildLlmsFullText,
-  buildLlmsText,
-  commerceGateMcpCard,
-} from "../../commerce-dashboard/app/discovery/MachineDiscovery.js";
 import type {
   CommerceGateApi,
   EvaluateActionInput,
@@ -19,11 +9,7 @@ import type {
 } from "../src/CommerceGateClient.js";
 import { COMMERCEGATE_API_OPERATIONS, SUPPORTED_ACTION_TYPES } from "../src/CommerceGateClient.js";
 import { CommerceGateConfiguration } from "../src/Configuration.js";
-import {
-  COMMERCEGATE_ACTION_SUPPORT,
-  COMMERCEGATE_TOOL_NAMES,
-  CommerceGateTools,
-} from "../src/Tools.js";
+import { COMMERCEGATE_TOOL_NAMES, CommerceGateTools } from "../src/Tools.js";
 
 interface JsonSchema {
   type?: string | string[];
@@ -67,15 +53,14 @@ function namesIn(text: string): string[] {
 const expectedNames = [...COMMERCEGATE_TOOL_NAMES].sort();
 const expectedNameSet = new Set<string>(expectedNames);
 
+/**
+ * The vendored copy of https://commerce.decionis.com/.well-known/openapi.json.
+ * Refresh with `pnpm contract:sync`; `pnpm contract:check` compares it with
+ * the published contract. Tests never reach the network.
+ */
 async function readPublishedOpenApi(): Promise<CommerceOpenApi> {
   return JSON.parse(
-    await readFile(
-      new URL(
-        "../../commerce-dashboard/app/discovery/CommerceGateErpOpenApi.generated.json",
-        import.meta.url,
-      ),
-      "utf8",
-    ),
+    await readFile(new URL("../contract/CommerceGateOpenApi.json", import.meta.url), "utf8"),
   ) as CommerceOpenApi;
 }
 
@@ -91,19 +76,18 @@ function objectKeys(value: unknown): string[] {
 }
 
 describe("CommerceGate discovery drift", () => {
-  it("set-compares registered tools with the public card, README, and root agent allowlist", async () => {
-    const [dashboardDiscovery, readme, codexConfig] = await Promise.all([
-      readFile(
-        new URL("../../commerce-dashboard/app/discovery/MachineDiscovery.ts", import.meta.url),
-        "utf8",
-      ),
+  it("set-compares registered tools with the README, registry manifest and desktop-extension manifest", async () => {
+    const [readme, serverManifest, mcpbManifest] = await Promise.all([
       readFile(new URL("../README.md", import.meta.url), "utf8"),
-      readFile(new URL("../../../.codex/config.toml", import.meta.url), "utf8"),
+      readFile(new URL("../server.json", import.meta.url), "utf8"),
+      readFile(new URL("../manifest.json", import.meta.url), "utf8"),
     ]);
+    const mcpb = JSON.parse(mcpbManifest) as { tools: Array<{ name: string }> };
 
-    expect(namesIn(dashboardDiscovery)).toEqual(expectedNames);
     expect(namesIn(readme)).toEqual(expectedNames);
-    expect(namesIn(codexConfig)).toEqual(expectedNames);
+    expect(mcpb.tools.map((tool) => tool.name).sort()).toEqual(expectedNames);
+    // server.json carries no tool list by design; it must at least not name a tool we do not ship.
+    expect(namesIn(serverManifest).every((name) => expectedNameSet.has(name))).toBe(true);
   });
 
   it("keeps the MCPB desktop-extension manifest in step with the package and the privacy policy", async () => {
@@ -172,12 +156,6 @@ describe("CommerceGate discovery drift", () => {
     const stablePackage = `${packageDocument.name}@${packageDocument.version}`;
     const npmUrl = `https://www.npmjs.com/package/${packageDocument.name}`;
 
-    expect(COMMERCEGATE_NPM_PACKAGE).toBe(packageDocument.name);
-    expect(COMMERCEGATE_NPM_VERSION).toBe(packageDocument.version);
-    expect(COMMERCEGATE_NPM_SPECIFIER).toBe(stablePackage);
-    expect(COMMERCEGATE_NPM_URL).toBe(npmUrl);
-    expect(COMMERCEGATE_NPM_INSTALL_COMMAND).toBe(`npx -y ${stablePackage}`);
-
     expect(server.name).toBe(packageDocument.mcpName);
     expect(server.version).toBe(packageDocument.version);
     expect(server.packages).toEqual([
@@ -196,59 +174,12 @@ describe("CommerceGate discovery drift", () => {
     expect(smitheryManifest).toContain('command: "npx"');
     expect(smitheryManifest).toContain(`args: ["-y", "${stablePackage}"]`);
 
-    const card = commerceGateMcpCard();
-    expect(card).toMatchObject({
-      name: packageDocument.mcpName,
-      version: packageDocument.version,
-      distribution: {
-        npm: {
-          identifier: packageDocument.name,
-          version: packageDocument.version,
-          url: npmUrl,
-          install: `npx -y ${stablePackage}`,
-        },
-      },
-      transports: [{ type: "stdio", command: "npx", args: ["-y", stablePackage] }],
+    const repository = server.repository as { url: string; source: string; subfolder?: string };
+    expect(repository).toEqual({
+      url: "https://github.com/decionis/agent-safe-pipeline",
+      source: "github",
+      subfolder: "packages/commerce-mcp",
     });
-
-    const llmsText = buildLlmsText();
-    const llmsFullText = buildLlmsFullText();
-    for (const machineText of [llmsText, llmsFullText]) {
-      expect(machineText).toContain(stablePackage);
-      expect(machineText).toContain(npmUrl);
-      expect(machineText).toContain(`npx -y ${stablePackage}`);
-    }
-    expect(llmsFullText).toContain(`MCP identity: ${packageDocument.mcpName}`);
-  });
-
-  it("keeps repository agent configuration on local pnpm dogfooding", async () => {
-    const codexConfig = await readFile(
-      new URL("../../../.codex/config.toml", import.meta.url),
-      "utf8",
-    );
-    const localArgs = 'args = ["--silent", "--filter", "@decionis/commerce", "mcp"]';
-
-    expect(codexConfig).toContain('command = "pnpm"');
-    expect(codexConfig).toContain(localArgs);
-  });
-
-  it("keeps every specialist allowlist inside the registered catalog", async () => {
-    const agentsDirectory = new URL("../../../.codex/agents/", import.meta.url);
-    const files = (await readdir(agentsDirectory)).filter((file) => file.endsWith(".toml"));
-    const byFile = new Map<string, string[]>();
-
-    for (const file of files) {
-      const contents = await readFile(new URL(file, agentsDirectory), "utf8");
-      const names = namesIn(contents);
-      expect(names.every((name) => expectedNameSet.has(name))).toBe(true);
-      expect(contents).toContain('command = "pnpm"');
-      expect(contents).toContain('args = ["--silent", "--filter", "@decionis/commerce", "mcp"]');
-      byFile.set(file, names);
-    }
-
-    expect(byFile.get("CommerceOperator.toml")).toEqual(expectedNames);
-    expect(byFile.get("CommerceIntegrationEngineer.toml")).toEqual(expectedNames);
-    expect(Array.from(new Set([...byFile.values()].flat())).sort()).toEqual(expectedNames);
   });
 
   it("pins every client route and operationId to the published OpenAPI contract", async () => {
@@ -273,13 +204,6 @@ describe("CommerceGate discovery drift", () => {
     expect(publishedTools).toEqual(
       expectedNames.filter((name) => name !== "commercegate_describe_capabilities"),
     );
-  });
-
-  it("keeps machine discovery aligned with the MCP action and connector boundary", () => {
-    const card = commerceGateMcpCard();
-
-    expect(card.supported_action_types).toEqual(SUPPORTED_ACTION_TYPES);
-    expect(card.action_support).toEqual(COMMERCEGATE_ACTION_SUPPORT);
   });
 
   it("publishes the response fields and bounds required by the CommerceGate client", async () => {

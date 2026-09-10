@@ -1,3 +1,4 @@
+import type { Readable, Writable } from "node:stream";
 import { once } from "node:events";
 
 import type { ToolDefinition } from "./Tools.js";
@@ -31,10 +32,7 @@ function error(id: unknown, code: number, message: string): JsonRpcResponse {
   return { jsonrpc: "2.0", id, error: { code, message } };
 }
 
-async function writeResponse(
-  output: NodeJS.WritableStream,
-  response: JsonRpcResponse,
-): Promise<void> {
+async function writeResponse(output: Writable, response: JsonRpcResponse): Promise<void> {
   if (output.write(`${JSON.stringify(response)}\n`)) return;
   await once(output, "drain");
 }
@@ -210,8 +208,8 @@ export class CommerceGateStdioServer {
   static async run(
     handler: (message: unknown) => Promise<JsonRpcResponse | null>,
     streams: {
-      input?: NodeJS.ReadableStream;
-      output?: NodeJS.WritableStream;
+      input?: Readable;
+      output?: Writable;
       maximumRequestBytes?: number;
       maximumInFlight?: number;
     } = {},

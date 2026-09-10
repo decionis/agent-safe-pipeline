@@ -24,8 +24,8 @@ describe("CommerceGate distribution metadata", () => {
       license: "Apache-2.0",
       repository: {
         type: "git",
-        url: "git+https://github.com/decionis/Commerce.git",
-        directory: "apps/mcp",
+        url: "git+https://github.com/decionis/agent-safe-pipeline.git",
+        directory: "packages/commerce-mcp",
       },
     });
     expect(packageJson.version).toBe(MCP_SERVER_VERSION);
@@ -45,7 +45,12 @@ describe("CommerceGate distribution metadata", () => {
     });
     expect(server.packages).toHaveLength(1);
     expect(server._meta).toBeUndefined();
-    expect(server.repository).toBeUndefined();
+    // The source is public in agent-safe-pipeline; registries that link source read this.
+    expect(server.repository).toEqual({
+      url: "https://github.com/decionis/agent-safe-pipeline",
+      source: "github",
+      subfolder: "packages/commerce-mcp",
+    });
     expect(server.remotes).toBeUndefined();
   });
 

@@ -10,7 +10,7 @@ export default [
   regexp.configs["flat/recommended"],
   { rules: { "regexp/no-super-linear-move": ["error", { report: "potential" }] } },
   {
-    files: ["scripts/**/*.mjs", "test/**/*.mjs", "tests/**/*.mjs"],
+    files: ["scripts/**/*.mjs", "test/**/*.mjs", "tests/**/*.mjs", "packages/*/scripts/**/*.mjs"],
     languageOptions: { globals: globals.node },
   },
   {
@@ -26,6 +26,17 @@ export default [
       "@typescript-eslint/consistent-type-imports": "error",
       "@typescript-eslint/no-explicit-any": "error",
       "no-console": "error",
+    },
+  },
+  {
+    // The CommerceGate MCP came in from decionis/Commerce with underscore-prefixed
+    // unused parameters in its test doubles; keep that convention there.
+    files: ["packages/commerce-mcp/**/*.ts"],
+    rules: {
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_" },
+      ],
     },
   },
 ];

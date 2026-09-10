@@ -76,6 +76,7 @@ See the [package README](./packages/pipeline/README.md) for the complete enforce
 ## Repository map
 
 - [`packages/pipeline`](./packages/pipeline) — `IntentCapture`, `DecionisGate`, Presence coordination, and `SafeExecutor`.
+- [`packages/commerce-mcp`](./packages/commerce-mcp) — `@decionis/commerce`, the CommerceGate MCP server: lets an AI agent check a price change, stock change, order, fulfillment step, promotion, refund or return against the merchant's policy before acting, and read the signed record afterwards. A client adapter over the published Decionis contract; it holds no policy and contains no marketplace client.
 - [`examples/golden-adversarial-demo`](./examples/golden-adversarial-demo) — the self-checking proof: one golden path, eight attacks, zero unauthorized executions.
 - [`examples/basic-agent`](./examples/basic-agent) — the smallest BLOCK flow.
 - [`examples/shopify-refund-agent`](./examples/shopify-refund-agent) — amount-based ALLOW / ESCALATE / BLOCK.

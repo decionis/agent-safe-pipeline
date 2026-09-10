@@ -82,8 +82,8 @@ const ISO_4217_CODES = Intl.supportedValuesOf("currency");
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const RFC_3339_PATTERN =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-](\d{2}):(\d{2}))$/;
-const BOUNDED_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,179}$/;
-const POLICY_VERSION_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,119}$/;
+const BOUNDED_KEY_PATTERN = /^[a-z0-9][\w.:/-]{0,179}$/i;
+const POLICY_VERSION_PATTERN = /^[a-z0-9][\w.:/-]{0,119}$/i;
 
 const annotations = (readOnlyHint: boolean, openWorldHint: boolean) => ({
   readOnlyHint,

@@ -1,0 +1,255 @@
+name: Publish CommerceGate MCP Registry Entry
+
+on:
+  workflow_dispatch:
+  # The npm package must already contain the exact manifest version. A tag cannot
+  # bypass that npm-first check.
+  push:
+    tags: ["commerce-mcp-v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: commerce-mcp-registry-publish
+  cancel-in-progress: false
+
+env:
+  MCP_PUBLISHER_VERSION: "v1.8.1"
+  MCP_PUBLISHER_SHA256: "a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc"
+  MCP_REGISTRY_URL: https://registry.modelcontextprotocol.io
+
+jobs:
+  publish:
+    if: >-
+      ${{
+        (github.event_name == 'push' && github.ref_type == 'tag') ||
+        (github.event_name == 'workflow_dispatch' &&
+          github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
+      }}
+    name: Publish CommerceGate MCP metadata
+    runs-on: ubuntu-latest
+    environment: package-publish
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Require a release from the default branch
+        shell: bash
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            git fetch --no-tags origin \
+              "refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"
+            if ! git merge-base --is-ancestor HEAD "refs/remotes/origin/${DEFAULT_BRANCH}"; then
+              echo "::error::Release tag ${GITHUB_REF_NAME} does not point to a commit on ${DEFAULT_BRANCH}."
+              exit 1
+            fi
+          elif [[ "${GITHUB_REF}" != "refs/heads/${DEFAULT_BRANCH}" ]]; then
+            echo "::error::Manual registry publication must run from ${DEFAULT_BRANCH}."
+            exit 1
+          fi
+
+      - name: Validate release and preflight the exact registry version
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          package_name="$(jq -er '.name' packages/commerce-mcp/package.json)"
+          package_version="$(jq -er '.version' packages/commerce-mcp/package.json)"
+          mcp_name="$(jq -er '.mcpName' packages/commerce-mcp/package.json)"
+          manifest_name="$(jq -er '.name' packages/commerce-mcp/server.json)"
+          manifest_version="$(jq -er '.version' packages/commerce-mcp/server.json)"
+          registry_package_count="$(jq '[.packages[]? | select(.registryType == "npm")] | length' packages/commerce-mcp/server.json)"
+          registry_package="$(jq -er '.packages[] | select(.registryType == "npm") | .identifier' packages/commerce-mcp/server.json)"
+          registry_package_version="$(jq -er '.packages[] | select(.registryType == "npm") | .version' packages/commerce-mcp/server.json)"
+          public_manifest="$(npm view "${package_name}@${package_version}" name version mcpName --json)"
+          public_name="$(jq -er '.name' <<< "${public_manifest}")"
+          public_version="$(jq -er '.version' <<< "${public_manifest}")"
+          public_mcp_name="$(jq -er '.mcpName' <<< "${public_manifest}")"
+
+          test "${registry_package_count}" = "1"
+          test "${package_name}" = "${registry_package}"
+          test "${package_name}" = "${public_name}"
+          test "${package_version}" = "${manifest_version}"
+          test "${package_version}" = "${registry_package_version}"
+          test "${package_version}" = "${public_version}"
+          test "${mcp_name}" = "${manifest_name}"
+          test "${mcp_name}" = "${public_mcp_name}"
+
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            expected_tag="commerce-mcp-v${package_version}"
+            if [[ "${GITHUB_REF_NAME}" != "${expected_tag}" ]]; then
+              echo "::error::Release tag ${GITHUB_REF_NAME} does not match package version ${package_version}; expected ${expected_tag}."
+              exit 1
+            fi
+          fi
+
+          encoded_name="$(jq -rn --arg value "${mcp_name}" '$value | @uri')"
+          response_file="${RUNNER_TEMP}/mcp-registry-preflight.json"
+          http_status="$(curl --connect-timeout 10 --max-time 30 \
+            --silent --show-error \
+            --output "${response_file}" \
+            --write-out '%{http_code}' \
+            "${MCP_REGISTRY_URL}/v0.1/servers/${encoded_name}/versions/${package_version}")"
+          already_exists=false
+
+          case "${http_status}" in
+            200)
+              observed_server="$(jq -ce '.server // .' "${response_file}")"
+              observed_name="$(jq -er '.name' <<< "${observed_server}")"
+              observed_version="$(jq -er '.version' <<< "${observed_server}")"
+              observed_package_count="$(jq '[.packages[]? | select(.registryType == "npm")] | length' <<< "${observed_server}")"
+              observed_package="$(jq -er '.packages[] | select(.registryType == "npm") | .identifier' <<< "${observed_server}")"
+              observed_package_version="$(jq -er '.packages[] | select(.registryType == "npm") | .version' <<< "${observed_server}")"
+
+              if [[ "${observed_name}" != "${mcp_name}" ||
+                "${observed_version}" != "${package_version}" ||
+                "${observed_package_count}" != "1" ||
+                "${observed_package}" != "${package_name}" ||
+                "${observed_package_version}" != "${package_version}" ]]; then
+                echo "::error::The existing registry version does not exactly match the expected MCP identity, npm package, and version."
+                exit 1
+              fi
+
+              already_exists=true
+              echo "${mcp_name}@${package_version} already exists with the exact expected npm package; registry publication will be skipped."
+              ;;
+            404)
+              echo "${mcp_name}@${package_version} is not yet published to the MCP Registry."
+              ;;
+            *)
+              echo "::error::MCP Registry preflight returned HTTP ${http_status}; refusing to publish without a definitive exact-version result."
+              exit 1
+              ;;
+          esac
+
+          {
+            echo "package_name=${package_name}"
+            echo "version=${package_version}"
+            echo "mcp_name=${mcp_name}"
+            echo "already_exists=${already_exists}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Install the verified official MCP publisher
+        if: ${{ steps.release.outputs.already_exists != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          archive="${RUNNER_TEMP}/mcp-publisher.tar.gz"
+          curl --fail --location --silent --show-error \
+            "https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}/mcp-publisher_linux_amd64.tar.gz" \
+            --output "${archive}"
+          printf '%s  %s\n' "${MCP_PUBLISHER_SHA256}" "${archive}" | sha256sum --check --strict
+          tar -xzf "${archive}" -C "${RUNNER_TEMP}" mcp-publisher
+          chmod 0755 "${RUNNER_TEMP}/mcp-publisher"
+          "${RUNNER_TEMP}/mcp-publisher" --help >/dev/null
+
+      - name: Validate registry metadata
+        if: ${{ steps.release.outputs.already_exists != 'true' }}
+        working-directory: packages/commerce-mcp
+        run: |
+          "${RUNNER_TEMP}/mcp-publisher" validate
+
+      - name: Authenticate the decionis.com namespace over HTTPS
+        if: ${{ steps.release.outputs.already_exists != 'true' }}
+        env:
+          MCP_PRIVATE_KEY: ${{ secrets.MCP_PRIVATE_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${MCP_PRIVATE_KEY}"
+          "${RUNNER_TEMP}/mcp-publisher" login http \
+            --domain decionis.com \
+            --private-key "${MCP_PRIVATE_KEY}"
+
+      # The login exchanges proof for a short-lived token; publishing below is
+      # the first registry mutation and remains behind the required shadow gate.
+      - name: Decionis Action Gate (shadow)
+        if: ${{ steps.release.outputs.already_exists != 'true' }}
+        continue-on-error: true
+        uses: decionis/govern@v1
+        with:
+          api-key: ${{ secrets.DECIONIS_API_KEY }}
+          org-id: ${{ secrets.DECIONIS_ORG_ID }}
+          workflow-key: github_deploy_approval
+          action: mcp-registry-publish-commerce-gate
+          mode: shadow
+          payload: |
+            {
+              "artifact": "${{ steps.release.outputs.package_name }}",
+              "registry_name": "${{ steps.release.outputs.mcp_name }}",
+              "version": "${{ steps.release.outputs.version }}",
+              "sha": "${{ github.sha }}",
+              "actor": "${{ github.actor }}"
+            }
+
+      - name: Publish metadata
+        if: ${{ steps.release.outputs.already_exists != 'true' }}
+        working-directory: packages/commerce-mcp
+        run: |
+          "${RUNNER_TEMP}/mcp-publisher" publish
+
+      - name: Verify the exact published identity and version
+        if: ${{ steps.release.outputs.already_exists != 'true' }}
+        shell: bash
+        env:
+          EXPECTED_NAME: ${{ steps.release.outputs.mcp_name }}
+          EXPECTED_PACKAGE: ${{ steps.release.outputs.package_name }}
+          EXPECTED_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          encoded_name="$(jq -rn --arg value "${EXPECTED_NAME}" '$value | @uri')"
+          response_file="${RUNNER_TEMP}/mcp-registry-verify.json"
+          max_attempts=6
+          retry_delays=(2 4 8 16 30)
+          last_status="not-attempted"
+
+          for ((attempt = 1; attempt <= max_attempts; attempt++)); do
+            if last_status="$(curl --connect-timeout 10 --max-time 30 \
+              --silent --show-error \
+              --output "${response_file}" \
+              --write-out '%{http_code}' \
+              "${MCP_REGISTRY_URL}/v0.1/servers/${encoded_name}/versions/${EXPECTED_VERSION}")"; then
+              if [[ "${last_status}" == "200" ]]; then
+                observed_server="$(jq -ce '.server // .' "${response_file}")"
+                observed_name="$(jq -er '.name' <<< "${observed_server}")"
+                observed_version="$(jq -er '.version' <<< "${observed_server}")"
+                observed_package_count="$(jq '[.packages[]? | select(.registryType == "npm")] | length' <<< "${observed_server}")"
+                observed_package="$(jq -er '.packages[] | select(.registryType == "npm") | .identifier' <<< "${observed_server}")"
+                observed_package_version="$(jq -er '.packages[] | select(.registryType == "npm") | .version' <<< "${observed_server}")"
+
+                if [[ "${observed_name}" != "${EXPECTED_NAME}" ||
+                  "${observed_version}" != "${EXPECTED_VERSION}" ||
+                  "${observed_package_count}" != "1" ||
+                  "${observed_package}" != "${EXPECTED_PACKAGE}" ||
+                  "${observed_package_version}" != "${EXPECTED_VERSION}" ]]; then
+                  echo "::error::The published registry response does not exactly match the expected MCP identity, npm package, and version."
+                  exit 1
+                fi
+
+                echo "Verified ${EXPECTED_NAME}@${EXPECTED_VERSION} in the MCP Registry."
+                exit 0
+              fi
+            else
+              last_status="network-error"
+            fi
+
+            if ((attempt < max_attempts)); then
+              delay="${retry_delays[$((attempt - 1))]}"
+              echo "Registry readback attempt ${attempt}/${max_attempts} returned ${last_status}; retrying in ${delay}s."
+              sleep "${delay}"
+            fi
+          done
+
+          echo "::error::MCP Registry did not return ${EXPECTED_NAME}@${EXPECTED_VERSION} after ${max_attempts} attempts (last status: ${last_status})."
+          exit 1

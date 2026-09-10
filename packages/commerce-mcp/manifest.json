@@ -15,13 +15,13 @@
   "support": "https://decionis.com/contact",
   "repository": {
     "type": "git",
-    "url": "https://github.com/decionis/Commerce.git"
+    "url": "https://github.com/decionis/agent-safe-pipeline.git"
   },
   "icon": "icon.png",
   "license": "Apache-2.0",
   "privacy_policies": [
     "https://decionis.com/privacy",
-    "https://github.com/decionis/Commerce/blob/master/apps/mcp/README.md#privacy-policy"
+    "https://github.com/decionis/agent-safe-pipeline/blob/master/packages/commerce-mcp/README.md#privacy-policy"
   ],
   "server": {
     "type": "node",

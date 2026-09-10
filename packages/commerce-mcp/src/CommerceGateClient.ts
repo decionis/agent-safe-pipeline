@@ -1,4 +1,4 @@
-import { CommerceGateConfiguration } from "./Configuration.js";
+import type { CommerceGateConfiguration } from "./Configuration.js";
 import { CommerceGateError } from "./Errors.js";
 import { MCP_SERVER_VERSION } from "./Version.js";
 

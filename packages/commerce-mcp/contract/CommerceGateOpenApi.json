@@ -1,0 +1,1311 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Decionis CommerceGate API",
+    "version": "1.1.0",
+    "description": "Canonical CommerceGate contract for the synchronous ERP guard and the tenant-bound Decionis Protocol operations used by the local CommerceGate MCP adapter."
+  },
+  "servers": [
+    {
+      "url": "https://api.decionis.com"
+    }
+  ],
+  "paths": {
+    "/v1/guard/validate": {
+      "post": {
+        "operationId": "validateErpTransaction",
+        "summary": "Validate one bounded ERP transaction through CommerceGate",
+        "description": "Performs enforced binary policy validation and atomic agent-budget authorization for a complete Dynamics 365 transaction. It returns ALLOW or BLOCK but never writes, posts, releases, or modifies the ERP transaction.",
+        "x-commercegate-mcp": true,
+        "x-commercegate-tools": ["commercegate_validate_erp_transaction"],
+        "security": [
+          {
+            "ApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-ERP-Region",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 50
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GuardRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Central binary decision",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuardResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/protocol/evaluate-decision": {
+      "post": {
+        "operationId": "evaluateCommerceDecision",
+        "summary": "Record one tenant-bound commerce action evaluation in Shadow Mode",
+        "description": "The CommerceGate MCP always submits SHADOW and requires the response to confirm SHADOW. It accepts all seven canonical commerce action types. Order acceptance and price change use native margin mappings; inventory, fulfillment, promotion, refund, and return are generic Protocol evaluations whose outcome depends on the tenant policy and supplied signals. The evaluation can create decision evidence but never executes the proposed marketplace action.",
+        "x-commercegate-mcp": true,
+        "x-commercegate-tools": ["commercegate_evaluate_action"],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 180
+            },
+            "description": "Stable key reused for retries of the same proposed action."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommerceEvaluationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Shadow Mode evaluation and evidence references",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommerceEvaluationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/protocol/dossiers/{dossierId}": {
+      "get": {
+        "operationId": "getDecisionDossier",
+        "summary": "Read one tenant-bound signed Decision Dossier",
+        "x-commercegate-mcp": true,
+        "x-commercegate-tools": ["commercegate_get_dossier"],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/DossierId"
+          },
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Signed Decision Dossier",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecisionDossier"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/protocol/dossiers/{dossierId}/proof-packet": {
+      "get": {
+        "operationId": "getDecisionProofPacket",
+        "summary": "Read the verification proof packet for one tenant-bound Decision Dossier",
+        "x-commercegate-mcp": true,
+        "x-commercegate-tools": ["commercegate_get_proof_packet"],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/DossierId"
+          },
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Decision Dossier proof packet",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecisionProofPacket"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/protocol/shadow-reports": {
+      "get": {
+        "operationId": "listCommerceShadowReports",
+        "summary": "Read tenant-bound Shadow Mode reports and aggregate outcomes",
+        "x-commercegate-mcp": true,
+        "x-commercegate-tools": [
+          "commercegate_list_shadow_reports",
+          "commercegate_summarize_shadow_reports"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationId"
+          },
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 365,
+              "default": 30
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Shadow Mode report document containing rows and aggregate views",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShadowReportDocument"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "ApiKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Decionis-API-Key"
+      },
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "DECIONIS_API_KEY supplied as an Authorization Bearer credential by the local MCP process. DECIONIS_ORG_ID separately binds the tenant request."
+      }
+    },
+    "parameters": {
+      "DossierId": {
+        "name": "dossierId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "OrganizationId": {
+        "name": "org_id",
+        "in": "query",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "description": "Organization UUID sourced from the MCP process environment."
+      }
+    },
+    "schemas": {
+      "GuardLine": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["line_id", "sku", "quantity", "unit_price", "cost_base"],
+        "properties": {
+          "line_id": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "sku": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "quantity": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 1000000000
+          },
+          "unit_price": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000000000000
+          },
+          "cost_base": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000000000000
+          }
+        }
+      },
+      "GuardRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "transaction_id",
+          "erp_type",
+          "tenant_id",
+          "timestamp",
+          "agent_id",
+          "currency",
+          "lines"
+        ],
+        "properties": {
+          "transaction_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "erp_type": {
+            "type": "string",
+            "enum": ["D365_BC", "D365_FSCM"]
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "agent_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          },
+          "lines": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 200,
+            "items": {
+              "$ref": "#/components/schemas/GuardLine"
+            }
+          }
+        }
+      },
+      "GuardResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["decision", "transaction_id", "execution_time_ms", "reason_code", "message"],
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": ["ALLOW", "BLOCK"]
+          },
+          "transaction_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "execution_time_ms": {
+            "type": "number",
+            "minimum": 0
+          },
+          "reason_code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        }
+      },
+      "CommerceEvaluationRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "org_id",
+          "decision_type",
+          "transaction_type",
+          "workflow_key",
+          "channel",
+          "source",
+          "mode",
+          "idempotency_key",
+          "context"
+        ],
+        "properties": {
+          "org_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "decision_type": {
+            "type": "string",
+            "enum": [
+              "PRICE_CHANGE",
+              "INVENTORY_MUTATION",
+              "ORDER_ACCEPTANCE",
+              "FULFILLMENT_ACTION",
+              "PROMOTION_CHANGE",
+              "REFUND_REQUEST",
+              "RETURN_AUTHORIZATION"
+            ]
+          },
+          "transaction_type": {
+            "type": "string",
+            "enum": [
+              "price_change",
+              "inventory_mutation",
+              "order_acceptance",
+              "fulfillment_action",
+              "promotion_change",
+              "refund_request",
+              "return_authorization"
+            ]
+          },
+          "workflow_key": {
+            "type": "string",
+            "enum": [
+              "commerce_price_change",
+              "commerce_inventory_mutation",
+              "commerce_order_acceptance",
+              "commerce_fulfillment_action",
+              "commerce_promotion_change",
+              "commerce_refund_request",
+              "commerce_return_authorization"
+            ]
+          },
+          "amount": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Monetary action amount. Omitted for non-monetary actions."
+          },
+          "channel": {
+            "type": "string",
+            "const": "mcp"
+          },
+          "source": {
+            "type": "string",
+            "const": "commercegate-mcp"
+          },
+          "mode": {
+            "type": "string",
+            "const": "SHADOW"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 180
+          },
+          "policy_version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "require_exact_policy_version": {
+            "type": "boolean",
+            "const": true
+          },
+          "context": {
+            "type": "object",
+            "description": "Bounded normalized action, derived commerce facts, and a nested signals object used by Commerce policies. Generic Shadow evaluation does not assert that a connected platform can execute the action.",
+            "additionalProperties": true
+          }
+        }
+      },
+      "CommerceEvaluationResponse": {
+        "type": "object",
+        "required": [
+          "outcome",
+          "confidence",
+          "policy_version",
+          "objective_profile",
+          "dossier_id",
+          "evaluation_id",
+          "mode",
+          "fallback_to_legacy",
+          "governance_metrics",
+          "idempotent_replay"
+        ],
+        "properties": {
+          "mode": {
+            "type": "string",
+            "const": "SHADOW"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": ["APPROVE", "REJECT", "REVIEW", "ESCALATE"]
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "policy_version": {
+            "type": "string"
+          },
+          "objective_profile": {
+            "type": "string"
+          },
+          "dossier_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "evaluation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason_codes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "fallback_to_legacy": {
+            "type": "boolean"
+          },
+          "governance_metrics": {
+            "$ref": "#/components/schemas/CommerceGovernanceMetrics"
+          },
+          "idempotent_replay": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": true
+      },
+      "CommerceGovernanceMetrics": {
+        "type": "object",
+        "required": [
+          "override_drift_rate",
+          "governance_tension_index",
+          "boundary_volatility_score",
+          "decision_volume_under_governance"
+        ],
+        "properties": {
+          "override_drift_rate": {
+            "type": "number"
+          },
+          "governance_tension_index": {
+            "type": "number"
+          },
+          "boundary_volatility_score": {
+            "type": "number"
+          },
+          "decision_volume_under_governance": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": true
+      },
+      "DecisionDossier": {
+        "type": "object",
+        "description": "Signed decision record returned by the Decionis Protocol API.",
+        "required": ["service", "protocol_version", "dossier"],
+        "properties": {
+          "service": {
+            "type": "string"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "dossier": {
+            "$ref": "#/components/schemas/DecisionDossierRecord"
+          }
+        },
+        "additionalProperties": true
+      },
+      "DecisionDossierRecord": {
+        "type": "object",
+        "required": [
+          "dossier_id",
+          "org_id",
+          "decision_evaluation_id",
+          "dossier_payload",
+          "evidence_hashes",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "dossier_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "org_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "decision_evaluation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "dossier_payload": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "evidence_hashes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": true
+      },
+      "DecisionProofPacket": {
+        "type": "object",
+        "description": "Verification material for a Decision Dossier.",
+        "required": [
+          "service",
+          "protocol_version",
+          "packet_type",
+          "packet_version",
+          "issued_at",
+          "subject",
+          "dossier",
+          "policy_snapshot",
+          "ledger_anchor",
+          "proof_bundle",
+          "proof_artifact_results",
+          "verification",
+          "verify_instructions"
+        ],
+        "properties": {
+          "service": {
+            "type": "string"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "packet_type": {
+            "type": "string",
+            "const": "decionis.decision_dossier.proof_packet"
+          },
+          "packet_version": {
+            "type": "string",
+            "const": "1.0"
+          },
+          "issued_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "subject": {
+            "$ref": "#/components/schemas/DecisionProofSubject"
+          },
+          "dossier": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "policy_snapshot": {
+            "type": ["object", "null"],
+            "additionalProperties": true
+          },
+          "ledger_anchor": {
+            "$ref": "#/components/schemas/DecisionProofLedgerAnchor"
+          },
+          "proof_bundle": {
+            "type": ["object", "null"],
+            "additionalProperties": true
+          },
+          "proof_artifact_results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DecisionProofArtifactResult"
+            }
+          },
+          "verification": {
+            "$ref": "#/components/schemas/DecisionProofVerification"
+          },
+          "verify_instructions": {
+            "$ref": "#/components/schemas/DecisionProofInstructions"
+          }
+        },
+        "additionalProperties": true
+      },
+      "DecisionProofSubject": {
+        "type": "object",
+        "required": ["org_id", "dossier_id"],
+        "properties": {
+          "org_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "dossier_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "additionalProperties": true
+      },
+      "DecisionProofLedgerAnchor": {
+        "type": "object",
+        "required": ["ledger_entry_id", "ledger_entry_hash", "chain_verification"],
+        "properties": {
+          "ledger_entry_id": {
+            "type": ["string", "null"]
+          },
+          "ledger_entry_hash": {
+            "type": ["string", "null"]
+          },
+          "chain_verification": {
+            "type": "object",
+            "required": ["valid"],
+            "properties": {
+              "valid": {
+                "type": ["boolean", "null"]
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": true
+      },
+      "DecisionProofArtifactResult": {
+        "type": "object",
+        "required": [
+          "artifact_kind",
+          "document_path",
+          "document_found",
+          "digest_matched",
+          "signature_verified"
+        ],
+        "properties": {
+          "artifact_kind": {
+            "type": "string"
+          },
+          "document_path": {
+            "type": "string"
+          },
+          "document_found": {
+            "type": "boolean"
+          },
+          "digest_matched": {
+            "type": "boolean"
+          },
+          "signature_verified": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": true
+      },
+      "DecisionProofVerification": {
+        "type": "object",
+        "required": [
+          "signature_verified",
+          "policy_snapshot_verified",
+          "chain_integrity_verified",
+          "proof_bundle_verified",
+          "overall",
+          "checked_at",
+          "checks"
+        ],
+        "properties": {
+          "signature_verified": {
+            "type": "boolean"
+          },
+          "policy_snapshot_verified": {
+            "type": "boolean"
+          },
+          "chain_integrity_verified": {
+            "type": "boolean"
+          },
+          "proof_bundle_verified": {
+            "type": "boolean"
+          },
+          "overall": {
+            "type": "string",
+            "enum": ["VERIFIED", "PARTIAL", "UNVERIFIED"]
+          },
+          "checked_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "checks": {
+            "type": "array",
+            "minItems": 4,
+            "maxItems": 4,
+            "items": {
+              "$ref": "#/components/schemas/DecisionProofVerificationCheck"
+            }
+          }
+        },
+        "additionalProperties": true
+      },
+      "DecisionProofVerificationCheck": {
+        "type": "object",
+        "required": ["key", "label", "verified", "severity", "detail"],
+        "properties": {
+          "key": {
+            "type": "string",
+            "enum": ["signature", "policy_snapshot", "chain_integrity", "proof_bundle"]
+          },
+          "label": {
+            "type": "string"
+          },
+          "verified": {
+            "type": "boolean"
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["pass", "warn", "fail"]
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      },
+      "DecisionProofInstructions": {
+        "type": "object",
+        "required": ["algorithm", "public_jwks_path", "key_id", "rotation_policy", "steps"],
+        "properties": {
+          "algorithm": {
+            "type": "string",
+            "const": "Ed25519"
+          },
+          "public_jwks_path": {
+            "type": "string"
+          },
+          "key_id": {
+            "type": ["string", "null"]
+          },
+          "rotation_policy": {
+            "type": ["object", "null"],
+            "additionalProperties": true
+          },
+          "steps": {
+            "type": "array",
+            "minItems": 4,
+            "maxItems": 4,
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": true
+      },
+      "ShadowReportDocument": {
+        "type": "object",
+        "description": "Canonical Shadow Mode report document used for row and aggregate views.",
+        "required": [
+          "service",
+          "generated_at",
+          "org_id",
+          "window_days",
+          "since",
+          "summary",
+          "cards",
+          "reason_breakdown",
+          "candidate_enforcement_paths",
+          "near_misses",
+          "recent_evaluations"
+        ],
+        "properties": {
+          "service": {
+            "type": "string",
+            "const": "decionis"
+          },
+          "generated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "org_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "window_days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 365
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/ShadowReportSummary"
+          },
+          "cards": {
+            "type": "array",
+            "minItems": 5,
+            "maxItems": 5,
+            "items": {
+              "$ref": "#/components/schemas/ShadowReportCard"
+            }
+          },
+          "reason_breakdown": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {
+              "$ref": "#/components/schemas/ShadowReportReason"
+            }
+          },
+          "candidate_enforcement_paths": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/ShadowReportPath"
+            }
+          },
+          "near_misses": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/ShadowReportEvaluation"
+            }
+          },
+          "recent_evaluations": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/ShadowReportEvaluation"
+            }
+          }
+        },
+        "additionalProperties": true
+      },
+      "ShadowReportSummary": {
+        "type": "object",
+        "required": [
+          "shadow_evaluations",
+          "would_allow",
+          "would_block",
+          "would_escalate",
+          "review_required",
+          "non_allow_count",
+          "non_allow_rate",
+          "policy_drift_count",
+          "policy_drift_rate",
+          "near_miss_count",
+          "near_miss_rate",
+          "candidate_enforcement_path_count"
+        ],
+        "properties": {
+          "shadow_evaluations": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "would_allow": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "would_block": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "would_escalate": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "review_required": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "non_allow_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "non_allow_rate": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "policy_drift_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "policy_drift_rate": {
+            "type": "number",
+            "minimum": 0
+          },
+          "near_miss_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "near_miss_rate": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "candidate_enforcement_path_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          }
+        },
+        "additionalProperties": true
+      },
+      "ShadowReportCard": {
+        "type": "object",
+        "required": ["key", "label", "value", "rate", "severity"],
+        "properties": {
+          "key": {
+            "type": "string",
+            "enum": [
+              "would_block",
+              "would_escalate",
+              "policy_drift",
+              "near_misses",
+              "candidate_enforcement_paths"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "value": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "rate": {
+            "type": ["number", "null"],
+            "minimum": 0
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["high", "medium", "low"]
+          }
+        },
+        "additionalProperties": true
+      },
+      "ShadowReportReason": {
+        "type": "object",
+        "required": ["reason_code", "count"],
+        "properties": {
+          "reason_code": {
+            "type": "string",
+            "minLength": 1
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "additionalProperties": true
+      },
+      "ShadowReportPath": {
+        "type": "object",
+        "required": [
+          "path_key",
+          "workflow_key",
+          "decision_type",
+          "total",
+          "would_allow",
+          "would_block",
+          "would_escalate",
+          "review_required",
+          "near_miss_count",
+          "non_allow_rate",
+          "near_miss_rate",
+          "last_seen_at",
+          "recommendation"
+        ],
+        "properties": {
+          "path_key": {
+            "type": "string"
+          },
+          "workflow_key": {
+            "type": ["string", "null"]
+          },
+          "decision_type": {
+            "type": "string"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "would_allow": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "would_block": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "would_escalate": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "review_required": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "near_miss_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "non_allow_rate": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "near_miss_rate": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "last_seen_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "recommendation": {
+            "type": "string",
+            "enum": ["CANDIDATE_FOR_ENFORCEMENT", "REVIEW_POLICY_BOUNDARY", "COLLECT_MORE_TRAFFIC"]
+          }
+        },
+        "additionalProperties": true
+      },
+      "ShadowReportEvaluation": {
+        "type": "object",
+        "required": [
+          "evaluation_id",
+          "dossier_id",
+          "decision_type",
+          "workflow_key",
+          "outcome",
+          "execution_action",
+          "confidence",
+          "risk_score",
+          "policy_version",
+          "reason_codes",
+          "created_at",
+          "dossier_api_path"
+        ],
+        "properties": {
+          "evaluation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "dossier_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "decision_type": {
+            "type": "string"
+          },
+          "workflow_key": {
+            "type": ["string", "null"]
+          },
+          "outcome": {
+            "type": "string",
+            "enum": ["APPROVE", "ESCALATE", "REJECT", "REVIEW"]
+          },
+          "execution_action": {
+            "type": "string",
+            "enum": ["CONTINUE", "STOP", "HAND_OFF", "REVIEW"]
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "risk_score": {
+            "type": ["number", "null"]
+          },
+          "policy_version": {
+            "type": "string"
+          },
+          "reason_codes": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "dossier_api_path": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      },
+      "Error": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["error", "message"],
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "responses": {
+      "Error": {
+        "description": "Bounded error response",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    }
+  },
+  "x-decionis-source": {
+    "path": "apps/api/erp/openapi/CommerceGateErp.v1.yaml",
+    "sha256": "3f946a6586253515eaa99aed79a8da4007420454a8d86538814ef8733f6f372a"
+  }
+}
