@@ -74,15 +74,15 @@ enabled_tools = [
 
 Every action includes a stable `actor`, a `platform`, and a bounded `idempotency_key`. The payload is selected by `action_type`:
 
-| Action type            | Payload                                                                                           |
-| ---------------------- | ------------------------------------------------------------------------------------------------- |
-| `ORDER_ACCEPTANCE`     | nullable `order_id`, `gross_amount`, `discount_amount`, `estimated_cost`, optional `currency`     |
-| `PRICE_CHANGE`         | `sku`, nullable `from_price`, `to_price`, optional nullable `estimated_cost`, optional `currency` |
-| `INVENTORY_MUTATION`   | `sku`, nullable `from`, `to`, optional `location_id`                                              |
-| `FULFILLMENT_ACTION`   | `order_id`, `action` (`acknowledge`, `ship`, `cancel`, or `hold`)                                 |
-| `PROMOTION_CHANGE`     | nullable `promotion_id`, `percentage_fraction`, `ends_at`, `status`, and `combines_with`          |
-| `REFUND_REQUEST`       | `order_id`, `amount`, optional `currency` and `reason_code`                                       |
-| `RETURN_AUTHORIZATION` | `order_id`, optional `rma_id` and `amount`                                                        |
+| Action type            | Payload                                                                                                |
+| ---------------------- | ------------------------------------------------------------------------------------------------------ |
+| `ORDER_ACCEPTANCE`     | nullable `order_id`, `gross_amount`, `discount_amount`, `estimated_cost`, optional `currency`          |
+| `PRICE_CHANGE`         | `sku`, nullable `from_price`, `to_price`, optional nullable `estimated_cost`, optional `currency`      |
+| `INVENTORY_MUTATION`   | `sku`, nullable `from`, `to`, optional `location_id`                                                   |
+| `FULFILLMENT_ACTION`   | `order_id`, `action` (`acknowledge`, `ship`, `cancel`, or `hold`)                                      |
+| `PROMOTION_CHANGE`     | nullable `promotion_id`, `percentage_fraction`, `ends_at`, `status`, and `combines_with`               |
+| `REFUND_REQUEST`       | `order_id`, `amount`, optional `currency`, `reason_code`, `remaining_refundable`, `prior_refund_count` |
+| `RETURN_AUTHORIZATION` | `order_id`, optional `rma_id` and `amount`                                                             |
 
 Order acceptance and price change have native CommerceGate margin mappings. The other five action types are generic Protocol Shadow evaluations: the server validates and normalizes their shape, but the result is only as complete as the active tenant policy and the submitted facts. A verdict says whether the action clears policy, not whether the platform's connector can carry it out.
 

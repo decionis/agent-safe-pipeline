@@ -330,6 +330,37 @@ describe("CommerceGateClient", () => {
       },
     },
     {
+      label: "refund request with the refundable balance and refund history",
+      action: {
+        action_type: "REFUND_REQUEST",
+        actor: { type: "AGENT", id: "support-agent" },
+        platform: "walmart-marketplace",
+        idempotency_key: "order:5:refund:2",
+        payload: {
+          order_id: "5",
+          amount: 2850,
+          currency: "USD",
+          remaining_refundable: 1200,
+          prior_refund_count: 1,
+        },
+      },
+      expected: {
+        decision_type: "REFUND_REQUEST",
+        amount: 2850,
+        context: {
+          refund_amount: 2850,
+          refund_exceeds_refundable: true,
+          signals: {
+            order_id: "5",
+            refund_amount: 2850,
+            remaining_refundable: 1200,
+            refund_exceeds_refundable: true,
+            prior_refund_count: 1,
+          },
+        },
+      },
+    },
+    {
       label: "return authorization",
       action: {
         action_type: "RETURN_AUTHORIZATION",
