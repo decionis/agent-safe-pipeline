@@ -26,7 +26,7 @@ Outcomes map to the operator vocabulary used across Commerce Gate: APPROVE → P
 CommerceGate requires Node.js 20 or later. Start the pinned public package with:
 
 ```sh
-npx -y @decionis/commerce@0.1.2
+npx -y @decionis/commerce@0.1.3
 ```
 
 The process starts without credentials so an MCP client can discover its capabilities. The ERP guard requires `DECIONIS_API_KEY`; Protocol evaluation and evidence tools require both `DECIONIS_API_KEY` and `DECIONIS_ORG_ID`. Store `DECIONIS_API_KEY` in the MCP client’s secret or environment manager; never place it in command arguments, source control, prompts, or logs. `DECIONIS_API_BASE` is optional and defaults to `https://api.decionis.com`.
@@ -40,7 +40,7 @@ Forward the three named variables from the environment that launches Codex:
 ```toml
 [mcp_servers.commercegate]
 command = "npx"
-args = ["-y", "@decionis/commerce@0.1.2"]
+args = ["-y", "@decionis/commerce@0.1.3"]
 env_vars = ["DECIONIS_API_KEY", "DECIONIS_ORG_ID", "DECIONIS_API_BASE"]
 enabled = true
 required = false
