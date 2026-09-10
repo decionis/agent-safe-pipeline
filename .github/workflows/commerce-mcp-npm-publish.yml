@@ -38,13 +38,13 @@ jobs:
     runs-on: ubuntu-latest
     environment: package-publish
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
         with:
           version: 9.15.3
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
@@ -116,7 +116,7 @@ jobs:
       - name: Decionis Action Gate (shadow)
         if: ${{ inputs.mode == 'publish' }}
         continue-on-error: true
-        uses: decionis/govern@v1
+        uses: decionis/govern@6bc8bd3fc0dab105703fe3dc8c6c7a1d738bcf29 # v1.9.3
         with:
           api-key: ${{ secrets.DECIONIS_API_KEY }}
           org-id: ${{ secrets.DECIONIS_ORG_ID }}

@@ -33,7 +33,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -176,7 +176,7 @@ jobs:
       - name: Decionis Action Gate (shadow)
         if: ${{ steps.release.outputs.already_exists != 'true' }}
         continue-on-error: true
-        uses: decionis/govern@v1
+        uses: decionis/govern@6bc8bd3fc0dab105703fe3dc8c6c7a1d738bcf29 # v1.9.3
         with:
           api-key: ${{ secrets.DECIONIS_API_KEY }}
           org-id: ${{ secrets.DECIONIS_ORG_ID }}
