@@ -1185,7 +1185,7 @@ export class CommerceGateTools {
         name: COMMERCEGATE_TOOL_NAMES[0],
         title: "Describe CommerceGate Capabilities",
         description:
-          "Use this first to learn which canonical commerce proposals CommerceGate can submit for Shadow Mode evaluation: price changes, inventory mutations, order acceptance, fulfillment actions, promotion changes, refund requests, and return authorizations. It also explains PROCEED, HOLD, and BLOCK, tenant connection state, and available evidence tools. This local diagnostic never calls the Decionis API, reveals credentials, or claims that a platform connector can execute an action.",
+          "Use this first, or when someone asks 'can you check prices, orders or refunds against our policy?'. It lists the seven kinds of commerce action CommerceGate can check in Shadow Mode: price changes, inventory updates, order acceptance, fulfillment steps, promotion changes, refund requests, and return authorizations. It also explains PROCEED, HOLD, and BLOCK, tenant connection state, and available evidence tools. This local diagnostic never calls the Decionis API, reveals credentials, or claims that a platform connector can execute an action.",
         inputSchema: { type: "object", properties: {}, additionalProperties: false },
         annotations: annotations(true, false),
         handler: async (args) =>
@@ -1253,7 +1253,7 @@ export class CommerceGateTools {
         name: COMMERCEGATE_TOOL_NAMES[2],
         title: "Evaluate a Commerce Action in Shadow Mode",
         description:
-          "Use this as the default preflight before a supported price, inventory, order-acceptance, fulfillment, promotion, refund, or return proposal. It sends the bounded canonical action and policy signals to Decionis in SHADOW mode and may persist a signed Decision Dossier. This is a generic Protocol evaluation: it never calls a marketplace API, executes the proposal, or confirms that a connector exposes the required write path. The result maps to PROCEED, HOLD, or BLOCK: APPROVE is evidence, not consent to execute; REJECT means stop; REVIEW or ESCALATE means hold for a human.",
+          "Use this as the default preflight before a price, inventory, order-acceptance, fulfillment, promotion, refund, or return proposal, for questions like 'would repricing this SKU to $89 on Walmart still clear our margin floor after the referral fee?', 'is it safe to accept this 40-unit order with the stock we have left?', or 'can the support bot refund $2,850 on this order?'. It sends the bounded canonical action and policy signals to Decionis in SHADOW mode and may persist a signed Decision Dossier. This is a generic Protocol evaluation: it never calls a marketplace API, executes the proposal, or confirms that a connector exposes the required write path. The result maps to PROCEED, HOLD, or BLOCK: APPROVE is evidence, not consent to execute; REJECT means stop; REVIEW or ESCALATE means hold for a human.",
         inputSchema: evaluateActionSchema,
         annotations: annotations(false, true),
         handler: async (args) =>

@@ -1,7 +1,7 @@
 {
   "name": "@decionis/commerce",
   "version": "0.1.2",
-  "description": "CommerceGate MCP for seven Shadow Mode commerce preflights, enforced Dynamics 365 transaction authorization, signed decision evidence, and reports.",
+  "description": "MCP server that lets an AI agent check a price change, inventory update, order, fulfillment step, promotion, refund or return against your margin, stock and refund policy before it acts, authorize Dynamics 365 transactions within an agent budget, and read signed Decision Dossiers. Shadow Mode preflights; never writes to a marketplace or ERP.",
   "author": "Decionis",
   "license": "Apache-2.0",
   "type": "module",
