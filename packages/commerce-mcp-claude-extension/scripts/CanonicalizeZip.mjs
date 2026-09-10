@@ -1,12 +1,26 @@
 import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
+import { inflateRawSync } from "node:zlib";
 
 const CENTRAL_DIRECTORY_SIGNATURE = 0x02014b50;
 const END_OF_CENTRAL_DIRECTORY_SIGNATURE = 0x06054b50;
 const LOCAL_FILE_SIGNATURE = 0x04034b50;
 const MAXIMUM_ARCHIVE_BYTES = 32 * 1024 * 1024;
 const MAXIMUM_ENTRIES = 64;
+const MAXIMUM_TOTAL_COMPRESSED_BYTES = 32 * 1024 * 1024;
+const MAXIMUM_TOTAL_UNCOMPRESSED_BYTES = 64 * 1024 * 1024;
 const REPRODUCIBLE_DOS_DATE = ((2000 - 1980) << 9) | (1 << 5) | 1;
+const SUPPORTED_GENERAL_PURPOSE_FLAGS = 0x0800;
+const WINDOWS_DEVICE_NAME =
+  /^(?:CON|PRN|AUX|NUL|CLOCK\$|CONIN\$|CONOUT\$|COM[1-9\u00B9\u00B2\u00B3]|LPT[1-9\u00B9\u00B2\u00B3])(?:\.|$)/iu;
+
+const CRC32_TABLE = Uint32Array.from({ length: 256 }, (_, value) => {
+  let crc = value;
+  for (let bit = 0; bit < 8; bit += 1) {
+    crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
+  }
+  return crc >>> 0;
+});
 
 function checkedEnd(start, length, limit, label) {
   assert.ok(Number.isSafeInteger(start) && Number.isSafeInteger(length), `${label} is invalid.`);
@@ -15,7 +29,32 @@ function checkedEnd(start, length, limit, label) {
   return end;
 }
 
-function validateEntryName(nameBytes, names, foldedNames) {
+function checkedTotal(total, value, limit, label) {
+  assert.ok(Number.isSafeInteger(total) && Number.isSafeInteger(value), `${label} is invalid.`);
+  const nextTotal = total + value;
+  assert.ok(nextTotal <= limit, `${label} exceeds the safety budget.`);
+  return nextTotal;
+}
+
+function crc32(payload) {
+  let crc = 0xffffffff;
+  for (const byte of payload) {
+    crc = CRC32_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function windowsNormalizedName(segments) {
+  return segments.map((segment) => segment.normalize("NFC").toLocaleUpperCase("en-US")).join("/");
+}
+
+function containsWindowsForbiddenCharacter(segment) {
+  return [...segment].some(
+    (character) => '<>:"|?*'.includes(character) || character.codePointAt(0) < 0x20,
+  );
+}
+
+function validateEntryName(nameBytes, names, windowsNames) {
   assert.ok(nameBytes.length > 0, "ZIP entries must have names.");
   const name = nameBytes.toString("utf8");
   assert.deepEqual(Buffer.from(name, "utf8"), nameBytes, "ZIP entry names must be valid UTF-8.");
@@ -26,18 +65,68 @@ function validateEntryName(nameBytes, names, foldedNames) {
     segments.every((segment) => segment !== "" && segment !== "." && segment !== ".."),
     `${name} contains an unsafe path segment.`,
   );
+  for (const segment of segments) {
+    assert.ok(
+      !containsWindowsForbiddenCharacter(segment),
+      `${name} contains a Windows-unsafe path segment.`,
+    );
+    assert.ok(!/[ .]$/u.test(segment), `${name} has a trailing dot or space.`);
+    assert.ok(!WINDOWS_DEVICE_NAME.test(segment), `${name} uses a reserved Windows device name.`);
+  }
   assert.ok(!names.has(name), `Duplicate ZIP entry: ${name}`);
-  const foldedName = name.toLocaleLowerCase("en-US");
-  assert.ok(!foldedNames.has(foldedName), `Case-colliding ZIP entry: ${name}`);
+  const windowsName = windowsNormalizedName(segments);
+  assert.ok(!windowsNames.has(windowsName), `Windows-colliding ZIP entry: ${name}`);
   names.add(name);
-  foldedNames.add(foldedName);
+  windowsNames.add(windowsName);
   return name;
+}
+
+function validateEntryPayload(entry) {
+  const payloadOffset = 30 + entry.nameBytes.length;
+  const compressedPayload = entry.localRecord.subarray(payloadOffset);
+  let uncompressedPayload;
+
+  if (entry.method === 0) {
+    assert.equal(
+      entry.compressedSize,
+      entry.uncompressedSize,
+      `${entry.name} stored sizes differ.`,
+    );
+    uncompressedPayload = compressedPayload;
+  } else {
+    let inflated;
+    try {
+      inflated = inflateRawSync(compressedPayload, {
+        info: true,
+        maxOutputLength: Math.max(1, entry.uncompressedSize),
+      });
+    } catch (error) {
+      assert.fail(
+        `${entry.name} has an invalid deflate stream or exceeds its declared size: ${error.message}`,
+      );
+    }
+    assert.equal(
+      inflated.engine.bytesWritten,
+      compressedPayload.length,
+      `${entry.name} deflate stream has trailing compressed data.`,
+    );
+    uncompressedPayload = inflated.buffer;
+  }
+
+  assert.equal(
+    uncompressedPayload.length,
+    entry.uncompressedSize,
+    `${entry.name} uncompressed size drifted.`,
+  );
+  assert.equal(crc32(uncompressedPayload), entry.crc, `${entry.name} CRC does not match payload.`);
 }
 
 function parseEntries(archive, centralOffset, centralSize, entryCount) {
   const entries = [];
   const names = new Set();
-  const foldedNames = new Set();
+  const windowsNames = new Set();
+  let totalCompressedBytes = 0;
+  let totalUncompressedBytes = 0;
   let cursor = centralOffset;
 
   for (let index = 0; index < entryCount; index += 1) {
@@ -49,6 +138,7 @@ function parseEntries(archive, centralOffset, centralSize, entryCount) {
     );
     const flags = archive.readUInt16LE(cursor + 8);
     const method = archive.readUInt16LE(cursor + 10);
+    const crc = archive.readUInt32LE(cursor + 16);
     const compressedSize = archive.readUInt32LE(cursor + 20);
     const uncompressedSize = archive.readUInt32LE(cursor + 24);
     const nameLength = archive.readUInt16LE(cursor + 28);
@@ -65,6 +155,11 @@ function parseEntries(archive, centralOffset, centralSize, entryCount) {
 
     assert.equal(flags & 0x0001, 0, "Encrypted ZIP entries are forbidden.");
     assert.equal(flags & 0x0008, 0, "ZIP data descriptors are forbidden.");
+    assert.equal(
+      flags & ~SUPPORTED_GENERAL_PURPOSE_FLAGS,
+      0,
+      "Unsupported ZIP general-purpose flags are forbidden.",
+    );
     assert.ok(method === 0 || method === 8, "Only stored or deflated ZIP entries are supported.");
     assert.notEqual(compressedSize, 0xffffffff, "ZIP64 entries are forbidden.");
     assert.notEqual(uncompressedSize, 0xffffffff, "ZIP64 entries are forbidden.");
@@ -72,9 +167,21 @@ function parseEntries(archive, centralOffset, centralSize, entryCount) {
     assert.equal(extraLength, 0, "ZIP extra fields are forbidden.");
     assert.equal(commentLength, 0, "ZIP entry comments are forbidden.");
     assert.equal(diskNumber, 0, "Multi-disk ZIP entries are forbidden.");
+    totalCompressedBytes = checkedTotal(
+      totalCompressedBytes,
+      compressedSize,
+      MAXIMUM_TOTAL_COMPRESSED_BYTES,
+      "Total compressed payload size",
+    );
+    totalUncompressedBytes = checkedTotal(
+      totalUncompressedBytes,
+      uncompressedSize,
+      MAXIMUM_TOTAL_UNCOMPRESSED_BYTES,
+      "Total uncompressed payload size",
+    );
 
     const nameBytes = archive.subarray(cursor + 46, cursor + 46 + nameLength);
-    const name = validateEntryName(nameBytes, names, foldedNames);
+    const name = validateEntryName(nameBytes, names, windowsNames);
 
     checkedEnd(localOffset, 30, centralOffset, `${name} local header`);
     assert.equal(
@@ -84,11 +191,7 @@ function parseEntries(archive, centralOffset, centralSize, entryCount) {
     );
     assert.equal(archive.readUInt16LE(localOffset + 6), flags, `${name} flags drifted.`);
     assert.equal(archive.readUInt16LE(localOffset + 8), method, `${name} method drifted.`);
-    assert.equal(
-      archive.readUInt32LE(localOffset + 14),
-      archive.readUInt32LE(cursor + 16),
-      `${name} CRC drifted.`,
-    );
+    assert.equal(archive.readUInt32LE(localOffset + 14), crc, `${name} CRC drifted.`);
     assert.equal(
       archive.readUInt32LE(localOffset + 18),
       compressedSize,
@@ -118,6 +221,10 @@ function parseEntries(archive, centralOffset, centralSize, entryCount) {
     entries.push({
       name,
       nameBytes: Buffer.from(nameBytes),
+      method,
+      crc,
+      compressedSize,
+      uncompressedSize,
       localOffset,
       localRecord: Buffer.from(archive.subarray(localOffset, localEnd)),
       centralRecord: Buffer.from(archive.subarray(cursor, centralEnd)),
@@ -136,6 +243,9 @@ function parseEntries(archive, centralOffset, centralSize, entryCount) {
     centralOffset,
     "Unexpected data precedes the central directory.",
   );
+  for (const entry of entries) {
+    validateEntryPayload(entry);
+  }
   return entries;
 }
 
