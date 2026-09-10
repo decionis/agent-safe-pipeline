@@ -15,6 +15,16 @@
       "package": "caniuse-lite",
       "license": "CC-BY-4.0",
       "justification": "Development-only browser compatibility data pulled in by mutation-testing tooling; it is not included in the published package, and its attribution remains in the installed dependency metadata."
+    },
+    {
+      "package": "node-forge",
+      "license": "(BSD-3-Clause OR GPL-2.0)",
+      "justification": "Development-only transitive dependency of the pinned Anthropic MCPB packaging CLI, used under its permissive BSD-3-Clause option and excluded from the CommerceGate extension bundle."
+    },
+    {
+      "package": "type-fest",
+      "license": "(MIT OR CC0-1.0)",
+      "justification": "Development-only transitive dependency of the pinned Anthropic MCPB packaging CLI, used under its permissive MIT option and excluded from the CommerceGate extension bundle."
     }
   ]
 }

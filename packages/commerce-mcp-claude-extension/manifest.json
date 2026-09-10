@@ -8,7 +8,7 @@
   "author": {
     "name": "Decionis, Inc.",
     "email": "commerce@decionis.com",
-    "url": "https://decionis.com"
+    "url": "https://github.com/decionis"
   },
   "homepage": "https://commerce.decionis.com",
   "documentation": "https://commerce.decionis.com/mcp",
@@ -18,10 +18,10 @@
     "url": "https://github.com/decionis/agent-safe-pipeline.git"
   },
   "icon": "icon.png",
-  "license": "Apache-2.0",
+  "license": "MIT",
   "privacy_policies": [
     "https://decionis.com/privacy",
-    "https://github.com/decionis/agent-safe-pipeline/blob/master/packages/commerce-mcp/README.md#privacy-policy"
+    "https://github.com/decionis/agent-safe-pipeline/blob/master/packages/commerce-mcp-claude-extension/README.md#privacy-policy"
   ],
   "server": {
     "type": "node",

@@ -1,0 +1,30 @@
+{
+  "name": "@decionis/commercegate-claude-extension",
+  "version": "0.1.3",
+  "private": true,
+  "description": "MIT-licensed Claude Desktop extension wrapper for the Apache-2.0 CommerceGate MCP runtime.",
+  "author": "Decionis, Inc.",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/decionis/agent-safe-pipeline.git",
+    "directory": "packages/commerce-mcp-claude-extension"
+  },
+  "homepage": "https://github.com/decionis/agent-safe-pipeline/tree/master/packages/commerce-mcp-claude-extension",
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@anthropic-ai/mcpb": "2.1.2",
+    "@decionis/commerce": "workspace:0.1.3",
+    "@types/node": "^20.11.30",
+    "tsup": "^8.5.1",
+    "typescript": "^5.6.3"
+  },
+  "scripts": {
+    "build": "tsup src/Index.ts --format esm --dts --sourcemap --out-dir dist --clean",
+    "test": "node --test test/*.test.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  }
+}

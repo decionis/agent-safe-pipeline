@@ -7,7 +7,7 @@ business model from the code.
 
 ## The short version
 
-- **Open (Apache-2.0, this repository):** the Execution Authority architecture, the portable
+- **Open (Apache-2.0, with one scoped MIT wrapper):** the Execution Authority architecture, the portable
   `agent-safe.intent/1` binding, the trusted execution boundary, the client adapters, the audit
   contract, shadow mode, the conformance vectors, and the runnable examples.
 - **Operated (Decionis, not in this repository):** the policy control plane that evaluates
@@ -34,6 +34,16 @@ business model from the code.
 
 The two runtime dependencies published by Decionis, `@decionis/presence-node` and
 `@decionis/verify`, are also Apache-2.0.
+
+## Scoped MIT Claude Desktop wrapper
+
+`packages/commerce-mcp-claude-extension` is a narrowly scoped MIT-licensed wrapper containing its
+loader, Claude Desktop manifest, icon, documentation, tests, and packaging verifier. The wrapper
+depends on the Apache-2.0 `@decionis/commerce` workspace package only at build time. Its MCPB keeps
+the built CommerceGate runtime as a separate `vendor/commerce-mcp/Index.js` artifact and includes a
+byte-identical copy of the runtime's full Apache license, the repository NOTICE, and an explicit
+mixed-license notice. Nothing under `packages/commerce-mcp` is relicensed; its source and npm
+package remain Apache-2.0.
 
 ## What Decionis operates
 
@@ -104,7 +114,7 @@ with no registry access.
 through the [governance process](./GOVERNANCE.md) as trust-boundary changes with project-lead
 approval in a public pull request:
 
-1. The package stays Apache-2.0. There is no source-available or delayed-open license in the plan.
+1. The pipeline and CommerceGate runtime packages stay Apache-2.0. The dedicated Claude Desktop wrapper stays MIT, and its bundle preserves the runtime's Apache license and notice. There is no source-available or delayed-open license in the plan.
 2. The `agent-safe.intent/1` binding, its conformance vectors, and the audit event contract stay
    public and versioned.
 3. The Decionis wire contract used by the adapters stays published as OpenAPI.
@@ -118,10 +128,11 @@ approval in a public pull request:
 consumption, Decision Dossier retention and verification, Presence, and reporting. Commercial terms
 are not part of this repository.
 
-**Can I fork it?** Yes, under Apache-2.0. The [trademark policy](./TRADEMARKS.md) asks that a
-modified distribution not present itself as the official project or imply Decionis endorsement.
-The README's request not to mirror the canonical repository is about avoiding security-fix drift,
-not about restricting forks.
+**Can I fork it?** Yes, under each package's applicable license: Apache-2.0 for the repository and
+runtime packages, and MIT for the dedicated Claude Desktop wrapper. The
+[trademark policy](./TRADEMARKS.md) asks that a modified distribution not present itself as the
+official project or imply Decionis endorsement. The README's request not to mirror the canonical
+repository is about avoiding security-fix drift, not about restricting forks.
 
 ## Why this shape
 
