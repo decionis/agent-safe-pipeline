@@ -4,12 +4,12 @@
   "title": "Decionis CommerceGate MCP",
   "description": "Commerce preflights, D365 authorization, signed evidence, and reports; no marketplace or ERP writes.",
   "websiteUrl": "https://commerce.decionis.com",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@decionis/commerce",
-      "version": "0.1.2",
+      "version": "0.1.3",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"
