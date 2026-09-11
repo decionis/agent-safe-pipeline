@@ -64,6 +64,7 @@ const IntentBindingSchema = z.strictObject({
     operation: boundedId,
     endpoint: z.string().min(1).max(500).optional(),
   }),
+  expected_effect_digest: sha256Digest.optional(),
 });
 
 const EvidenceSchema = z.strictObject({
@@ -75,6 +76,60 @@ const EvidenceSchema = z.strictObject({
     })
     .optional(),
 });
+
+/** `boundedIdentifier` from the Decionis `EffectEvidence` contract, verbatim. */
+const boundedEffectIdentifier = z.string().trim().min(1).max(500);
+
+/**
+ * Protocol 1.1 `EffectEvidence`, mirrored from the Decionis shared contract
+ * including its `CONFIRMED` refinements: a confirmed observation may not rest
+ * on a bare downstream acknowledgement, must name an observer with a version,
+ * must have observed exactly the expected effect at a stated time, and must
+ * carry a digest or a reference for the observation itself.
+ */
+const EffectEvidenceSchema = z
+  .strictObject({
+    version: z.literal("1.0"),
+    status: z.enum(["CONFIRMED", "UNCONFIRMED"]),
+    observation_method: z.enum([
+      "DOWNSTREAM_ACK",
+      "READ_AFTER_WRITE",
+      "EVENT_CONFIRMATION",
+      "STATE_RECONCILIATION",
+      "SIGNED_RECEIPT",
+      "EXTERNAL_ATTESTATION",
+      "HUMAN_VALIDATION",
+    ]),
+    observer: z
+      .strictObject({
+        id: boundedEffectIdentifier,
+        version: boundedEffectIdentifier.nullable(),
+      })
+      .nullable(),
+    expected_effect_digest: sha256Digest,
+    observed_effect_digest: sha256Digest.nullable(),
+    observed_at: z.iso.datetime().nullable(),
+    evidence_digest: sha256Digest.nullable(),
+    evidence_reference: boundedEffectIdentifier.nullable(),
+    execution_correlation_id: boundedEffectIdentifier,
+  })
+  .superRefine((evidence, context) => {
+    if (evidence.status !== "CONFIRMED") return;
+    const fail = (message: string): void => {
+      context.addIssue({ code: "custom", message });
+    };
+    if (evidence.observation_method === "DOWNSTREAM_ACK") fail("EFFECT_METHOD_INSUFFICIENT");
+    if (evidence.observer === null || evidence.observer.version === null) {
+      fail("EFFECT_OBSERVER_REQUIRED");
+    }
+    if (evidence.observed_effect_digest !== evidence.expected_effect_digest) {
+      fail("EFFECT_OBSERVED_DIGEST_MISMATCH");
+    }
+    if (evidence.observed_at === null) fail("EFFECT_OBSERVED_AT_REQUIRED");
+    if (evidence.evidence_digest === null && evidence.evidence_reference === null) {
+      fail("EFFECT_EVIDENCE_ARTIFACT_REQUIRED");
+    }
+  });
 
 const ManagedEscalationRequestSchema = z.strictObject({
   mode: z.literal("MANAGED"),
@@ -121,6 +176,10 @@ const FinalizeRequestSchema = z.strictObject({
   outcome: z.enum(["COMMITTED", "FAILED", "INDETERMINATE"]),
   commit_correlation_id: boundedId,
   downstream_evidence: z.record(z.string(), z.unknown()).optional(),
+  // Deliberately unvalidated here: the hosted route answers malformed effect
+  // evidence with a 409 and a reason code, not with a 400 request rejection,
+  // so the shape is checked where that answer is produced.
+  effect_evidence: z.unknown().optional(),
 });
 
 const BINDING_KEYS = Object.keys(IntentBindingSchema.shape);
@@ -185,6 +244,8 @@ export interface LocalGrantRecord {
   readonly expiresAt: number;
   readonly nonce: string;
   readonly bindingDigest: string;
+  /** The expected-effect digest committed at enforce-and-bind; null when none was bound. */
+  readonly expectedEffectDigest: string | null;
   /** Present for direct grants issued on client-supplied evidence; null for managed grants. */
   readonly receiptDossierId: string | null;
   claimed: boolean;
@@ -220,6 +281,15 @@ export interface LocalAuthorityOptions {
   readonly policy?: LocalAuthorityPolicy;
   /** Subject routed to for a managed escalation without an approver principal. */
   readonly managedApproverId?: string;
+  /**
+   * API-key identities this deployment accepts as effect observers, mirroring
+   * `DECIONIS_TRUSTED_EFFECT_OBSERVER_API_KEY_IDS`. Empty by default, exactly as
+   * the hosted authority is by default, so `CONFIRMED` evidence is refused
+   * unless a test opts in. As in the hosted route, the allowlist is intersected
+   * with the caller's own authenticated identity — this double's `apiKey` — so
+   * naming any other id confirms nothing.
+   */
+  readonly trustedEffectObserverIds?: readonly string[];
   readonly clock?: () => number;
 }
 
@@ -278,6 +348,7 @@ export class LocalAuthority {
   private readonly legacyVerifyReceipt: LocalAuthorityOptions["verifyReceipt"];
   private readonly policy: LocalAuthorityPolicy;
   private readonly managedApproverId: string;
+  private readonly trustedEffectObserverIds: readonly string[];
   private readonly clock: () => number;
   private readonly overrides: Record<LocalAuthorityRoute, LocalRouteOverride[]> = {
     enforce: [],
@@ -298,6 +369,7 @@ export class LocalAuthority {
     this.legacyVerifyReceipt = options.verifyReceipt;
     this.policy = options.policy ?? defaultPolicy;
     this.managedApproverId = options.managedApproverId ?? "synthetic-managed-approver";
+    this.trustedEffectObserverIds = options.trustedEffectObserverIds ?? [];
     this.clock = options.clock ?? Date.now;
   }
 
@@ -523,6 +595,7 @@ export class LocalAuthority {
       expiresAt,
       nonce: randomBytes(32).toString("base64url"),
       bindingDigest,
+      expectedEffectDigest: request.expected_effect_digest ?? null,
       receiptDossierId: approval?.receiptDossierId ?? null,
       claimed: false,
       claimToken: null,
@@ -809,6 +882,13 @@ export class LocalAuthority {
     if (grant === undefined) return rejected("GRANT_INVALID");
     if (grant.expiresAt * 1_000 <= this.clock()) return rejected("GRANT_EXPIRED");
     if (grant.intentHash !== parsed.data.intent_hash) return rejected("GRANT_BINDING_MISMATCH");
+    // Unreachable while the commitment stays inside the intent hash — a
+    // divergence is already an `INTENT_HASH_MISMATCH` from the independent
+    // re-hash above. Kept because the hosted route checks the committed value
+    // itself, and a double that only checked the hash would stop proving that.
+    if ((intent.data.expected_effect_digest ?? null) !== grant.expectedEffectDigest) {
+      return rejected("GRANT_BINDING_MISMATCH");
+    }
     if (
       grant.receiptDossierId !== null &&
       parsed.data.evidence?.humanApproval?.receiptDossierId !== grant.receiptDossierId
@@ -845,6 +925,9 @@ export class LocalAuthority {
             execution_binding_digest: grant.bindingDigest,
             execution_nonce: grant.nonce,
             execution_correlation_id: grant.correlationId,
+            ...(grant.expectedEffectDigest === null
+              ? {}
+              : { expected_effect_digest: grant.expectedEffectDigest }),
           },
           jti: grant.jti,
           iat: grant.issuedAt,
@@ -874,17 +957,63 @@ export class LocalAuthority {
       return rejected("EXECUTION_CORRELATION_MISMATCH");
     }
     if (grant.finalized !== null) return rejected("NONCE_REPLAY_DETECTED");
+    // The hosted authority refuses the whole finalization for evidence it
+    // cannot bind, in exactly this order, before the commit transition.
+    const supplied = parsed.data.effect_evidence;
+    let evidence: z.infer<typeof EffectEvidenceSchema> | undefined;
+    if (supplied !== undefined) {
+      const parsedEvidence = EffectEvidenceSchema.safeParse(supplied);
+      if (!parsedEvidence.success) return rejected(malformedEffectEvidenceReason(supplied));
+      evidence = parsedEvidence.data;
+      if (evidence.execution_correlation_id !== parsed.data.commit_correlation_id) {
+        return rejected("EXECUTION_CORRELATION_MISMATCH");
+      }
+      if (grant.expectedEffectDigest === null) {
+        return rejected("EFFECT_EXPECTED_BINDING_UNAVAILABLE");
+      }
+      if (evidence.expected_effect_digest !== grant.expectedEffectDigest) {
+        return rejected("EFFECT_EXPECTED_DIGEST_MISMATCH");
+      }
+      if (evidence.status === "CONFIRMED" && parsed.data.outcome !== "COMMITTED") {
+        return rejected("EFFECT_EVIDENCE_OUTCOME_MISMATCH");
+      }
+      if (evidence.status === "CONFIRMED") {
+        const trusted = this.effectObserverIds();
+        if (trusted.length === 0) {
+          return rejected("EFFECT_OBSERVER_PROVENANCE_UNAVAILABLE");
+        }
+        if (evidence.observer === null || !trusted.includes(evidence.observer.id)) {
+          return rejected("EFFECT_OBSERVER_PROVENANCE_MISMATCH");
+        }
+      }
+    }
     grant.finalized = parsed.data.outcome;
+    // Byte-for-byte the hosted success body: the commit's own decision-chain
+    // evidence is queued, not yet recorded, so a successful finalization still
+    // carries `COMMIT_EVIDENCE_PENDING`.
     return {
       status: 200,
       body: {
         finalized: true,
         outcome: parsed.data.outcome,
-        evidence_recorded: true,
-        effect_status: "NOT_OBSERVED",
-        reason_codes: [],
+        evidence_durably_queued: true,
+        decision_chain_evidence_recorded: false,
+        evidence_recorded: false,
+        effect_evidence_recorded: evidence !== undefined,
+        effect_confirmation: evidence?.status === "CONFIRMED" ? "CONFIRMED" : "UNCONFIRMED",
+        reason_codes: ["COMMIT_EVIDENCE_PENDING"],
       },
     };
+  }
+
+  /**
+   * The hosted route never trusts the allowlist alone: it returns at most the
+   * caller's own authenticated API-key identity, so a confirmed observation
+   * must name the identity that presented the credential. This double has one
+   * credential, so that credential is its identity.
+   */
+  private effectObserverIds(): readonly string[] {
+    return this.trustedEffectObserverIds.includes(this.apiKey) ? [this.apiKey] : [];
   }
 
   /** Recomputes the hash independently and applies the contract's time rules. */
@@ -962,6 +1091,29 @@ export class LocalAuthority {
       status === "FAILED"
     );
   }
+}
+
+/**
+ * The hosted route maps an unparseable observation to a 409 reason code rather
+ * than a request rejection, and singles out a `CONFIRMED` observation whose
+ * observer version is missing, because that is a provenance failure rather than
+ * a malformed body.
+ */
+function malformedEffectEvidenceReason(supplied: unknown): string {
+  const candidate = asRecord(supplied);
+  const observer = asRecord(candidate.observer);
+  if (
+    candidate.version === "1.0" &&
+    candidate.status === "CONFIRMED" &&
+    (typeof observer.version !== "string" || observer.version.trim().length === 0)
+  ) {
+    return "EFFECT_OBSERVER_PROVENANCE_UNAVAILABLE";
+  }
+  return "EFFECT_EVIDENCE_INVALID";
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
 }
 
 function headerString(value: string | string[] | undefined): string | null {

@@ -104,6 +104,45 @@ describe("DecionisGate", () => {
     });
   });
 
+  it("sends the expected-effect digest as a top-level binding property on enforce-and-bind", async () => {
+    const expectedEffectDigest = `sha256:${"c".repeat(64)}`;
+    const intent = new IntentCapture().capture(
+      { action: "deploy", target: "github:repo:main", parameters: { environment: "production" } },
+      {
+        tenantId: "00000000-0000-4000-8000-000000000002",
+        actor: { id: "synthetic-deploy-agent", type: "AI_AGENT" },
+        downstreamTarget: { system: "github", operation: "deploy" },
+        idempotencyKey: "deploy-1",
+        context: {},
+        expectedEffectDigest,
+      },
+    );
+    const fetchMock = vi.fn<typeof fetch>(async () => json(decisionBody(intent)));
+
+    const decision = await gateWith(fetchMock).evaluate(intent);
+
+    expect(decision.verdict).toBe("ALLOW");
+    const request = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const body = JSON.parse(request.body as string) as Record<string, unknown>;
+    // The commitment travels as a top-level binding property, so it is inside intent_hash.
+    expect(Object.keys(body).sort()).toEqual([
+      "action",
+      "actor",
+      "captured_at",
+      "context",
+      "downstream_target",
+      "expected_effect_digest",
+      "expires_at",
+      "intent_hash",
+      "intent_id",
+      "mode",
+      "protocol_version",
+      "tenant_id",
+    ]);
+    expect(body.expected_effect_digest).toBe(expectedEffectDigest);
+    expect(body.intent_hash).toBe(intent.intentHash);
+  });
+
   it("attaches the evidence it evaluated with to the decision", async () => {
     const intent = captured();
     const fetchMock = vi.fn<typeof fetch>(async () => json(decisionBody(intent)));

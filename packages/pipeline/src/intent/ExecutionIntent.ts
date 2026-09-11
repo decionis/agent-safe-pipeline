@@ -8,6 +8,8 @@ const actionName = z
   .min(1)
   .max(120)
   .regex(/^[a-z][a-z0-9._:-]*$/);
+/** The Decionis contract's digest form, verbatim: `sha256:` and 64 lowercase hex. */
+const sha256Digest = z.string().regex(/^sha256:[0-9a-f]{64}$/);
 
 export const AgentProposalSchema = z
   .object({
@@ -49,6 +51,7 @@ export const TrustedIntentContextSchema = z
     downstreamTarget: DownstreamTargetSchema,
     context: JsonObjectSchema.default({}),
     correlationId: boundedId.optional(),
+    expectedEffectDigest: sha256Digest.optional(),
     idempotencyKey: z.string().trim().min(1).max(180),
   })
   .strict();
@@ -67,6 +70,7 @@ export const ExecutionIntentSchema = z
     downstreamTarget: DownstreamTargetSchema,
     context: JsonObjectSchema,
     correlationId: boundedId.optional(),
+    expectedEffectDigest: sha256Digest.optional(),
     idempotencyKey: z.string().trim().min(1).max(180),
   })
   .strict();
@@ -84,7 +88,10 @@ export interface CapturedIntent {
   readonly byteLength: number;
 }
 
-/** Exact wire shape of the Decionis `ExecutionIntentBinding` contract. */
+/**
+ * Wire shape of the Decionis `ExecutionIntentBinding` contract, less the
+ * optional `policy_projection` this package does not produce.
+ */
 export interface AuthorityIntentBinding {
   readonly protocol_version: "agent-safe.intent/1";
   readonly tenant_id: string;
@@ -109,4 +116,11 @@ export interface AuthorityIntentBinding {
     readonly environment?: string;
     readonly endpoint?: string;
   };
+  /**
+   * Digest-only commitment to the downstream state predicted before dispatch.
+   * Absent unless the trusted runtime supplied one, so an intent that does not
+   * use it produces exactly the binding, canonical JSON, and hash it produced
+   * before this property existed.
+   */
+  readonly expected_effect_digest?: string;
 }

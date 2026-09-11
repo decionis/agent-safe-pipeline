@@ -899,6 +899,102 @@ test(
   },
 );
 
+test("expected-effect commitment and effect evidence", TEST_OPTIONS, async () => {
+  const expectedEffectDigest = `sha256:${"1".repeat(64)}`;
+  const from = authority.requests.length;
+  const captured = new IntentCapture().capture(
+    {
+      action: "refund_order",
+      target: "shopify:order:synthetic-effect-1",
+      parameters: { amountMinor: 5_000, currency: "USD", orderId: "synthetic-effect-1" },
+    },
+    {
+      tenantId: TENANT_ID,
+      actor: { id: ACTOR_ID, type: "AI_AGENT", runtime: "contract-harness" },
+      downstreamTarget: { system: "shopify", operation: "refund", environment: "synthetic" },
+      idempotencyKey: "refund-effect-1",
+      context: { source: "contract-harness" },
+      expectedEffectDigest,
+    },
+  );
+
+  const decision = await gate().evaluate(captured);
+  assert.equal(decision.verdict, "ALLOW");
+  assert.ok(decision.authorization);
+
+  const enforce = requestsSince(from, ENFORCE_PATH).at(-1);
+  // The commitment travels as a top-level binding property, so the stub's
+  // independent canonicalizer must reproduce the same hash from it.
+  assert.deepEqual(
+    Object.keys(enforce.body).sort(),
+    [...REQUEST_KEYS, "expected_effect_digest"].sort(),
+  );
+  assert.equal(enforce.body.expected_effect_digest, expectedEffectDigest);
+  assert.equal(enforce.recomputedHash, captured.intentHash);
+  assert.equal(
+    hashBinding(
+      Object.fromEntries(
+        [...BINDING_KEYS, "expected_effect_digest"].map((key) => [key, enforce.body[key]]),
+      ),
+    ),
+    captured.intentHash,
+  );
+
+  const grantVerifier = verifier();
+  const authorization = await grantVerifier.verifyAndConsume(captured, decision);
+  assert.ok(authorization, "the grant echoed the committed digest and was accepted");
+
+  const claim = requestsSince(from, CLAIM_PATH).at(-1);
+  assert.deepEqual(
+    Object.keys(claim.body.intent).sort(),
+    [...BINDING_KEYS, "expected_effect_digest"].sort(),
+  );
+  assert.equal(claim.recomputedHash, captured.intentHash);
+  assert.equal(
+    claim.response.body.claims.binding.expected_effect_digest,
+    expectedEffectDigest,
+    "the authority committed the digest into the grant claims it returned",
+  );
+
+  const effectEvidence = {
+    version: "1.0",
+    status: "UNCONFIRMED",
+    observation_method: "DOWNSTREAM_ACK",
+    observer: null,
+    expected_effect_digest: expectedEffectDigest,
+    observed_effect_digest: null,
+    observed_at: null,
+    evidence_digest: null,
+    evidence_reference: null,
+    execution_correlation_id: captured.intent.intentId,
+  };
+  const finalization = await grantVerifier.finalize({
+    captured,
+    decision,
+    authorization,
+    outcome: "COMMITTED",
+    effectEvidence,
+  });
+
+  assert.equal(finalization, "RECORDED");
+  const finalize = requestsSince(from, FINALIZE_PATH).at(-1);
+  assert.deepEqual(finalize.body, {
+    execution_token: decision.authorization.token,
+    claim_token: authority.grants.get(decision.authorization.token).claimToken,
+    outcome: "COMMITTED",
+    commit_correlation_id: captured.intent.intentId,
+    effect_evidence: effectEvidence,
+  });
+  assert.equal(finalize.response.body.effect_evidence_recorded, true);
+  assert.equal(finalize.response.body.effect_confirmation, "UNCONFIRMED");
+  assert.deepEqual(grantVerifier.effectReport(authorization), {
+    effectEvidenceSent: true,
+    effectEvidenceRefused: false,
+    effectEvidenceRecorded: true,
+    effectConfirmation: "UNCONFIRMED",
+  });
+});
+
 test("The stub bounds request bodies", TEST_OPTIONS, async () => {
   const oversized = JSON.stringify({ padding: "x".repeat(300 * 1024) });
   const outcome = await fetch(`${authority.baseUrl}${ENFORCE_PATH}`, {

@@ -114,6 +114,9 @@ re-evaluation to `GRANT_READY`, or to `REJECTED`, `EXPIRED`, `CANCELLED`, or `FA
 | Request contract     | Strict `ExecutionAuthorityRequest` schema, `Idempotency-Key` equal to `intent_id`, an independent canonicalizer that recomputes the hash, the five-minute intent lifetime                                                     |
 | Grants               | Single-use claims, replay refused with `NONCE_REPLAY_DETECTED`, direct grants re-verify evidence at claim, managed grants carry no client evidence                                                                            |
 | Finalization         | `finalize-token` records `COMMITTED`, `FAILED`, or `INDETERMINATE` once per claim; the record is on `authority.grants`                                                                                                        |
+| Expected effect      | `expected_effect_digest` is accepted on the binding, re-hashed by the independent canonicalizer, stored on the grant, echoed in the claim's grant claims, and re-checked at claim time                                        |
+| Effect evidence      | `effect_evidence` on finalize is validated against the Protocol 1.1 schema and refused in the hosted order before the commit transition, a malformed record answered with 409 `EFFECT_EVIDENCE_INVALID` rather than a 400     |
+| Finalize 200 body    | Key for key the hosted success body: `finalized`, `outcome`, `evidence_durably_queued`, `decision_chain_evidence_recorded`, `evidence_recorded`, `effect_evidence_recorded`, `effect_confirmation`, `COMMIT_EVIDENCE_PENDING` |
 | Fixture ledger       | `FixtureAuthorizationVerifier.finalize` records the outcome in an inspectable ledger, so `RECORDED` from the fixture means the entry exists in `ledger()`                                                                     |
 | Fault injection      | `scriptOnce(route, override)` delays, truncates, replaces, or destroys the next response on a route; `scriptNextManagedLifecycle` scripts client-visible states                                                               |
 
@@ -127,6 +130,30 @@ re-evaluation to `GRANT_READY`, or to `REJECTED`, `EXPIRED`, `CANCELLED`, or `FA
   local authority orchestrates the local Presence in process; what is faithful is the client-visible
   contract on both sides.
 - Nothing is delivered. The invitation link uses a reserved `.invalid` host.
+- The effect-evidence path is modelled only as far as claim-lease-free state allows. The double does
+  not model `authority_protocol_version: "1.1"` or `eligibility_validated_at`, and it models none of
+  the observation causality window: the hosted authority refuses any non-null `observed_at` that
+  precedes the claim (`EFFECT_OBSERVATION_PRECEDES_CLAIM`), precedes the authority's own eligibility
+  confirmation (`EFFECT_OBSERVATION_PRECEDES_AUTHORITY_CONFIRMATION`), or follows the start of the
+  finalization (`EFFECT_OBSERVATION_AFTER_FINALIZATION`), each against its own database clock. An
+  `observed_at` taken from a downstream system's response can hit the first two, so a timestamp the
+  double accepts can still be refused in production — and then the evidence-free retry records the
+  commit without the observation. The earlier finalize-body divergence `effect_status` was in no
+  contract and has been removed.
+
+## Trusted effect observers
+
+`new LocalAuthority({ trustedEffectObserverIds: ["synthetic-observer"] })` mirrors the hosted
+`DECIONIS_TRUSTED_EFFECT_OBSERVER_API_KEY_IDS` allowlist. It is **empty by default**, exactly as the
+hosted authority is, so `CONFIRMED` effect evidence is refused with
+`EFFECT_OBSERVER_PROVENANCE_UNAVAILABLE` unless a test opts in. As in the hosted route, the allowlist
+is intersected with the caller's own authenticated identity: the double has exactly one credential, so
+opting in means listing its `apiKey` (`LOCAL_AUTHORITY_API_KEY` by default) and naming that same value
+as `observer.id`. Any other observer id is refused with `EFFECT_OBSERVER_PROVENANCE_MISMATCH`, which is
+what the hosted route does with an observation that does not name the key that presented it. An absent allowlist does not fail
+closed to `UNCONFIRMED`: it refuses the whole finalization, which is why `DecionisGrantVerifier`
+retries once without the observation. Local tests should exercise both the allowlisted path and the
+default refusal.
 
 The [wire-contract harness](../tests/integration/contract/README.md) runs these doubles against the
 packed npm tarball in CI, and the [local escalation example](../examples/local-escalation) shows both
