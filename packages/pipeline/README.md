@@ -137,6 +137,17 @@ if (result.outcome === "COMPLETED") {
 The executor validates parameters against the handler's schema before the grant is claimed, and the
 grant is claimed before the handler runs. If either step fails, the handler is never invoked.
 
+The trusted context also accepts an optional `expectedEffectDigest` (`sha256:` plus 64 lowercase hex):
+a digest-only commitment to the downstream state predicted before dispatch. It is bound into the
+canonical intent hash and into the signed grant, and `DecionisGrantVerifier` refuses the authorization
+unless the returned grant echoes exactly that digest. The agent proposal can never carry it, and an
+intent that omits it hashes byte-identically to before the field existed. After the attempt, a trusted
+runtime that observed the effect may pass an `AuthorityEffectEvidence` record as `effectEvidence` to
+`DecionisGrantVerifier.finalize`, and read the authority's own `AuthorityEffectReport` back through
+`effectReport(authorization)`. See
+[execution intent](https://github.com/decionis/agent-safe-pipeline/blob/master/docs/execution-intent.md)
+and [execution outcomes](https://github.com/decionis/agent-safe-pipeline/blob/master/docs/execution-outcomes.md).
+
 ## Outcomes
 
 Decionis returns one of three verdicts. The executor turns a verdict into exactly one execution
@@ -275,6 +286,7 @@ them from the testing entry. See
 | Decision       | `DecionisGate`, `DecisionAuthority`, `GateDecision`, `FailClosedDecision`                         | Obtain an independent `ALLOW` / `ESCALATE` / `BLOCK` decision with dossier identifiers         |
 | Human approval | `PresenceApprovalCoordinator`, `ManagedEscalationRequest`, `HumanApprovalEvidence`                | Coordinate DIRECT Presence ceremonies or request MANAGED orchestration by Decionis             |
 | Execution      | `SafeExecutor`, `ActionRegistry`, `DecionisGrantVerifier`, `AuthorizationVerifier`, `ReplayStore` | Claim the single-use grant, validate parameters, invoke a sealed handler, finalize the attempt |
+| Effect         | `AuthorityEffectEvidence`, `AuthorityEffectReport`, `DecionisGrantVerifier.effectReport`          | Forward a trusted runtime's downstream observation on finalize and read the authority's answer |
 | Observation    | `ShadowPipeline`, `ShadowObservation`                                                             | Record what the authority would have decided without granting execution                        |
 | Audit          | `AuditRecorder`, `AuditEventV1`, `AuditSink`                                                      | Emit immutable, redacted lifecycle records through one bounded sink call                       |
 | Testing        | `LocalPresence`, `LocalAuthority`, `createFixtureAuthorityPair` (from `/testing`)                 | Loopback doubles and fixture authorities for development and CI                                |

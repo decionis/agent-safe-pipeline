@@ -122,6 +122,101 @@ describe("IntentCapture", () => {
     ]);
   });
 
+  it("hashes an intent that binds no expected effect exactly as the published 0.1.4 build did", () => {
+    const captured = capture({
+      action: "refund_order",
+      target: "shopify:order:58291",
+      parameters: { amount: 18400, currency: "USD" },
+    });
+
+    // Literals recomputed from the origin/master (0.1.4) intent sources, compiled
+    // and run independently of this tree. The optional expected-effect digest is
+    // added through a conditional spread, so an intent that omits it must produce
+    // the same canonical JSON, byte length, and hash as before the property existed.
+    expect(captured.canonicalIntent).toBe(
+      '{"action":{"parameters":{"amount":18400,"currency":"USD"},"resource":"shopify:order:58291","type":"refund_order"},"actor":{"id":"synthetic-refund-agent","runtime":"mcp","type":"AI_AGENT"},"captured_at":"2026-08-14T10:00:00.000Z","context":{"idempotency_key":"refund-58291-v1","source":"test"},"downstream_target":{"endpoint":"POST /orders/refunds","operation":"refund","system":"shopify"},"expires_at":"2026-08-14T10:01:00.000Z","intent_id":"00000000-0000-4000-8000-000000000001","protocol_version":"agent-safe.intent/1","tenant_id":"00000000-0000-4000-8000-000000000002"}',
+    );
+    expect(captured.intentHash).toBe(
+      "sha256:f5b4f0a8e61a85e75eef5ba02c8270d187f6ae3388c579bb95a475064c90d087",
+    );
+    expect(captured.byteLength).toBe(572);
+    expect(captured.intent.expectedEffectDigest).toBeUndefined();
+    expect("expected_effect_digest" in CanonicalIntentHasher.bindingOf(captured.intent)).toBe(
+      false,
+    );
+  });
+
+  it("binds the expected-effect digest into the intent hash when the trusted runtime supplies one", () => {
+    const proposal = {
+      action: "refund_order",
+      target: "shopify:order:58291",
+      parameters: { amount: 18400, currency: "USD" },
+    };
+    const expectedEffectDigest = `sha256:${"a".repeat(64)}`;
+    const withoutDigest = capture(proposal);
+    const withDigest = capture(proposal, { ...trusted(), expectedEffectDigest });
+
+    expect(withDigest.intentHash).not.toBe(withoutDigest.intentHash);
+    expect(withDigest.intent.expectedEffectDigest).toBe(expectedEffectDigest);
+    const binding = JSON.parse(withDigest.canonicalIntent) as Record<string, unknown>;
+    expect(binding.expected_effect_digest).toBe(expectedEffectDigest);
+    // Sorted by UTF-16 code unit the commitment lands between the downstream
+    // target and the expiry, which is where Decionis recomputes it.
+    expect(Object.keys(binding)).toEqual([
+      "action",
+      "actor",
+      "captured_at",
+      "context",
+      "downstream_target",
+      "expected_effect_digest",
+      "expires_at",
+      "intent_id",
+      "protocol_version",
+      "tenant_id",
+    ]);
+    // A different predicted effect is a different authorization.
+    expect(
+      capture(proposal, { ...trusted(), expectedEffectDigest: `sha256:${"b".repeat(64)}` })
+        .intentHash,
+    ).not.toBe(withDigest.intentHash);
+  });
+
+  it("rejects a malformed expected-effect digest", () => {
+    const proposal = { action: "refund_order", target: "shopify:order:58291", parameters: {} };
+    const malformed = [
+      `sha256:${"A".repeat(64)}`,
+      `sha256:${"a".repeat(63)}`,
+      "a".repeat(64),
+      ` sha256:${"a".repeat(64)}`,
+    ];
+    for (const expectedEffectDigest of malformed) {
+      expect(
+        () => capture(proposal, { ...trusted(), expectedEffectDigest }),
+        expectedEffectDigest,
+      ).toThrow();
+    }
+  });
+
+  it("never accepts an expected-effect digest from the agent proposal", () => {
+    expect(() =>
+      capture({
+        action: "refund_order",
+        target: "shopify:order:58291",
+        parameters: {},
+        expectedEffectDigest: `sha256:${"a".repeat(64)}`,
+      } as AgentProposal),
+    ).toThrow();
+
+    // The agent may still propose parameters; only the trusted plane commits an effect.
+    const captured = capture({
+      action: "refund_order",
+      target: "shopify:order:58291",
+      parameters: { expectedEffectDigest: `sha256:${"a".repeat(64)}` },
+    });
+    expect(captured.intent.expectedEffectDigest).toBeUndefined();
+    expect("expected_effect_digest" in JSON.parse(captured.canonicalIntent)).toBe(false);
+  });
+
   it("reserves the context idempotency key for the trusted runtime", () => {
     expect(() =>
       capture(

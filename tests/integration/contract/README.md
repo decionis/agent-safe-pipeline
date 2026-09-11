@@ -28,6 +28,13 @@ grant-free pending response, idempotent initiation, Decionis-only status polling
 liveness forwarding, reauthorization BLOCK/ESCALATE, expiry and failure, exact action/target
 mutation, concurrent waits, normal single-use claim, and finalization.
 
+The `expected-effect commitment and effect evidence` scenario adds the opt-in commitment path: the
+digest is bound at enforce-and-bind and at claim with the stub's independent recomputation on both,
+the grant echoes it in its signed claims, and a Protocol 1.1 observation is forwarded verbatim on
+finalize and read back through `DecionisGrantVerifier.effectReport`. The existing `REQUEST_KEYS` and
+`BINDING_KEYS` assertions are untouched, which is the compatibility evidence for every intent that
+binds no expected effect.
+
 ## Provenance rules the harness follows
 
 The harness file is a manifested synthetic fixture under `pnpm fixture:check`; the doubles it drives ship in the package's testing entry:

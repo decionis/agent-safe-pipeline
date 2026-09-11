@@ -131,6 +131,9 @@ export class CanonicalIntentHasher {
           ? {}
           : { endpoint: intent.downstreamTarget.endpoint }),
       },
+      ...(intent.expectedEffectDigest === undefined
+        ? {}
+        : { expected_effect_digest: intent.expectedEffectDigest }),
     };
   }
 

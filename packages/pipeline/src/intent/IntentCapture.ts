@@ -57,6 +57,9 @@ export class IntentCapture {
       downstreamTarget: trusted.downstreamTarget,
       context: trusted.context,
       ...(trusted.correlationId === undefined ? {} : { correlationId: trusted.correlationId }),
+      ...(trusted.expectedEffectDigest === undefined
+        ? {}
+        : { expectedEffectDigest: trusted.expectedEffectDigest }),
       idempotencyKey: trusted.idempotencyKey,
     });
     return this.hasher.capture(intent);
