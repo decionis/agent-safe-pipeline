@@ -141,6 +141,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "examples/whisper-boundary-demo/src/Index.ts",
+      "family": "Runnable example",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/pipeline/test/approval/PresenceApprovalCoordinator.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",

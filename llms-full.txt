@@ -43,6 +43,7 @@ The repository is canonical. It has no hosted API. The one MCP server it ships, 
 - Package: @decionis/commerce
 - Example: examples/basic-agent
 - Example: examples/golden-adversarial-demo
+- Example: examples/whisper-boundary-demo
 - Example: examples/local-escalation
 - Example: examples/shopify-refund-agent
 - Example: examples/github-deploy-agent
