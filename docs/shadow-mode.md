@@ -11,6 +11,12 @@ Agent -> intent -> existing execution (unchanged) -> production result
                 +-> Decionis in SHADOW mode -> observation (verdict, dossier, no grant)
 ```
 
+Shadow mode is not a dry run and not a test environment with no real writes. The production
+action runs and takes effect exactly as it did before; what is withheld is the authority, not the
+write. Whether a handler performs a real write is a property of the handler and its environment,
+independent of the evaluation mode: an enforcement gate can drive a handler that returns a
+simulated receipt, and a shadow observation can sit beside a real production write.
+
 ## Isolation boundary
 
 `ShadowPipeline` enforces four properties, each covered by deterministic tests:

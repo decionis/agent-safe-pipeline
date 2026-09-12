@@ -48,6 +48,8 @@ jobs:
         run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Verify
         run: pnpm verify
+      - name: Prove the self-checking demos
+        run: pnpm examples:prove
       - name: Upload coverage report
         if: ${{ success() || hashFiles('packages/pipeline/coverage/**') != '' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

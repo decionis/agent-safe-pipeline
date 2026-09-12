@@ -80,6 +80,7 @@ See the [package README](./packages/pipeline/README.md) for the complete enforce
 - [`packages/commerce-mcp-claude-extension`](./packages/commerce-mcp-claude-extension) — the dedicated MIT-licensed Claude Desktop wrapper and packaging checks. Its MCPB vendors the unchanged Apache-2.0 CommerceGate runtime with that runtime's license and notice.
 - [`examples/golden-adversarial-demo`](./examples/golden-adversarial-demo) — the self-checking proof: one golden path, eight attacks, zero unauthorized executions.
 - [`examples/whisper-boundary-demo`](./examples/whisper-boundary-demo) — the same proof for a shopping agent: merchant-text steering, a cross-session credential lookup, a cart changed after signing, constraints lost in context compaction, and principal loss across a delegation hop — six attacks, zero unauthorized effects.
+- [`examples/crm-outreach-demo`](./examples/crm-outreach-demo) — the same proof for a sales-development agent: who can approve a CRM update or an outbound message, a recipient changed after approval, an off-template message, an opted-out contact, an expired approval, and a provider response lost after dispatch that is reconciled once and never re-sent — six attacks, zero unauthorized effects.
 - [`examples/basic-agent`](./examples/basic-agent) — the smallest BLOCK flow.
 - [`examples/shopify-refund-agent`](./examples/shopify-refund-agent) — amount-based ALLOW / ESCALATE / BLOCK.
 - [`examples/github-deploy-agent`](./examples/github-deploy-agent) — environment and force-push controls.
@@ -126,6 +127,22 @@ The Execution Authority architecture has two load-bearing properties. Position o
 Every Decionis evaluation is recorded as a Decision Dossier, and each `GateDecision` returns the `decisionId` and `dossierId` of that record. Escalations attach the verified Presence `receiptDossierId`, and every executed action returns the consumed grant's `{decisionId, dossierId, grantId, intentHash}` binding, so execution results correlate to their evidence without extra bookkeeping. In the research vocabulary, dossiers compound into a Decision Chain: tamper-evident lineage linking evaluation, approval, and execution evidence across workflows. Decionis maintains that record; this repository's contribution is that execution cannot bypass it.
 
 Treat dossier identifiers as audit and support references, never as execution credentials — see [`docs/decision-dossiers.md`](./docs/decision-dossiers.md).
+
+### What each record establishes
+
+Fluent summaries lose these distinctions first. Each row names the record or state, what it
+establishes, and what it does not.
+
+| Record or state                                         | What it establishes                                                                                                                      | What it does not establish                                                                                                                                                          |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Captured intent (`IntentCapture`, `intentHash`)         | The exact action, target, and parameters the agent proposed, bound to trusted tenant, actor, and downstream context, hashed and expiring | That the agent's facts, identities, or amounts are true; that anything may execute                                                                                                  |
+| Verified human approval (Presence `receiptDossierId`)   | A named person approved that exact intent hash under the assurance the receipt records                                                   | Permission to execute: Decionis re-evaluates policy with the receipt, and only that evaluation can issue a grant                                                                    |
+| Execution grant (`authorization` on an `ALLOW`)         | Permission for one attempt at one intent, claimed once through the `AuthorizationVerifier` immediately before the handler runs           | Anything after expiry, for another intent hash, or on a second presentation; a dossier identifier, an invitation link, or an earlier `ALLOW` is not a substitute                    |
+| Decision Dossier (`decisionId`, `dossierId`)            | The record of why Decionis allowed, escalated, or blocked: policy snapshot, inputs, evidence, and grant metadata                         | An execution credential; proof that the underlying business judgement was right                                                                                                     |
+| Single claim, `COMPLETED`                               | The grant was consumed once and the trusted handler returned a provider result                                                           | An exactly-once downstream business effect or independent confirmation of settlement; whether an observation counts as `CONFIRMED` is the authority's judgement, not this package's |
+| `UNKNOWN_AFTER_DISPATCH`, finalized `INDETERMINATE`     | Dispatch began and completion could not be proved                                                                                        | Permission to repeat the side effect: reconcile through provider idempotency and read-only lookup, never by a second dispatch                                                       |
+| Shadow observation (`ShadowPipeline`, `mode: "SHADOW"`) | What Decionis would have decided about an action that already ran: a verdict and a dossier, no grant                                     | Enforcement, a grant, or a no-write test environment; the production write happened as before                                                                                       |
+| Library boundary (this package)                         | Intent capture, the gate, verification, and claim-before-handler dispatch inside the trusted integration                                 | Host isolation, IAM, network egress, credential storage, or incident response                                                                                                       |
 
 ## Research and specifications
 
@@ -177,13 +194,19 @@ To verify the distinct production claim, obtain a live dossier through an author
 the pinned verifier against the live JWKS without committing the dossier:
 
 ```bash
-npx -y @decionis/verify@0.2.0 \
+npx -y @decionis/verify@0.3.0 \
   --file /absolute/path/to/live-decision-dossier.json \
   --jwks https://api.decionis.com/v1/.well-known/decision-dossier-jwks.json
 ```
 
 See the [corpus README](./dossiers/README.md) for regeneration, provenance, expected failures, and
 the trust boundary between synthetic conformance and production verification.
+
+## Evaluating this repository
+
+[EVALUATION-PATH.md](./EVALUATION-PATH.md) is the reviewer's route: which artefact you are looking
+at, who owns which control, what each piece of evidence establishes and what it does not, and what
+to run in what order.
 
 ## Status
 

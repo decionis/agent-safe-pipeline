@@ -1,0 +1,57 @@
+{
+  "profile": "decionis.beap/v0.1",
+  "type": "EFFECT_EVIDENCE",
+  "dossier_id": "fixture_dossier_0002",
+  "evaluation_id": "fixture_evaluation_0002",
+  "intent_digest": "sha256:c451a41fe2e105babbf856b63c5c94a32977dded03ee90ac7c2fada731d00761",
+  "execution_binding": {
+    "binding_id": "fixture_binding_0002",
+    "binding_digest": "sha256:b4808c212878e3c94c7d20778ba9cfe4334c3d6e670e2e090649103566c2272c"
+  },
+  "authority_claim": {
+    "claim_id": "fixture_claim_0002",
+    "nonce_digest": "sha256:111ac58fca9cd13e8cb9db613640ea9bfa2ccd8da444061e11ede774e8b9e7ef",
+    "claimed_at": "2026-09-11T12:07:02.118Z"
+  },
+  "domain": "LOAN_DISBURSEMENT",
+  "action": "DISBURSE_LOAN",
+  "execution": {
+    "adapter": "synthetic-core-adapter",
+    "target": "lending/loan-disbursement",
+    "correlation_id": "fixture_corr_0002",
+    "idempotency_key": "synthetic-req-0002",
+    "attempt": 1,
+    "started_at": "2026-09-11T12:07:02.190Z",
+    "completed_at": null
+  },
+  "outcome": {
+    "status": "INDETERMINATE",
+    "provider_status": null,
+    "provider_reference": null,
+    "response_digest": null,
+    "failure_reason": null
+  },
+  "effect": {
+    "effect_type": "LOAN_DISBURSEMENT",
+    "resource_ref": "fixture_loan_84721",
+    "expected_effect_digest": "sha256:a0df83142d93f8815d908dcf0a1eeb9fe023bf00b2652a1a7159c2962f84aff9",
+    "observed_effect_digest": null,
+    "observation_method": "DOWNSTREAM_ACK",
+    "comparison": "PENDING"
+  },
+  "confirmation": {
+    "status": "UNKNOWN",
+    "confirmed_at": null,
+    "evidence_digest": null
+  },
+  "provenance": {
+    "source": "ADAPTER_OBSERVATION",
+    "provider_generated": false,
+    "observer": {
+      "id": "synthetic-core-adapter",
+      "version": "0.1.0"
+    }
+  },
+  "evidence_status": "INCOMPLETE",
+  "observed_at": "2026-09-11T12:07:32.190Z"
+}

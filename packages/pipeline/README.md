@@ -173,6 +173,25 @@ Every outcome that consumed a grant also reports `finalization` (`RECORDED`, `PE
 the attempt so commit evidence joins the Decision Dossier chain. Finalization is evidence, never
 authority: it cannot change `outcome` or `executed`.
 
+### What each record establishes
+
+Fluent summaries lose these distinctions first. Each row names the record or state, what it
+establishes, and what it does not.
+
+| Record or state                                         | What it establishes                                                                                                                      | What it does not establish                                                                                                                                                                                                                                                                  |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Captured intent (`IntentCapture`, `intentHash`)         | The exact action, target, and parameters the agent proposed, bound to trusted tenant, actor, and downstream context, hashed and expiring | That the agent's facts, identities, or amounts are true; that anything may execute                                                                                                                                                                                                          |
+| Verified human approval (Presence `receiptDossierId`)   | A named person approved that exact intent hash under the assurance the receipt records                                                   | Permission to execute: Decionis re-evaluates policy with the receipt, and only that evaluation can issue a grant                                                                                                                                                                            |
+| Execution grant (`authorization` on an `ALLOW`)         | Permission for one attempt at one intent, claimed once through the `AuthorizationVerifier` immediately before the handler runs           | Anything after expiry, for another intent hash, or on a second presentation; a dossier identifier, an invitation link, or an earlier `ALLOW` is not a substitute                                                                                                                            |
+| Decision Dossier (`decisionId`, `dossierId`)            | The record of why Decionis allowed, escalated, or blocked: policy snapshot, inputs, evidence, and grant metadata                         | An execution credential; proof that the underlying business judgement was right                                                                                                                                                                                                             |
+| Single claim, `COMPLETED`                               | The grant was consumed once and the trusted handler returned a provider result                                                           | An exactly-once downstream business effect or independent confirmation of settlement; whether an observation counts as `CONFIRMED` is the authority's judgement, not this package's                                                                                                         |
+| `UNKNOWN_AFTER_DISPATCH`, finalized `INDETERMINATE`     | Dispatch began and completion could not be proved                                                                                        | Permission to repeat the side effect: reconcile through provider idempotency and read-only lookup, never by a second dispatch                                                                                                                                                               |
+| Shadow observation (`ShadowPipeline`, `mode: "SHADOW"`) | What Decionis would have decided about an action that already ran: a verdict and a dossier, no grant                                     | Enforcement, a grant, or a no-write test environment; the production write happened as before                                                                                                                                                                                               |
+| Library boundary (this package)                         | Intent capture, the gate, verification, and claim-before-handler dispatch inside the trusted integration                                 | Host isolation, IAM, network egress, credential storage, or incident response; see the [threat model](https://github.com/decionis/agent-safe-pipeline/blob/master/THREAT-MODEL.md) and [trust boundary](https://github.com/decionis/agent-safe-pipeline/blob/master/docs/trust-boundary.md) |
+
+The sequence that produces both records, and two synthetic records side by side, are in
+[Decision Dossiers](https://github.com/decionis/agent-safe-pipeline/blob/master/docs/decision-dossiers.md).
+
 ## Human approval through Presence
 
 When policy escalates, a person must approve that exact intent with independently signed evidence.
@@ -316,6 +335,10 @@ before integrating a real downstream API.
 
 ## Assurance and supply chain
 
+The reviewer's route through all of it, with what each piece of evidence establishes and what it
+does not, is
+[EVALUATION-PATH.md](https://github.com/decionis/agent-safe-pipeline/blob/master/EVALUATION-PATH.md).
+
 - **Provenance.** Every release is published through npm trusted publishing with a provenance
   attestation, from a keyless-signed release tag, and archived under Zenodo concept DOI
   [`10.5281/zenodo.22312955`](https://doi.org/10.5281/zenodo.22312955).
@@ -346,6 +369,8 @@ Runnable, offline, and fixture-backed unless noted. Each one uses this package u
 - [`presence-live-approval`](https://github.com/decionis/agent-safe-pipeline/tree/master/examples/presence-live-approval): DIRECT Presence enforcement against the real services with a FIDO2 or FIDO2-plus-liveness ceremony (needs credentials).
 - [`presence-managed-approval`](https://github.com/decionis/agent-safe-pipeline/tree/master/examples/presence-managed-approval): Decionis-managed Presence orchestration against the real services (needs credentials).
 - [`golden-adversarial-demo`](https://github.com/decionis/agent-safe-pipeline/tree/master/examples/golden-adversarial-demo): one golden path, eight attacks, zero unauthorized executions.
+- [`whisper-boundary-demo`](https://github.com/decionis/agent-safe-pipeline/tree/master/examples/whisper-boundary-demo): the same proof for a shopping agent — six attacks, zero unauthorized effects.
+- [`crm-outreach-demo`](https://github.com/decionis/agent-safe-pipeline/tree/master/examples/crm-outreach-demo): who can approve a sales agent's CRM update or outbound message — six attacks, a lost provider response reconciled once, zero unauthorized effects.
 
 ## Open core
 

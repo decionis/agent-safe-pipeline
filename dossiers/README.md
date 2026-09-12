@@ -66,7 +66,7 @@ That claim requires a real dossier and the live Decionis JWKS. Run the following
 dossier obtained through an authorized Decionis route, and do not commit the dossier or its contents:
 
 ```bash
-npx -y @decionis/verify@0.2.0 \
+npx -y @decionis/verify@0.3.0 \
   --file /absolute/path/to/live-decision-dossier.json \
   --jwks https://api.decionis.com/v1/.well-known/decision-dossier-jwks.json
 ```
