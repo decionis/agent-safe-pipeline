@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://banking.decionis.com/spec/v0.1/schemas/dossier-projection.schema.json",
+  "title": "BEAP DossierProjection",
+  "description": "A signed, purpose-limited projection of a canonical Decision Dossier (specification section 23.8). A projection is never the canonical dossier; it names the canonical digest it derives from and the claim classes it omits.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "profile",
+    "type",
+    "canonical_dossier_digest",
+    "projection_profile",
+    "included_claims",
+    "omitted_claim_classes",
+    "projection_issuer",
+    "projection_timestamp",
+    "projection_signature",
+    "claims"
+  ],
+  "properties": {
+    "profile": { "const": "decionis.beap/v0.1" },
+    "type": { "const": "DOSSIER_PROJECTION" },
+    "canonical_dossier_digest": { "$ref": "#/$defs/sha256" },
+    "projection_profile": { "$ref": "#/$defs/identifier" },
+    "included_claims": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 120 }
+    },
+    "omitted_claim_classes": {
+      "type": "array",
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/identifier" }
+    },
+    "projection_issuer": { "$ref": "#/$defs/reference" },
+    "projection_timestamp": { "type": "string", "format": "date-time" },
+    "projection_signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "key_id", "value"],
+      "properties": {
+        "algorithm": { "const": "Ed25519" },
+        "key_id": { "$ref": "#/$defs/reference" },
+        "value": { "type": "string", "minLength": 1, "maxLength": 1000 }
+      }
+    },
+    "claims": { "type": "object" }
+  },
+  "$defs": {
+    "identifier": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{1,63}$" },
+    "reference": { "type": "string", "minLength": 1, "maxLength": 500 },
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+  }
+}

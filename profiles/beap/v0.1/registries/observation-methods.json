@@ -1,0 +1,42 @@
+{
+  "profile": "decionis.beap/v0.1",
+  "registry": "observation-methods",
+  "description": "How an observed effect was established. Only methods with `sufficient_for_confirmed` may support a CONFIRMED confirmation state; a downstream acknowledgement supports COMMITTED only.",
+  "entries": [
+    {
+      "id": "DOWNSTREAM_ACK",
+      "sufficient_for_confirmed": false,
+      "description": "The downstream system acknowledged receipt or acceptance of the request."
+    },
+    {
+      "id": "READ_AFTER_WRITE",
+      "sufficient_for_confirmed": true,
+      "description": "The protected state was read back from the system of record after the write."
+    },
+    {
+      "id": "EVENT_CONFIRMATION",
+      "sufficient_for_confirmed": true,
+      "description": "An authoritative event from the downstream system reported the effect."
+    },
+    {
+      "id": "STATE_RECONCILIATION",
+      "sufficient_for_confirmed": true,
+      "description": "A reconciliation process matched the effect against authoritative records."
+    },
+    {
+      "id": "SIGNED_RECEIPT",
+      "sufficient_for_confirmed": true,
+      "description": "The downstream system issued a signed receipt for the effect."
+    },
+    {
+      "id": "EXTERNAL_ATTESTATION",
+      "sufficient_for_confirmed": true,
+      "description": "An independent external party attested to the effect."
+    },
+    {
+      "id": "HUMAN_VALIDATION",
+      "sufficient_for_confirmed": true,
+      "description": "An authorized person validated the effect against the system of record."
+    }
+  ]
+}

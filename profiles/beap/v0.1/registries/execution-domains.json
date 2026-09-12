@@ -1,0 +1,56 @@
+{
+  "profile": "decionis.beap/v0.1",
+  "registry": "execution-domains",
+  "description": "ExecutionDomain identifiers registered by BEAP v0.1. Identifiers name a business authority boundary, never a vendor product. Institutions MAY register additional identifiers that follow the same pattern.",
+  "identifier_pattern": "^[A-Z][A-Z0-9_]{1,63}$",
+  "entries": [
+    {
+      "id": "CUSTOMER_ORIGINATION",
+      "description": "Creating, verifying, approving, activating, or rejecting a customer relationship."
+    },
+    {
+      "id": "ACCOUNT_ORIGINATION",
+      "description": "Creating, approving, activating, or closing accounts and setting their initial limits."
+    },
+    {
+      "id": "LOAN_ORIGINATION",
+      "description": "Credit decisions and loan creation up to, but excluding, the release of funds."
+    },
+    {
+      "id": "LOAN_DISBURSEMENT",
+      "description": "Releasing loan funds to a destination account or cancelling a scheduled release."
+    },
+    {
+      "id": "LENDING",
+      "description": "Servicing changes to an existing credit facility: modification, payment holidays, rescheduling, charge-off, payoff."
+    },
+    {
+      "id": "CREDIT_LIMITS",
+      "description": "Setting, increasing, or decreasing credit limits on a facility or account."
+    },
+    {
+      "id": "CORPORATE_PAYMENTS",
+      "description": "Corporate-initiated payments and payment files, including maker-checker and signatory mandates."
+    },
+    {
+      "id": "PAYMENT_PROCESSING",
+      "description": "Submitting, releasing, returning, or cancelling individual payment instructions toward posting or clearing."
+    },
+    {
+      "id": "TREASURY",
+      "description": "Institution-side liquidity, internal, and settlement transfers."
+    },
+    {
+      "id": "CUSTOMER_ADMINISTRATION",
+      "description": "Changes to an existing customer record, status, or classification."
+    },
+    {
+      "id": "ACCOUNT_ADMINISTRATION",
+      "description": "Changes to an existing account: beneficiaries, mandates, limits, freezes."
+    },
+    {
+      "id": "CORE_ADMINISTRATION",
+      "description": "Institutional configuration: product parameters, fee schedules, rates, privileges."
+    }
+  ]
+}

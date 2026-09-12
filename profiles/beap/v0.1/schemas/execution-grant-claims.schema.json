@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://banking.decionis.com/spec/v0.1/schemas/execution-grant-claims.schema.json",
+  "title": "BEAP ExecutionGrantClaims",
+  "description": "The claims a BEAP execution grant binds (specification section 18). This is the logical claim set, not a token format; the Decionis protocol issues the signed grant. A grant never contains downstream credentials.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "profile",
+    "type",
+    "grant_id",
+    "organization_id",
+    "execution_binding_id",
+    "intent_digest",
+    "domain",
+    "action",
+    "downstream",
+    "permitted_operation",
+    "single_use",
+    "issued_at",
+    "expires_at"
+  ],
+  "properties": {
+    "profile": { "const": "decionis.beap/v0.1" },
+    "type": { "const": "EXECUTION_GRANT_CLAIMS" },
+    "grant_id": { "$ref": "#/$defs/reference" },
+    "organization_id": { "$ref": "#/$defs/reference" },
+    "execution_binding_id": { "$ref": "#/$defs/reference" },
+    "intent_digest": { "$ref": "#/$defs/sha256" },
+    "expected_effect_digest": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }] },
+    "domain": { "$ref": "#/$defs/identifier" },
+    "action": { "$ref": "#/$defs/identifier" },
+    "downstream": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "operation"],
+      "properties": {
+        "provider": { "$ref": "#/$defs/identifier" },
+        "product": { "$ref": "#/$defs/identifier" },
+        "operation": { "$ref": "#/$defs/identifier" },
+        "environment": { "$ref": "#/$defs/identifier" }
+      }
+    },
+    "permitted_operation": { "$ref": "#/$defs/identifier" },
+    "single_use": { "const": true },
+    "presence_receipt_ref": { "type": ["string", "null"], "maxLength": 500 },
+    "issued_at": { "type": "string", "format": "date-time" },
+    "expires_at": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "identifier": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{1,63}$" },
+    "reference": { "type": "string", "minLength": 1, "maxLength": 500 },
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+  }
+}

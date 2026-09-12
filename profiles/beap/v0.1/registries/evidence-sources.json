@@ -1,0 +1,53 @@
+{
+  "profile": "decionis.beap/v0.1",
+  "registry": "evidence-sources",
+  "description": "Vendor-neutral provenance classes for effect evidence (specification section 22.14). `provider_generated` distinguishes downstream-system evidence from adapter observations.",
+  "identifier_pattern": "^[A-Z][A-Z0-9_]{1,63}$",
+  "entries": [
+    {
+      "id": "CORE_BANKING_RESPONSE",
+      "provider_generated": true,
+      "description": "Synchronous response of the core banking system to the executed operation."
+    },
+    {
+      "id": "PAYMENT_HUB_STATUS",
+      "provider_generated": true,
+      "description": "Status retrieved from or pushed by the payment hub for a submitted instruction or batch."
+    },
+    {
+      "id": "LENDING_PLATFORM_RESPONSE",
+      "provider_generated": true,
+      "description": "Synchronous response of a lending platform."
+    },
+    {
+      "id": "CORE_LEDGER_QUERY",
+      "provider_generated": true,
+      "description": "A read of the authoritative ledger after the write."
+    },
+    {
+      "id": "PAYMENT_NETWORK_ACK",
+      "provider_generated": true,
+      "description": "An acknowledgement or status from a payment network or clearing system."
+    },
+    {
+      "id": "RECONCILIATION_SERVICE",
+      "provider_generated": true,
+      "description": "The institution's reconciliation service."
+    },
+    {
+      "id": "SIGNED_WEBHOOK",
+      "provider_generated": true,
+      "description": "A cryptographically signed event delivered by the downstream system."
+    },
+    {
+      "id": "ADAPTER_OBSERVATION",
+      "provider_generated": false,
+      "description": "An observation made by the banking adapter itself, distinct from provider evidence."
+    },
+    {
+      "id": "HUMAN_ATTESTATION",
+      "provider_generated": false,
+      "description": "A recorded human attestation of the observed effect."
+    }
+  ]
+}

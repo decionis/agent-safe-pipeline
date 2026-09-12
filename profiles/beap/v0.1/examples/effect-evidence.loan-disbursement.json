@@ -1,0 +1,57 @@
+{
+  "profile": "decionis.beap/v0.1",
+  "type": "EFFECT_EVIDENCE",
+  "dossier_id": "fixture_dossier_0001",
+  "evaluation_id": "fixture_evaluation_0001",
+  "intent_digest": "sha256:c451a41fe2e105babbf856b63c5c94a32977dded03ee90ac7c2fada731d00761",
+  "execution_binding": {
+    "binding_id": "fixture_binding_0001",
+    "binding_digest": "sha256:b4808c212878e3c94c7d20778ba9cfe4334c3d6e670e2e090649103566c2272c"
+  },
+  "authority_claim": {
+    "claim_id": "fixture_claim_0001",
+    "nonce_digest": "sha256:111ac58fca9cd13e8cb9db613640ea9bfa2ccd8da444061e11ede774e8b9e7ef",
+    "claimed_at": "2026-09-11T12:01:31.442Z"
+  },
+  "domain": "LOAN_DISBURSEMENT",
+  "action": "DISBURSE_LOAN",
+  "execution": {
+    "adapter": "synthetic-core-adapter",
+    "target": "lending/loan-disbursement",
+    "correlation_id": "fixture_corr_0001",
+    "idempotency_key": "synthetic-req-0001",
+    "attempt": 1,
+    "started_at": "2026-09-11T12:01:31.501Z",
+    "completed_at": "2026-09-11T12:01:31.884Z"
+  },
+  "outcome": {
+    "status": "COMMITTED",
+    "provider_status": "ACCEPTED",
+    "provider_reference": "fixture_txn_0001",
+    "response_digest": "sha256:2b272170047644ccf167592558c873a4ddf8453ee817319ce270ec1410316856",
+    "failure_reason": null
+  },
+  "effect": {
+    "effect_type": "LOAN_DISBURSEMENT",
+    "resource_ref": "fixture_loan_84721",
+    "expected_effect_digest": "sha256:a0df83142d93f8815d908dcf0a1eeb9fe023bf00b2652a1a7159c2962f84aff9",
+    "observed_effect_digest": "sha256:a0df83142d93f8815d908dcf0a1eeb9fe023bf00b2652a1a7159c2962f84aff9",
+    "observation_method": "READ_AFTER_WRITE",
+    "comparison": "MATCH"
+  },
+  "confirmation": {
+    "status": "CONFIRMED",
+    "confirmed_at": "2026-09-11T12:03:15.004Z",
+    "evidence_digest": "sha256:b9625f6397cd1edfc3497a59c37af9cbd4b276dbdbcced30b55bef1377b1accb"
+  },
+  "provenance": {
+    "source": "CORE_LEDGER_QUERY",
+    "provider_generated": true,
+    "observer": {
+      "id": "synthetic-core-adapter",
+      "version": "0.1.0"
+    }
+  },
+  "evidence_status": "COMPLETE",
+  "observed_at": "2026-09-11T12:03:15.004Z"
+}

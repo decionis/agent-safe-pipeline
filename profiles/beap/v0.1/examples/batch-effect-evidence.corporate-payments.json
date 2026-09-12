@@ -1,0 +1,35 @@
+{
+  "profile": "decionis.beap/v0.1",
+  "type": "BATCH_EFFECT_EVIDENCE",
+  "dossier_id": "fixture_dossier_0002",
+  "intent_digest": "sha256:5cedf3e7cf71edb928a1614d512f9971a1154bc08d8fe3a3c411f5bd86101323",
+  "batch_binding_digest": "sha256:d5e1c26d32dc0045940a2697b90461f02c92e2d24c3a8feb1ee79bac7fb2ac06",
+  "batch_correlation_id": "fixture_corr_0002",
+  "sequence": 2,
+  "authorized_item_count": 3,
+  "authorized_totals": [
+    {
+      "currency": "EUR",
+      "total": "184250.00",
+      "count": 3
+    }
+  ],
+  "accepted_item_count": 3,
+  "rejected_item_count": 0,
+  "pending_item_count": 1,
+  "indeterminate_item_count": 0,
+  "confirmed_item_count": 2,
+  "downstream_batch_reference": "fixture_hub_batch_0002",
+  "response_digest": "sha256:67870acdada48a3fbe44ce4c4a2051d1d8b39bfdd4012b3d2c138e3944bc705e",
+  "item_outcomes_digest": "sha256:ec879922aa13af619b6108991f0914eb8ab49f11a4b3aebcca20b37a24526c5f",
+  "item_outcomes_ref": "fixture_item_outcomes_0002_seq2",
+  "provenance": {
+    "source": "PAYMENT_HUB_STATUS",
+    "provider_generated": true,
+    "observer": {
+      "id": "synthetic-payment-hub-adapter",
+      "version": "0.1.0"
+    }
+  },
+  "observed_at": "2026-09-12T17:06:00.000Z"
+}

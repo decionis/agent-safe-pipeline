@@ -1,0 +1,22 @@
+{
+  "profile": "decionis.beap/v0.1",
+  "type": "EXECUTION_GRANT_CLAIMS",
+  "grant_id": "fixture_grant_0001",
+  "organization_id": "fixture_org_0001",
+  "execution_binding_id": "fixture_binding_0001",
+  "intent_digest": "sha256:c451a41fe2e105babbf856b63c5c94a32977dded03ee90ac7c2fada731d00761",
+  "expected_effect_digest": "sha256:a0df83142d93f8815d908dcf0a1eeb9fe023bf00b2652a1a7159c2962f84aff9",
+  "domain": "LOAN_DISBURSEMENT",
+  "action": "DISBURSE_LOAN",
+  "downstream": {
+    "provider": "SYNTHETIC_CORE",
+    "product": "LENDING",
+    "operation": "LOAN_DISBURSEMENT",
+    "environment": "SANDBOX"
+  },
+  "permitted_operation": "DISBURSE",
+  "single_use": true,
+  "presence_receipt_ref": "fixture_presence_receipt_0002",
+  "issued_at": "2026-09-11T12:01:20.000Z",
+  "expires_at": "2026-09-11T12:06:20.000Z"
+}

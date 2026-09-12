@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://banking.decionis.com/spec/v0.1/schemas/batch-effect-evidence.schema.json",
+  "title": "BEAP BatchEffectEvidence",
+  "description": "Effect evidence for a batch-authorized operation (specification section 22.11). Records are appended in sequence as item outcomes become known; a later record never replaces an earlier one.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "profile",
+    "type",
+    "dossier_id",
+    "intent_digest",
+    "batch_binding_digest",
+    "batch_correlation_id",
+    "sequence",
+    "authorized_item_count",
+    "authorized_totals",
+    "accepted_item_count",
+    "rejected_item_count",
+    "pending_item_count",
+    "indeterminate_item_count",
+    "confirmed_item_count",
+    "item_outcomes_digest",
+    "item_outcomes_ref",
+    "provenance",
+    "observed_at"
+  ],
+  "properties": {
+    "profile": { "const": "decionis.beap/v0.1" },
+    "type": { "const": "BATCH_EFFECT_EVIDENCE" },
+    "dossier_id": { "$ref": "#/$defs/reference" },
+    "intent_digest": { "$ref": "#/$defs/sha256" },
+    "batch_binding_digest": { "$ref": "#/$defs/sha256" },
+    "batch_correlation_id": { "$ref": "#/$defs/reference" },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "authorized_item_count": { "type": "integer", "minimum": 1 },
+    "authorized_totals": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["currency", "total", "count"],
+        "properties": {
+          "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+          "total": { "type": "string", "pattern": "^(0|[1-9][0-9]{0,27})(\\.[0-9]{1,18})?$" },
+          "count": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+    "accepted_item_count": { "type": "integer", "minimum": 0 },
+    "rejected_item_count": { "type": "integer", "minimum": 0 },
+    "pending_item_count": { "type": "integer", "minimum": 0 },
+    "indeterminate_item_count": { "type": "integer", "minimum": 0 },
+    "confirmed_item_count": { "type": "integer", "minimum": 0 },
+    "downstream_batch_reference": { "type": ["string", "null"], "maxLength": 500 },
+    "response_digest": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }] },
+    "item_outcomes_digest": { "$ref": "#/$defs/sha256" },
+    "item_outcomes_ref": { "$ref": "#/$defs/reference" },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "provider_generated", "observer"],
+      "properties": {
+        "source": { "$ref": "#/$defs/identifier" },
+        "provider_generated": { "type": "boolean" },
+        "observer": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "version"],
+          "properties": {
+            "id": { "$ref": "#/$defs/reference" },
+            "version": { "type": "string", "minLength": 1, "maxLength": 100 }
+          }
+        }
+      }
+    },
+    "observed_at": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "identifier": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{1,63}$" },
+    "reference": { "type": "string", "minLength": 1, "maxLength": 500 },
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+  }
+}

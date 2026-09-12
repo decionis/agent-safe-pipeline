@@ -1,0 +1,1754 @@
+{
+  "profile": "decionis.beap/v0.1",
+  "document": "spec/v0.1/beap-v0.1.md",
+  "levels": ["L1", "L2", "L3"],
+  "count": 194,
+  "requirements": [
+    {
+      "id": "BEAP-L1-ACT-01",
+      "level": "L1",
+      "area": "ACT",
+      "ordinal": 1,
+      "section": "7.1 Actor",
+      "line": 138,
+      "text": "Actor identity MUST NOT imply execution authority."
+    },
+    {
+      "id": "BEAP-L1-ACT-02",
+      "level": "L1",
+      "area": "ACT",
+      "ordinal": 2,
+      "section": "7.2 Principal",
+      "line": 142,
+      "text": "A **Principal** is the person, organization, service, or institutional function on whose behalf an Actor operates. An Actor and Principal MAY be identical. Where they differ, delegated execution MUST identify both."
+    },
+    {
+      "id": "BEAP-L1-ACT-03",
+      "level": "L1",
+      "area": "ACT",
+      "ordinal": 3,
+      "section": "7.8 Authority Evidence",
+      "line": 168,
+      "text": "Authority Evidence MUST be distinguishable from informational signals."
+    },
+    {
+      "id": "BEAP-L2-GRT-01",
+      "level": "L2",
+      "area": "GRT",
+      "ordinal": 1,
+      "section": "7.9 Execution Grant",
+      "line": 172,
+      "text": "An **Execution Grant** is a bounded authorization artifact permitting a Trusted Executor to attempt the exact action identified by an Intent Digest (section 18). A grant MUST NOT constitute a general-purpose banking credential."
+    },
+    {
+      "id": "BEAP-L3-ADP-01",
+      "level": "L3",
+      "area": "ADP",
+      "ordinal": 1,
+      "section": "7.11 Banking Adapter",
+      "line": 180,
+      "text": "A **Banking Adapter** translates a canonical BankingAction into the operation expected by a downstream banking platform and maps the platform's response back into effect evidence (section 20). Adapters MUST NOT independently expand the authority represented by an Execution Grant."
+    },
+    {
+      "id": "BEAP-L1-DOS-01",
+      "level": "L1",
+      "area": "DOS",
+      "ordinal": 1,
+      "section": "7.13 Decision Dossier",
+      "line": 188,
+      "text": "A **Decision Dossier** is the signed evidence artifact representing an authority evaluation and its associated evidence. A dossier SHOULD permit an independent verifier to determine what was proposed, by whom, on whose behalf, which policy applied, which signals were considered, which authority evidence was supplied, what verdict was returned, whether execution authority was granted, and, where applicable, what execution effect was observed."
+    },
+    {
+      "id": "BEAP-L1-ACT-04",
+      "level": "L1",
+      "area": "ACT",
+      "ordinal": 4,
+      "section": "8. Profile Identification",
+      "line": 200,
+      "text": "Every BEAP artifact (BankingAction, Batch Manifest, AuthoritySet, Effect Evidence, grant claims, dossier projection) MUST carry the field `profile` with the value `decionis.beap/v0.1`."
+    },
+    {
+      "id": "BEAP-L1-ACT-05",
+      "level": "L1",
+      "area": "ACT",
+      "ordinal": 5,
+      "section": "8. Profile Identification",
+      "line": 202,
+      "text": "An implementation MUST reject an artifact whose `profile` names a version it does not implement."
+    },
+    {
+      "id": "BEAP-L1-ACT-06",
+      "level": "L1",
+      "area": "ACT",
+      "ordinal": 6,
+      "section": "9. Canonical BankingAction",
+      "line": 208,
+      "text": "A BankingAction MUST have the canonical representation defined by the JSON Schema `banking-action.schema.json` (Appendix A)."
+    },
+    {
+      "id": "BEAP-L1-ACT-07",
+      "level": "L1",
+      "area": "ACT",
+      "ordinal": 7,
+      "section": "9.2 Content rules",
+      "line": 254,
+      "text": "The canonical BankingAction MUST NOT contain secrets required to authenticate against the downstream banking system."
+    },
+    {
+      "id": "BEAP-L1-ACT-08",
+      "level": "L1",
+      "area": "ACT",
+      "ordinal": 8,
+      "section": "9.2 Content rules",
+      "line": 256,
+      "text": "The canonical BankingAction MUST NOT contain capture timestamps, transport identifiers, or any digest of itself, so that the same intent proposed twice produces the same Intent Digest."
+    },
+    {
+      "id": "BEAP-L1-ACT-09",
+      "level": "L1",
+      "area": "ACT",
+      "ordinal": 9,
+      "section": "9.2 Content rules",
+      "line": 258,
+      "text": "Monetary amounts MUST be decimal strings whose fractional scale equals the minor-unit scale of the ISO 4217 currency, so that a value has exactly one canonical spelling. An implementation MUST reject an amount whose scale differs from the currency's minor units."
+    },
+    {
+      "id": "BEAP-L1-ACT-10",
+      "level": "L1",
+      "area": "ACT",
+      "ordinal": 10,
+      "section": "9.2 Content rules",
+      "line": 258,
+      "text": "Monetary amounts MUST be decimal strings whose fractional scale equals the minor-unit scale of the ISO 4217 currency, so that a value has exactly one canonical spelling. An implementation MUST reject an amount whose scale differs from the currency's minor units."
+    },
+    {
+      "id": "BEAP-L1-ACT-11",
+      "level": "L1",
+      "area": "ACT",
+      "ordinal": 11,
+      "section": "9.2 Content rules",
+      "line": 260,
+      "text": "References to customers, accounts, beneficiaries, loans, and documents SHOULD be opaque references or digests rather than raw identifying values (section 23)."
+    },
+    {
+      "id": "BEAP-L1-ACT-12",
+      "level": "L1",
+      "area": "ACT",
+      "ordinal": 12,
+      "section": "9.2 Content rules",
+      "line": 262,
+      "text": "A `requested_effect.parameters` object, where present, MUST contain only scalar values (string, number, boolean, null). Domain action registries define which parameters an action type carries."
+    },
+    {
+      "id": "BEAP-L1-DIG-01",
+      "level": "L1",
+      "area": "DIG",
+      "ordinal": 1,
+      "section": "10. Canonicalization and Intent Digest",
+      "line": 266,
+      "text": "Before policy evaluation capable of producing execution authority, the BankingAction MUST be canonicalized with the RFC 8785 JSON Canonicalization Scheme (JCS) and the resulting bytes hashed with SHA-256."
+    },
+    {
+      "id": "BEAP-L1-DIG-02",
+      "level": "L1",
+      "area": "DIG",
+      "ordinal": 2,
+      "section": "10. Canonicalization and Intent Digest",
+      "line": 272,
+      "text": "The Intent Digest MUST be written as `sha256:` followed by the lowercase hexadecimal digest."
+    },
+    {
+      "id": "BEAP-L1-DIG-03",
+      "level": "L1",
+      "area": "DIG",
+      "ordinal": 3,
+      "section": "10. Canonicalization and Intent Digest",
+      "line": 274,
+      "text": "The resulting digest is the authoritative identifier of the proposed intent. Any material mutation of the BankingAction MUST produce a different digest."
+    },
+    {
+      "id": "BEAP-L1-DIG-04",
+      "level": "L1",
+      "area": "DIG",
+      "ordinal": 4,
+      "section": "10. Canonicalization and Intent Digest",
+      "line": 276,
+      "text": "An implementation MUST reject, rather than normalize, a BankingAction whose content is outside I-JSON: non-finite numbers, lone Unicode surrogates, or values that are not plain JSON objects, arrays, strings, numbers, booleans, or null."
+    },
+    {
+      "id": "BEAP-L1-DIG-05",
+      "level": "L1",
+      "area": "DIG",
+      "ordinal": 5,
+      "section": "10. Canonicalization and Intent Digest",
+      "line": 278,
+      "text": "An implementation MUST recompute the Intent Digest from the BankingAction it actually evaluates or executes, and MUST NOT trust a digest supplied by the proposing Actor."
+    },
+    {
+      "id": "BEAP-L2-DIG-01",
+      "level": "L2",
+      "area": "DIG",
+      "ordinal": 1,
+      "section": "10. Canonicalization and Intent Digest",
+      "line": 280,
+      "text": "Where the transport that carries a BankingAction to an execution authority computes its own binding hash over an envelope, the canonical BankingAction MUST be carried inside that envelope unchanged, so that the transport binding commits to the Intent Digest by construction (Appendix B)."
+    },
+    {
+      "id": "BEAP-L1-DOM-01",
+      "level": "L1",
+      "area": "DOM",
+      "ordinal": 1,
+      "section": "11. ExecutionDomain",
+      "line": 284,
+      "text": "An ExecutionDomain identifier MUST match `^[A-Z][A-Z0-9_]{1,63}$` and MUST name a business authority boundary rather than a vendor product. For example, `CORPORATE_PAYMENTS` is an ExecutionDomain; a payment hub product is an execution target or adapter associated with that domain."
+    },
+    {
+      "id": "BEAP-L1-DOM-02",
+      "level": "L1",
+      "area": "DOM",
+      "ordinal": 2,
+      "section": "11. ExecutionDomain",
+      "line": 295,
+      "text": "An institution MAY register additional domains that follow the same rule. An implementation MUST reject a BankingAction whose `action.type` is not registered for its `domain`."
+    },
+    {
+      "id": "BEAP-L1-POL-01",
+      "level": "L1",
+      "area": "POL",
+      "ordinal": 1,
+      "section": "12. Policy Resolution",
+      "line": 301,
+      "text": "Each BankingAction MUST resolve to exactly one effective policy before execution authority can be issued."
+    },
+    {
+      "id": "BEAP-L1-POL-02",
+      "level": "L1",
+      "area": "POL",
+      "ordinal": 2,
+      "section": "12. Policy Resolution",
+      "line": 309,
+      "text": "The effective policy MUST be identified by a stable identifier, a version, and a digest of its content, and a Decision Dossier MUST record all three."
+    },
+    {
+      "id": "BEAP-L1-POL-03",
+      "level": "L1",
+      "area": "POL",
+      "ordinal": 3,
+      "section": "12. Policy Resolution",
+      "line": 311,
+      "text": "Policy changes MUST NOT retroactively alter the meaning of previously issued Decision Dossiers."
+    },
+    {
+      "id": "BEAP-L1-POL-04",
+      "level": "L1",
+      "area": "POL",
+      "ordinal": 4,
+      "section": "12. Policy Resolution",
+      "line": 313,
+      "text": "Where no effective policy can be resolved for a domain, the evaluation MUST return `BLOCK` with the reason code `POLICY_UNAVAILABLE`."
+    },
+    {
+      "id": "BEAP-L1-POL-05",
+      "level": "L1",
+      "area": "POL",
+      "ordinal": 5,
+      "section": "12. Policy Resolution",
+      "line": 315,
+      "text": "Where the effective policy names required signals and one is absent, the evaluation MUST return `ESCALATE` with the reason code `MISSING_REQUIRED_SIGNALS` and MUST NOT match rules against absent facts."
+    },
+    {
+      "id": "BEAP-L1-POL-06",
+      "level": "L1",
+      "area": "POL",
+      "ordinal": 6,
+      "section": "12. Policy Resolution",
+      "line": 317,
+      "text": "Policy evaluation MUST be deterministic: a pure function of the effective policy, the canonical BankingAction, and the supplied signals and authority evidence, with no clock, randomness, or hidden mutable state in rule matching. Time-dependent rules read a time value supplied as an input and recorded in the dossier."
+    },
+    {
+      "id": "BEAP-L1-VER-01",
+      "level": "L1",
+      "area": "VER",
+      "ordinal": 1,
+      "section": "13. Verdict Model",
+      "line": 323,
+      "text": "BEAP uses the Decionis verdict model. Every evaluation MUST return exactly one of `ALLOW`, `ESCALATE`, or `BLOCK`."
+    },
+    {
+      "id": "BEAP-L1-VER-02",
+      "level": "L1",
+      "area": "VER",
+      "ordinal": 2,
+      "section": "13.1 ALLOW",
+      "line": 327,
+      "text": "`ALLOW` means all authority requirements represented by the effective policy have been satisfied. At BEAP-L2 or higher, `ALLOW` MAY result in issuance of a bounded Execution Grant. `ALLOW` MUST NOT itself be interpreted as evidence that downstream execution occurred."
+    },
+    {
+      "id": "BEAP-L1-VER-03",
+      "level": "L1",
+      "area": "VER",
+      "ordinal": 3,
+      "section": "13.2 ESCALATE",
+      "line": 333,
+      "text": "An `ESCALATE` verdict MUST NOT create an executable grant. An `ESCALATE` verdict SHOULD carry the machine-readable authority requirement that would allow re-evaluation."
+    },
+    {
+      "id": "BEAP-L1-VER-04",
+      "level": "L1",
+      "area": "VER",
+      "ordinal": 4,
+      "section": "13.2 ESCALATE",
+      "line": 333,
+      "text": "An `ESCALATE` verdict MUST NOT create an executable grant. An `ESCALATE` verdict SHOULD carry the machine-readable authority requirement that would allow re-evaluation."
+    },
+    {
+      "id": "BEAP-L1-VER-05",
+      "level": "L1",
+      "area": "VER",
+      "ordinal": 5,
+      "section": "13.3 BLOCK",
+      "line": 337,
+      "text": "`BLOCK` means execution authority MUST NOT be issued under the evaluated policy state. The downstream action MUST NOT be attempted through a conformant executor."
+    },
+    {
+      "id": "BEAP-L1-VER-06",
+      "level": "L1",
+      "area": "VER",
+      "ordinal": 6,
+      "section": "13.3 BLOCK",
+      "line": 337,
+      "text": "`BLOCK` means execution authority MUST NOT be issued under the evaluated policy state. The downstream action MUST NOT be attempted through a conformant executor."
+    },
+    {
+      "id": "BEAP-L1-VER-07",
+      "level": "L1",
+      "area": "VER",
+      "ordinal": 7,
+      "section": "13.4 Fail-closed mapping",
+      "line": 341,
+      "text": "An implementation that cannot obtain a verdict, whether because the execution authority is unreachable, returns a malformed response, times out, or reports a transport error, MUST treat the result as `BLOCK` with the reason code `AUTHORITY_UNAVAILABLE` and MUST NOT infer `ALLOW` from the absence of a refusal."
+    },
+    {
+      "id": "BEAP-L1-VER-08",
+      "level": "L1",
+      "area": "VER",
+      "ordinal": 8,
+      "section": "13.4 Fail-closed mapping",
+      "line": 343,
+      "text": "Where an underlying protocol layer uses a wider vocabulary, an implementation MUST project it onto the BEAP triad without inventing a fourth verdict: review-type outcomes project to `ESCALATE`, rejection-type outcomes to `BLOCK`, and error or unavailable outcomes to fail-closed `BLOCK` (Appendix B)."
+    },
+    {
+      "id": "BEAP-L1-VER-09",
+      "level": "L1",
+      "area": "VER",
+      "ordinal": 9,
+      "section": "13.4 Fail-closed mapping",
+      "line": 345,
+      "text": "Every verdict MUST be accompanied by at least one reason code from the reason-code registry or an institution-registered extension, so that a verdict is explainable without disclosing raw signal values."
+    },
+    {
+      "id": "BEAP-L2-BND-01",
+      "level": "L2",
+      "area": "BND",
+      "ordinal": 1,
+      "section": "14. Binding Requirements",
+      "line": 351,
+      "text": "The execution authority MUST bind execution authority to the Intent Digest and, directly or through the canonical BankingAction it digests, at minimum: profile, organization, execution domain, action type, actor, principal, target, requested effect, effective policy identity, and downstream execution target."
+    },
+    {
+      "id": "BEAP-L2-BND-02",
+      "level": "L2",
+      "area": "BND",
+      "ordinal": 2,
+      "section": "14. Binding Requirements",
+      "line": 353,
+      "text": "Where relevant to the action, the BankingAction MUST additionally carry, and the binding therefore covers, amount, currency, customer, account, beneficiary, loan, batch manifest digest, and jurisdiction."
+    },
+    {
+      "id": "BEAP-L2-BND-03",
+      "level": "L2",
+      "area": "BND",
+      "ordinal": 3,
+      "section": "14. Binding Requirements",
+      "line": 355,
+      "text": "A grant generated for one intent MUST NOT authorize a materially different intent. A grant for"
+    },
+    {
+      "id": "BEAP-L2-BND-04",
+      "level": "L2",
+      "area": "BND",
+      "ordinal": 4,
+      "section": "14. Binding Requirements",
+      "line": 373,
+      "text": "Every binding MUST carry a validity window, and the window MUST end no later than the earliest of the intent expiry, the effective policy's validity, and the expiry of any approval the binding relies on."
+    },
+    {
+      "id": "BEAP-L2-BND-05",
+      "level": "L2",
+      "area": "BND",
+      "ordinal": 5,
+      "section": "14. Binding Requirements",
+      "line": 375,
+      "text": "Where the action type has an expected-effect projection (section 22.7), the implementation SHOULD compute the expected-effect digest at authorization time and bind it alongside the Intent Digest so that a later confirmation can be established against a pre-committed value."
+    },
+    {
+      "id": "BEAP-L3-BND-01",
+      "level": "L3",
+      "area": "BND",
+      "ordinal": 1,
+      "section": "14. Binding Requirements",
+      "line": 377,
+      "text": "Where the execution authority exposes the digest it bound over the canonical payload, the Trusted Executor MUST verify that it equals the Intent Digest the executor computed itself, and MUST fail closed on a difference."
+    },
+    {
+      "id": "BEAP-L2-ESC-01",
+      "level": "L2",
+      "area": "ESC",
+      "ordinal": 1,
+      "section": "15. Escalation and Presence",
+      "line": 383,
+      "text": "Approval evidence MUST bind to the Intent Digest of the exact BankingAction being approved. An approval for one intent MUST NOT authorize another intent."
+    },
+    {
+      "id": "BEAP-L2-ESC-02",
+      "level": "L2",
+      "area": "ESC",
+      "ordinal": 2,
+      "section": "15. Escalation and Presence",
+      "line": 383,
+      "text": "Approval evidence MUST bind to the Intent Digest of the exact BankingAction being approved. An approval for one intent MUST NOT authorize another intent."
+    },
+    {
+      "id": "BEAP-L2-ESC-03",
+      "level": "L2",
+      "area": "ESC",
+      "ordinal": 3,
+      "section": "15. Escalation and Presence",
+      "line": 406,
+      "text": "Approval evidence MUST enter a new policy evaluation as evidence; it MUST NOT change a verdict directly and MUST NOT be accepted as an asserted `ALLOW`."
+    },
+    {
+      "id": "BEAP-L2-ESC-04",
+      "level": "L2",
+      "area": "ESC",
+      "ordinal": 4,
+      "section": "15. Escalation and Presence",
+      "line": 408,
+      "text": "Approval evidence MUST identify the approver reference, the approver's role, the approval time, the approval expiry, the evidence kind, and a digest of the evidence artifact."
+    },
+    {
+      "id": "BEAP-L2-ESC-05",
+      "level": "L2",
+      "area": "ESC",
+      "ordinal": 5,
+      "section": "15. Escalation and Presence",
+      "line": 410,
+      "text": "Approval evidence SHOULD present the approver with sufficient context to understand the consequential action being authorized: at least the domain, action type, target, and, where present, amount, currency, and destination."
+    },
+    {
+      "id": "BEAP-L2-ESC-06",
+      "level": "L2",
+      "area": "ESC",
+      "ordinal": 6,
+      "section": "15. Escalation and Presence",
+      "line": 412,
+      "text": "An approval MUST NOT be accepted after its own expiry, and MUST NOT be accepted for an intent whose Intent Digest differs from the digest the approval binds."
+    },
+    {
+      "id": "BEAP-L2-ESC-07",
+      "level": "L2",
+      "area": "ESC",
+      "ordinal": 7,
+      "section": "15. Escalation and Presence",
+      "line": 414,
+      "text": "Where a Presence ceremony (a verified human-authority ceremony that produces a signed receipt) supplies the approval, the receipt MUST bind the Intent Digest, and the implementation MUST verify the receipt before it enters re-evaluation. Presence proves that a specific person completed a required ceremony for a specific intent; it is evidence, never authority in itself."
+    },
+    {
+      "id": "BEAP-L2-MPA-01",
+      "level": "L2",
+      "area": "MPA",
+      "ordinal": 1,
+      "section": "16. Multi-Party Authority",
+      "line": 418,
+      "text": "BEAP MUST support policies requiring multiple independent authorities, for example maker and checker, two signatories, credit officer and risk officer, or treasury and compliance."
+    },
+    {
+      "id": "BEAP-L2-MPA-02",
+      "level": "L2",
+      "area": "MPA",
+      "ordinal": 2,
+      "section": "16.1 AuthoritySet",
+      "line": 424,
+      "text": "Each approval in an AuthoritySet MUST bind the same Intent Digest as the set."
+    },
+    {
+      "id": "BEAP-L2-MPA-03",
+      "level": "L2",
+      "area": "MPA",
+      "ordinal": 3,
+      "section": "16.1 AuthoritySet",
+      "line": 426,
+      "text": "The execution grant MUST NOT be issued until every requirement of the AuthoritySet has been satisfied by verified approvals."
+    },
+    {
+      "id": "BEAP-L2-MPA-04",
+      "level": "L2",
+      "area": "MPA",
+      "ordinal": 4,
+      "section": "16.1 AuthoritySet",
+      "line": 428,
+      "text": "Changing the bound BankingAction after one or more approvals have been collected MUST invalidate every approval whose bound digest no longer matches the resulting intent; the set moves to `INVALIDATED` and the superseded approvals are retained as evidence, never deleted."
+    },
+    {
+      "id": "BEAP-L2-MPA-05",
+      "level": "L2",
+      "area": "MPA",
+      "ordinal": 5,
+      "section": "16.1 AuthoritySet",
+      "line": 430,
+      "text": "Requirements that a policy marks as distinct from one another MUST NOT be satisfied by the same approver. The same approver MUST NOT be counted more than once toward one requirement's quorum."
+    },
+    {
+      "id": "BEAP-L2-MPA-06",
+      "level": "L2",
+      "area": "MPA",
+      "ordinal": 6,
+      "section": "16.1 AuthoritySet",
+      "line": 430,
+      "text": "Requirements that a policy marks as distinct from one another MUST NOT be satisfied by the same approver. The same approver MUST NOT be counted more than once toward one requirement's quorum."
+    },
+    {
+      "id": "BEAP-L2-MPA-07",
+      "level": "L2",
+      "area": "MPA",
+      "ordinal": 7,
+      "section": "16.1 AuthoritySet",
+      "line": 432,
+      "text": "A `REJECT` decision from any required party MUST move the set to `REJECTED`; no grant is issued and re-collection requires a new set."
+    },
+    {
+      "id": "BEAP-L2-MPA-08",
+      "level": "L2",
+      "area": "MPA",
+      "ordinal": 8,
+      "section": "16.2 States",
+      "line": 444,
+      "text": "The transport-level binding with the execution authority SHOULD be created only once the set is `SATISFIED`, so that approval cycles measured in hours or days are never constrained by the short validity window of a transport intent or grant."
+    },
+    {
+      "id": "BEAP-L2-MPA-09",
+      "level": "L2",
+      "area": "MPA",
+      "ordinal": 9,
+      "section": "16.2 States",
+      "line": 446,
+      "text": "The verified AuthoritySet MUST be presented to the execution authority as evidence bound by its digest, never as an asserted verdict; the authority re-evaluates policy with the evidence present."
+    },
+    {
+      "id": "BEAP-L2-BAT-01",
+      "level": "L2",
+      "area": "BAT",
+      "ordinal": 1,
+      "section": "17. Batch Execution Binding",
+      "line": 454,
+      "text": "An implementation MUST NOT treat possession of, approval of, or reference to a file name as sufficient binding for batch execution."
+    },
+    {
+      "id": "BEAP-L2-BAT-02",
+      "level": "L2",
+      "area": "BAT",
+      "ordinal": 2,
+      "section": "17.1 Batch Manifest",
+      "line": 458,
+      "text": "A batch MUST be transformed into a canonical Batch Manifest with the structure defined by `batch-manifest.schema.json` (Appendix A)."
+    },
+    {
+      "id": "BEAP-L2-BAT-03",
+      "level": "L2",
+      "area": "BAT",
+      "ordinal": 3,
+      "section": "17.1 Batch Manifest",
+      "line": 466,
+      "text": "Items MUST be sorted by `item_ref` in ascending byte order, and `item_ref` MUST be unique within the manifest."
+    },
+    {
+      "id": "BEAP-L2-BAT-11",
+      "level": "L2",
+      "area": "BAT",
+      "ordinal": 11,
+      "section": "17.1 Batch Manifest",
+      "line": 468,
+      "text": "Per-currency totals MUST be sorted by `currency` in ascending byte order, and each currency MUST appear at most once, so that the canonical form of a manifest does not depend on the order in which currencies were encountered in the source file."
+    },
+    {
+      "id": "BEAP-L2-BAT-04",
+      "level": "L2",
+      "area": "BAT",
+      "ordinal": 4,
+      "section": "17.1 Batch Manifest",
+      "line": 470,
+      "text": "Each item MUST carry `item_digest`, the SHA-256 digest of the RFC 8785 canonical form of the item with `item_digest` removed."
+    },
+    {
+      "id": "BEAP-L2-BAT-05",
+      "level": "L2",
+      "area": "BAT",
+      "ordinal": 5,
+      "section": "17.1 Batch Manifest",
+      "line": 472,
+      "text": "The Batch Intent Digest is the SHA-256 digest of the RFC 8785 canonical form of the complete manifest, and MUST be computed over the manifest with items inline."
+    },
+    {
+      "id": "BEAP-L2-BAT-06",
+      "level": "L2",
+      "area": "BAT",
+      "ordinal": 6,
+      "section": "17.1 Batch Manifest",
+      "line": 474,
+      "text": "The manifest MUST record the digest of the source file as received, so that a re-ordered or edited file is detectable even where the canonical items are unchanged."
+    },
+    {
+      "id": "BEAP-L2-BAT-07",
+      "level": "L2",
+      "area": "BAT",
+      "ordinal": 7,
+      "section": "17.1 Batch Manifest",
+      "line": 476,
+      "text": "Beneficiary account numbers MUST appear in the manifest only as digests, never as raw values."
+    },
+    {
+      "id": "BEAP-L2-BAT-08",
+      "level": "L2",
+      "area": "BAT",
+      "ordinal": 8,
+      "section": "17.2 The batch action",
+      "line": 480,
+      "text": "The BankingAction that releases a batch (for example `RELEASE_PAYMENT_BATCH` in `CORPORATE_PAYMENTS`) MUST carry the `batch` object with the manifest digest, item count, and source-file digest, together with the aggregate amount and currency in `financial_context`, and MUST NOT embed the items themselves. The full manifest is retained in the evidence plane and is attributable through its digest."
+    },
+    {
+      "id": "BEAP-L2-BAT-12",
+      "level": "L2",
+      "area": "BAT",
+      "ordinal": 12,
+      "section": "17.2 The batch action",
+      "line": 482,
+      "text": "A batch-releasing action that carries no `financial_context` names no aggregate, and an implementation MUST refuse to bind it (`BATCH_AGGREGATE_REQUIRED`) rather than bind it with no amount; otherwise every amount-banded policy rule evaluates against an absent amount and no value threshold applies."
+    },
+    {
+      "id": "BEAP-L2-BAT-13",
+      "level": "L2",
+      "area": "BAT",
+      "ordinal": 13,
+      "section": "17.2 The batch action",
+      "line": 484,
+      "text": "The aggregate is a single amount in a single currency and can therefore cover a manifest carrying totals in only one currency. A manifest carrying totals in more than one currency has no single aggregate the action could name, so an implementation MUST refuse to bind such a batch in this version of the profile (`BATCH_TOTALS_MISMATCH`); every currency leg the action does not name would otherwise move unaggregated and unthresholded. A multi-currency payment run is released in this version as one batch per currency."
+    },
+    {
+      "id": "BEAP-L2-BAT-09",
+      "level": "L2",
+      "area": "BAT",
+      "ordinal": 9,
+      "section": "17.2 The batch action",
+      "line": 486,
+      "text": "Approval of a batch MUST bind the Intent Digest of the batch action, which commits to the Batch Intent Digest."
+    },
+    {
+      "id": "BEAP-L2-BAT-10",
+      "level": "L2",
+      "area": "BAT",
+      "ordinal": 10,
+      "section": "17.2 The batch action",
+      "line": 488,
+      "text": "Any material modification to a transaction within the batch MUST invalidate the previous batch binding: the item digest, the manifest digest, the batch action, and therefore the Intent Digest all change, and collected approvals are invalidated under section 16."
+    },
+    {
+      "id": "BEAP-L3-BAT-01",
+      "level": "L3",
+      "area": "BAT",
+      "ordinal": 1,
+      "section": "17.2 The batch action",
+      "line": 490,
+      "text": "The consequential commit authorized by a batch grant is the submission of the batch as a whole; per-item outcomes MUST be recorded as batch effect evidence (section 22.11) as they become known, and an implementation MUST NOT execute items individually under one claim."
+    },
+    {
+      "id": "BEAP-L2-GRT-02",
+      "level": "L2",
+      "area": "GRT",
+      "ordinal": 2,
+      "section": "18. Execution Grant",
+      "line": 496,
+      "text": "A BEAP Execution Grant MUST be intent-bound, target-bound, operation-bound, time-bounded, non-transferable between unrelated execution contexts, and single-use where the downstream operation is consequential."
+    },
+    {
+      "id": "BEAP-L2-GRT-03",
+      "level": "L2",
+      "area": "GRT",
+      "ordinal": 3,
+      "section": "18. Execution Grant",
+      "line": 498,
+      "text": "The grant SHOULD include or cryptographically bind the claims defined by `execution-grant-claims.schema.json` (Appendix A): grant identifier, organization, execution binding identifier, Intent Digest, domain, action, downstream target, permitted operation, issuance and expiry times, and, where computed, the expected-effect digest."
+    },
+    {
+      "id": "BEAP-L2-GRT-04",
+      "level": "L2",
+      "area": "GRT",
+      "ordinal": 4,
+      "section": "18. Execution Grant",
+      "line": 500,
+      "text": "An Execution Grant MUST NOT contain downstream banking credentials."
+    },
+    {
+      "id": "BEAP-L2-GRT-05",
+      "level": "L2",
+      "area": "GRT",
+      "ordinal": 5,
+      "section": "18. Execution Grant",
+      "line": 502,
+      "text": "The validity window of a grant SHOULD be short, measured in minutes, because the grant expresses that a specific policy, signal, and approval state was current when it was issued."
+    },
+    {
+      "id": "BEAP-L2-GRT-06",
+      "level": "L2",
+      "area": "GRT",
+      "ordinal": 6,
+      "section": "18. Execution Grant",
+      "line": 504,
+      "text": "A grant MUST NOT be issued for an `ESCALATE` or `BLOCK` verdict, and an evaluation performed in an observational or shadow mode MUST NOT yield an executable grant."
+    },
+    {
+      "id": "BEAP-L3-CLM-01",
+      "level": "L3",
+      "area": "CLM",
+      "ordinal": 1,
+      "section": "19. Claim-Before-Commit",
+      "line": 510,
+      "text": "Before a consequential downstream operation is committed, the Trusted Executor MUST successfully claim the corresponding Execution Grant with the execution authority."
+    },
+    {
+      "id": "BEAP-L3-CLM-02",
+      "level": "L3",
+      "area": "CLM",
+      "ordinal": 2,
+      "section": "19. Claim-Before-Commit",
+      "line": 525,
+      "text": "A claim MUST be atomic and single-use: a grant that has already been successfully claimed MUST NOT authorize a second execution."
+    },
+    {
+      "id": "BEAP-L3-CLM-03",
+      "level": "L3",
+      "area": "CLM",
+      "ordinal": 3,
+      "section": "19. Claim-Before-Commit",
+      "line": 527,
+      "text": "Duplicate, replayed, expired, mismatched, and previously consumed grants MUST be deterministically rejected at the claim."
+    },
+    {
+      "id": "BEAP-L3-CLM-04",
+      "level": "L3",
+      "area": "CLM",
+      "ordinal": 4,
+      "section": "19. Claim-Before-Commit",
+      "line": 529,
+      "text": "The claim MUST revalidate the Intent Digest, target, and operation being committed against the bound values, and, where the execution authority supports it, the current policy version, material signals, and approval state."
+    },
+    {
+      "id": "BEAP-L3-CLM-05",
+      "level": "L3",
+      "area": "CLM",
+      "ordinal": 5,
+      "section": "19. Claim-Before-Commit",
+      "line": 531,
+      "text": "The Trusted Executor MUST execute only when the claim response affirmatively authorizes execution, and MUST NOT execute on the absence of a refusal, a transport error, or a diagnostic verification that does not consume the grant."
+    },
+    {
+      "id": "BEAP-L3-CLM-06",
+      "level": "L3",
+      "area": "CLM",
+      "ordinal": 6,
+      "section": "19. Claim-Before-Commit",
+      "line": 533,
+      "text": "A claim carries a lease. The downstream commit MUST complete within the lease; where the lease expires before the outcome is known, the outcome MUST be finalized as `INDETERMINATE`."
+    },
+    {
+      "id": "BEAP-L3-CLM-07",
+      "level": "L3",
+      "area": "CLM",
+      "ordinal": 7,
+      "section": "19. Claim-Before-Commit",
+      "line": 535,
+      "text": "After every successful claim the executor MUST finalize the attempt with the execution authority as `COMMITTED`, `FAILED`, or `INDETERMINATE`. Finalization is evidence and MUST NOT alter the outcome, revive the consumed grant, or authorize a further attempt."
+    },
+    {
+      "id": "BEAP-L3-CLM-08",
+      "level": "L3",
+      "area": "CLM",
+      "ordinal": 8,
+      "section": "19. Claim-Before-Commit",
+      "line": 535,
+      "text": "After every successful claim the executor MUST finalize the attempt with the execution authority as `COMMITTED`, `FAILED`, or `INDETERMINATE`. Finalization is evidence and MUST NOT alter the outcome, revive the consumed grant, or authorize a further attempt."
+    },
+    {
+      "id": "BEAP-L3-CLM-09",
+      "level": "L3",
+      "area": "CLM",
+      "ordinal": 9,
+      "section": "19. Claim-Before-Commit",
+      "line": 537,
+      "text": "Where two claims race for the same grant, exactly one MUST succeed."
+    },
+    {
+      "id": "BEAP-L3-ADP-02",
+      "level": "L3",
+      "area": "ADP",
+      "ordinal": 2,
+      "section": "20. Banking Adapter Contract",
+      "line": 550,
+      "text": "A BEAP-L3 Banking Adapter MUST NOT execute a consequential downstream operation unless invoked through a valid Trusted Executor context."
+    },
+    {
+      "id": "BEAP-L3-ADP-03",
+      "level": "L3",
+      "area": "ADP",
+      "ordinal": 3,
+      "section": "20. Banking Adapter Contract",
+      "line": 552,
+      "text": "A conformant adapter MUST verify, or receive verified assurance of, grant validity, intent binding, target binding, operation binding, expiration, and claim status before it executes."
+    },
+    {
+      "id": "BEAP-L3-ADP-04",
+      "level": "L3",
+      "area": "ADP",
+      "ordinal": 4,
+      "section": "20. Banking Adapter Contract",
+      "line": 554,
+      "text": "The adapter MUST NOT broaden the requested action. An adapter receiving authority to"
+    },
+    {
+      "id": "BEAP-L3-ADP-05",
+      "level": "L3",
+      "area": "ADP",
+      "ordinal": 5,
+      "section": "20. Banking Adapter Contract",
+      "line": 562,
+      "text": "The adapter MUST keep the provider side effect inside a single dispatch boundary that records the point after which a transport failure has an unknown outcome, and MUST use the intent-bound idempotency key for that side effect."
+    },
+    {
+      "id": "BEAP-L3-ADP-06",
+      "level": "L3",
+      "area": "ADP",
+      "ordinal": 6,
+      "section": "20. Banking Adapter Contract",
+      "line": 564,
+      "text": "The adapter MUST propagate a correlation or idempotency identifier to the downstream system where the system supports one."
+    },
+    {
+      "id": "BEAP-L3-ADP-07",
+      "level": "L3",
+      "area": "ADP",
+      "ordinal": 7,
+      "section": "20. Banking Adapter Contract",
+      "line": 566,
+      "text": "The adapter MUST capture the downstream execution outcome, compute a digest over the material response evidence, and distinguish `COMMITTED`, `FAILED`, and `INDETERMINATE`."
+    },
+    {
+      "id": "BEAP-L3-ADP-08",
+      "level": "L3",
+      "area": "ADP",
+      "ordinal": 8,
+      "section": "20. Banking Adapter Contract",
+      "line": 568,
+      "text": "The adapter MUST preserve evidence provenance, distinguishing provider-generated evidence from its own observations."
+    },
+    {
+      "id": "BEAP-L3-ADP-09",
+      "level": "L3",
+      "area": "ADP",
+      "ordinal": 9,
+      "section": "20. Banking Adapter Contract",
+      "line": 570,
+      "text": "The adapter MUST submit Effect Evidence to the decision chain for every claimed attempt."
+    },
+    {
+      "id": "BEAP-L3-ADP-10",
+      "level": "L3",
+      "area": "ADP",
+      "ordinal": 10,
+      "section": "20. Banking Adapter Contract",
+      "line": 572,
+      "text": "The adapter SHOULD support reconciliation where the downstream system permits authoritative status retrieval."
+    },
+    {
+      "id": "BEAP-L3-ADP-11",
+      "level": "L3",
+      "area": "ADP",
+      "ordinal": 11,
+      "section": "20. Banking Adapter Contract",
+      "line": 574,
+      "text": "The adapter MUST NOT represent an unverified business effect as `CONFIRMED`."
+    },
+    {
+      "id": "BEAP-L3-ADP-12",
+      "level": "L3",
+      "area": "ADP",
+      "ordinal": 12,
+      "section": "20. Banking Adapter Contract",
+      "line": 576,
+      "text": "The adapter's reconciliation operation MUST be read-only and MUST NOT initiate or retry a side effect."
+    },
+    {
+      "id": "BEAP-L3-ADP-13",
+      "level": "L3",
+      "area": "ADP",
+      "ordinal": 13,
+      "section": "20. Banking Adapter Contract",
+      "line": 578,
+      "text": "The adapter SHOULD compare the observed effect against the authorized effect and surface material mismatches (section 22.8)."
+    },
+    {
+      "id": "BEAP-L3-ADP-14",
+      "level": "L3",
+      "area": "ADP",
+      "ordinal": 14,
+      "section": "20. Banking Adapter Contract",
+      "line": 580,
+      "text": "The adapter MUST NOT receive the execution token or the proposing Actor's identity as an execution credential; it receives the verified authorization identifiers and the idempotency key."
+    },
+    {
+      "id": "BEAP-L3-CRD-01",
+      "level": "L3",
+      "area": "CRD",
+      "ordinal": 1,
+      "section": "21. Credential Isolation",
+      "line": 584,
+      "text": "Downstream banking credentials SHOULD reside within the Trusted Executor or another isolated execution environment, not with the proposing Actor."
+    },
+    {
+      "id": "BEAP-L3-CRD-02",
+      "level": "L3",
+      "area": "CRD",
+      "ordinal": 2,
+      "section": "21. Credential Isolation",
+      "line": 586,
+      "text": "An autonomous Actor SHOULD be capable of proposing `CREATE_CUSTOMER`, `CREATE_ACCOUNT`, `APPROVE_LOAN`, `DISBURSE_LOAN`, `SEND_PAYMENT`, and every other registered action without possessing credentials sufficient to perform those operations directly against the banking system."
+    },
+    {
+      "id": "BEAP-L3-CRD-03",
+      "level": "L3",
+      "area": "CRD",
+      "ordinal": 3,
+      "section": "21. Credential Isolation",
+      "line": 601,
+      "text": "The component that supplies downstream credentials to an adapter MUST NOT be reachable from the proposing side of the boundary."
+    },
+    {
+      "id": "BEAP-L3-CRD-04",
+      "level": "L3",
+      "area": "CRD",
+      "ordinal": 4,
+      "section": "21. Credential Isolation",
+      "line": 603,
+      "text": "Downstream credentials MUST NOT enter a BankingAction, an AuthoritySet, an Execution Grant, Effect Evidence, a Decision Dossier, or operational logs."
+    },
+    {
+      "id": "BEAP-L3-EFF-01",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 1,
+      "section": "22.1 Purpose",
+      "line": 613,
+      "text": "A successful authorization MUST NOT, by itself, be interpreted as evidence that the authorized banking effect occurred. Successful delivery of a request to a banking system MUST NOT, by itself, be interpreted as evidence that the intended business effect was completed."
+    },
+    {
+      "id": "BEAP-L3-EFF-02",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 2,
+      "section": "22.1 Purpose",
+      "line": 613,
+      "text": "A successful authorization MUST NOT, by itself, be interpreted as evidence that the authorized banking effect occurred. Successful delivery of a request to a banking system MUST NOT, by itself, be interpreted as evidence that the intended business effect was completed."
+    },
+    {
+      "id": "BEAP-L3-EFF-03",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 3,
+      "section": "22.2 EffectEvidence",
+      "line": 634,
+      "text": "Effect evidence MUST be associated with exactly one execution-authority claim."
+    },
+    {
+      "id": "BEAP-L3-EFF-04",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 4,
+      "section": "22.2 EffectEvidence",
+      "line": 636,
+      "text": "An EffectEvidence object MUST identify the Decision Dossier, the Intent Digest, the execution binding, the claimed execution authority, the execution domain and action, the downstream adapter and target, the execution correlation identifier and idempotency key, the attempt number, the observed outcome, the observation time, and cryptographic evidence sufficient to detect alteration of material downstream response data."
+    },
+    {
+      "id": "BEAP-L3-EFF-05",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 5,
+      "section": "22.2 EffectEvidence",
+      "line": 638,
+      "text": "A conforming implementation MUST NOT construct EffectEvidence in a manner that permits evidence from one execution attempt to be attached to another execution binding."
+    },
+    {
+      "id": "BEAP-L3-EFF-06",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 6,
+      "section": "22.3 Canonical structure",
+      "line": 642,
+      "text": "A conforming EffectEvidence object MUST have the structure defined by `effect-evidence.schema.json` (Appendix A). A representative instance:"
+    },
+    {
+      "id": "BEAP-L3-EFF-07",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 7,
+      "section": "22.3 Canonical structure",
+      "line": 692,
+      "text": "Implementations MAY retain additional provider-specific fields outside the signed object, provided such fields cannot modify the meaning of signed BEAP fields."
+    },
+    {
+      "id": "BEAP-L3-EFF-08",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 8,
+      "section": "22.3 Canonical structure",
+      "line": 694,
+      "text": "Sensitive downstream data SHOULD be represented by references or cryptographic digests where disclosure of raw values is unnecessary."
+    },
+    {
+      "id": "BEAP-L3-EFF-09",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 9,
+      "section": "22.4.1 COMMITTED",
+      "line": 704,
+      "text": "`COMMITTED` MUST NOT automatically mean that the ultimate business effect has been completed."
+    },
+    {
+      "id": "BEAP-L3-EFF-10",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 10,
+      "section": "22.4.2 FAILED",
+      "line": 718,
+      "text": "The failure reason SHOULD be recorded as a stable reason code. A `FAILED` execution does not restore or recreate the consumed execution authority; a new execution attempt MUST obtain authority according to the applicable retry and re-evaluation policy."
+    },
+    {
+      "id": "BEAP-L3-EFF-11",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 11,
+      "section": "22.4.3 INDETERMINATE",
+      "line": 724,
+      "text": "An `INDETERMINATE` outcome MUST be treated as potentially committed. It MUST NOT cause the original execution grant to become reusable. It MUST NOT trigger an automatic repeat of the consequential operation unless downstream idempotency semantics make such repetition provably safe and the applicable policy explicitly permits it. An `INDETERMINATE` execution SHOULD enter reconciliation."
+    },
+    {
+      "id": "BEAP-L3-EFF-12",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 12,
+      "section": "22.4.3 INDETERMINATE",
+      "line": 724,
+      "text": "An `INDETERMINATE` outcome MUST be treated as potentially committed. It MUST NOT cause the original execution grant to become reusable. It MUST NOT trigger an automatic repeat of the consequential operation unless downstream idempotency semantics make such repetition provably safe and the applicable policy explicitly permits it. An `INDETERMINATE` execution SHOULD enter reconciliation."
+    },
+    {
+      "id": "BEAP-L3-EFF-13",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 13,
+      "section": "22.4.3 INDETERMINATE",
+      "line": 724,
+      "text": "An `INDETERMINATE` outcome MUST be treated as potentially committed. It MUST NOT cause the original execution grant to become reusable. It MUST NOT trigger an automatic repeat of the consequential operation unless downstream idempotency semantics make such repetition provably safe and the applicable policy explicitly permits it. An `INDETERMINATE` execution SHOULD enter reconciliation."
+    },
+    {
+      "id": "BEAP-L3-EFF-14",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 14,
+      "section": "22.4.3 INDETERMINATE",
+      "line": 724,
+      "text": "An `INDETERMINATE` outcome MUST be treated as potentially committed. It MUST NOT cause the original execution grant to become reusable. It MUST NOT trigger an automatic repeat of the consequential operation unless downstream idempotency semantics make such repetition provably safe and the applicable policy explicitly permits it. An `INDETERMINATE` execution SHOULD enter reconciliation."
+    },
+    {
+      "id": "BEAP-L3-EFF-15",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 15,
+      "section": "22.5 Confirmation",
+      "line": 740,
+      "text": "A reversal MUST NOT rewrite the original effect evidence. Where the reversal itself requires execution authority, it SHOULD produce a new BankingAction and a corresponding Decision Dossier."
+    },
+    {
+      "id": "BEAP-L3-EFF-16",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 16,
+      "section": "22.5 Confirmation",
+      "line": 740,
+      "text": "A reversal MUST NOT rewrite the original effect evidence. Where the reversal itself requires execution authority, it SHOULD produce a new BankingAction and a corresponding Decision Dossier."
+    },
+    {
+      "id": "BEAP-L3-EFF-17",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 17,
+      "section": "22.6 Response digest",
+      "line": 746,
+      "text": "The adapter MUST compute a cryptographic digest over the material downstream response evidence used to determine the execution outcome, and SHA-256 MUST be supported. Where the response is structured JSON, RFC 8785 canonicalization SHOULD be applied before hashing."
+    },
+    {
+      "id": "BEAP-L3-EFF-18",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 18,
+      "section": "22.6 Response digest",
+      "line": 746,
+      "text": "The adapter MUST compute a cryptographic digest over the material downstream response evidence used to determine the execution outcome, and SHA-256 MUST be supported. Where the response is structured JSON, RFC 8785 canonicalization SHOULD be applied before hashing."
+    },
+    {
+      "id": "BEAP-L3-EFF-19",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 19,
+      "section": "22.7 Expected-effect projection",
+      "line": 762,
+      "text": "The implementation MUST derive the expected effect from the canonical BankingAction according to the registered projection, and the expected-effect digest is the SHA-256 digest of its RFC 8785 canonical form."
+    },
+    {
+      "id": "BEAP-L3-EFF-20",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 20,
+      "section": "22.7 Expected-effect projection",
+      "line": 764,
+      "text": "The adapter SHOULD map the observed downstream result to the same projection and compare the two field by field."
+    },
+    {
+      "id": "BEAP-L3-EFF-21",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 21,
+      "section": "22.7 Expected-effect projection",
+      "line": 766,
+      "text": "A materially different effect MUST NOT be reported as successful confirmation of the authorized action; such a condition MUST generate an effect mismatch."
+    },
+    {
+      "id": "BEAP-L3-EFF-22",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 22,
+      "section": "22.8 Effect mismatch",
+      "line": 779,
+      "text": "An effect mismatch MUST be recorded in the decision chain, preserve the original authorization evidence, preserve the observed effect evidence, identify the mismatched material fields, prevent the execution from being represented as correctly confirmed, and invoke the institution's configured exception, incident, or reconciliation policy."
+    },
+    {
+      "id": "BEAP-L3-EFF-23",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 23,
+      "section": "22.8 Effect mismatch",
+      "line": 781,
+      "text": "The original Decision Dossier MUST NOT be mutated to make the authorization appear consistent with the observed effect."
+    },
+    {
+      "id": "BEAP-L3-EFF-24",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 24,
+      "section": "22.9 Reconciliation",
+      "line": 787,
+      "text": "Reconciliation MUST use authoritative downstream identifiers where available. The reconciler MUST NOT infer successful execution solely from the absence of an error."
+    },
+    {
+      "id": "BEAP-L3-EFF-25",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 25,
+      "section": "22.9 Reconciliation",
+      "line": 787,
+      "text": "Reconciliation MUST use authoritative downstream identifiers where available. The reconciler MUST NOT infer successful execution solely from the absence of an error."
+    },
+    {
+      "id": "BEAP-L3-EFF-26",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 26,
+      "section": "22.9 Reconciliation",
+      "line": 797,
+      "text": "Reconciliation evidence MUST be appended to the decision chain rather than replacing earlier observations, preserving the temporal record of what was known at execution time and what became known later."
+    },
+    {
+      "id": "BEAP-L3-EFF-27",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 27,
+      "section": "22.10 Asynchronous banking effects",
+      "line": 810,
+      "text": "Many banking operations are asynchronous: payment clearing, cross-border payments, disbursement processing, account activation, sanctions or manual review, batch processing, downstream posting, settlement. An implementation MUST support an execution being `COMMITTED` while its ultimate effect remains `PENDING`."
+    },
+    {
+      "id": "BEAP-L3-EFF-28",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 28,
+      "section": "22.10 Asynchronous banking effects",
+      "line": 812,
+      "text": "The adapter SHOULD capture the strongest available acknowledgement at the initial boundary and subsequently attach authoritative status evidence as it becomes available. A provider status such as `ACCEPTED`, `QUEUED`, `PROCESSING`, or an equivalent MUST NOT be normalized to `CONFIRMED` unless the status semantically proves the protected business effect."
+    },
+    {
+      "id": "BEAP-L3-EFF-29",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 29,
+      "section": "22.11 Batch effect evidence",
+      "line": 816,
+      "text": "For batch-authorized operations, effect evidence MUST preserve the relationship between the authorized batch and its individual downstream effects, with the structure defined by `batch-effect-evidence.schema.json` (Appendix A). A batch effect record carries the batch binding digest, correlation identifier, append sequence, authorized item count and totals, and the accepted, rejected, pending, indeterminate, and confirmed item counts, together with a digest of and reference to the per-item outcomes."
+    },
+    {
+      "id": "BEAP-L3-EFF-30",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 30,
+      "section": "22.11 Batch effect evidence",
+      "line": 818,
+      "text": "The batch MUST NOT be represented as wholly confirmed merely because the downstream platform accepted the uploaded file."
+    },
+    {
+      "id": "BEAP-L3-EFF-31",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 31,
+      "section": "22.11 Batch effect evidence",
+      "line": 820,
+      "text": "Where individual items can have independent outcomes, each item outcome SHOULD be attributable to its canonical item digest."
+    },
+    {
+      "id": "BEAP-L3-EFF-45",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 45,
+      "section": "22.11 Batch effect evidence",
+      "line": 822,
+      "text": "Each item outcome MUST have the structure defined by `batch-item-outcome.schema.json` (Appendix A), and the `item_outcomes_digest` a batch effect record carries MUST be the SHA-256 digest of the RFC 8785 canonical form of the array of the outcomes known at that point, holding at most one outcome per item and ordered by `item_digest` in ascending byte order, so that an auditor recomputes the same digest from the same outcomes whatever order they were observed in. An outcome whose provider reference is not known MUST omit `provider_reference` rather than carry it as null, so that one set of outcomes has one canonical form and one digest."
+    },
+    {
+      "id": "BEAP-L3-EFF-46",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 46,
+      "section": "22.11 Batch effect evidence",
+      "line": 824,
+      "text": "An outcome naming an item digest the authorized manifest does not contain MUST be refused rather than recorded, and an item whose outcome is already `CONFIRMED` or `REJECTED` MUST NOT be rewritten. A status endpoint re-reports a settled item on every poll, so a repeat reporting the same status and the same `provider_reference` is the same fact observed again: it MUST be admitted and MUST leave the outcome on record, its `observed_at` included, exactly as it was. A repeat reporting a different status or a different `provider_reference` is a rewrite, not a repeat, and MUST be refused (`BATCH_ITEM_OUTCOME_CONFLICT`). Reconciliation appends; it never mutates what an earlier record attested."
+    },
+    {
+      "id": "BEAP-L3-EFF-47",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 47,
+      "section": "22.11 Batch effect evidence",
+      "line": 826,
+      "text": "An observation MUST be admitted as a whole or not at all: where any outcome in a reported observation is inadmissible, the whole observation MUST be refused, no outcome it carries may be recorded, and no effect record may be appended for it, so that an implementation cannot refuse a report as a record while absorbing it as state. An observation carrying no outcomes MUST NOT produce a record."
+    },
+    {
+      "id": "BEAP-L3-EFF-32",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 32,
+      "section": "22.12 Partial effects",
+      "line": 838,
+      "text": "Where a banking operation can produce partial consequences, the adapter MUST NOT collapse a partial outcome into a binary success result; the evidence MUST preserve the distribution of completed, failed, pending, and indeterminate components. Institution policy MAY define whether a partial effect requires escalation, compensating action, reconciliation, or incident handling."
+    },
+    {
+      "id": "BEAP-L3-EFF-33",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 33,
+      "section": "22.13 Effect evidence and retries",
+      "line": 842,
+      "text": "A retry is a new execution attempt. The existence of a prior `FAILED` or `INDETERMINATE` result MUST NOT be interpreted as authorization to retry."
+    },
+    {
+      "id": "BEAP-L3-EFF-34",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 34,
+      "section": "22.13 Effect evidence and retries",
+      "line": 844,
+      "text": "Before a consequential retry, the implementation MUST determine whether the original effect occurred, whether the downstream operation supports idempotent replay, whether the original authorization remains valid under policy, whether material signals remain current, whether approval evidence remains valid, and whether a new binding is required."
+    },
+    {
+      "id": "BEAP-L3-EFF-35",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 35,
+      "section": "22.13 Effect evidence and retries",
+      "line": 846,
+      "text": "For `INDETERMINATE` financial effects, reconciliation SHOULD take precedence over retry."
+    },
+    {
+      "id": "BEAP-L3-EFF-36",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 36,
+      "section": "22.14 Evidence provenance",
+      "line": 850,
+      "text": "Effect evidence SHOULD identify the source from which each material observation originated, using the evidence-source registry (section 26). Where downstream evidence is cryptographically signed or otherwise independently verifiable, the adapter SHOULD retain or reference that verification material."
+    },
+    {
+      "id": "BEAP-L3-EFF-37",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 37,
+      "section": "22.14 Evidence provenance",
+      "line": 852,
+      "text": "Adapter-generated observations MUST be distinguishable from provider-generated evidence."
+    },
+    {
+      "id": "BEAP-L3-EFF-38",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 38,
+      "section": "22.15 Decision chain integration",
+      "line": 858,
+      "text": "Each new evidence event MUST preserve linkage to the preceding relevant chain state. Later evidence MUST NOT overwrite earlier evidence."
+    },
+    {
+      "id": "BEAP-L3-EFF-39",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 39,
+      "section": "22.15 Decision chain integration",
+      "line": 858,
+      "text": "Each new evidence event MUST preserve linkage to the preceding relevant chain state. Later evidence MUST NOT overwrite earlier evidence."
+    },
+    {
+      "id": "BEAP-L1-DOS-02",
+      "level": "L1",
+      "area": "DOS",
+      "ordinal": 2,
+      "section": "22.16 Decision Dossier representation",
+      "line": 864,
+      "text": "For an execution-bound Decision Dossier, the dossier SHOULD expose a compact effect summary identifying the claim, the execution status, the adapter, the correlation identifier, the provider reference, the response digest, the confirmation state, the effect type, and the evidence digest."
+    },
+    {
+      "id": "BEAP-L1-DOS-03",
+      "level": "L1",
+      "area": "DOS",
+      "ordinal": 3,
+      "section": "22.16 Decision Dossier representation",
+      "line": 866,
+      "text": "The dossier MAY reference externally retained evidence rather than embedding sensitive banking records. A verifier MUST be able to determine whether the evidence included in or referenced by the dossier corresponds to the same execution binding and execution claim."
+    },
+    {
+      "id": "BEAP-L3-EFF-40",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 40,
+      "section": "22.17 Observation methods and confirmation",
+      "line": 870,
+      "text": "The observation-method registry (section 26) names how an observed effect was established. A downstream acknowledgement (`DOWNSTREAM_ACK`) MAY support `COMMITTED` but MUST NOT by itself support `CONFIRMED`."
+    },
+    {
+      "id": "BEAP-L3-EFF-41",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 41,
+      "section": "22.17 Observation methods and confirmation",
+      "line": 872,
+      "text": "`CONFIRMED` MUST be recorded only when an expected-effect digest was bound before dispatch, the observed-effect digest equals it, and the observation method is one the registry marks as sufficient for confirmation."
+    },
+    {
+      "id": "BEAP-L3-EFF-42",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 42,
+      "section": "22.18 Failure to record effect evidence",
+      "line": 876,
+      "text": "Failure of the evidence-recording path does not retroactively invalidate an execution that has already occurred; however, the execution MUST NOT be represented as fully evidenced."
+    },
+    {
+      "id": "BEAP-L3-EFF-43",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 43,
+      "section": "22.18 Failure to record effect evidence",
+      "line": 878,
+      "text": "Where an external effect may have occurred but effect evidence cannot be durably recorded, the system SHOULD record or recover the state as `INDETERMINATE` with `evidence_status: INCOMPLETE` and initiate reconciliation according to institution policy."
+    },
+    {
+      "id": "BEAP-L3-EFF-44",
+      "level": "L3",
+      "area": "EFF",
+      "ordinal": 44,
+      "section": "22.18 Failure to record effect evidence",
+      "line": 889,
+      "text": "The applicable behavior MUST be explicit policy rather than an undocumented adapter default."
+    },
+    {
+      "id": "BEAP-L1-PRV-01",
+      "level": "L1",
+      "area": "PRV",
+      "ordinal": 1,
+      "section": "23. Privacy and Data Minimization",
+      "line": 893,
+      "text": "Effect evidence and Decision Dossiers SHOULD contain only the information necessary to establish execution integrity and subsequent verification."
+    },
+    {
+      "id": "BEAP-L1-PRV-02",
+      "level": "L1",
+      "area": "PRV",
+      "ordinal": 2,
+      "section": "23. Privacy and Data Minimization",
+      "line": 895,
+      "text": "Raw personally identifiable information, account numbers, uploaded customer documents, credentials, authentication secrets, biometric material, payment-card data, and other unnecessary banking data SHOULD NOT be copied into a Decision Dossier."
+    },
+    {
+      "id": "BEAP-L1-PRV-03",
+      "level": "L1",
+      "area": "PRV",
+      "ordinal": 3,
+      "section": "23.1 Reference rather than replicate",
+      "line": 901,
+      "text": "Where authoritative information already exists in a system of record, BEAP evidence SHOULD reference that information rather than reproduce it."
+    },
+    {
+      "id": "BEAP-L1-PRV-04",
+      "level": "L1",
+      "area": "PRV",
+      "ordinal": 4,
+      "section": "23.1 Reference rather than replicate",
+      "line": 925,
+      "text": "An implementation MUST NOT require replication of raw source data where a stable reference, cryptographic commitment, or purpose-limited claim provides sufficient execution-authority evidence."
+    },
+    {
+      "id": "BEAP-L1-PRV-05",
+      "level": "L1",
+      "area": "PRV",
+      "ordinal": 5,
+      "section": "23.2 Evidence digests",
+      "line": 929,
+      "text": "Where policy requires proof that particular evidence was considered, the implementation MAY bind a cryptographic digest of that evidence rather than embed the evidence itself."
+    },
+    {
+      "id": "BEAP-L1-PRV-06",
+      "level": "L1",
+      "area": "PRV",
+      "ordinal": 6,
+      "section": "23.2 Evidence digests",
+      "line": 937,
+      "text": "The digest establishes integrity linkage; it MUST NOT be interpreted as proof of the semantic correctness of the source evidence."
+    },
+    {
+      "id": "BEAP-L1-PRV-07",
+      "level": "L1",
+      "area": "PRV",
+      "ordinal": 7,
+      "section": "23.3 Purpose-limited claims",
+      "line": 941,
+      "text": "Where a policy requires only a derived fact, the evidence supplied to BEAP SHOULD contain that fact rather than the underlying sensitive value: `age_requirement_satisfied: true` rather than a date of birth, `affordability_requirement_satisfied: true` rather than income records, `sanctions_status: CLEAR` rather than the complete screening response."
+    },
+    {
+      "id": "BEAP-L1-PRV-08",
+      "level": "L1",
+      "area": "PRV",
+      "ordinal": 8,
+      "section": "23.3 Purpose-limited claims",
+      "line": 943,
+      "text": "A derived claim SHOULD identify its authoritative issuer, observation time, validity or freshness information, and an evidence reference where required for verification."
+    },
+    {
+      "id": "BEAP-L2-PRV-01",
+      "level": "L2",
+      "area": "PRV",
+      "ordinal": 1,
+      "section": "23.4 Sensitive values required for binding",
+      "line": 947,
+      "text": "Data minimization MUST NOT weaken execution binding."
+    },
+    {
+      "id": "BEAP-L2-PRV-02",
+      "level": "L2",
+      "area": "PRV",
+      "ordinal": 2,
+      "section": "23.4 Sensitive values required for binding",
+      "line": 949,
+      "text": "Where a sensitive value materially determines the authorized effect, the implementation MUST retain sufficient cryptographic commitment to detect substitution. The actual beneficiary account number need not appear in a portable Decision Dossier, but execution authority is still bound to the intended beneficiary:"
+    },
+    {
+      "id": "BEAP-L2-PRV-03",
+      "level": "L2",
+      "area": "PRV",
+      "ordinal": 3,
+      "section": "23.4 Sensitive values required for binding",
+      "line": 955,
+      "text": "The Trusted Executor MUST be capable of demonstrating that the actual downstream beneficiary corresponds to the value bound at authorization. The same principle applies to customer identifiers, account identifiers, beneficiary accounts, loan identifiers, payment instructions, corporate batch entries, document evidence, and counterparty identifiers."
+    },
+    {
+      "id": "BEAP-L2-PRV-04",
+      "level": "L2",
+      "area": "PRV",
+      "ordinal": 4,
+      "section": "23.4 Sensitive values required for binding",
+      "line": 957,
+      "text": "Data minimization MUST NOT permit a material execution field to become unbound."
+    },
+    {
+      "id": "BEAP-L1-PRV-09",
+      "level": "L1",
+      "area": "PRV",
+      "ordinal": 9,
+      "section": "23.5 Credentials and secrets",
+      "line": 961,
+      "text": "API secrets, private cryptographic keys, banking passwords, session credentials, bearer tokens, refresh tokens, core-banking service credentials, PINs, card verification values, authentication secrets, and recovery secrets MUST NOT be included in a Decision Dossier, a BankingAction, an AuthoritySet, an Execution Grant, an EffectEvidence object, or a portable verification package."
+    },
+    {
+      "id": "BEAP-L1-PRV-10",
+      "level": "L1",
+      "area": "PRV",
+      "ordinal": 10,
+      "section": "23.5 Credentials and secrets",
+      "line": 963,
+      "text": "Where authentication context is material to policy, the dossier SHOULD record non-secret evidence describing the authenticated context, for example an assurance level, a method, an identity reference, and a verification time."
+    },
+    {
+      "id": "BEAP-L1-PRV-11",
+      "level": "L1",
+      "area": "PRV",
+      "ordinal": 11,
+      "section": "23.6 Presence and biometric evidence",
+      "line": 967,
+      "text": "Where Presence or another human-verification mechanism participates in authorization, the Decision Dossier SHOULD contain evidence that the required ceremony was completed, such as a receipt identifier, approver reference and role, approved-action digest, ceremony type, assurance level, verification time, expiry, and signed evidence digest, without embedding raw biometric material."
+    },
+    {
+      "id": "BEAP-L1-PRV-12",
+      "level": "L1",
+      "area": "PRV",
+      "ordinal": 12,
+      "section": "23.6 Presence and biometric evidence",
+      "line": 969,
+      "text": "A dossier SHOULD NOT contain face images, fingerprint templates, raw liveness captures, device biometric templates, or biometric feature vectors, unless an institution explicitly requires such retention outside the portable dossier and has an independent lawful basis and retention policy for doing so."
+    },
+    {
+      "id": "BEAP-L1-PRV-13",
+      "level": "L1",
+      "area": "PRV",
+      "ordinal": 13,
+      "section": "23.7 Separation of evidence planes",
+      "line": 973,
+      "text": "A BEAP implementation SHOULD support separation between an authority plane (policy, binding, verdict, approvals, grant), an evidence plane (signed references, digests, effect evidence), and a source data plane (customer documents, account records, transaction data, loan files, raw provider responses)."
+    },
+    {
+      "id": "BEAP-L1-PRV-14",
+      "level": "L1",
+      "area": "PRV",
+      "ordinal": 14,
+      "section": "23.8 Portable dossiers and projections",
+      "line": 979,
+      "text": "A portable Decision Dossier SHOULD be safe to disclose to an appropriately authorized verifier without automatically disclosing the complete underlying banking transaction or customer record."
+    },
+    {
+      "id": "BEAP-L1-PRV-15",
+      "level": "L1",
+      "area": "PRV",
+      "ordinal": 15,
+      "section": "23.8 Portable dossiers and projections",
+      "line": 983,
+      "text": "A projected or redacted dossier MUST NOT be represented as the canonical dossier itself."
+    },
+    {
+      "id": "BEAP-L1-PRV-16",
+      "level": "L1",
+      "area": "PRV",
+      "ordinal": 16,
+      "section": "23.8 Portable dossiers and projections",
+      "line": 985,
+      "text": "A projection SHOULD have the structure defined by `dossier-projection.schema.json` (Appendix A), identifying the canonical dossier digest, the projection profile, the included claims, the omitted claim classes, the projection issuer, the projection time, and the projection signature."
+    },
+    {
+      "id": "BEAP-L1-PRV-17",
+      "level": "L1",
+      "area": "PRV",
+      "ordinal": 17,
+      "section": "23.9 Retention",
+      "line": 989,
+      "text": "BEAP does not prescribe a universal retention period. Retention MUST be determined by the institution according to applicable law, regulatory requirements, contractual obligations, recordkeeping requirements, institutional policy, execution domain, evidence classification, and investigation requirements."
+    },
+    {
+      "id": "BEAP-L1-PRV-18",
+      "level": "L1",
+      "area": "PRV",
+      "ordinal": 18,
+      "section": "23.9 Retention",
+      "line": 991,
+      "text": "Implementations SHOULD permit different retention policies for canonical Decision Dossiers, effect evidence, raw downstream responses, Presence evidence, source banking records, and derived evidence projections."
+    },
+    {
+      "id": "BEAP-L1-PRV-19",
+      "level": "L1",
+      "area": "PRV",
+      "ordinal": 19,
+      "section": "23.9 Retention",
+      "line": 993,
+      "text": "A requirement to retain cryptographic evidence MUST NOT automatically imply a requirement to retain every underlying raw data element within the execution authority."
+    },
+    {
+      "id": "BEAP-L1-PRV-20",
+      "level": "L1",
+      "area": "PRV",
+      "ordinal": 20,
+      "section": "23.10 Deletion and cryptographic references",
+      "line": 997,
+      "text": "Deletion of source data MAY leave a cryptographic digest in an existing Decision Dossier. Such a digest demonstrates commitment to the previously observed data but may no longer permit recovery or semantic inspection of that data. Implementations MUST NOT claim that a retained digest permits reconstruction of deleted source information."
+    },
+    {
+      "id": "BEAP-L1-PRV-21",
+      "level": "L1",
+      "area": "PRV",
+      "ordinal": 21,
+      "section": "23.10 Deletion and cryptographic references",
+      "line": 999,
+      "text": "Canonical Decision Dossiers SHOULD remain immutable; privacy lifecycle operations SHOULD therefore be applied through source-data management, access controls, evidence projection, cryptographic references, or explicitly defined superseding records rather than silent mutation of signed historical evidence. Where deletion, anonymization, legal hold, or retention requirements conflict, the institution's governance policy determines the treatment of the underlying source data."
+    },
+    {
+      "id": "BEAP-L1-PRV-22",
+      "level": "L1",
+      "area": "PRV",
+      "ordinal": 22,
+      "section": "23.11 Access control",
+      "line": 1003,
+      "text": "Possession of a Decision Dossier MUST NOT automatically imply permission to resolve every reference contained within it."
+    },
+    {
+      "id": "BEAP-L1-PRV-23",
+      "level": "L1",
+      "area": "PRV",
+      "ordinal": 23,
+      "section": "23.11 Access control",
+      "line": 1005,
+      "text": "Authorization to access customer records, account details, identity evidence, loan documents, transaction details, raw provider responses, and Presence evidence SHOULD remain independently controlled by the system responsible for that information. A verifier may therefore cryptographically verify a dossier while lacking permission to dereference particular sensitive evidence; this is a valid BEAP deployment model."
+    },
+    {
+      "id": "BEAP-L1-PRV-24",
+      "level": "L1",
+      "area": "PRV",
+      "ordinal": 24,
+      "section": "23.12 Logging",
+      "line": 1009,
+      "text": "Operational logs produced by BEAP components MUST follow the same minimization principles as Decision Dossiers. Implementations MUST NOT rely on log redaction as the primary protection against unnecessary secret collection; secrets and unnecessary sensitive values are kept out of logs in the first place."
+    },
+    {
+      "id": "BEAP-L1-PRV-25",
+      "level": "L1",
+      "area": "PRV",
+      "ordinal": 25,
+      "section": "23.12 Logging",
+      "line": 1009,
+      "text": "Operational logs produced by BEAP components MUST follow the same minimization principles as Decision Dossiers. Implementations MUST NOT rely on log redaction as the primary protection against unnecessary secret collection; secrets and unnecessary sensitive values are kept out of logs in the first place."
+    },
+    {
+      "id": "BEAP-L1-PRV-26",
+      "level": "L1",
+      "area": "PRV",
+      "ordinal": 26,
+      "section": "23.12 Logging",
+      "line": 1011,
+      "text": "Logging SHOULD prefer dossier, evaluation, binding, claim, and correlation identifiers, opaque customer and account references, the Intent Digest, the policy identifier and version, the verdict, the execution status, and an error classification over raw BankingAction payloads."
+    },
+    {
+      "id": "BEAP-L1-PRV-27",
+      "level": "L1",
+      "area": "PRV",
+      "ordinal": 27,
+      "section": "23.12 Logging",
+      "line": 1013,
+      "text": "Debug or diagnostic modes MUST NOT silently weaken these requirements in production environments."
+    },
+    {
+      "id": "BEAP-L1-PRV-28",
+      "level": "L1",
+      "area": "PRV",
+      "ordinal": 28,
+      "section": "23.13 Data residency and deployment boundary",
+      "line": 1019,
+      "text": "Adapters SHOULD permit sensitive source data to remain close to the downstream banking system while transmitting only the minimum policy inputs, bindings, digests, references, and evidence required by the execution-authority layer."
+    },
+    {
+      "id": "BEAP-L1-PRV-29",
+      "level": "L1",
+      "area": "PRV",
+      "ordinal": 29,
+      "section": "23.13 Data residency and deployment boundary",
+      "line": 1021,
+      "text": "The deployment topology MUST NOT alter the meaning of a binding or weaken verification requirements."
+    },
+    {
+      "id": "BEAP-L1-PRV-30",
+      "level": "L1",
+      "area": "PRV",
+      "ordinal": 30,
+      "section": "23.14 Minimization invariant",
+      "line": 1025,
+      "text": "A BEAP implementation SHOULD apply the following invariant: retain enough information to prove what was authorized and what occurred, but no more sensitive source data than is necessary to establish that proof."
+    },
+    {
+      "id": "BEAP-L1-PRV-31",
+      "level": "L1",
+      "area": "PRV",
+      "ordinal": 31,
+      "section": "23.14 Minimization invariant",
+      "line": 1027,
+      "text": "Privacy minimization MUST NOT weaken intent integrity, policy reproducibility, authority verification, approval binding, target binding, effect verification, replay resistance, or auditability. Conversely, execution verifiability MUST NOT be used as justification for indiscriminate replication of banking data."
+    },
+    {
+      "id": "BEAP-L1-PRV-32",
+      "level": "L1",
+      "area": "PRV",
+      "ordinal": 32,
+      "section": "23.14 Minimization invariant",
+      "line": 1027,
+      "text": "Privacy minimization MUST NOT weaken intent integrity, policy reproducibility, authority verification, approval binding, target binding, effect verification, replay resistance, or auditability. Conversely, execution verifiability MUST NOT be used as justification for indiscriminate replication of banking data."
+    },
+    {
+      "id": "BEAP-L1-ACT-13",
+      "level": "L1",
+      "area": "ACT",
+      "ordinal": 13,
+      "section": "24.4 Conformance claims",
+      "line": 1063,
+      "text": "A conformance claim MUST name the profile version and the level claimed. An implementation MUST NOT claim a level whose requirements it does not fully satisfy, including the requirements of every lower level. A deployment operating in shadow or observational mode MUST state that no execution authority is exercised."
+    },
+    {
+      "id": "BEAP-L1-ACT-14",
+      "level": "L1",
+      "area": "ACT",
+      "ordinal": 14,
+      "section": "24.4 Conformance claims",
+      "line": 1063,
+      "text": "A conformance claim MUST name the profile version and the level claimed. An implementation MUST NOT claim a level whose requirements it does not fully satisfy, including the requirements of every lower level. A deployment operating in shadow or observational mode MUST state that no execution authority is exercised."
+    },
+    {
+      "id": "BEAP-L1-ACT-15",
+      "level": "L1",
+      "area": "ACT",
+      "ordinal": 15,
+      "section": "24.4 Conformance claims",
+      "line": 1063,
+      "text": "A conformance claim MUST name the profile version and the level claimed. An implementation MUST NOT claim a level whose requirements it does not fully satisfy, including the requirements of every lower level. A deployment operating in shadow or observational mode MUST state that no execution authority is exercised."
+    },
+    {
+      "id": "BEAP-L1-DOM-03",
+      "level": "L1",
+      "area": "DOM",
+      "ordinal": 3,
+      "section": "26. Identifier Registries",
+      "line": 1096,
+      "text": "Registered identifiers are upper snake case matching `^[A-Z][A-Z0-9_]{1,63}$` (reason codes allow up to 120 characters). An institution MAY register additional domains, action types, reason codes, and evidence sources for its own deployment; an institution-registered identifier MUST NOT collide with an identifier in the published registries, and MUST be published in the institution's policy pack so that a verifier can resolve it."
+    }
+  ]
+}

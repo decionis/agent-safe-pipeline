@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://banking.decionis.com/spec/v0.1/schemas/effect-evidence.schema.json",
+  "title": "BEAP EffectEvidence",
+  "description": "A cryptographically attributable record of the observed outcome of one execution attempt made under one execution-authority claim (specification section 22).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "profile",
+    "type",
+    "dossier_id",
+    "evaluation_id",
+    "intent_digest",
+    "execution_binding",
+    "authority_claim",
+    "domain",
+    "action",
+    "execution",
+    "outcome",
+    "effect",
+    "confirmation",
+    "provenance",
+    "observed_at"
+  ],
+  "properties": {
+    "profile": { "const": "decionis.beap/v0.1" },
+    "type": { "const": "EFFECT_EVIDENCE" },
+    "dossier_id": { "$ref": "#/$defs/reference" },
+    "evaluation_id": { "$ref": "#/$defs/reference" },
+    "intent_digest": { "$ref": "#/$defs/sha256" },
+    "execution_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["binding_id", "binding_digest"],
+      "properties": {
+        "binding_id": { "$ref": "#/$defs/reference" },
+        "binding_digest": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "authority_claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["claim_id", "nonce_digest", "claimed_at"],
+      "properties": {
+        "claim_id": { "$ref": "#/$defs/reference" },
+        "nonce_digest": { "$ref": "#/$defs/sha256" },
+        "claimed_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "domain": { "$ref": "#/$defs/identifier" },
+    "action": { "$ref": "#/$defs/identifier" },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "adapter",
+        "target",
+        "correlation_id",
+        "idempotency_key",
+        "attempt",
+        "started_at"
+      ],
+      "properties": {
+        "adapter": { "$ref": "#/$defs/reference" },
+        "target": { "$ref": "#/$defs/reference" },
+        "correlation_id": { "$ref": "#/$defs/reference" },
+        "idempotency_key": { "$ref": "#/$defs/reference" },
+        "attempt": { "type": "integer", "minimum": 1 },
+        "started_at": { "type": "string", "format": "date-time" },
+        "completed_at": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": { "type": "string", "enum": ["COMMITTED", "FAILED", "INDETERMINATE"] },
+        "provider_status": { "type": ["string", "null"], "maxLength": 200 },
+        "provider_reference": { "type": ["string", "null"], "maxLength": 500 },
+        "response_digest": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }] },
+        "failure_reason": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/identifier" }] }
+      }
+    },
+    "effect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "effect_type",
+        "resource_ref",
+        "expected_effect_digest",
+        "observed_effect_digest",
+        "observation_method",
+        "comparison"
+      ],
+      "properties": {
+        "effect_type": { "$ref": "#/$defs/identifier" },
+        "resource_ref": { "$ref": "#/$defs/reference" },
+        "expected_effect_digest": { "$ref": "#/$defs/sha256" },
+        "observed_effect_digest": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }] },
+        "observation_method": {
+          "type": "string",
+          "enum": [
+            "DOWNSTREAM_ACK",
+            "READ_AFTER_WRITE",
+            "EVENT_CONFIRMATION",
+            "STATE_RECONCILIATION",
+            "SIGNED_RECEIPT",
+            "EXTERNAL_ATTESTATION",
+            "HUMAN_VALIDATION"
+          ]
+        },
+        "comparison": { "type": "string", "enum": ["MATCH", "MISMATCH", "PENDING"] },
+        "mismatched_fields": {
+          "type": "array",
+          "maxItems": 64,
+          "items": { "type": "string", "minLength": 1, "maxLength": 120 }
+        }
+      }
+    },
+    "confirmation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["PENDING", "CONFIRMED", "NOT_EFFECTED", "REVERSED", "UNKNOWN"]
+        },
+        "confirmed_at": { "type": ["string", "null"], "format": "date-time" },
+        "evidence_digest": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }] }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "provider_generated", "observer"],
+      "properties": {
+        "source": { "$ref": "#/$defs/identifier" },
+        "provider_generated": { "type": "boolean" },
+        "observer": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "version"],
+          "properties": {
+            "id": { "$ref": "#/$defs/reference" },
+            "version": { "type": "string", "minLength": 1, "maxLength": 100 }
+          }
+        }
+      }
+    },
+    "evidence_status": { "type": "string", "enum": ["COMPLETE", "INCOMPLETE"] },
+    "observed_at": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "identifier": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{1,63}$" },
+    "reference": { "type": "string", "minLength": 1, "maxLength": 500 },
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+  }
+}

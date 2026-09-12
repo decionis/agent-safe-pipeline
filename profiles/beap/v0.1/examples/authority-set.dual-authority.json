@@ -1,0 +1,63 @@
+{
+  "profile": "decionis.beap/v0.1",
+  "type": "AUTHORITY_SET",
+  "set_id": "fixture_authority_set_0001",
+  "intent_digest": "sha256:c451a41fe2e105babbf856b63c5c94a32977dded03ee90ac7c2fada731d00761",
+  "policy": {
+    "identifier": "synthetic-loan-origination",
+    "version": "loan-origination-v0.1.0",
+    "digest": "sha256:45d7bc43ee0bf7976bb8af561f1b91f2b799c2eb192ae9ffeaadf2695309dca7"
+  },
+  "requirements": [
+    {
+      "requirement_id": "credit-officer",
+      "role_id": "CREDIT_OFFICER",
+      "quorum": 1,
+      "distinct_from": ["risk-officer"],
+      "evidence_kinds": ["PRESENCE_RECEIPT", "SIGNED_ATTESTATION"]
+    },
+    {
+      "requirement_id": "risk-officer",
+      "role_id": "RISK_OFFICER",
+      "quorum": 1,
+      "distinct_from": ["credit-officer"],
+      "evidence_kinds": ["PRESENCE_RECEIPT", "SIGNED_ATTESTATION"]
+    }
+  ],
+  "approvals": [
+    {
+      "approval_id": "fixture_approval_0001",
+      "requirement_id": "credit-officer",
+      "approver_ref": "fixture_user_credit_01",
+      "role_id": "CREDIT_OFFICER",
+      "intent_digest": "sha256:c451a41fe2e105babbf856b63c5c94a32977dded03ee90ac7c2fada731d00761",
+      "decision": "APPROVE",
+      "approved_at": "2026-09-11T10:40:00.000Z",
+      "expires_at": "2026-09-11T22:40:00.000Z",
+      "evidence": {
+        "kind": "SIGNED_ATTESTATION",
+        "reference": "fixture_attestation_0001",
+        "evidence_digest": "sha256:eddef4ec2f40ba347d7be1c7030e0b55e4e5bb28e40817776786f4baae517fae"
+      }
+    },
+    {
+      "approval_id": "fixture_approval_0002",
+      "requirement_id": "risk-officer",
+      "approver_ref": "fixture_user_risk_02",
+      "role_id": "RISK_OFFICER",
+      "intent_digest": "sha256:c451a41fe2e105babbf856b63c5c94a32977dded03ee90ac7c2fada731d00761",
+      "decision": "APPROVE",
+      "approved_at": "2026-09-11T11:52:00.000Z",
+      "expires_at": "2026-09-11T23:52:00.000Z",
+      "evidence": {
+        "kind": "PRESENCE_RECEIPT",
+        "reference": "fixture_presence_receipt_0002",
+        "evidence_digest": "sha256:d242b1434c3cebe42419a48047297058fce5016a24c6c050d6fb7eca11c9e3b3"
+      }
+    }
+  ],
+  "state": "SATISFIED",
+  "reason_codes": [],
+  "issued_at": "2026-09-11T10:30:00.000Z",
+  "expires_at": "2026-09-12T10:30:00.000Z"
+}
