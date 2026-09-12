@@ -1,4 +1,16 @@
-const allowedHostnames = new Set(["github.com", "decionis.com", "presence.decionis.com"]);
+// Reviewed public origins the link probe may contact (discovery.rules.md §3).
+// banking.decionis.com and commerce.decionis.com joined on 2026-09-12: both
+// are Decionis-operated properties of the same protocol — the banking
+// profile whose reference runtime builds on this package, and the Commerce
+// Gate whose MCP server lives in packages/commerce-mcp — and both answered
+// 200 on that day.
+const allowedHostnames = new Set([
+  "github.com",
+  "decionis.com",
+  "presence.decionis.com",
+  "banking.decionis.com",
+  "commerce.decionis.com",
+]);
 const maxRedirects = 5;
 
 export class DiscoveryUrlPolicyError extends Error {

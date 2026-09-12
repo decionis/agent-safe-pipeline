@@ -97,6 +97,7 @@ See the [package README](./packages/pipeline/README.md) for the complete enforce
 - [`dossiers/`](./dossiers/) — reproducible synthetic Decision Dossier corpus with canonical bytes, SHA-256 digests, Ed25519 signatures, and a deliberately published corpus key.
 - [`tests/integration/contract/`](./tests/integration/contract/) — loopback Decionis and Presence stubs that exercise the packed package's complete wire contract over real HTTP.
 - [`FIXTURE-PROVENANCE.md`](./FIXTURE-PROVENANCE.md) — origin and permitted use of every fixture family.
+- [`profiles/beap/v0.1`](./profiles/beap/v0.1) — the Banking Execution Authority Profile, mirrored byte for byte from its own repository by that repository's sync script; staged here for archival, not yet released or surfaced in discovery.
 - [`DEPENDENCY-LICENSES.md`](./DEPENDENCY-LICENSES.md) — generated inventory method and platform-conditional dependency notes.
 - [`SECURITY-EVIDENCE.md`](./SECURITY-EVIDENCE.md) — control-to-artifact evidence map and published gaps.
 - [`PUBLICATION-SIGNOFFS.md`](./PUBLICATION-SIGNOFFS.md) — human decisions that automation cannot make.
@@ -152,6 +153,8 @@ Published research:
 
 - Jejelowo, Festus. "The Execution Verifiability Gap: Why Model Governance Cannot Authorize Consequential Actions." Decionis Research, version 1.0, 21 August 2026. [Canonical article](https://decionis.com/research/execution-verifiability-gap) · [Archival PDF](https://decionis.com/research/execution-verifiability-gap-v1.0.pdf) · [Research index](https://decionis.com/research).
 
+Profiles of the protocol: the [Banking Execution Authority Profile (BEAP)](https://banking.decionis.com) applies this architecture to a bank's disbursement, payment run, or limit increase — execution domains, the canonical banking instruction, batch binding, multi-party sign-offs, effect evidence — and its reference runtime builds on `@decionis/agent-safe-pipeline`. BEAP v0.1 is a Draft / Design Partner Review document, not a finished standard; the runtime is not in this repository.
+
 Companion notes on the Execution Authority model, the authorization protocol, Presence-verified human approval, and Decision Dossiers are in preparation. Following this repository's discovery rules, a publication link is added here only after its canonical article resolves publicly.
 
 | Research concept              | Implementation in this repository                                                                                                                                                                  |
@@ -201,6 +204,12 @@ npx -y @decionis/verify@0.3.0 \
 
 See the [corpus README](./dossiers/README.md) for regeneration, provenance, expected failures, and
 the trust boundary between synthetic conformance and production verification.
+
+## Start here
+
+[ONBOARDING.md](./ONBOARDING.md) is the adopter's journey — install, capture, verdict, approval,
+grant, execute once, outcome, evidence — walked for four families: AI agent, commerce, banking,
+and autonomous workflows, each pointing at the example that runs it and the property that owns it.
 
 ## Evaluating this repository
 

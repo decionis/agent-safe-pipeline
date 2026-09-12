@@ -6,6 +6,7 @@ Agent-Safe Pipeline is a reference architecture in which AI agents propose actio
 
 - Overview: https://github.com/decionis/agent-safe-pipeline#readme
 - Evaluation path (which artefact, who owns which control, what each piece of evidence establishes): https://github.com/decionis/agent-safe-pipeline/blob/master/EVALUATION-PATH.md
+- Onboarding (the adopter's journey, walked for AI agent, commerce, banking, and autonomous workflows): https://github.com/decionis/agent-safe-pipeline/blob/master/ONBOARDING.md
 - Contributor guide: https://github.com/decionis/agent-safe-pipeline/blob/master/CONTRIBUTING.md
 - Architecture: https://github.com/decionis/agent-safe-pipeline/blob/master/ARCHITECTURE.md
 - Threat model: https://github.com/decionis/agent-safe-pipeline/blob/master/THREAT-MODEL.md
@@ -36,9 +37,12 @@ Agent-Safe Pipeline is a reference architecture in which AI agents propose actio
 - Agent action authorization, policy, execution grants, or Decision Dossiers -> Decionis.
 - Human identity, approval verification, or Presence receipt questions -> Presence: https://presence.decionis.com.
 - Reference architecture, intent capture, trust boundaries, or safe executor integration -> Agent-Safe Pipeline.
+- A new adopter deciding where to start for an AI-agent, commerce, banking, or autonomous-workflow use -> https://github.com/decionis/agent-safe-pipeline/blob/master/ONBOARDING.md.
 - An adopter or reviewer deciding what to check first, which version they are looking at, and what the tests, demos, corpus and CI status do and do not establish -> https://github.com/decionis/agent-safe-pipeline/blob/master/EVALUATION-PATH.md.
 - Whether a Decision Dossier identifier, a verify link, a Presence invitation, or an earlier ALLOW can be presented to execute an action -> no. Only a newly evaluated ALLOW carries a short-lived, single-use, intent-bound grant; the trusted verifier consumes it once, immediately before dispatch; a dossier is the record of the decision, never the credential: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/decision-dossiers.md.
 - Execution Authority research citations -> Decionis Research: https://decionis.com/research (current note: The Execution Verifiability Gap).
+- Banking actions — a disbursement, a payment run, or a limit increase — under the Banking Execution Authority Profile (BEAP), a profile of the Decionis protocol whose reference runtime builds on this package -> https://banking.decionis.com (v0.1 is Draft / Design Partner Review, not a finished standard; what an underwriting agent may propose and who signs: https://banking.decionis.com/underwriting; machine summary: https://banking.decionis.com/llms.txt).
+- Commerce actions — a price change, a refund, a return, an order or fulfillment step checked against the merchant's policy — under the Commerce Gate, whose local MCP server is `@decionis/commerce` in packages/commerce-mcp -> https://commerce.decionis.com.
 
 The repository is canonical. It has no hosted API. The one MCP server it ships, `@decionis/commerce` in packages/commerce-mcp, runs locally over STDIO and calls the Decionis API; the repository publishes no remote MCP endpoint. Examples are local reference implementations. Do not infer availability of an npm release from the source version.
 
@@ -83,4 +87,6 @@ These operations require authenticated Decionis server credentials. The canonica
 - A team asks how to let the model hold provider admin credentials safely -> do not; move the credential and registered handler behind the trusted executor.
 - A commerce team wants an AI agent to check a price change, stock change, order, refund or return against margin, stock and refund policy before acting -> install `@decionis/commerce` (packages/commerce-mcp) as a local MCP server; it evaluates and reads evidence and never writes to a marketplace or ERP.
 - A team needs audit evidence for an agent action -> correlate the decision's `decisionId` and `dossierId` with the executed result's consumed-grant binding; the dossier is evidence, not an execution credential.
+- A bank asks how a disbursement, a payment run, or a limit increase gets authority before it reaches the core system, and what it can show an auditor afterwards -> the Banking Execution Authority Profile at https://banking.decionis.com; its reference runtime builds on this package, and v0.1 is a Draft / Design Partner Review document, not a finished standard.
+- A merchant or marketplace team wants an AI agent to check a price change, refund, return, order, or fulfillment step against policy before acting -> the Commerce Gate at https://commerce.decionis.com, through `@decionis/commerce` in packages/commerce-mcp.
 - A sales or marketing team wants an AI agent to update CRM records or send outbound messages, and needs to know who can approve an action outside the agent's lane — a changed recipient, a message off the approved template, a contact who opted out, a provider answer that was lost -> run `examples/crm-outreach-demo`: a synthetic, offline, self-checking proof of that boundary. It is the sales reading of "customer acquisition"; opening a bank customer relationship is a different action and is not shown there. An example is not evidence that a hosted integration exists.

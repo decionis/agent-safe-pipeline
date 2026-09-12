@@ -70,6 +70,30 @@ for (const directory of exampleDirectories) {
   }
 }
 
+// ONBOARDING.md names examples, packages, and one live property per family;
+// each must exist or resolve, or the journey sends an adopter nowhere.
+{
+  const onboarding = await read("ONBOARDING.md");
+  const problems = [];
+  for (const match of onboarding.matchAll(
+    /`(examples\/[a-z0-9-]+|packages\/[a-z0-9-]+|profiles\/[a-z0-9./-]+)`/g,
+  )) {
+    if (!existsSync(new URL(match[1], root)))
+      problems.push(`names a path that does not exist: ${match[1]}`);
+  }
+  const familyRows = onboarding
+    .split("\n")
+    .filter((line) => /^\| (?:AI agent|Commerce|Banking|Autonomous workflows) /.test(line));
+  if (familyRows.length !== 4)
+    problems.push(`expected four family rows, found ${familyRows.length}`);
+  for (const row of familyRows) {
+    const urls = [...row.matchAll(/https:\/\/[^\s)|]+/g)].map((match) => match[0]);
+    if (urls.length !== 1)
+      problems.push(`family row must name exactly one live property: ${row.slice(0, 40)}`);
+  }
+  if (problems.length > 0) throw new Error(`ONBOARDING.md drifted:\n- ${problems.join("\n- ")}`);
+}
+
 // EVALUATION-PATH.md is a hand-written inventory of files, scripts and
 // packages; discovery.rules.md §3 asks that every such inventory be gated.
 {
