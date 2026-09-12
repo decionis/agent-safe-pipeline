@@ -1,0 +1,64 @@
+{
+  "profile": "decionis.beap/v0.1",
+  "manifest_version": "1",
+  "batch_id": "fixture_batch_2026_09_11_001",
+  "originator": {
+    "organization_ref": "fixture_corporate_7710",
+    "account_ref": "fixture_account_5100"
+  },
+  "execution": {
+    "requested_execution_date": "2026-09-12",
+    "rail": "SEPA_CT",
+    "payment_type": "CREDIT_TRANSFER"
+  },
+  "source_file": {
+    "digest": "sha256:4bdbda31d1504a48d8124d49942e2f3dbba1bc380c37cb14907754a867d03ed4",
+    "byte_length": 412,
+    "media_type": "text/csv",
+    "format": "CSV_PAYMENT_LIST"
+  },
+  "totals": {
+    "item_count": 3,
+    "currency_totals": [
+      {
+        "currency": "EUR",
+        "total": "184250.00",
+        "count": 3
+      }
+    ]
+  },
+  "items": [
+    {
+      "item_ref": "fixture-e2e-0001",
+      "amount": "1200.00",
+      "currency": "EUR",
+      "beneficiary": {
+        "ref": "fixture_beneficiary_8172",
+        "account_digest": "sha256:1444ffea9055d1527283ba5d516df576c1632df919ce7135c4791eae826cc4eb"
+      },
+      "remittance_digest": "sha256:f96399a0749f567a7efeae93abcc775fddb0c97e1e6414396b68ed7aa2c0d971",
+      "item_digest": "sha256:b122a7a4a9d30d50ae00e446b83d4afa1c43f71fec082affe45494f153937829"
+    },
+    {
+      "item_ref": "fixture-e2e-0002",
+      "amount": "83050.00",
+      "currency": "EUR",
+      "beneficiary": {
+        "ref": "fixture_beneficiary_8173",
+        "account_digest": "sha256:d980edcc604fcf0bfbc2de3e1e00593abe087b213cc1134e0157404740eeed47"
+      },
+      "item_digest": "sha256:b17e346846af3330649ba9211d1250efdb3aee6cba429e3a196cd3f88bd13934"
+    },
+    {
+      "item_ref": "fixture-e2e-0003",
+      "amount": "100000.00",
+      "currency": "EUR",
+      "beneficiary": {
+        "ref": "fixture_beneficiary_8174",
+        "account_digest": "sha256:bdab84cec991d61286651ea50be6e2ae7377d7a2141fe6b6eeaeec18b5716f57"
+      },
+      "requested_execution_date": "2026-09-12",
+      "item_digest": "sha256:51a9a1b4b0a9995aead8b96a1d2f1f0bfb98afa1e05250aba9719a6372b38447"
+    }
+  ]
+}

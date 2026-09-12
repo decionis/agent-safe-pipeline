@@ -1,0 +1,51 @@
+{
+  "profile": "decionis.beap/v0.1",
+  "domain": "LOAN_DISBURSEMENT",
+  "action": {
+    "type": "DISBURSE_LOAN",
+    "request_id": "synthetic-req-0001"
+  },
+  "actor": {
+    "type": "AGENT",
+    "id": "synthetic-underwriting-agent-17",
+    "runtime": "synthetic-agent-runtime"
+  },
+  "principal": {
+    "type": "ORGANIZATIONAL_FUNCTION",
+    "id": "synthetic-credit-operations"
+  },
+  "subject": {
+    "type": "CUSTOMER",
+    "ref": "fixture_customer_28491"
+  },
+  "target": {
+    "type": "LOAN",
+    "ref": "fixture_loan_84721"
+  },
+  "financial_context": {
+    "amount": "250000.00",
+    "currency": "CHF"
+  },
+  "requested_effect": {
+    "operation": "DISBURSE",
+    "destination_ref": "fixture_account_1921"
+  },
+  "downstream": {
+    "provider": "SYNTHETIC_CORE",
+    "product": "LENDING",
+    "operation": "LOAN_DISBURSEMENT",
+    "environment": "SANDBOX"
+  },
+  "evidence_refs": [
+    {
+      "kind": "KYC_VERIFICATION",
+      "ref": "fixture_kyc_98127",
+      "digest": "sha256:975715df71cdeaf3a1289f4c199e300439bc73407ce2c4306547bd148bdcf89b"
+    },
+    {
+      "kind": "AFFORDABILITY_ASSESSMENT",
+      "ref": "fixture_affordability_5521",
+      "digest": "sha256:706632475f3dcdacf17865c5fe21afbb7adf390f6531fc5fa45df28dbf470773"
+    }
+  ]
+}

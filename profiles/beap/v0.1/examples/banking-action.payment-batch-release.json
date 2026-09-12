@@ -1,0 +1,53 @@
+{
+  "profile": "decionis.beap/v0.1",
+  "domain": "CORPORATE_PAYMENTS",
+  "action": {
+    "type": "RELEASE_PAYMENT_BATCH",
+    "request_id": "synthetic-req-0002"
+  },
+  "actor": {
+    "type": "APPLICATION",
+    "id": "synthetic-corporate-portal"
+  },
+  "principal": {
+    "type": "ORGANIZATION",
+    "id": "fixture_corporate_7710"
+  },
+  "subject": {
+    "type": "ORGANIZATION",
+    "ref": "fixture_corporate_7710"
+  },
+  "target": {
+    "type": "PAYMENT_BATCH",
+    "ref": "fixture_batch_2026_09_11_001"
+  },
+  "financial_context": {
+    "amount": "184250.00",
+    "currency": "EUR"
+  },
+  "requested_effect": {
+    "operation": "RELEASE",
+    "source_ref": "fixture_account_5100",
+    "parameters": {
+      "value_date": "2026-09-12",
+      "rail": "SEPA_CT"
+    }
+  },
+  "downstream": {
+    "provider": "SYNTHETIC_PAYMENT_HUB",
+    "operation": "BATCH_SUBMISSION",
+    "environment": "SANDBOX"
+  },
+  "batch": {
+    "manifest_digest": "sha256:d5e1c26d32dc0045940a2697b90461f02c92e2d24c3a8feb1ee79bac7fb2ac06",
+    "item_count": 3,
+    "source_file_digest": "sha256:4bdbda31d1504a48d8124d49942e2f3dbba1bc380c37cb14907754a867d03ed4"
+  },
+  "evidence_refs": [
+    {
+      "kind": "CORPORATE_MANDATE",
+      "ref": "fixture_mandate_301",
+      "digest": "sha256:d54feef54f24969b0ac8b627df02ac1b6a33480c467ee30ff511e7b34774f16c"
+    }
+  ]
+}

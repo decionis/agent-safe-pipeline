@@ -1,0 +1,167 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://banking.decionis.com/spec/v0.1/schemas/banking-action.schema.json",
+  "title": "BEAP BankingAction",
+  "description": "The canonical representation of a proposed consequential banking operation (specification section 9). The RFC 8785 canonical form of this object, hashed with SHA-256, is the BEAP Intent Digest. It carries no capture timestamps, no digests of itself, and no downstream credentials.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "profile",
+    "domain",
+    "action",
+    "actor",
+    "principal",
+    "target",
+    "requested_effect",
+    "downstream",
+    "evidence_refs"
+  ],
+  "properties": {
+    "profile": { "const": "decionis.beap/v0.1" },
+    "domain": { "$ref": "#/$defs/identifier" },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "request_id"],
+      "properties": {
+        "type": { "$ref": "#/$defs/identifier" },
+        "request_id": { "$ref": "#/$defs/reference" }
+      }
+    },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "id"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "HUMAN",
+            "APPLICATION",
+            "AGENT",
+            "SERVICE",
+            "WORKFLOW",
+            "BATCH_PROCESS",
+            "MIDDLEWARE",
+            "SYSTEM"
+          ]
+        },
+        "id": { "$ref": "#/$defs/reference" },
+        "runtime": { "$ref": "#/$defs/reference" }
+      }
+    },
+    "principal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "id"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["PERSON", "ORGANIZATION", "ORGANIZATIONAL_FUNCTION", "SERVICE"]
+        },
+        "id": { "$ref": "#/$defs/reference" }
+      }
+    },
+    "subject": { "$ref": "#/$defs/entity" },
+    "target": { "$ref": "#/$defs/entity" },
+    "financial_context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["amount", "currency"],
+      "properties": {
+        "amount": { "$ref": "#/$defs/decimalAmount" },
+        "currency": { "$ref": "#/$defs/currency" }
+      }
+    },
+    "requested_effect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation"],
+      "properties": {
+        "operation": { "$ref": "#/$defs/identifier" },
+        "source_ref": { "$ref": "#/$defs/reference" },
+        "destination_ref": { "$ref": "#/$defs/reference" },
+        "parameters": {
+          "type": "object",
+          "maxProperties": 64,
+          "propertyNames": { "pattern": "^[a-z][a-z0-9_]{0,63}$" },
+          "additionalProperties": { "type": ["string", "number", "boolean", "null"] }
+        }
+      }
+    },
+    "downstream": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "operation"],
+      "properties": {
+        "provider": { "$ref": "#/$defs/identifier" },
+        "product": { "$ref": "#/$defs/identifier" },
+        "operation": { "$ref": "#/$defs/identifier" },
+        "environment": { "$ref": "#/$defs/identifier" }
+      }
+    },
+    "batch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["manifest_digest", "item_count", "source_file_digest"],
+      "properties": {
+        "manifest_digest": { "$ref": "#/$defs/sha256" },
+        "item_count": { "type": "integer", "minimum": 1 },
+        "source_file_digest": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "evidence_refs": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "ref"],
+        "properties": {
+          "kind": { "$ref": "#/$defs/identifier" },
+          "ref": { "$ref": "#/$defs/reference" },
+          "digest": { "$ref": "#/$defs/sha256" }
+        }
+      }
+    }
+  },
+  "if": {
+    "type": "object",
+    "required": ["action"],
+    "properties": {
+      "action": {
+        "type": "object",
+        "required": ["type"],
+        "properties": { "type": { "const": "RELEASE_PAYMENT_BATCH" } }
+      }
+    }
+  },
+  "then": {
+    "type": "object",
+    "required": ["batch", "financial_context"],
+    "properties": {
+      "batch": { "$ref": "#/properties/batch" },
+      "financial_context": { "$ref": "#/properties/financial_context" }
+    }
+  },
+  "$defs": {
+    "identifier": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{1,63}$" },
+    "reference": { "type": "string", "minLength": 1, "maxLength": 500 },
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+    "decimalAmount": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,27})(\\.[0-9]{1,18})?$",
+      "description": "Decimal string with exactly the currency's ISO 4217 minor-unit scale; the scale rule is enforced by implementations, not by this pattern."
+    },
+    "entity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "ref"],
+      "properties": {
+        "type": { "$ref": "#/$defs/identifier" },
+        "ref": { "$ref": "#/$defs/reference" }
+      }
+    }
+  }
+}

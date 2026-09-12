@@ -11,3 +11,17 @@ regexes = [
   '''^refund-58291-v1$''',
   '''^refund-58291-v2$''',
 ]
+
+# The BEAP profile archived under profiles/beap/v0.1 carries the specification's
+# worked examples. Their request identifier doubles as the intent-bound
+# idempotency key, and the generic-api-key detector reads the `idempotency_key`
+# field name as a credential keyword. These two values are fixtures recorded in
+# the source repository's provenance manifest, never credentials. Exact values
+# only: not a path exemption, and not a rule-wide one.
+[[allowlists]]
+description = "Synthetic request identifiers in the archived BEAP specification examples"
+regexTarget = "secret"
+regexes = [
+  '''^synthetic-req-0001$''',
+  '''^synthetic-req-0002$''',
+]

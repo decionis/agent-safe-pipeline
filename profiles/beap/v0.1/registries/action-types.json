@@ -1,0 +1,384 @@
+{
+  "profile": "decionis.beap/v0.1",
+  "registry": "action-types",
+  "description": "Action types registered per ExecutionDomain, with the effect type each produces and the fields of its expected-effect projection (specification section 22.7). Institutions MAY register additional action types within a domain.",
+  "identifier_pattern": "^[A-Z][A-Z0-9_]{1,63}$",
+  "base_projection": ["effect_type", "domain", "action", "target"],
+  "entries": [
+    {
+      "domain": "CUSTOMER_ORIGINATION",
+      "type": "CREATE_CUSTOMER",
+      "description": "Create a customer record in the system of record.",
+      "effect_type": "CUSTOMER_CREATED",
+      "projection": ["subject"]
+    },
+    {
+      "domain": "CUSTOMER_ORIGINATION",
+      "type": "VERIFY_CUSTOMER",
+      "description": "Record that the customer's identity has been verified.",
+      "effect_type": "CUSTOMER_VERIFIED",
+      "projection": []
+    },
+    {
+      "domain": "CUSTOMER_ORIGINATION",
+      "type": "APPROVE_CUSTOMER",
+      "description": "Approve the customer relationship for activation.",
+      "effect_type": "CUSTOMER_APPROVED",
+      "projection": []
+    },
+    {
+      "domain": "CUSTOMER_ORIGINATION",
+      "type": "REJECT_CUSTOMER",
+      "description": "Reject the customer relationship.",
+      "effect_type": "CUSTOMER_REJECTED",
+      "projection": []
+    },
+    {
+      "domain": "CUSTOMER_ORIGINATION",
+      "type": "CHANGE_RISK_CLASSIFICATION",
+      "description": "Change the customer's risk classification.",
+      "effect_type": "CUSTOMER_RISK_CLASSIFICATION_CHANGED",
+      "projection": ["parameters.risk_classification"]
+    },
+    {
+      "domain": "CUSTOMER_ORIGINATION",
+      "type": "ACTIVATE_CUSTOMER",
+      "description": "Activate an approved customer relationship.",
+      "effect_type": "CUSTOMER_ACTIVATED",
+      "projection": []
+    },
+    {
+      "domain": "ACCOUNT_ORIGINATION",
+      "type": "CREATE_ACCOUNT",
+      "description": "Open an account for a customer under a product.",
+      "effect_type": "ACCOUNT_CREATED",
+      "projection": ["subject", "currency", "parameters.product", "parameters.account_type"]
+    },
+    {
+      "domain": "ACCOUNT_ORIGINATION",
+      "type": "APPROVE_ACCOUNT",
+      "description": "Approve a pending account for activation.",
+      "effect_type": "ACCOUNT_APPROVED",
+      "projection": []
+    },
+    {
+      "domain": "ACCOUNT_ORIGINATION",
+      "type": "ACTIVATE_ACCOUNT",
+      "description": "Activate an approved account for transactions.",
+      "effect_type": "ACCOUNT_ACTIVATED",
+      "projection": []
+    },
+    {
+      "domain": "ACCOUNT_ORIGINATION",
+      "type": "CHANGE_ACCOUNT_TYPE",
+      "description": "Change the product or type of an existing account.",
+      "effect_type": "ACCOUNT_TYPE_CHANGED",
+      "projection": ["parameters.account_type"]
+    },
+    {
+      "domain": "ACCOUNT_ORIGINATION",
+      "type": "CLOSE_ACCOUNT",
+      "description": "Close an account.",
+      "effect_type": "ACCOUNT_CLOSED",
+      "projection": []
+    },
+    {
+      "domain": "LOAN_ORIGINATION",
+      "type": "APPROVE_LOAN",
+      "description": "Approve a credit decision for a loan application.",
+      "effect_type": "LOAN_APPROVED",
+      "projection": [
+        "subject",
+        "amount",
+        "currency",
+        "parameters.rate_basis_points",
+        "parameters.term_months"
+      ]
+    },
+    {
+      "domain": "LOAN_ORIGINATION",
+      "type": "REJECT_LOAN",
+      "description": "Reject a loan application.",
+      "effect_type": "LOAN_REJECTED",
+      "projection": ["subject"]
+    },
+    {
+      "domain": "LOAN_ORIGINATION",
+      "type": "CREATE_LOAN",
+      "description": "Create the loan facility in the lending system.",
+      "effect_type": "LOAN_CREATED",
+      "projection": ["subject", "amount", "currency", "parameters.product"]
+    },
+    {
+      "domain": "LOAN_ORIGINATION",
+      "type": "MODIFY_LOAN_TERMS",
+      "description": "Change the amount, rate, or term of a loan before disbursement.",
+      "effect_type": "LOAN_TERMS_MODIFIED",
+      "projection": ["amount", "currency", "parameters.rate_basis_points", "parameters.term_months"]
+    },
+    {
+      "domain": "LOAN_DISBURSEMENT",
+      "type": "DISBURSE_LOAN",
+      "description": "Release loan funds to a destination account.",
+      "effect_type": "LOAN_DISBURSEMENT",
+      "projection": ["subject", "amount", "currency", "destination_ref"]
+    },
+    {
+      "domain": "LOAN_DISBURSEMENT",
+      "type": "CANCEL_DISBURSEMENT",
+      "description": "Cancel a scheduled or pending disbursement.",
+      "effect_type": "LOAN_DISBURSEMENT_CANCELLED",
+      "projection": []
+    },
+    {
+      "domain": "LENDING",
+      "type": "MODIFY_LOAN",
+      "description": "Modify an existing loan facility.",
+      "effect_type": "LOAN_MODIFIED",
+      "projection": ["amount", "currency"]
+    },
+    {
+      "domain": "LENDING",
+      "type": "APPLY_PAYMENT_HOLIDAY",
+      "description": "Apply a payment holiday to a loan.",
+      "effect_type": "PAYMENT_HOLIDAY_APPLIED",
+      "projection": ["parameters.holiday_months"]
+    },
+    {
+      "domain": "LENDING",
+      "type": "RESCHEDULE_LOAN",
+      "description": "Reschedule the repayment plan of a loan.",
+      "effect_type": "LOAN_RESCHEDULED",
+      "projection": ["parameters.term_months"]
+    },
+    {
+      "domain": "LENDING",
+      "type": "CHARGE_OFF_LOAN",
+      "description": "Charge off a loan balance.",
+      "effect_type": "LOAN_CHARGED_OFF",
+      "projection": ["amount", "currency"]
+    },
+    {
+      "domain": "LENDING",
+      "type": "PAYOFF_LOAN",
+      "description": "Settle a loan in full from a source account.",
+      "effect_type": "LOAN_PAID_OFF",
+      "projection": ["amount", "currency", "source_ref"]
+    },
+    {
+      "domain": "CREDIT_LIMITS",
+      "type": "SET_CREDIT_LIMIT",
+      "description": "Set a credit limit on a facility or account.",
+      "effect_type": "CREDIT_LIMIT_SET",
+      "projection": ["amount", "currency"]
+    },
+    {
+      "domain": "CREDIT_LIMITS",
+      "type": "INCREASE_CREDIT_LIMIT",
+      "description": "Increase an existing credit limit.",
+      "effect_type": "CREDIT_LIMIT_INCREASED",
+      "projection": ["amount", "currency"]
+    },
+    {
+      "domain": "CREDIT_LIMITS",
+      "type": "DECREASE_CREDIT_LIMIT",
+      "description": "Decrease an existing credit limit.",
+      "effect_type": "CREDIT_LIMIT_DECREASED",
+      "projection": ["amount", "currency"]
+    },
+    {
+      "domain": "CORPORATE_PAYMENTS",
+      "type": "RELEASE_PAYMENT_BATCH",
+      "description": "Submit an approved payment batch for processing.",
+      "effect_type": "PAYMENT_BATCH_RELEASED",
+      "projection": [
+        "amount",
+        "currency",
+        "source_ref",
+        "batch.manifest_digest",
+        "batch.item_count"
+      ]
+    },
+    {
+      "domain": "CORPORATE_PAYMENTS",
+      "type": "CANCEL_PAYMENT_BATCH",
+      "description": "Cancel a payment batch before processing.",
+      "effect_type": "PAYMENT_BATCH_CANCELLED",
+      "projection": ["batch.manifest_digest"]
+    },
+    {
+      "domain": "CORPORATE_PAYMENTS",
+      "type": "SEND_PAYMENT",
+      "description": "Send a single corporate payment to a beneficiary.",
+      "effect_type": "PAYMENT_SENT",
+      "projection": [
+        "amount",
+        "currency",
+        "source_ref",
+        "destination_ref",
+        "parameters.value_date",
+        "parameters.rail"
+      ]
+    },
+    {
+      "domain": "PAYMENT_PROCESSING",
+      "type": "SUBMIT_PAYMENT",
+      "description": "Submit a payment instruction to the processing system.",
+      "effect_type": "PAYMENT_SUBMITTED",
+      "projection": [
+        "amount",
+        "currency",
+        "source_ref",
+        "destination_ref",
+        "parameters.value_date",
+        "parameters.rail"
+      ]
+    },
+    {
+      "domain": "PAYMENT_PROCESSING",
+      "type": "RELEASE_PAYMENT",
+      "description": "Release a held payment instruction for processing.",
+      "effect_type": "PAYMENT_RELEASED",
+      "projection": ["amount", "currency", "destination_ref"]
+    },
+    {
+      "domain": "PAYMENT_PROCESSING",
+      "type": "RETURN_PAYMENT",
+      "description": "Return a received payment to its originator.",
+      "effect_type": "PAYMENT_RETURNED",
+      "projection": ["amount", "currency"]
+    },
+    {
+      "domain": "PAYMENT_PROCESSING",
+      "type": "CANCEL_PAYMENT",
+      "description": "Cancel a payment instruction before execution.",
+      "effect_type": "PAYMENT_CANCELLED",
+      "projection": []
+    },
+    {
+      "domain": "TREASURY",
+      "type": "INTERNAL_TRANSFER",
+      "description": "Transfer funds between institution-controlled accounts.",
+      "effect_type": "INTERNAL_TRANSFER_EXECUTED",
+      "projection": ["amount", "currency", "source_ref", "destination_ref"]
+    },
+    {
+      "domain": "TREASURY",
+      "type": "LIQUIDITY_TRANSFER",
+      "description": "Move liquidity between institution accounts or facilities.",
+      "effect_type": "LIQUIDITY_TRANSFER_EXECUTED",
+      "projection": ["amount", "currency", "source_ref", "destination_ref"]
+    },
+    {
+      "domain": "TREASURY",
+      "type": "FX_SETTLEMENT",
+      "description": "Settle a foreign-exchange obligation.",
+      "effect_type": "FX_SETTLED",
+      "projection": [
+        "amount",
+        "currency",
+        "destination_ref",
+        "parameters.counter_currency",
+        "parameters.rate"
+      ]
+    },
+    {
+      "domain": "CUSTOMER_ADMINISTRATION",
+      "type": "UPDATE_CUSTOMER_DETAILS",
+      "description": "Update details of an existing customer record.",
+      "effect_type": "CUSTOMER_DETAILS_UPDATED",
+      "projection": ["parameters.change_digest"]
+    },
+    {
+      "domain": "CUSTOMER_ADMINISTRATION",
+      "type": "CHANGE_CUSTOMER_STATUS",
+      "description": "Change the status of an existing customer.",
+      "effect_type": "CUSTOMER_STATUS_CHANGED",
+      "projection": ["parameters.status"]
+    },
+    {
+      "domain": "CUSTOMER_ADMINISTRATION",
+      "type": "MERGE_CUSTOMER",
+      "description": "Merge one customer record into another.",
+      "effect_type": "CUSTOMER_MERGED",
+      "projection": ["source_ref"]
+    },
+    {
+      "domain": "ACCOUNT_ADMINISTRATION",
+      "type": "ADD_BENEFICIARY",
+      "description": "Add a beneficiary to an account's payment instructions.",
+      "effect_type": "BENEFICIARY_ADDED",
+      "projection": ["destination_ref", "parameters.beneficiary_account_digest"]
+    },
+    {
+      "domain": "ACCOUNT_ADMINISTRATION",
+      "type": "REMOVE_BENEFICIARY",
+      "description": "Remove a beneficiary from an account.",
+      "effect_type": "BENEFICIARY_REMOVED",
+      "projection": ["destination_ref"]
+    },
+    {
+      "domain": "ACCOUNT_ADMINISTRATION",
+      "type": "CHANGE_MANDATE",
+      "description": "Change an account's operating mandate.",
+      "effect_type": "MANDATE_CHANGED",
+      "projection": ["parameters.mandate_digest"]
+    },
+    {
+      "domain": "ACCOUNT_ADMINISTRATION",
+      "type": "FREEZE_ACCOUNT",
+      "description": "Freeze an account against transactions.",
+      "effect_type": "ACCOUNT_FROZEN",
+      "projection": []
+    },
+    {
+      "domain": "ACCOUNT_ADMINISTRATION",
+      "type": "UNFREEZE_ACCOUNT",
+      "description": "Lift a freeze on an account.",
+      "effect_type": "ACCOUNT_UNFROZEN",
+      "projection": []
+    },
+    {
+      "domain": "ACCOUNT_ADMINISTRATION",
+      "type": "CHANGE_ACCOUNT_LIMIT",
+      "description": "Change a transaction or withdrawal limit on an account.",
+      "effect_type": "ACCOUNT_LIMIT_CHANGED",
+      "projection": ["amount", "currency", "parameters.limit_type"]
+    },
+    {
+      "domain": "CORE_ADMINISTRATION",
+      "type": "CHANGE_PRODUCT_PARAMETER",
+      "description": "Change a parameter of a banking product.",
+      "effect_type": "PRODUCT_PARAMETER_CHANGED",
+      "projection": ["parameters.parameter", "parameters.value_digest"]
+    },
+    {
+      "domain": "CORE_ADMINISTRATION",
+      "type": "CHANGE_FEE_SCHEDULE",
+      "description": "Change a fee schedule.",
+      "effect_type": "FEE_SCHEDULE_CHANGED",
+      "projection": ["parameters.schedule_digest"]
+    },
+    {
+      "domain": "CORE_ADMINISTRATION",
+      "type": "CHANGE_INTEREST_RATE",
+      "description": "Change an interest rate applied by a product.",
+      "effect_type": "INTEREST_RATE_CHANGED",
+      "projection": ["parameters.rate_basis_points"]
+    },
+    {
+      "domain": "CORE_ADMINISTRATION",
+      "type": "GRANT_PRIVILEGE",
+      "description": "Grant a system privilege to a subject.",
+      "effect_type": "PRIVILEGE_GRANTED",
+      "projection": ["subject", "parameters.privilege"]
+    },
+    {
+      "domain": "CORE_ADMINISTRATION",
+      "type": "REVOKE_PRIVILEGE",
+      "description": "Revoke a system privilege from a subject.",
+      "effect_type": "PRIVILEGE_REVOKED",
+      "projection": ["subject", "parameters.privilege"]
+    }
+  ]
+}

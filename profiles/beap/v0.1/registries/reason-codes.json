@@ -1,0 +1,344 @@
+{
+  "profile": "decionis.beap/v0.1",
+  "registry": "reason-codes",
+  "description": "Stable, non-sensitive reason codes a BEAP implementation emits. `category` groups them; `verdict` is the verdict the code accompanies when it decides an evaluation, `null` when it annotates a later lifecycle stage.",
+  "identifier_pattern": "^[A-Z][A-Z0-9_]{1,119}$",
+  "entries": [
+    {
+      "id": "POLICY_SATISFIED",
+      "category": "evaluation",
+      "verdict": "ALLOW",
+      "description": "Every authority requirement of the effective policy is satisfied."
+    },
+    {
+      "id": "CREDIT_OFFICER_APPROVAL_REQUIRED",
+      "category": "evaluation",
+      "verdict": "ESCALATE",
+      "description": "A credit officer must approve the exact intent."
+    },
+    {
+      "id": "DUAL_AUTHORITY_REQUIRED",
+      "category": "evaluation",
+      "verdict": "ESCALATE",
+      "description": "Two independent authorities must approve the exact intent."
+    },
+    {
+      "id": "TREASURY_APPROVAL_REQUIRED",
+      "category": "evaluation",
+      "verdict": "ESCALATE",
+      "description": "A treasury authority must approve the exact intent."
+    },
+    {
+      "id": "AUTHORIZED_SIGNATORY_REQUIRED",
+      "category": "evaluation",
+      "verdict": "ESCALATE",
+      "description": "A mandated signatory must approve the exact intent."
+    },
+    {
+      "id": "MAKER_CHECKER_REQUIRED",
+      "category": "evaluation",
+      "verdict": "ESCALATE",
+      "description": "A checker distinct from the maker must approve the exact intent."
+    },
+    {
+      "id": "PRESENCE_REQUIRED",
+      "category": "evaluation",
+      "verdict": "ESCALATE",
+      "description": "A verified human ceremony bound to the intent digest is required."
+    },
+    {
+      "id": "ADDITIONAL_AUTHORITY_REQUIRED",
+      "category": "evaluation",
+      "verdict": "ESCALATE",
+      "description": "The matched rule escalates without naming a specific authority; policy-defined authority evidence is required."
+    },
+    {
+      "id": "NO_MATCHING_RULE",
+      "category": "evaluation",
+      "verdict": "ESCALATE",
+      "description": "No enabled rule of the effective policy matched the action; the evaluation fails safe."
+    },
+    {
+      "id": "MISSING_REQUIRED_SIGNALS",
+      "category": "evaluation",
+      "verdict": "ESCALATE",
+      "description": "A fact path the policy requires is absent; the evaluation fails safe."
+    },
+    {
+      "id": "EVIDENCE_STALE",
+      "category": "evaluation",
+      "verdict": "ESCALATE",
+      "description": "A material signal or approval is older than the policy freshness window."
+    },
+    {
+      "id": "POLICY_UNAVAILABLE",
+      "category": "evaluation",
+      "verdict": "BLOCK",
+      "description": "No effective policy could be resolved for the domain; the evaluation fails closed."
+    },
+    {
+      "id": "AUTHORITY_UNAVAILABLE",
+      "category": "evaluation",
+      "verdict": "BLOCK",
+      "description": "The execution authority could not be reached or returned an unusable response; fail closed."
+    },
+    {
+      "id": "POLICY_DENIED",
+      "category": "evaluation",
+      "verdict": "BLOCK",
+      "description": "The effective policy explicitly disallows the proposed action."
+    },
+    {
+      "id": "KYC_NOT_VERIFIED",
+      "category": "evaluation",
+      "verdict": "BLOCK",
+      "description": "The subject's identity verification status does not permit the action."
+    },
+    {
+      "id": "SANCTIONS_HIT",
+      "category": "evaluation",
+      "verdict": "BLOCK",
+      "description": "A screening signal disallows the action."
+    },
+    {
+      "id": "ACTION_NOT_REGISTERED",
+      "category": "evaluation",
+      "verdict": "BLOCK",
+      "description": "The action type is not registered for the execution domain."
+    },
+    {
+      "id": "ACTION_INVALID",
+      "category": "evaluation",
+      "verdict": "BLOCK",
+      "description": "The proposed action does not conform to the canonical BankingAction schema."
+    },
+    {
+      "id": "COMPLIANCE_APPROVAL_REQUIRED",
+      "category": "evaluation",
+      "verdict": "ESCALATE",
+      "description": "A named compliance officer must approve the exact customer or account before it is created or activated."
+    },
+    {
+      "id": "HISTORY_VALIDATION_REQUIRED",
+      "category": "evaluation",
+      "verdict": "ESCALATE",
+      "description": "The party's prior relationship and adverse findings could not be validated; a named reviewer must decide."
+    },
+    {
+      "id": "APPROVAL_INTENT_MISMATCH",
+      "category": "authority-set",
+      "verdict": null,
+      "description": "An approval binds a different intent digest than the action being authorized."
+    },
+    {
+      "id": "APPROVAL_DUPLICATE_APPROVER",
+      "category": "authority-set",
+      "verdict": null,
+      "description": "The same approver was counted twice for one requirement."
+    },
+    {
+      "id": "SEPARATION_OF_DUTIES_VIOLATED",
+      "category": "authority-set",
+      "verdict": null,
+      "description": "One approver satisfied two requirements that must be held by distinct persons."
+    },
+    {
+      "id": "APPROVAL_EXPIRED",
+      "category": "authority-set",
+      "verdict": null,
+      "description": "An approval or the authority set expired before the binding was created."
+    },
+    {
+      "id": "APPROVAL_ROLE_NOT_REQUIRED",
+      "category": "authority-set",
+      "verdict": null,
+      "description": "An approval was offered for a role the authority set does not require."
+    },
+    {
+      "id": "APPROVAL_EVIDENCE_INVALID",
+      "category": "authority-set",
+      "verdict": null,
+      "description": "The approval's evidence could not be verified."
+    },
+    {
+      "id": "AUTHORITY_SET_INVALIDATED",
+      "category": "authority-set",
+      "verdict": null,
+      "description": "The proposed action changed; collected approvals no longer bind it."
+    },
+    {
+      "id": "AUTHORITY_SET_INTENT_MISMATCH",
+      "category": "authority-set",
+      "verdict": null,
+      "description": "Intent capture refused an action whose Intent Digest is not the digest the presented AuthoritySet bound."
+    },
+    {
+      "id": "AUTHORITY_SET_NOT_SATISFIED",
+      "category": "authority-set",
+      "verdict": null,
+      "description": "Intent capture refused an action whose presented AuthoritySet has not collected every required approval."
+    },
+    {
+      "id": "AUTHORITY_SET_CLOSED",
+      "category": "authority-set",
+      "verdict": null,
+      "description": "An approval was offered to a set that is no longer collecting (satisfied, bound, consumed, rejected, expired, or invalidated)."
+    },
+    {
+      "id": "INTENT_DIGEST_MISMATCH",
+      "category": "execution",
+      "verdict": null,
+      "description": "The intent digest recomputed at the execution boundary differs from the bound digest."
+    },
+    {
+      "id": "GRANT_EXPIRED",
+      "category": "execution",
+      "verdict": null,
+      "description": "The execution grant's validity window has passed."
+    },
+    {
+      "id": "GRANT_ALREADY_CONSUMED",
+      "category": "execution",
+      "verdict": null,
+      "description": "The single-use grant was already claimed or finalized."
+    },
+    {
+      "id": "AUTHORIZATION_INVALID",
+      "category": "execution",
+      "verdict": null,
+      "description": "The execution authority presented with the attempt is not valid for it: it was already consumed, has expired, or does not bind this intent."
+    },
+    {
+      "id": "CLAIM_REJECTED",
+      "category": "execution",
+      "verdict": null,
+      "description": "The authority refused the claim; the downstream commit was not attempted."
+    },
+    {
+      "id": "CLAIM_LEASE_EXPIRED",
+      "category": "execution",
+      "verdict": null,
+      "description": "The claim lease expired before the outcome was known; the attempt is finalized as INDETERMINATE."
+    },
+    {
+      "id": "POLICY_STATE_CHANGED",
+      "category": "execution",
+      "verdict": null,
+      "description": "The effective policy, a material signal, or the approval state changed between authorization and the claim; the grant is refused."
+    },
+    {
+      "id": "AMOUNT_SCALE_INVALID",
+      "category": "execution",
+      "verdict": null,
+      "description": "A monetary amount does not use the currency's minor-unit scale."
+    },
+    {
+      "id": "EFFECT_MISMATCH",
+      "category": "effect",
+      "verdict": null,
+      "description": "Authoritative downstream evidence differs materially from the authorized effect."
+    },
+    {
+      "id": "INDETERMINATE_OUTCOME",
+      "category": "effect",
+      "verdict": null,
+      "description": "The executor cannot prove whether the protected effect occurred."
+    },
+    {
+      "id": "RECONCILIATION_REQUIRED",
+      "category": "effect",
+      "verdict": null,
+      "description": "An outcome must be resolved through authoritative downstream identifiers before any further action."
+    },
+    {
+      "id": "EVIDENCE_INCOMPLETE",
+      "category": "effect",
+      "verdict": null,
+      "description": "Effect evidence could not be durably recorded for an execution that may have occurred."
+    },
+    {
+      "id": "BATCH_ITEM_DUPLICATE",
+      "category": "batch",
+      "verdict": null,
+      "description": "Two batch items share an item reference."
+    },
+    {
+      "id": "BATCH_MANIFEST_MISMATCH",
+      "category": "batch",
+      "verdict": null,
+      "description": "The manifest digest recomputed from the items differs from the bound manifest digest."
+    },
+    {
+      "id": "BATCH_SOURCE_FILE_MISMATCH",
+      "category": "batch",
+      "verdict": null,
+      "description": "The source file digest differs from the digest recorded in the manifest."
+    },
+    {
+      "id": "BATCH_ITEMS_UNSORTED",
+      "category": "batch",
+      "verdict": null,
+      "description": "Manifest items are not in ascending byte order of item reference."
+    },
+    {
+      "id": "BATCH_TOTALS_UNSORTED",
+      "category": "batch",
+      "verdict": null,
+      "description": "Per-currency totals are not in ascending byte order of currency code."
+    },
+    {
+      "id": "BATCH_TOTALS_MISMATCH",
+      "category": "batch",
+      "verdict": null,
+      "description": "The declared totals do not reproduce from the manifest items."
+    },
+    {
+      "id": "BATCH_ITEM_DIGEST_MISMATCH",
+      "category": "batch",
+      "verdict": null,
+      "description": "An item digest does not reproduce from the item's canonical content."
+    },
+    {
+      "id": "BATCH_ITEM_COUNT_MISMATCH",
+      "category": "batch",
+      "verdict": null,
+      "description": "The item count carried by the batch action differs from the manifest's item count."
+    },
+    {
+      "id": "BATCH_REFERENCE_REQUIRED",
+      "category": "batch",
+      "verdict": null,
+      "description": "A batch-releasing action carries no batch reference."
+    },
+    {
+      "id": "BATCH_AGGREGATE_REQUIRED",
+      "category": "batch",
+      "verdict": null,
+      "description": "A batch-releasing action carries no aggregate amount and currency in its financial context."
+    },
+    {
+      "id": "BATCH_ITEM_NOT_IN_MANIFEST",
+      "category": "batch",
+      "verdict": null,
+      "description": "An item outcome was reported for an item digest the authorized manifest does not contain."
+    },
+    {
+      "id": "BATCH_OUTCOME_REPORT_INVALID",
+      "category": "batch",
+      "verdict": null,
+      "description": "A reconciliation report for a batch is not a usable observation: it carries no outcomes, an outcome that does not satisfy the item-outcome structure, or a provider-supplied field the evidence record cannot carry."
+    },
+    {
+      "id": "BATCH_ITEM_OUTCOME_CONFLICT",
+      "category": "batch",
+      "verdict": null,
+      "description": "An item outcome contradicts an outcome already recorded as final for that item."
+    },
+    {
+      "id": "BATCH_MANIFEST_INVALID",
+      "category": "batch",
+      "verdict": null,
+      "description": "The manifest does not satisfy the Batch Manifest structure, so no binding can be derived from it."
+    }
+  ]
+}

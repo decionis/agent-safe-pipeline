@@ -1,0 +1,41 @@
+{
+  "profile": "decionis.beap/v0.1",
+  "type": "DOSSIER_PROJECTION",
+  "canonical_dossier_digest": "sha256:4a79c0e85a30a6c6226dcc69eceb670487f2df20d47795fdacb651d79fab1108",
+  "projection_profile": "AUDIT_MINIMAL",
+  "included_claims": [
+    "verdict",
+    "policy.identifier",
+    "policy.version",
+    "intent_digest",
+    "execution.status",
+    "effect.confirmation"
+  ],
+  "omitted_claim_classes": [
+    "CUSTOMER_IDENTITY",
+    "ACCOUNT_NUMBERS",
+    "RAW_PROVIDER_RESPONSE",
+    "PRESENCE_BIOMETRIC"
+  ],
+  "projection_issuer": "synthetic-evidence-service",
+  "projection_timestamp": "2026-09-12T08:00:00.000Z",
+  "projection_signature": {
+    "algorithm": "Ed25519",
+    "key_id": "fixture-projection-key-01",
+    "value": "c3ludGhldGljLXNpZ25hdHVyZS12YWx1ZS1ub3QtYS1yZWFsLXNpZ25hdHVyZQ"
+  },
+  "claims": {
+    "verdict": "ALLOW",
+    "policy": {
+      "identifier": "synthetic-loan-origination",
+      "version": "loan-origination-v0.1.0"
+    },
+    "intent_digest": "sha256:c451a41fe2e105babbf856b63c5c94a32977dded03ee90ac7c2fada731d00761",
+    "execution": {
+      "status": "COMMITTED"
+    },
+    "effect": {
+      "confirmation": "CONFIRMED"
+    }
+  }
+}

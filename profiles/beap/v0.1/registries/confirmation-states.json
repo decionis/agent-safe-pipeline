@@ -1,0 +1,37 @@
+{
+  "profile": "decionis.beap/v0.1",
+  "registry": "confirmation-states",
+  "description": "Business-effect confirmation states (specification section 22.5) and how each projects onto the Decionis protocol's two-valued effect confirmation.",
+  "entries": [
+    {
+      "id": "PENDING",
+      "protocol_confirmation": "UNCONFIRMED",
+      "terminal": false,
+      "description": "The execution was committed but final business-effect evidence is not yet available."
+    },
+    {
+      "id": "CONFIRMED",
+      "protocol_confirmation": "CONFIRMED",
+      "terminal": true,
+      "description": "Authoritative downstream evidence demonstrates that the expected protected effect occurred."
+    },
+    {
+      "id": "NOT_EFFECTED",
+      "protocol_confirmation": "UNCONFIRMED",
+      "terminal": true,
+      "description": "Authoritative evidence demonstrates that the attempted action did not produce the expected protected effect."
+    },
+    {
+      "id": "REVERSED",
+      "protocol_confirmation": "UNCONFIRMED",
+      "terminal": true,
+      "description": "The protected effect occurred and was later reversed by a separate state transition."
+    },
+    {
+      "id": "UNKNOWN",
+      "protocol_confirmation": "UNCONFIRMED",
+      "terminal": false,
+      "description": "The confirmation process cannot establish the final state with sufficient confidence."
+    }
+  ]
+}

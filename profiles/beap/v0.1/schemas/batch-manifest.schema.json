@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://banking.decionis.com/spec/v0.1/schemas/batch-manifest.schema.json",
+  "title": "BEAP BatchManifest",
+  "description": "The canonical manifest of a transaction batch (specification section 17). Items are sorted by item_ref; the RFC 8785 canonical form hashed with SHA-256 is the Batch Intent Digest. Beneficiary account numbers appear only as digests.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "profile",
+    "manifest_version",
+    "batch_id",
+    "originator",
+    "execution",
+    "source_file",
+    "totals",
+    "items"
+  ],
+  "properties": {
+    "profile": { "const": "decionis.beap/v0.1" },
+    "manifest_version": { "const": "1" },
+    "batch_id": { "$ref": "#/$defs/reference" },
+    "originator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["organization_ref", "account_ref"],
+      "properties": {
+        "organization_ref": { "$ref": "#/$defs/reference" },
+        "account_ref": { "$ref": "#/$defs/reference" }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requested_execution_date"],
+      "properties": {
+        "requested_execution_date": { "type": "string", "format": "date" },
+        "rail": { "$ref": "#/$defs/identifier" },
+        "payment_type": { "$ref": "#/$defs/identifier" }
+      }
+    },
+    "source_file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["digest", "byte_length", "media_type", "format"],
+      "properties": {
+        "digest": { "$ref": "#/$defs/sha256" },
+        "byte_length": { "type": "integer", "minimum": 1 },
+        "media_type": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "format": { "$ref": "#/$defs/identifier" }
+      }
+    },
+    "totals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["item_count", "currency_totals"],
+      "properties": {
+        "item_count": { "type": "integer", "minimum": 1 },
+        "currency_totals": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/currencyTotal" }
+        }
+      }
+    },
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100000,
+      "items": { "$ref": "#/$defs/item" }
+    }
+  },
+  "$defs": {
+    "identifier": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{1,63}$" },
+    "reference": { "type": "string", "minLength": 1, "maxLength": 500 },
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+    "decimalAmount": { "type": "string", "pattern": "^(0|[1-9][0-9]{0,27})(\\.[0-9]{1,18})?$" },
+    "currencyTotal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["currency", "total", "count"],
+      "properties": {
+        "currency": { "$ref": "#/$defs/currency" },
+        "total": { "$ref": "#/$defs/decimalAmount" },
+        "count": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["item_ref", "amount", "currency", "beneficiary", "item_digest"],
+      "properties": {
+        "item_ref": { "$ref": "#/$defs/reference" },
+        "amount": { "$ref": "#/$defs/decimalAmount" },
+        "currency": { "$ref": "#/$defs/currency" },
+        "beneficiary": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["ref", "account_digest"],
+          "properties": {
+            "ref": { "$ref": "#/$defs/reference" },
+            "account_digest": { "$ref": "#/$defs/sha256" }
+          }
+        },
+        "remittance_digest": { "$ref": "#/$defs/sha256" },
+        "requested_execution_date": { "type": "string", "format": "date" },
+        "item_digest": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  }
+}

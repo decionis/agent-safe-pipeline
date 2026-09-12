@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://banking.decionis.com/spec/v0.1/schemas/batch-item-outcome.schema.json",
+  "title": "BEAP BatchItemOutcome",
+  "description": "One item's outcome within an authorized batch (specification section 22.11). Outcomes are attributable to the canonical item digest of the item in the authorized Batch Manifest, never to a downstream reference, so an outcome cannot introduce an item the approvers never bound. The item outcomes digest a BatchEffectEvidence record carries is the SHA-256 digest of the RFC 8785 canonical form of the array of these objects, ordered by item_digest in ascending byte order. An outcome whose provider reference is not known omits provider_reference rather than carrying it as null, so that one set of outcomes has exactly one canonical form.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["item_digest", "status", "observed_at"],
+  "properties": {
+    "item_digest": {
+      "$ref": "#/$defs/sha256"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["CONFIRMED", "ACCEPTED", "REJECTED", "PENDING", "INDETERMINATE"]
+    },
+    "provider_reference": {
+      "type": "string",
+      "maxLength": 500
+    },
+    "observed_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}
