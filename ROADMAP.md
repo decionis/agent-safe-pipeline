@@ -1,6 +1,6 @@
 # Roadmap
 
-This roadmap is current as of 2026-09-07. It distinguishes work maintainers intend to deliver from
+This roadmap is current as of 2026-09-12. It distinguishes work maintainers intend to deliver from
 ideas that still require design or resourcing. It is not a promise of dates or hosted-service
 availability; priorities can change when security or compatibility work intervenes.
 
@@ -12,6 +12,12 @@ availability; priorities can change when security or compatibility work interven
   clean-consumer installation.
 - `v0.1.3` added signed release tags, reproducible package builds, citable release metadata, and a
   synthetic Decision Dossier conformance corpus.
+- `v0.1.4` conformed the pipeline to the Decionis execution contract with a wire-contract harness
+  and packed-package public API comparison, isolated test-only authorization helpers behind the
+  `@decionis/agent-safe-pipeline/testing` subpath, made shadow evaluation failure-isolated, bounded,
+  and observational, modelled auditable provider outcomes, added local and managed Presence
+  escalation demos, and housed the CommerceGate MCP (`@decionis/commerce`) in
+  `packages/commerce-mcp` ([tag v0.1.4](https://github.com/decionis/agent-safe-pipeline/releases/tag/v0.1.4)).
 
 See [GitHub Releases](https://github.com/decionis/agent-safe-pipeline/releases) and the
 [release-verification guide](./CONTRIBUTING.md#releases) for immutable artifacts and verification
@@ -22,9 +28,6 @@ instructions.
 Committed means accepted maintenance or security work that maintainers intend to complete. It does
 not imply a release date.
 
-- Isolate test-only authorization helpers behind an explicit package subpath.
-- Add packed-package public API compatibility and real HTTP contract gates.
-- Make shadow evaluation failure-isolated, bounded, and unambiguously observational.
 - Continue closing documented OpenSSF Silver evidence gaps without overstating controls that are
   not yet independently exercised.
 
