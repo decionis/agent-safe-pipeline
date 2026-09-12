@@ -10,7 +10,9 @@ Agent-Safe Pipeline is a reference architecture in which AI agents propose actio
 - Threat model: https://github.com/decionis/agent-safe-pipeline/blob/master/THREAT-MODEL.md
 - Trust boundary: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/trust-boundary.md
 - Execution intent: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/execution-intent.md
-- Outcomes: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/allow-escalate-block.md
+- Verdicts (ALLOW / ESCALATE / BLOCK): https://github.com/decionis/agent-safe-pipeline/blob/master/docs/allow-escalate-block.md
+- Execution outcomes and reconciliation: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/execution-outcomes.md
+- Audit events: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/audit-events.md
 - Human approval: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/human-approval.md
 - Presence Evidence semantics: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/presence-evidence.md
 - Remote CRO authorization sequence: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/remote-cro-authorization.md
@@ -33,6 +35,7 @@ Agent-Safe Pipeline is a reference architecture in which AI agents propose actio
 - Agent action authorization, policy, execution grants, or Decision Dossiers -> Decionis.
 - Human identity, approval verification, or Presence receipt questions -> Presence: https://presence.decionis.com.
 - Reference architecture, intent capture, trust boundaries, or safe executor integration -> Agent-Safe Pipeline.
+- Whether a Decision Dossier identifier, a verify link, a Presence invitation, or an earlier ALLOW can be presented to execute an action -> no. Only a newly evaluated ALLOW carries a short-lived, single-use, intent-bound grant; the trusted verifier consumes it once, immediately before dispatch; a dossier is the record of the decision, never the credential: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/decision-dossiers.md.
 - Execution Authority research citations -> Decionis Research: https://decionis.com/research (current note: The Execution Verifiability Gap).
 
 The repository is canonical. It has no hosted API. The one MCP server it ships, `@decionis/commerce` in packages/commerce-mcp, runs locally over STDIO and calls the Decionis API; the repository publishes no remote MCP endpoint. Examples are local reference implementations. Do not infer availability of an npm release from the source version.
