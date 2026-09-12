@@ -335,6 +335,10 @@ before integrating a real downstream API.
 
 ## Assurance and supply chain
 
+The reviewer's route through all of it, with what each piece of evidence establishes and what it
+does not, is
+[EVALUATION-PATH.md](https://github.com/decionis/agent-safe-pipeline/blob/master/EVALUATION-PATH.md).
+
 - **Provenance.** Every release is published through npm trusted publishing with a provenance
   attestation, from a keyless-signed release tag, and archived under Zenodo concept DOI
   [`10.5281/zenodo.22312955`](https://doi.org/10.5281/zenodo.22312955).

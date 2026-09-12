@@ -201,6 +201,12 @@ npx -y @decionis/verify@0.3.0 \
 See the [corpus README](./dossiers/README.md) for regeneration, provenance, expected failures, and
 the trust boundary between synthetic conformance and production verification.
 
+## Evaluating this repository
+
+[EVALUATION-PATH.md](./EVALUATION-PATH.md) is the reviewer's route: which artefact you are looking
+at, who owns which control, what each piece of evidence establishes and what it does not, and what
+to run in what order.
+
 ## Status
 
 The package is published as [`@decionis/agent-safe-pipeline`](https://www.npmjs.com/package/@decionis/agent-safe-pipeline). Install the latest stable release with `npm install @decionis/agent-safe-pipeline`; prereleases publish under the `next` dist-tag and require an explicit request such as `npm install @decionis/agent-safe-pipeline@next`.

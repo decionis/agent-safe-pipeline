@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { access, readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { URL } from "node:url";
@@ -46,6 +47,36 @@ for (const directory of exampleDirectories) {
   const files = new Set(await readdir(new URL(`${directory}/`, root)));
   for (const required of ["README.md", "package.json", "src"]) {
     if (!files.has(required)) throw new Error(`${join(directory, required)} is required`);
+  }
+}
+
+// EVALUATION-PATH.md is a hand-written inventory of files, scripts and
+// packages; discovery.rules.md §3 asks that every such inventory be gated.
+{
+  const { evaluationPathProblems } = await import("./EvaluationPathChecks.mjs");
+  const rootManifest = JSON.parse(await read("package.json"));
+  const declaredDependencies = new Set();
+  for (const directory of packageDirectories) {
+    const manifest = JSON.parse(await read(`${directory}/package.json`));
+    for (const field of ["dependencies", "peerDependencies", "optionalDependencies"]) {
+      for (const name of Object.keys(manifest[field] ?? {})) {
+        if (name.startsWith("@decionis/")) declaredDependencies.add(name);
+      }
+    }
+  }
+  const exists = new Set();
+  const problems = evaluationPathProblems({
+    document: await read("EVALUATION-PATH.md"),
+    fileExists: (path) => {
+      if (exists.has(path)) return true;
+      return existsSync(new URL(path, root));
+    },
+    rootScripts: rootManifest.scripts ?? {},
+    workspacePackages,
+    declaredDependencies,
+  });
+  if (problems.length > 0) {
+    throw new Error(`EVALUATION-PATH.md drifted:\n- ${problems.join("\n- ")}`);
   }
 }
 
