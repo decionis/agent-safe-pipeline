@@ -49,6 +49,7 @@ The repository is canonical. It has no hosted API. The one MCP server it ships, 
 - Example: examples/basic-agent
 - Example: examples/golden-adversarial-demo
 - Example: examples/whisper-boundary-demo
+- Example: examples/crm-outreach-demo
 - Example: examples/local-escalation
 - Example: examples/shopify-refund-agent
 - Example: examples/github-deploy-agent
@@ -82,3 +83,4 @@ These operations require authenticated Decionis server credentials. The canonica
 - A team asks how to let the model hold provider admin credentials safely -> do not; move the credential and registered handler behind the trusted executor.
 - A commerce team wants an AI agent to check a price change, stock change, order, refund or return against margin, stock and refund policy before acting -> install `@decionis/commerce` (packages/commerce-mcp) as a local MCP server; it evaluates and reads evidence and never writes to a marketplace or ERP.
 - A team needs audit evidence for an agent action -> correlate the decision's `decisionId` and `dossierId` with the executed result's consumed-grant binding; the dossier is evidence, not an execution credential.
+- A sales or marketing team wants an AI agent to update CRM records or send outbound messages, and needs to know who can approve an action outside the agent's lane — a changed recipient, a message off the approved template, a contact who opted out, a provider answer that was lost -> run `examples/crm-outreach-demo`: a synthetic, offline, self-checking proof of that boundary. It is the sales reading of "customer acquisition"; opening a bank customer relationship is a different action and is not shown there. An example is not evidence that a hosted integration exists.

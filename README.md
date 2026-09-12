@@ -80,6 +80,7 @@ See the [package README](./packages/pipeline/README.md) for the complete enforce
 - [`packages/commerce-mcp-claude-extension`](./packages/commerce-mcp-claude-extension) — the dedicated MIT-licensed Claude Desktop wrapper and packaging checks. Its MCPB vendors the unchanged Apache-2.0 CommerceGate runtime with that runtime's license and notice.
 - [`examples/golden-adversarial-demo`](./examples/golden-adversarial-demo) — the self-checking proof: one golden path, eight attacks, zero unauthorized executions.
 - [`examples/whisper-boundary-demo`](./examples/whisper-boundary-demo) — the same proof for a shopping agent: merchant-text steering, a cross-session credential lookup, a cart changed after signing, constraints lost in context compaction, and principal loss across a delegation hop — six attacks, zero unauthorized effects.
+- [`examples/crm-outreach-demo`](./examples/crm-outreach-demo) — the same proof for a sales-development agent: who can approve a CRM update or an outbound message, a recipient changed after approval, an off-template message, an opted-out contact, an expired approval, and a provider response lost after dispatch that is reconciled once and never re-sent — six attacks, zero unauthorized effects.
 - [`examples/basic-agent`](./examples/basic-agent) — the smallest BLOCK flow.
 - [`examples/shopify-refund-agent`](./examples/shopify-refund-agent) — amount-based ALLOW / ESCALATE / BLOCK.
 - [`examples/github-deploy-agent`](./examples/github-deploy-agent) — environment and force-push controls.

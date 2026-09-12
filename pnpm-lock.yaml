@@ -75,6 +75,15 @@ importers:
         specifier: ^4.5.4
         version: 4.5.4
 
+  examples/crm-outreach-demo:
+    dependencies:
+      '@decionis/agent-safe-pipeline':
+        specifier: workspace:*
+        version: link:../../packages/pipeline
+      zod:
+        specifier: ^4.5.4
+        version: 4.5.4
+
   examples/github-deploy-agent:
     dependencies:
       '@decionis/agent-safe-pipeline':

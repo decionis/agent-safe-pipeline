@@ -50,6 +50,26 @@ for (const directory of exampleDirectories) {
   }
 }
 
+// The two hand-written example inventories: the root README's map and the
+// npm README's list (which must link absolutely, because it renders off-repo).
+{
+  const rootReadme = await read("README.md");
+  const packageReadme = await read("packages/pipeline/README.md");
+  const drifted = [];
+  for (const directory of exampleDirectories) {
+    if (!rootReadme.includes(directory)) drifted.push(`README.md does not name ${directory}`);
+    const absolute = `https://github.com/decionis/agent-safe-pipeline/tree/master/${directory}`;
+    if (!packageReadme.includes(absolute)) {
+      drifted.push(`packages/pipeline/README.md does not link ${absolute}`);
+    }
+  }
+  if (drifted.length > 0) {
+    throw new Error(
+      `README example inventory drifted from the workspace:\n- ${drifted.join("\n- ")}`,
+    );
+  }
+}
+
 // EVALUATION-PATH.md is a hand-written inventory of files, scripts and
 // packages; discovery.rules.md §3 asks that every such inventory be gated.
 {

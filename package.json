@@ -58,7 +58,7 @@
     "test:contract": "pnpm --filter @decionis/agent-safe-contract-tests test",
     "typecheck": "pnpm --filter @decionis/agent-safe-pipeline build && pnpm -r typecheck",
     "verify": "pnpm format && pnpm lint && pnpm metadata:check && pnpm fixture:check && pnpm dossiers:check && pnpm license:check && pnpm security && pnpm dependabot:check && pnpm discovery && pnpm performance && pnpm typecheck && pnpm test:automation && pnpm test && pnpm build",
-    "examples:prove": "pnpm --filter @decionis/agent-safe-example-golden-adversarial demo && pnpm --filter @decionis/agent-safe-example-whisper-boundary demo"
+    "examples:prove": "pnpm --filter @decionis/agent-safe-example-golden-adversarial demo && pnpm --filter @decionis/agent-safe-example-whisper-boundary demo && pnpm --filter @decionis/agent-safe-example-crm-outreach demo"
   },
   "simple-git-hooks": {
     "pre-commit": "pnpm precommit"

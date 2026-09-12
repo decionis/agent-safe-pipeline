@@ -369,6 +369,8 @@ Runnable, offline, and fixture-backed unless noted. Each one uses this package u
 - [`presence-live-approval`](https://github.com/decionis/agent-safe-pipeline/tree/master/examples/presence-live-approval): DIRECT Presence enforcement against the real services with a FIDO2 or FIDO2-plus-liveness ceremony (needs credentials).
 - [`presence-managed-approval`](https://github.com/decionis/agent-safe-pipeline/tree/master/examples/presence-managed-approval): Decionis-managed Presence orchestration against the real services (needs credentials).
 - [`golden-adversarial-demo`](https://github.com/decionis/agent-safe-pipeline/tree/master/examples/golden-adversarial-demo): one golden path, eight attacks, zero unauthorized executions.
+- [`whisper-boundary-demo`](https://github.com/decionis/agent-safe-pipeline/tree/master/examples/whisper-boundary-demo): the same proof for a shopping agent — six attacks, zero unauthorized effects.
+- [`crm-outreach-demo`](https://github.com/decionis/agent-safe-pipeline/tree/master/examples/crm-outreach-demo): who can approve a sales agent's CRM update or outbound message — six attacks, a lost provider response reconciled once, zero unauthorized effects.
 
 ## Open core
 
