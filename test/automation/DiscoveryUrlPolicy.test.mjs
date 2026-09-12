@@ -28,6 +28,14 @@ describe("DiscoveryUrlPolicy", () => {
       assertAllowedDiscoveryUrl("https://presence.decionis.com/").hostname,
       "presence.decionis.com",
     );
+    assert.equal(
+      assertAllowedDiscoveryUrl("https://banking.decionis.com/underwriting").hostname,
+      "banking.decionis.com",
+    );
+    assert.equal(
+      assertAllowedDiscoveryUrl("https://commerce.decionis.com/").hostname,
+      "commerce.decionis.com",
+    );
   });
 
   it("rejects unsafe schemes, credentials, ports, and hosts", () => {

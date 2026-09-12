@@ -388,6 +388,11 @@ boundary and the commitments that keep it stable.
 Decionis Research defines the architecture, this package demonstrates it as tested code, and the
 Decionis platform operates it as a hosted authority.
 
+The banking profile of the protocol, whose reference runtime builds on this package, is published at
+[banking.decionis.com](https://banking.decionis.com) (BEAP v0.1, Draft / Design Partner Review, not a
+finished standard). The Commerce Gate this repository's MCP server fronts is at
+[commerce.decionis.com](https://commerce.decionis.com).
+
 - Jejelowo, Festus. "The Execution Verifiability Gap: Why Model Governance Cannot Authorize
   Consequential Actions." Decionis Research, version 1.0, 21 August 2026.
   [Canonical article](https://decionis.com/research/execution-verifiability-gap) ·
