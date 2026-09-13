@@ -26,6 +26,10 @@ Before any of it reaches production, run it in shadow mode against the actions y
 execute: [docs/shadow-mode.md](./docs/shadow-mode.md). Shadow mode issues no grant and cannot
 block a production action; it tells you what the authority would have decided.
 
+When the executor should run as its own service rather than inside the host, `examples/trusted-executor`
+is that process and [deploy/](./deploy/README.md) is its image, manifest and runbook. The journey is
+the same; the listener sits in front of step 2.
+
 ## Four families
 
 Each row names the example that runs the journey for that family, the live property that owns the

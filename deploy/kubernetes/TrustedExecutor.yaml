@@ -1,0 +1,173 @@
+# The trusted executor, deployed inside the adopter's own boundary.
+#
+# Nothing here carries a value that belongs to a deployment. IMAGE_PLACEHOLDER
+# is the executor image in your registry (examples/trusted-executor/Dockerfile);
+# every host is `.example`; every credential is a Secret you create and this
+# manifest only references. There is no `kind: Secret` here.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-safe-executor-config
+  namespace: agent-safe
+data:
+  # SHADOW first. Changing this to ENFORCEMENT is a decision a person makes
+  # after the runbook's stopping criteria are met (deploy/Runbook.md).
+  EXECUTOR_MODE: "SHADOW"
+  EXECUTOR_BIND_ADDRESS: "0.0.0.0"
+  PORT: "8080"
+  EXECUTOR_TENANT_ID: "00000000-0000-4000-8000-000000000001"
+  EXECUTOR_ACTOR_ID: "synthetic-payout-agent"
+  EXECUTOR_ACTOR_TYPE: "AI_AGENT"
+  EXECUTOR_ACTOR_RUNTIME: "workflow-runner"
+  # A proposal stays valid this long; a ceremony has to finish inside it.
+  EXECUTOR_INTENT_TTL_SECONDS: "300"
+  EXECUTOR_CALLER_TOKEN_FILE: "/var/run/agent-safe/secrets/caller-token"
+  # NONE returns the hold. MANAGED has the authority orchestrate Presence and
+  # needs PRESENCE_APPROVER_ID, PRESENCE_VERIFICATION_LEVEL and
+  # PRESENCE_VERIFICATION_METHODS (PRESENCE_APPROVER_ROLE optional). DIRECT
+  # has this process open the Presence request and additionally needs
+  # PRESENCE_API_URL, PRESENCE_API_KEY_FILE, PRESENCE_ORGANIZATION,
+  # PRESENCE_HARDWARE_PKI_REQUIRED and PRESENCE_DISALLOW_VIRTUAL_CAMERAS.
+  EXECUTOR_ESCALATION: "MANAGED"
+  PRESENCE_APPROVER_ID: "synthetic-treasury-approver"
+  PRESENCE_APPROVER_ROLE: "CRO"
+  PRESENCE_VERIFICATION_LEVEL: "HIGH_CONFIDENCE"
+  PRESENCE_VERIFICATION_METHODS: "WEBAUTHN,ACTIVE_LIVENESS"
+  DECIONIS_API_URL: "https://authority.decionis.example"
+  DECIONIS_API_KEY_FILE: "/var/run/agent-safe/secrets/decionis-api-key"
+  DOWNSTREAM_URL: "https://payouts.provider.example/v1/payouts"
+  DOWNSTREAM_LOOKUP_URL: "https://payouts.provider.example/v1/payouts/{idempotency_key}"
+  DOWNSTREAM_SYSTEM: "payout-rail"
+  DOWNSTREAM_OPERATION: "create_payout"
+  DOWNSTREAM_ENVIRONMENT: "production"
+  DOWNSTREAM_CREDENTIAL_FILE: "/var/run/agent-safe/secrets/downstream-credential"
+  DOWNSTREAM_CREDENTIAL_HEADER: "Authorization"
+  DOWNSTREAM_TIMEOUT_MS: "5000"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-safe-executor
+  namespace: agent-safe
+  labels:
+    app: agent-safe-executor
+spec:
+  # The process keeps no authority state: grants are consumed at the
+  # authority, and a reconciliation presents its own reference. Raise the
+  # count as the workflow needs; nothing here is per replica.
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agent-safe-executor
+  template:
+    metadata:
+      labels:
+        app: agent-safe-executor
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: executor
+          image: IMAGE_PLACEHOLDER
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: agent-safe-executor-config
+          volumeMounts:
+            - name: secrets
+              mountPath: /var/run/agent-safe/secrets
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 256Mi
+      volumes:
+        - name: secrets
+          secret:
+            # Created out of band with the keys the ConfigMap names:
+            # caller-token, decionis-api-key, downstream-credential, and
+            # presence-api-key only for DIRECT escalation. Never checked in
+            # anywhere.
+            secretName: agent-safe-executor-secrets
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-safe-executor
+  namespace: agent-safe
+spec:
+  type: ClusterIP
+  selector:
+    app: agent-safe-executor
+  ports:
+    - port: 80
+      targetPort: 8080
+      protocol: TCP
+---
+# Only the workflow that proposes may reach the executor, and the executor
+# may reach only the authority and the downstream. The agent runtime has no
+# path to the downstream at all (THREAT-MODEL.md, "Accepted risks").
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agent-safe-executor
+  namespace: agent-safe
+spec:
+  podSelector:
+    matchLabels:
+      app: agent-safe-executor
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              agent-safe-caller: "true"
+      ports:
+        - port: 8080
+          protocol: TCP
+  egress:
+    # DNS.
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+    # The authority and the downstream: fill in the ranges your network
+    # gives them.
+    - to:
+        - ipBlock:
+            cidr: AUTHORITY_CIDR_PLACEHOLDER
+      ports:
+        - port: 443
+          protocol: TCP
+    - to:
+        - ipBlock:
+            cidr: DOWNSTREAM_CIDR_PLACEHOLDER
+      ports:
+        - port: 443
+          protocol: TCP

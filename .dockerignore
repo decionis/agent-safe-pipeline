@@ -1,0 +1,9 @@
+.git
+**/node_modules
+**/dist
+**/coverage
+**/.stryker-tmp
+artifacts
+release
+*.log
+brief.pipeline.md
