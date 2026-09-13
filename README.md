@@ -77,6 +77,8 @@ DECIONIS_API_KEY=server-side-secret
 
 See the [package README](./packages/pipeline/README.md) for the complete enforcement example and [`docs/shadow-mode.md`](./docs/shadow-mode.md) for the shadow rollout path.
 
+To run the boundary as its own service rather than in-process, [`examples/trusted-executor`](./examples/trusted-executor) is the executor as a process: a listener in front of the same components, proved offline over real HTTP. [`deploy/`](./deploy) is its image, the Kubernetes manifest with every credential referenced and never written, and the runbook from shadow to enforcement.
+
 ## Repository map
 
 - [`packages/pipeline`](./packages/pipeline) — `IntentCapture`, `DecionisGate`, Presence coordination, and `SafeExecutor`.
@@ -93,6 +95,8 @@ See the [package README](./packages/pipeline/README.md) for the complete enforce
 - [`examples/presence-live-approval`](./examples/presence-live-approval) — a Presence-bound enforcement against the real services with a FIDO2 or FIDO2-plus-liveness ceremony; needs real credentials.
 - [`examples/presence-managed-approval`](./examples/presence-managed-approval) — Decionis-managed Presence orchestration with Decionis-only polling and no Presence credential in the executor.
 - [`examples/local-escalation`](./examples/local-escalation) — both Presence integration modes against loopback Decionis and Presence doubles, no credentials, ceremony simulated.
+- [`examples/trusted-executor`](./examples/trusted-executor) — the execution boundary as one deployable process: an HTTP trusted executor in front of the same components, proved offline against the loopback doubles; the handler seam is the adopter's to fill.
+- [`deploy/`](./deploy) — the deployment kit: the executor image, a Kubernetes manifest with Secrets referenced and never written, and the runbook from shadow to enforcement.
 - [`ARCHITECTURE.md`](./ARCHITECTURE.md) and [`THREAT-MODEL.md`](./THREAT-MODEL.md) — trust boundary and abuse analysis.
 - [`OPEN-CORE.md`](./OPEN-CORE.md) — what is Apache-2.0 here, what Decionis operates, and the seam between them.
 - [`docs/`](./docs) — concepts, execution intent, outcomes, human approval, [Presence Evidence semantics](./docs/presence-evidence.md), the [remote CRO sequence](./docs/remote-cro-authorization.md), shadow mode, Decision Dossiers, trust boundary, and assurance notes.

@@ -165,6 +165,15 @@ importers:
         specifier: ^4.5.4
         version: 4.5.4
 
+  examples/trusted-executor:
+    dependencies:
+      '@decionis/agent-safe-pipeline':
+        specifier: workspace:*
+        version: link:../../packages/pipeline
+      zod:
+        specifier: ^4.5.4
+        version: 4.5.4
+
   examples/whisper-boundary-demo:
     dependencies:
       '@decionis/agent-safe-pipeline':

@@ -153,6 +153,54 @@
       "containsCustomerData": false
     },
     {
+      "path": "examples/trusted-executor/src/Audit.ts",
+      "family": "Runnable example",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "examples/trusted-executor/src/Config.ts",
+      "family": "Runnable example",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "examples/trusted-executor/src/Handlers.ts",
+      "family": "Runnable example",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "examples/trusted-executor/src/Http.ts",
+      "family": "Runnable example",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "examples/trusted-executor/src/Index.ts",
+      "family": "Runnable example",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "examples/trusted-executor/src/Secrets.ts",
+      "family": "Runnable example",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "examples/trusted-executor/src/Serve.ts",
+      "family": "Runnable example",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "examples/trusted-executor/src/Service.ts",
+      "family": "Runnable example",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/pipeline/test/approval/PresenceApprovalCoordinator.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",

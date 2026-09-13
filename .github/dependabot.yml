@@ -37,3 +37,12 @@ updates:
       codeql:
         patterns:
           - "github/codeql-action/*"
+
+  - package-ecosystem: docker
+    directory: "/examples/trusted-executor"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:45"
+      timezone: Europe/Stockholm
+    open-pull-requests-limit: 5
