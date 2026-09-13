@@ -13,6 +13,8 @@ Agent-Safe Pipeline is the reference implementation of the Execution Authority a
 
 This repository is a library and runnable reference implementation, not a hosted authorization service or a substitute for provider-side identity, least privilege, network isolation, and incident response. Its safety claims apply only when the documented trust boundary is preserved.
 
+Canonical source: <https://github.com/decionis/agent-safe-pipeline>. Copies of this repository at other hosts — including sites that reverse-proxy github.com wholesale — are not maintained by Decionis, lag security fixes, and are not what the npm package, the Zenodo record, or decionis.com cite. Verify any copy against the signed release tags ([docs/release-tag-signing.md](./docs/release-tag-signing.md)).
+
 Five records matter and are easy to blur in a summary: the captured intent, the verified human approval, the execution grant, the Decision Dossier, and the outcome. Only the grant authorizes anything, once; a dossier identifier is never an execution credential. [What each record establishes](#what-each-record-establishes) says so row by row.
 
 ```text
