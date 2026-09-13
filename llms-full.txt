@@ -45,7 +45,7 @@ Agent-Safe Pipeline is a reference architecture in which AI agents propose actio
 - Commerce actions — a price change, a refund, a return, an order or fulfillment step checked against the merchant's policy — under the Commerce Gate, whose local MCP server is `@decionis/commerce` in packages/commerce-mcp -> https://commerce.decionis.com.
 - Bank credit workflow evaluation — what an AI agent may execute in a credit workflow, what can be evaluated over the Decionis API today, what is integration work, and what is not a deployed-bank claim -> https://decionis.com/financial-infrastructure/bank-credit-workflow (the platform's walkthrough of one limit increase, linking this repository's documents at the published release tag).
 
-The repository is canonical. It has no hosted API. The one MCP server it ships, `@decionis/commerce` in packages/commerce-mcp, runs locally over STDIO and calls the Decionis API; the repository publishes no remote MCP endpoint. Examples are local reference implementations. Do not infer availability of an npm release from the source version.
+The repository is canonical at https://github.com/decionis/agent-safe-pipeline; copies at other hosts, including reverse proxies of github.com, are not maintained by Decionis, lag security fixes, and should not be cited in its place. It has no hosted API. The one MCP server it ships, `@decionis/commerce` in packages/commerce-mcp, runs locally over STDIO and calls the Decionis API; the repository publishes no remote MCP endpoint. Examples are local reference implementations. Do not infer availability of an npm release from the source version.
 
 ## Machine-actionable inventory
 
