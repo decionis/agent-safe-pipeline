@@ -1,21 +1,28 @@
 /**
  * The trusted executor as a process, proved offline.
  *
- * Starts the loopback Decionis double from the package's testing entry and a
- * loopback stand-in for a downstream provider, then runs this example's
- * executor twice over real HTTP: in shadow, where nothing executes, and in
- * enforcement, where one ALLOW is one dispatch. Every expectation is
- * asserted, so the run is a self-checking proof: the process exits 0 only
- * when every refusal held, every legitimate path executed exactly once, a
- * lost provider response was reconciled without a second send, and no
- * credential, token, or key reached a response or an audit line.
+ * Starts the loopback Decionis and Presence doubles from the package's
+ * testing entry and a loopback stand-in for a downstream provider, then runs
+ * this example's executor over real HTTP in every configuration: shadow,
+ * where nothing executes; enforcement, where one ALLOW is one dispatch; and
+ * enforcement with each escalation shape, where a person's answer is fetched
+ * once and the authority decides again. Every expectation is asserted, so the
+ * run is a self-checking proof: the process exits 0 only when every refusal
+ * held, every legitimate path executed exactly once, a lost provider
+ * response was reconciled without a second send, and no credential, token,
+ * or key reached a response or an audit line.
  *
  * All identities are synthetic; the tokens are generated at run time.
  */
 import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import process from "node:process";
-import { LOCAL_AUTHORITY_API_KEY, LocalAuthority } from "@decionis/agent-safe-pipeline/testing";
+import {
+  LOCAL_AUTHORITY_API_KEY,
+  LOCAL_PRESENCE_API_KEY,
+  LocalAuthority,
+  LocalPresence,
+} from "@decionis/agent-safe-pipeline/testing";
 import { CONFIG_KEYS, ExecutorConfigLoader } from "./Config.js";
 import { FORWARD_REQUEST_ACTION } from "./Handlers.js";
 import { ExecutorHttpServer, MAX_BODY_BYTES, RESPONSE_HEADERS } from "./Http.js";
@@ -23,6 +30,7 @@ import { TrustedExecutorService } from "./Service.js";
 
 const LOOPBACK_ORIGIN = "http://127.0.0.1";
 const TENANT_ID = "00000000-0000-4000-8000-000000000007";
+const APPROVER_ID = "synthetic-approver";
 const callerToken = randomBytes(24).toString("base64url");
 const downstreamCredential = `Bearer ${randomBytes(24).toString("base64url")}`;
 
@@ -105,15 +113,43 @@ class ProviderDouble {
   }
 }
 
-const authority = new LocalAuthority();
+// The person completes every ceremony by hand: nothing auto-approves.
+const presence = new LocalPresence({ autoComplete: "MANUAL", roles: { [APPROVER_ID]: "CRO" } });
+const authority = new LocalAuthority({ presence });
 const provider = new ProviderDouble();
+await presence.start();
 await authority.start();
 await provider.start();
 
+type Escalation = "NONE" | "DIRECT" | "MANAGED";
+
 /** The executor's environment, as a deployment would mount it. */
-function environment(mode: "SHADOW" | "ENFORCEMENT"): Record<string, string> {
+function environment(
+  mode: "SHADOW" | "ENFORCEMENT",
+  escalation: Escalation = "NONE",
+): Record<string, string> {
+  const presenceShape =
+    escalation === "NONE"
+      ? {}
+      : {
+          PRESENCE_APPROVER_ID: APPROVER_ID,
+          PRESENCE_VERIFICATION_LEVEL: "HIGH_CONFIDENCE",
+          PRESENCE_VERIFICATION_METHODS: "WEBAUTHN,ACTIVE_LIVENESS",
+          ...(escalation === "DIRECT"
+            ? {
+                PRESENCE_API_URL: presence.baseUrl,
+                PRESENCE_API_KEY: LOCAL_PRESENCE_API_KEY,
+                PRESENCE_ORGANIZATION: "Synthetic Treasury",
+                PRESENCE_HARDWARE_PKI_REQUIRED: "false",
+                PRESENCE_DISALLOW_VIRTUAL_CAMERAS: "true",
+              }
+            : { PRESENCE_APPROVER_ROLE: "CRO" }),
+        };
   return {
     EXECUTOR_MODE: mode,
+    EXECUTOR_ESCALATION: escalation,
+    EXECUTOR_INTENT_TTL_SECONDS: "300",
+    ...presenceShape,
     EXECUTOR_BIND_ADDRESS: "127.0.0.1",
     PORT: "1",
     EXECUTOR_TENANT_ID: TENANT_ID,
@@ -143,8 +179,11 @@ interface RunningExecutor {
   readonly server: ExecutorHttpServer;
 }
 
-async function startExecutor(mode: "SHADOW" | "ENFORCEMENT"): Promise<RunningExecutor> {
-  const config = ExecutorConfigLoader.load(environment(mode));
+async function startExecutor(
+  mode: "SHADOW" | "ENFORCEMENT",
+  escalation: Escalation = "NONE",
+): Promise<RunningExecutor> {
+  const config = ExecutorConfigLoader.load(environment(mode, escalation));
   const service = TrustedExecutorService.create(config, {
     emit: (line) => auditLines.push(line),
   });
@@ -233,10 +272,23 @@ heading("Refusals to start");
     "a secret given twice is refused",
     refusal(ambiguous),
   );
-  const listed = Object.keys(environment("ENFORCEMENT")).every((key) =>
+  const listed = Object.keys(environment("ENFORCEMENT", "DIRECT")).every((key) =>
     (CONFIG_KEYS as readonly string[]).includes(key),
   );
   check(listed, "every variable the proof sets is in CONFIG_KEYS", `${CONFIG_KEYS.length} keys`);
+  const shadowEscalation = refusal(environment("SHADOW", "MANAGED"));
+  check(
+    shadowEscalation.includes("EXECUTOR_ESCALATION"),
+    "shadow never escalates",
+    shadowEscalation,
+  );
+  const halfDirect = { ...environment("ENFORCEMENT", "DIRECT") };
+  delete halfDirect["PRESENCE_API_URL"];
+  check(
+    refusal(halfDirect).includes("PRESENCE_API_URL"),
+    "direct escalation without a Presence address is refused",
+    refusal(halfDirect),
+  );
 }
 
 heading("Shadow: observe, record, never execute");
@@ -244,7 +296,7 @@ heading("Shadow: observe, record, never execute");
   const executor = await startExecutor("SHADOW");
   const ready = await call(executor, "/ready", { method: "GET", token: null });
   check(
-    ready.status === 200 && ready.body["mode"] === "SHADOW",
+    ready.status === 200 && ready.body["mode"] === "SHADOW" && ready.body["escalation"] === "NONE",
     "the process reports its mode",
     JSON.stringify(ready.body),
   );
@@ -443,6 +495,127 @@ heading("A lost response is reconciled, never re-sent");
   );
 }
 
+heading("Direct escalation: this process opens the Presence request");
+{
+  const direct = await startExecutor("ENFORCEMENT", "DIRECT");
+  const effectsBefore = provider.effects.size;
+  const held = await call(direct, "/v1/actions", { body: proposal(50_000) });
+  const handoff = held.body["escalation"] as Record<string, unknown> | null;
+  const requestId = String(handoff?.["request_id"] ?? "");
+  check(
+    held.body["verdict"] === "ESCALATE" &&
+      held.body["outcome"] === "ESCALATE_PENDING" &&
+      held.body["executed"] === false &&
+      held.body["authorization"] === null &&
+      handoff?.["mode"] === "DIRECT" &&
+      requestId.length > 0 &&
+      provider.effects.size === effectsBefore,
+    "an ESCALATE hands back a Presence request, no grant",
+    `outcome ${String(held.body["outcome"])}, request ${requestId.slice(0, 18)}…`,
+  );
+  check(
+    presence.verification(requestId)?.intentHash === held.body["intent_hash"],
+    "the person is shown the intent hash the authority evaluated",
+    String(presence.verification(requestId)?.bindingSource ?? "unbound"),
+  );
+  const pending = await call(direct, "/v1/escalations", { body: JSON.stringify(handoff) });
+  check(
+    pending.body["outcome"] === "ESCALATE_PENDING" &&
+      pending.body["executed"] === false &&
+      provider.effects.size === effectsBefore,
+    "resuming before the ceremony changes nothing",
+    `outcome ${String(pending.body["outcome"])}`,
+  );
+  presence.approve(requestId);
+  const tampered = JSON.parse(JSON.stringify(handoff)) as {
+    intent: { parameters: Record<string, unknown> };
+  };
+  tampered.intent.parameters["amountMinor"] = 5_000_000;
+  const refused = await call(direct, "/v1/escalations", { body: JSON.stringify(tampered) });
+  check(
+    refused.body["executed"] === false && provider.effects.size === effectsBefore,
+    "a receipt cannot approve a changed intent",
+    `verdict ${String(refused.body["verdict"])}, outcome ${String(refused.body["outcome"])}`,
+  );
+  const approved = await call(direct, "/v1/escalations", { body: JSON.stringify(handoff) });
+  check(
+    approved.body["outcome"] === "COMPLETED" &&
+      approved.body["executed"] === true &&
+      provider.effects.size === effectsBefore + 1,
+    "the receipt goes back to the authority and the action runs once",
+    `outcome ${String(approved.body["outcome"])}, finalization ${String(approved.body["finalization"])}`,
+  );
+  const again = await call(direct, "/v1/escalations", { body: JSON.stringify(handoff) });
+  check(
+    provider.effects.size === effectsBefore + 1,
+    "presenting the receipt again moves nothing at the provider",
+    `outcome ${String(again.body["outcome"])}, ${provider.effects.size - effectsBefore} effect`,
+  );
+  const heldAgain = await call(direct, "/v1/actions", { body: proposal(50_000) });
+  const second = heldAgain.body["escalation"] as Record<string, unknown> | null;
+  presence.deny(String(second?.["request_id"] ?? ""));
+  const denied = await call(direct, "/v1/escalations", { body: JSON.stringify(second) });
+  check(
+    denied.body["verdict"] === "BLOCK" &&
+      denied.body["executed"] === false &&
+      provider.effects.size === effectsBefore + 1,
+    "a denial is a BLOCK, and nothing runs",
+    `reason ${(denied.body["reason_codes"] as string[]).join(",")}`,
+  );
+  await direct.server.close();
+}
+
+heading("Managed escalation: the authority orchestrates Presence");
+{
+  const managed = await startExecutor("ENFORCEMENT", "MANAGED");
+  const effectsBefore = provider.effects.size;
+  const held = await call(managed, "/v1/actions", { body: proposal(50_000) });
+  const handoff = held.body["escalation"] as {
+    mode?: string;
+    escalation?: { escalationId?: string };
+  } | null;
+  const escalationId = String(handoff?.escalation?.escalationId ?? "");
+  check(
+    held.body["verdict"] === "ESCALATE" &&
+      held.body["outcome"] === "ESCALATE_PENDING" &&
+      held.body["executed"] === false &&
+      handoff?.mode === "MANAGED" &&
+      escalationId.length > 0,
+    "an ESCALATE hands back the authority's escalation state",
+    `escalation ${escalationId.slice(0, 18)}…`,
+  );
+  const forged = JSON.parse(JSON.stringify(handoff)) as {
+    escalation: { escalationId: string };
+  };
+  forged.escalation.escalationId = "synthetic-escalation-forged";
+  const refused = await call(managed, "/v1/escalations", { body: JSON.stringify(forged) });
+  check(
+    refused.body["executed"] === false && provider.effects.size === effectsBefore,
+    "an escalation that is not this intent's yields nothing",
+    `verdict ${String(refused.body["verdict"])}, reason ${(refused.body["reason_codes"] as string[])[0] ?? ""}`,
+  );
+  const presenceRequestId = authority.escalations.get(escalationId)?.presenceRequestId ?? "";
+  presence.approve(presenceRequestId);
+  let resumed = await call(managed, "/v1/escalations", { body: JSON.stringify(handoff) });
+  for (
+    let lookups = 1;
+    lookups < 10 && resumed.body["outcome"] === "ESCALATE_PENDING";
+    lookups += 1
+  ) {
+    resumed = await call(managed, "/v1/escalations", {
+      body: JSON.stringify(resumed.body["escalation"]),
+    });
+  }
+  check(
+    resumed.body["outcome"] === "COMPLETED" &&
+      resumed.body["executed"] === true &&
+      provider.effects.size === effectsBefore + 1,
+    "the authority reaches GRANT_READY and the action runs once",
+    `outcome ${String(resumed.body["outcome"])}, ${provider.effects.size - effectsBefore} effect`,
+  );
+  await managed.server.close();
+}
+
 heading("Nothing secret left the process");
 {
   const everything = [...responses, ...auditLines].join("\n");
@@ -462,18 +635,21 @@ heading("Nothing secret left the process");
   const reconciliations = auditLines.filter((line) =>
     line.includes('"RECONCILIATION_COMPLETED"'),
   ).length;
+  const dispatches = provider.requests.filter((request) => request.path === "/dispatches").length;
+  const presenceEvents = auditLines.filter((line) => line.includes('"PRESENCE_')).length;
   check(
-    executions === 2 && reconciliations === 1,
-    "the audit stream counts every execution and reconciliation",
-    `${executions} executions, ${reconciliations} reconciliation`,
+    executions === dispatches - 1 && reconciliations === 1 && presenceEvents >= 4,
+    "the audit stream counts every execution, reconciliation and ceremony",
+    `${executions} executions for ${dispatches} dispatches, ${reconciliations} reconciliation, ${presenceEvents} Presence events`,
   );
 }
 
 await executor.server.close();
 await provider.stop();
 await authority.stop();
+await presence.stop();
 
 out(
-  `\n${failures === 0 ? "PROVEN" : "NOT PROVEN"}: ${authority.grants.size} grants claimed, ${provider.effects.size} provider effects, one lost response reconciled without a second send; ${failures} failed expectations.`,
+  `\n${failures === 0 ? "PROVEN" : "NOT PROVEN"}: ${authority.grants.size} grants claimed, ${provider.effects.size} provider effects, ${presence.receipts.size} ceremonies completed by a person, one lost response reconciled without a second send; ${failures} failed expectations.`,
 );
 process.exitCode = failures === 0 ? 0 : 1;

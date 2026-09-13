@@ -12,11 +12,20 @@ import {
   ShadowPipeline,
   type CapturedIntent,
   type ExecutionRecoveryReference,
+  type GateDecision,
   type JsonObject,
+  type SafeExecutionResult,
   type TrustedIntentContext,
 } from "@decionis/agent-safe-pipeline";
 import { LineAuditSink, type LineWriter } from "./Audit.js";
-import type { ExecutorConfig, ExecutorMode } from "./Config.js";
+import type { EscalationMode, ExecutorConfig, ExecutorMode } from "./Config.js";
+import {
+  EscalationHandoffSchema,
+  EscalationResolver,
+  type EscalationDependencies,
+  type EscalationHandoff,
+  type EscalationState,
+} from "./Escalation.js";
 import { REGISTERED_ACTIONS, registerHandlers, type FetchLike } from "./Handlers.js";
 
 const identifier = z.string().trim().min(1).max(200);
@@ -73,7 +82,10 @@ export interface ActionResponse {
   readonly dossier_id: string | null;
   readonly reason_codes: readonly string[];
   readonly fail_closed: boolean;
-  /** Shadow: the observation status. Enforcement: the executor outcome. */
+  /**
+   * Shadow: the observation status. Enforcement: the executor outcome, or
+   * `ESCALATE_PENDING` while a person has yet to answer.
+   */
   readonly outcome: string;
   readonly executed: boolean | null;
   readonly authorization: AuthorizationBinding | null;
@@ -84,6 +96,8 @@ export interface ActionResponse {
     readonly intent: CapturedIntent["intent"];
     readonly reference: ExecutionRecoveryReference;
   } | null;
+  /** Present while an escalation is open: what to present to resume. */
+  readonly escalation: EscalationHandoff | null;
 }
 
 export interface ReconciliationResponse {
@@ -108,7 +122,7 @@ export class ServiceError extends Error {
   }
 }
 
-export interface ServiceDependencies {
+export interface ServiceDependencies extends EscalationDependencies {
   /** Where audit lines go; stdout in the process, an array in the proof. */
   readonly emit?: LineWriter;
   readonly fetch?: FetchLike;
@@ -117,10 +131,12 @@ export interface ServiceDependencies {
 /**
  * The execution boundary as one process. In `ENFORCEMENT` it asks Decionis,
  * and on an `ALLOW` claims the grant and executes once through the sealed
- * registry; on anything else it answers with the verdict and no grant. In
+ * registry; on anything else it answers with the verdict and no grant. An
+ * `ESCALATE` is handed back with what the caller needs to resume once a
+ * person has answered, in whichever shape the adopter configured. In
  * `SHADOW` it asks what the authority would have decided about an action the
  * caller runs itself, records the observation, and never executes. The grant
- * token, the API key, the caller token and the downstream credential never
+ * token, the API keys, the caller token and the downstream credential never
  * appear in a response or an audit line.
  */
 export class TrustedExecutorService {
@@ -129,9 +145,9 @@ export class TrustedExecutorService {
   private constructor(
     private readonly config: ExecutorConfig,
     private readonly capture: IntentCapture,
-    private readonly gate: DecionisGate,
     private readonly registry: ActionRegistry,
     private readonly executor: SafeExecutor,
+    private readonly escalation: EscalationResolver,
     private readonly shadow: ShadowPipeline | null,
   ) {}
 
@@ -162,16 +178,20 @@ export class TrustedExecutorService {
     ).seal();
     return new TrustedExecutorService(
       config,
-      new IntentCapture(),
-      gate,
+      new IntentCapture({ ttlSeconds: config.intentTtlSeconds }),
       registry,
       new SafeExecutor(registry, verifier, audit),
+      new EscalationResolver(config.escalation, gate, audit, dependencies),
       config.mode === "SHADOW" ? new ShadowPipeline(gate, { audit }) : null,
     );
   }
 
   public get mode(): ExecutorMode {
     return this.config.mode;
+  }
+
+  public get escalationMode(): EscalationMode {
+    return this.config.escalation.mode;
   }
 
   /** The actions this process can run, for `/ready`. */
@@ -196,14 +216,9 @@ export class TrustedExecutorService {
   public async reconcile(input: unknown): Promise<ReconciliationResponse> {
     const parsed = ReconciliationRequestSchema.safeParse(input);
     if (!parsed.success) throw new ServiceError(400, "REQUEST_INVALID");
-    let captured: CapturedIntent;
-    try {
-      // The caller presents the intent it was given; the hash is recomputed
-      // here, so a changed intent no longer matches its recovery reference.
-      captured = this.hasher.capture(ExecutionIntentSchema.parse(parsed.data.intent));
-    } catch {
-      throw new ServiceError(400, "INTENT_INVALID");
-    }
+    // The caller presents the intent it was given; the hash is recomputed
+    // here, so a changed intent no longer matches its recovery reference.
+    const captured = this.presented(parsed.data.intent);
     const outcome = await this.executor.reconcile(captured, parsed.data.reference);
     return {
       intent_id: captured.intent.intentId,
@@ -215,6 +230,39 @@ export class TrustedExecutorService {
       authorization: TrustedExecutorService.binding(outcome.authorization),
       result: outcome.result,
     };
+  }
+
+  /**
+   * Resumes an open escalation. One bounded lookup: if the person has
+   * answered, the authority evaluates the exact intent again and an `ALLOW`
+   * executes once; if not, the state comes back to be presented later. An
+   * intent past its lifetime is refused before anything is asked.
+   */
+  public async resume(input: unknown): Promise<ActionResponse> {
+    const parsed = EscalationHandoffSchema.safeParse(input);
+    if (!parsed.success) throw new ServiceError(400, "REQUEST_INVALID");
+    if (this.shadow !== null || this.config.escalation.mode === "NONE") {
+      throw new ServiceError(409, "ESCALATION_NOT_CONFIGURED");
+    }
+    const captured = this.presented(parsed.data.intent);
+    if (Date.parse(captured.intent.expiresAt) <= Date.now()) {
+      throw new ServiceError(409, "INTENT_EXPIRED");
+    }
+    if (!this.registry.has(captured.intent.action)) {
+      throw new ServiceError(422, "ACTION_NOT_REGISTERED");
+    }
+    const resolution = await this.escalation.resume(captured, parsed.data);
+    if (resolution.kind === "DECISION") {
+      const outcome = await this.executor.run(captured, resolution.decision);
+      return this.response(captured, resolution.decision, outcome, null);
+    }
+    if (resolution.kind === "PENDING") {
+      return this.held(captured, "ESCALATE", resolution.reasonCodes, false, {
+        ...resolution.handoff,
+        intent: captured.intent,
+      });
+    }
+    return this.held(captured, "BLOCK", resolution.reasonCodes, resolution.failClosed, null);
   }
 
   private captureIntent(request: ProposalRequest): CapturedIntent {
@@ -241,6 +289,15 @@ export class TrustedExecutorService {
     }
   }
 
+  /** An intent the caller presents back, re-hashed rather than trusted. */
+  private presented(intent: Record<string, unknown>): CapturedIntent {
+    try {
+      return this.hasher.capture(ExecutionIntentSchema.parse(intent));
+    } catch {
+      throw new ServiceError(400, "INTENT_INVALID");
+    }
+  }
+
   private async observe(captured: CapturedIntent): Promise<ActionResponse> {
     const shadow = this.shadow;
     if (shadow === null) throw new ServiceError(500, "MODE_MISMATCH");
@@ -264,14 +321,38 @@ export class TrustedExecutorService {
       finalization: null,
       result: null,
       recovery: null,
+      escalation: null,
     };
   }
 
   private async enforce(captured: CapturedIntent): Promise<ActionResponse> {
-    const decision = await this.gate.evaluate(captured);
+    const decision = await this.escalation.evaluate(captured);
     // Every decision goes through the executor, an ESCALATE or BLOCK included,
     // so the audit stream carries the refusal as well as the execution.
     const outcome = await this.executor.run(captured, decision);
+    let handoff: EscalationHandoff | null = null;
+    let unavailable = false;
+    if (decision.verdict === "ESCALATE" && !decision.failClosed) {
+      const state: EscalationState | null = await this.escalation.handoff(captured, decision);
+      if (state !== null) handoff = { ...state, intent: captured.intent };
+      else if (this.config.escalation.mode !== "NONE") unavailable = true;
+    }
+    return this.response(
+      captured,
+      decision,
+      outcome,
+      handoff,
+      unavailable ? ["ESCALATION_HANDOFF_UNAVAILABLE"] : [],
+    );
+  }
+
+  private response(
+    captured: CapturedIntent,
+    decision: GateDecision,
+    outcome: SafeExecutionResult,
+    handoff: EscalationHandoff | null,
+    extraReasonCodes: readonly string[] = [],
+  ): ActionResponse {
     return {
       mode: "ENFORCEMENT",
       intent_id: captured.intent.intentId,
@@ -282,9 +363,10 @@ export class TrustedExecutorService {
       reason_codes: [
         ...decision.reasonCodes,
         ...("reason" in outcome && outcome.reason !== "DECISION_NOT_ALLOW" ? [outcome.reason] : []),
+        ...extraReasonCodes,
       ],
       fail_closed: decision.failClosed,
-      outcome: outcome.outcome,
+      outcome: handoff === null ? outcome.outcome : "ESCALATE_PENDING",
       executed: outcome.executed,
       authorization: TrustedExecutorService.binding(outcome.authorization),
       finalization: "finalization" in outcome ? outcome.finalization : null,
@@ -293,6 +375,34 @@ export class TrustedExecutorService {
         outcome.outcome === "UNKNOWN_AFTER_DISPATCH"
           ? { intent: captured.intent, reference: outcome.recovery }
           : null,
+      escalation: handoff,
+    };
+  }
+
+  /** A resumption that produced no new decision: still held, or refused. */
+  private held(
+    captured: CapturedIntent,
+    verdict: "ESCALATE" | "BLOCK",
+    reasonCodes: readonly string[],
+    failClosed: boolean,
+    handoff: EscalationHandoff | null,
+  ): ActionResponse {
+    return {
+      mode: "ENFORCEMENT",
+      intent_id: captured.intent.intentId,
+      intent_hash: captured.intentHash,
+      verdict,
+      decision_id: null,
+      dossier_id: null,
+      reason_codes: reasonCodes,
+      fail_closed: failClosed,
+      outcome: handoff === null ? "BLOCKED" : "ESCALATE_PENDING",
+      executed: false,
+      authorization: null,
+      finalization: null,
+      result: null,
+      recovery: null,
+      escalation: handoff,
     };
   }
 

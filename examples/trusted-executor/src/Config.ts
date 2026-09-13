@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { PresenceVerificationRequirements } from "@decionis/agent-safe-pipeline";
 import { Secrets } from "./Secrets.js";
 
 /**
@@ -14,10 +15,21 @@ export const CONFIG_KEYS = [
   "EXECUTOR_ACTOR_ID",
   "EXECUTOR_ACTOR_TYPE",
   "EXECUTOR_ACTOR_RUNTIME",
+  "EXECUTOR_INTENT_TTL_SECONDS",
   "EXECUTOR_CALLER_TOKEN",
+  "EXECUTOR_ESCALATION",
   "DECIONIS_API_URL",
   "DECIONIS_API_KEY",
   "DECIONIS_ALLOW_INSECURE_LOOPBACK",
+  "PRESENCE_API_URL",
+  "PRESENCE_API_KEY",
+  "PRESENCE_ORGANIZATION",
+  "PRESENCE_APPROVER_ID",
+  "PRESENCE_APPROVER_ROLE",
+  "PRESENCE_VERIFICATION_LEVEL",
+  "PRESENCE_VERIFICATION_METHODS",
+  "PRESENCE_HARDWARE_PKI_REQUIRED",
+  "PRESENCE_DISALLOW_VIRTUAL_CAMERAS",
   "DOWNSTREAM_URL",
   "DOWNSTREAM_LOOKUP_URL",
   "DOWNSTREAM_SYSTEM",
@@ -34,10 +46,14 @@ export type ConfigKey = (typeof CONFIG_KEYS)[number];
 export const SECRET_KEYS = [
   "EXECUTOR_CALLER_TOKEN",
   "DECIONIS_API_KEY",
+  "PRESENCE_API_KEY",
   "DOWNSTREAM_CREDENTIAL",
 ] as const satisfies readonly ConfigKey[];
 
 export type ExecutorMode = "SHADOW" | "ENFORCEMENT";
+export type EscalationMode = "NONE" | "DIRECT" | "MANAGED";
+export type VerificationMethod = "WEBAUTHN" | "ACTIVE_LIVENESS";
+export type VerificationLevel = "STANDARD" | "HIGH_CONFIDENCE";
 
 export interface DownstreamConfig {
   readonly url: string;
@@ -51,13 +67,45 @@ export interface DownstreamConfig {
   readonly timeoutMs: number;
 }
 
+/**
+ * How an `ESCALATE` is resolved. `NONE` returns the hold and stops. `DIRECT`
+ * has this process open the Presence request and hold the Presence
+ * credential; the receipt goes back to the authority for a fresh decision.
+ * `MANAGED` asks the authority to orchestrate Presence and polls the
+ * authority only; no Presence credential exists here.
+ */
+export type EscalationConfig =
+  | { readonly mode: "NONE" }
+  | {
+      readonly mode: "DIRECT";
+      readonly presence: {
+        readonly baseUrl: string;
+        readonly apiKey: string;
+        readonly organization: string;
+      };
+      readonly approverId: string;
+      readonly requirements: PresenceVerificationRequirements;
+    }
+  | {
+      readonly mode: "MANAGED";
+      readonly approverId: string;
+      readonly approverRole: string | null;
+      readonly requirements: {
+        readonly methods: readonly VerificationMethod[];
+        readonly level: VerificationLevel;
+      };
+    };
+
 export interface ExecutorConfig {
   readonly mode: ExecutorMode;
   readonly bindAddress: string;
   readonly port: number;
   readonly tenantId: string;
   readonly actor: { readonly id: string; readonly type: string; readonly runtime?: string };
+  /** How long a proposal stays valid; a ceremony has to finish inside it. */
+  readonly intentTtlSeconds: number;
   readonly callerToken: string;
+  readonly escalation: EscalationConfig;
   readonly authority: {
     readonly baseUrl: string;
     readonly apiKey: string;
@@ -73,7 +121,7 @@ const headerName = z
   .min(1)
   .max(128)
   .regex(/^[\w!#$%&'*+.^`|~-]+$/);
-const booleanFlag = z.enum(["true", "false"]).optional();
+const booleanFlag = z.enum(["true", "false"]);
 
 const EnvironmentSchema = z.object({
   EXECUTOR_MODE: z.enum(["SHADOW", "ENFORCEMENT"]),
@@ -83,8 +131,22 @@ const EnvironmentSchema = z.object({
   EXECUTOR_ACTOR_ID: identifier,
   EXECUTOR_ACTOR_TYPE: identifier,
   EXECUTOR_ACTOR_RUNTIME: identifier.optional(),
+  EXECUTOR_INTENT_TTL_SECONDS: z.coerce.number().int().min(1).max(300),
+  EXECUTOR_ESCALATION: z.enum(["NONE", "DIRECT", "MANAGED"]),
   DECIONIS_API_URL: z.string().trim().min(1).max(500),
-  DECIONIS_ALLOW_INSECURE_LOOPBACK: booleanFlag,
+  DECIONIS_ALLOW_INSECURE_LOOPBACK: booleanFlag.optional(),
+  PRESENCE_API_URL: z.string().trim().min(1).max(500).optional(),
+  PRESENCE_ORGANIZATION: z.string().trim().min(1).max(200).optional(),
+  PRESENCE_APPROVER_ID: identifier.optional(),
+  PRESENCE_APPROVER_ROLE: identifier.optional(),
+  PRESENCE_VERIFICATION_LEVEL: z.enum(["STANDARD", "HIGH_CONFIDENCE"]).optional(),
+  PRESENCE_VERIFICATION_METHODS: z
+    .string()
+    .trim()
+    .regex(/^[A-Z_]+(?:,[A-Z_]+)*$/)
+    .optional(),
+  PRESENCE_HARDWARE_PKI_REQUIRED: booleanFlag.optional(),
+  PRESENCE_DISALLOW_VIRTUAL_CAMERAS: booleanFlag.optional(),
   DOWNSTREAM_URL: z.string().trim().min(1).max(500),
   DOWNSTREAM_LOOKUP_URL: z.string().trim().min(1).max(500).optional(),
   DOWNSTREAM_SYSTEM: identifier,
@@ -93,6 +155,24 @@ const EnvironmentSchema = z.object({
   DOWNSTREAM_CREDENTIAL_HEADER: headerName,
   DOWNSTREAM_TIMEOUT_MS: z.coerce.number().int().min(1).max(15_000),
 });
+
+type Environment = z.infer<typeof EnvironmentSchema>;
+
+const DIRECT_KEYS = [
+  "PRESENCE_API_URL",
+  "PRESENCE_ORGANIZATION",
+  "PRESENCE_APPROVER_ID",
+  "PRESENCE_VERIFICATION_LEVEL",
+  "PRESENCE_VERIFICATION_METHODS",
+  "PRESENCE_HARDWARE_PKI_REQUIRED",
+  "PRESENCE_DISALLOW_VIRTUAL_CAMERAS",
+] as const;
+
+const MANAGED_KEYS = [
+  "PRESENCE_APPROVER_ID",
+  "PRESENCE_VERIFICATION_LEVEL",
+  "PRESENCE_VERIFICATION_METHODS",
+] as const;
 
 /**
  * Reads the executor's configuration from an environment map. Every failure
@@ -134,7 +214,9 @@ export class ExecutorConfigLoader {
           ? {}
           : { runtime: values.EXECUTOR_ACTOR_RUNTIME }),
       },
+      intentTtlSeconds: values.EXECUTOR_INTENT_TTL_SECONDS,
       callerToken: Secrets.resolve(env, "EXECUTOR_CALLER_TOKEN"),
+      escalation: ExecutorConfigLoader.escalation(env, values, allowInsecureLoopback),
       authority: {
         baseUrl: ExecutorConfigLoader.serviceUrl(
           values.DECIONIS_API_URL,
@@ -166,6 +248,66 @@ export class ExecutorConfigLoader {
         timeoutMs: values.DOWNSTREAM_TIMEOUT_MS,
       },
     };
+  }
+
+  private static escalation(
+    env: Readonly<Record<string, string | undefined>>,
+    values: Environment,
+    allowInsecureLoopback: boolean,
+  ): EscalationConfig {
+    const mode = values.EXECUTOR_ESCALATION;
+    if (mode === "NONE") return { mode };
+    // Shadow observes; it never escalates, and a managed escalation in shadow
+    // is refused by the gate anyway. Saying so at start-up is clearer.
+    if (values.EXECUTOR_MODE === "SHADOW") {
+      throw new Error("CONFIG_INVALID: EXECUTOR_ESCALATION (shadow never escalates)");
+    }
+    const required = mode === "DIRECT" ? DIRECT_KEYS : MANAGED_KEYS;
+    const missing = required.filter((key) => values[key] === undefined);
+    if (missing.length > 0) throw new Error(`CONFIG_INVALID: ${missing.join(", ")}`);
+    const methods = ExecutorConfigLoader.methods(values.PRESENCE_VERIFICATION_METHODS ?? "");
+    const level = values.PRESENCE_VERIFICATION_LEVEL ?? "STANDARD";
+    const approverId = values.PRESENCE_APPROVER_ID ?? "";
+    if (mode === "MANAGED") {
+      return {
+        mode,
+        approverId,
+        approverRole: values.PRESENCE_APPROVER_ROLE ?? null,
+        requirements: { methods, level },
+      };
+    }
+    return {
+      mode,
+      presence: {
+        baseUrl: ExecutorConfigLoader.serviceUrl(
+          values.PRESENCE_API_URL ?? "",
+          "PRESENCE_API_URL",
+          allowInsecureLoopback,
+        ),
+        apiKey: Secrets.resolve(env, "PRESENCE_API_KEY"),
+        organization: values.PRESENCE_ORGANIZATION ?? "",
+      },
+      approverId,
+      requirements: {
+        level,
+        methods: [...methods],
+        hardware_pki_required: values.PRESENCE_HARDWARE_PKI_REQUIRED === "true",
+        disallow_virtual_cameras: values.PRESENCE_DISALLOW_VIRTUAL_CAMERAS === "true",
+      },
+    };
+  }
+
+  /** The ceremony methods both shapes accept, as a comma-separated list. */
+  private static methods(value: string): readonly VerificationMethod[] {
+    const methods = value.split(",").map((method) => method.trim());
+    const valid = methods.every(
+      (method): method is VerificationMethod =>
+        method === "WEBAUTHN" || method === "ACTIVE_LIVENESS",
+    );
+    if (!valid || methods.length === 0 || new Set(methods).size !== methods.length) {
+      throw new Error("CONFIG_INVALID: PRESENCE_VERIFICATION_METHODS");
+    }
+    return methods as VerificationMethod[];
   }
 
   /**

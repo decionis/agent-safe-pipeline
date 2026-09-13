@@ -165,6 +165,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "examples/trusted-executor/src/Escalation.ts",
+      "family": "Runnable example",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "examples/trusted-executor/src/Handlers.ts",
       "family": "Runnable example",
       "source": "synthetic",

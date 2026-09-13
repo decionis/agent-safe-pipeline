@@ -19,7 +19,20 @@ data:
   EXECUTOR_ACTOR_ID: "synthetic-payout-agent"
   EXECUTOR_ACTOR_TYPE: "AI_AGENT"
   EXECUTOR_ACTOR_RUNTIME: "workflow-runner"
+  # A proposal stays valid this long; a ceremony has to finish inside it.
+  EXECUTOR_INTENT_TTL_SECONDS: "300"
   EXECUTOR_CALLER_TOKEN_FILE: "/var/run/agent-safe/secrets/caller-token"
+  # NONE returns the hold. MANAGED has the authority orchestrate Presence and
+  # needs PRESENCE_APPROVER_ID, PRESENCE_VERIFICATION_LEVEL and
+  # PRESENCE_VERIFICATION_METHODS (PRESENCE_APPROVER_ROLE optional). DIRECT
+  # has this process open the Presence request and additionally needs
+  # PRESENCE_API_URL, PRESENCE_API_KEY_FILE, PRESENCE_ORGANIZATION,
+  # PRESENCE_HARDWARE_PKI_REQUIRED and PRESENCE_DISALLOW_VIRTUAL_CAMERAS.
+  EXECUTOR_ESCALATION: "MANAGED"
+  PRESENCE_APPROVER_ID: "synthetic-treasury-approver"
+  PRESENCE_APPROVER_ROLE: "CRO"
+  PRESENCE_VERIFICATION_LEVEL: "HIGH_CONFIDENCE"
+  PRESENCE_VERIFICATION_METHODS: "WEBAUTHN,ACTIVE_LIVENESS"
   DECIONIS_API_URL: "https://authority.decionis.example"
   DECIONIS_API_KEY_FILE: "/var/run/agent-safe/secrets/decionis-api-key"
   DOWNSTREAM_URL: "https://payouts.provider.example/v1/payouts"
@@ -94,8 +107,9 @@ spec:
         - name: secrets
           secret:
             # Created out of band with the keys the ConfigMap names:
-            # caller-token, decionis-api-key, downstream-credential.
-            # Never checked in anywhere.
+            # caller-token, decionis-api-key, downstream-credential, and
+            # presence-api-key only for DIRECT escalation. Never checked in
+            # anywhere.
             secretName: agent-safe-executor-secrets
 ---
 apiVersion: v1

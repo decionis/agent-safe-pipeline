@@ -48,8 +48,13 @@ The workflow requires the executor's answer before it acts, and acts only throug
 this action only. `EXECUTOR_MODE=ENFORCEMENT`. Capture fresh intents; a shadow-observed intent is
 never reused for enforcement.
 
-An `ESCALATE` comes back with no grant. Resolving it through Presence, either from the executor or
-managed by the authority, is the next thing to wire in; `examples/local-escalation` shows both.
+An `ESCALATE` comes back with no grant and, when `EXECUTOR_ESCALATION` is `DIRECT` or `MANAGED`,
+with what the workflow presents back once the person has answered. Choose the shape before this
+step: `DIRECT` puts the Presence credential in the executor and has it open the request; `MANAGED`
+keeps every Presence credential with the authority and has the executor poll the authority only.
+Either way the authority decides again with the receipt as evidence, and an approval cannot revive an
+intent past its lifetime, so set `EXECUTOR_INTENT_TTL_SECONDS` to the longest a ceremony may take,
+at most five minutes.
 
 An attempt whose answer never came back is `UNKNOWN_AFTER_DISPATCH`. The workflow presents the
 recovery object to `/v1/reconciliations`; the executor reads what the provider did and never sends

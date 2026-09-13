@@ -50,6 +50,10 @@ RUN pnpm --filter @decionis/agent-safe-pipeline build \
 # entry as a non-root user on a read-only root filesystem (the manifest sets
 # the filesystem; the image sets the user).
 FROM ${NODE_BASE_IMAGE} AS runner
+LABEL org.opencontainers.image.source="https://github.com/decionis/agent-safe-pipeline" \
+      org.opencontainers.image.title="Agent-Safe trusted executor" \
+      org.opencontainers.image.description="The execution boundary as one process: a proposal in, a verdict from the authority, one execution on a claimed single-use grant." \
+      org.opencontainers.image.licenses="Apache-2.0"
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=builder /app/deploy ./

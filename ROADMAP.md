@@ -1,6 +1,6 @@
 # Roadmap
 
-This roadmap is current as of 2026-09-12. It distinguishes work maintainers intend to deliver from
+This roadmap is current as of 2026-09-13. It distinguishes work maintainers intend to deliver from
 ideas that still require design or resourcing. It is not a promise of dates or hosted-service
 availability; priorities can change when security or compatibility work intervenes.
 
@@ -30,6 +30,8 @@ not imply a release date.
 
 - Continue closing documented OpenSSF Silver evidence gaps without overstating controls that are
   not yet independently exercised.
+- Publish the trusted executor image from the release workflow on the next release, signed and
+  attested like the tarball, so the kit under `deploy/` can be verified before it is mirrored.
 
 The open issue tracker is the source of truth for scope, acceptance criteria, and progress. An item
 leaves this section when it is released, rejected with rationale, or explicitly moved back to

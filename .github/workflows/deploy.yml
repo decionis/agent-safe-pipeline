@@ -119,13 +119,14 @@ jobs:
     if: >-
       (github.event_name == 'push' && github.ref == 'refs/heads/master') ||
       (github.event_name == 'workflow_dispatch' && inputs.release_dry_run)
-    needs: [verify, assurance]
+    needs: [verify, assurance, image]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       attestations: write
       contents: write
       id-token: write
+      packages: write
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
@@ -306,6 +307,69 @@ jobs:
         with:
           subject-path: release/${{ steps.release.outputs.tarball }}
           sbom-path: release/${{ steps.release.outputs.stem }}.cdx.json
+      - name: Build the trusted executor image
+        if: steps.release.outputs.exists != 'true'
+        id: image
+        env:
+          IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/agent-safe-trusted-executor
+          RELEASE_STEM: ${{ steps.release.outputs.stem }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+          PUBLISH: ${{ github.event_name == 'push' && 'true' || 'false' }}
+          GHCR_ACTOR: ${{ github.actor }}
+          GHCR_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="$(printf '%s' "$IMAGE_NAME" | tr '[:upper:]' '[:lower:]')"
+          docker build -f examples/trusted-executor/Dockerfile \
+            --label "org.opencontainers.image.version=$RELEASE_VERSION" \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            -t "$image:$RELEASE_VERSION" .
+          if output="$(docker run --rm "$image:$RELEASE_VERSION" 2>&1)"; then
+            echo "The executor started with no configuration." >&2
+            exit 1
+          fi
+          grep -q 'REFUSED_TO_START' <<<"$output"
+
+          if [[ "$PUBLISH" != "true" ]]; then
+            printf 'image=%s\nversion=%s\npublished=false\n' "$image" "$RELEASE_VERSION" \
+              > "release/$RELEASE_STEM.image.txt"
+            echo "published=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_ACTOR" --password-stdin
+          docker push "$image:$RELEASE_VERSION"
+          if [[ "$RELEASE_VERSION" != *-* ]]; then
+            docker tag "$image:$RELEASE_VERSION" "$image:latest"
+            docker push "$image:latest"
+          fi
+          digest="$(docker inspect --format '{{index .RepoDigests 0}}' "$image:$RELEASE_VERSION")"
+          digest="${digest##*@}"
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          printf 'image=%s\nversion=%s\ndigest=%s\npublished=true\n' \
+            "$image" "$RELEASE_VERSION" "$digest" > "release/$RELEASE_STEM.image.txt"
+          {
+            echo "published=true"
+            echo "name=$image"
+            echo "digest=$digest"
+          } >> "$GITHUB_OUTPUT"
+      - name: Attest the trusted executor image
+        if: steps.release.outputs.exists != 'true' && steps.image.outputs.published == 'true'
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ steps.image.outputs.name }}
+          subject-digest: ${{ steps.image.outputs.digest }}
+          push-to-registry: true
+      - name: Verify the published image attestation
+        if: steps.release.outputs.exists != 'true' && steps.image.outputs.published == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE_REFERENCE: ${{ steps.image.outputs.name }}@${{ steps.image.outputs.digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh attestation verify "oci://$IMAGE_REFERENCE" --repo "$GITHUB_REPOSITORY"
       - name: Prepare offline attestation assets
         if: steps.release.outputs.exists != 'true'
         env:
@@ -388,6 +452,9 @@ jobs:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
           RELEASE_TARBALL: ${{ steps.release.outputs.tarball }}
           RELEASE_VERSION: ${{ steps.release.outputs.version }}
+          IMAGE_PUBLISHED: ${{ steps.image.outputs.published }}
+          IMAGE_NAME: ${{ steps.image.outputs.name }}
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
         shell: bash
         run: |
           set -euo pipefail
@@ -400,10 +467,17 @@ jobs:
           else
             npm_note="npm publication was not enabled for this release."
           fi
+          if [[ "$IMAGE_PUBLISHED" == "true" ]]; then
+            image_note="Container image: \`$IMAGE_NAME:$RELEASE_VERSION\` at \`$IMAGE_DIGEST\`, attested by this workflow. Verify with \`gh attestation verify oci://$IMAGE_NAME@$IMAGE_DIGEST --repo $GITHUB_REPOSITORY\`."
+          else
+            image_note="The trusted executor image was built and checked for this release but not published."
+          fi
           {
             echo "## Verifiable artifacts"
             echo
             echo "$npm_note"
+            echo
+            echo "$image_note"
             echo
             echo '```sh'
             echo "shasum -a 256 -c SHA256SUMS"

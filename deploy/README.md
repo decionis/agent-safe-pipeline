@@ -21,16 +21,40 @@ and never executes.
 The image holds no configuration. Every address, name, token and key is supplied at run time, and
 the process refuses to start with one missing, naming the variable and never its value.
 
+## Getting the image
+
+Build it from the repository root:
+
+```bash
+docker build -f examples/trusted-executor/Dockerfile -t trusted-executor .
+```
+
+Or take the one the release workflow publishes. From the first release after this kit merged, every
+release pushes `ghcr.io/decionis/agent-safe-trusted-executor:<version>` (and `latest` for a stable
+release) to the organisation's GitHub container registry, attests the image digest with the same
+keyless workflow identity that signs the release tag, verifies that attestation before the release is
+created, and records the reference and digest in the release assets. A dry run builds the image and
+never pushes. Verify before you run it:
+
+```bash
+gh attestation verify oci://ghcr.io/decionis/agent-safe-trusted-executor:<version> \
+  --repo decionis/agent-safe-pipeline
+```
+
+Then mirror it into your own registry and put that reference in the manifest. `IMAGE_PLACEHOLDER` is
+deliberately not the public name: a cluster pulls what it has verified and mirrored.
+
 ## Who supplies what
 
-| Piece                                                         | Who                                                                |
-| ------------------------------------------------------------- | ------------------------------------------------------------------ |
-| The executor, its image, the manifest, the proof              | This repository                                                    |
-| The authority behind `DecionisGate`                           | The Decionis service, or your implementation of the two interfaces |
-| Policy                                                        | You, in the authority                                              |
-| The handlers, the parameter schemas, the downstream addresses | You, in `src/Handlers.ts` and the ConfigMap                        |
-| The caller token, the API key, the downstream credential      | You, as Secrets the manifest references                            |
-| Executor isolation, agent egress denial, credential scoping   | Your cluster, starting from the NetworkPolicy in the manifest      |
+| Piece                                                         | Who                                                                    |
+| ------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| The executor, its image, the manifest, the proof              | This repository                                                        |
+| The authority behind `DecionisGate`                           | The Decionis service, or your implementation of the two interfaces     |
+| Policy                                                        | You, in the authority                                                  |
+| The handlers, the parameter schemas, the downstream addresses | You, in `src/Handlers.ts` and the ConfigMap                            |
+| The escalation shape: who approves, through which ceremony    | You, in the ConfigMap (`DIRECT` or `MANAGED`; `NONE` returns the hold) |
+| The caller token, the API key, the downstream credential      | You, as Secrets the manifest references                                |
+| Executor isolation, agent egress denial, credential scoping   | Your cluster, starting from the NetworkPolicy in the manifest          |
 
 The seam between the library and the authority is written down in [OPEN-CORE.md](../OPEN-CORE.md).
 This kit deploys the library's side of it.

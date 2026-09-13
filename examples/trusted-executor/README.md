@@ -32,12 +32,13 @@ for the controls the host owns: executor isolation, agent egress denial, credent
 
 ## The wire contract
 
-| Method | Path                  | Token | What it does                                                                   |
-| ------ | --------------------- | ----- | ------------------------------------------------------------------------------ |
-| `GET`  | `/health`             | no    | The process is up                                                              |
-| `GET`  | `/ready`              | no    | Configuration loaded and the registry sealed; reports the mode and the actions |
-| `POST` | `/v1/actions`         | yes   | Capture, evaluate, and in enforcement execute once on an `ALLOW`               |
-| `POST` | `/v1/reconciliations` | yes   | Read-only: what the provider did with an attempt whose answer was lost         |
+| Method | Path                  | Token | What it does                                                                        |
+| ------ | --------------------- | ----- | ----------------------------------------------------------------------------------- |
+| `GET`  | `/health`             | no    | The process is up                                                                   |
+| `GET`  | `/ready`              | no    | Configuration loaded and the registry sealed; reports the mode and the actions      |
+| `POST` | `/v1/actions`         | yes   | Capture, evaluate, and in enforcement execute once on an `ALLOW`                    |
+| `POST` | `/v1/reconciliations` | yes   | Read-only: what the provider did with an attempt whose answer was lost              |
+| `POST` | `/v1/escalations`     | yes   | Resume an open escalation: one lookup, then a fresh decision if the person answered |
 
 The caller presents the caller token as `Authorization: Bearer <token>`; it is compared in constant
 time and never logged. Bodies are JSON, at most 100 KiB, and a refusal is a status and a stable code
@@ -88,11 +89,12 @@ The answer, in enforcement:
 ```
 
 `outcome` is one of the executor's four ([docs/execution-outcomes.md](../../docs/execution-outcomes.md)):
-`COMPLETED`, `BLOCKED`, `FAILED_BEFORE_DISPATCH`, `UNKNOWN_AFTER_DISPATCH`. An `ESCALATE` or a
-`BLOCK` comes back with `executed: false`, no `authorization`, and the reason codes; the hold is the
-answer. Resolving an escalation through Presence is the next thing an adopter wires in, and
-[`examples/local-escalation`](../local-escalation) shows both ways to do it. `authorization` is the
-consumed binding, kept as evidence; the grant token itself never leaves the process.
+`COMPLETED`, `BLOCKED`, `FAILED_BEFORE_DISPATCH`, `UNKNOWN_AFTER_DISPATCH`, or `ESCALATE_PENDING`
+while a person has yet to answer. A `BLOCK` comes back with `executed: false`, no `authorization`,
+and the reason codes. An `ESCALATE` comes back the same way, plus an `escalation` object when the
+executor is configured to resolve one (below); with `EXECUTOR_ESCALATION=NONE` the hold is the
+answer. `authorization` is the consumed binding, kept as evidence; the grant token itself never
+leaves the process.
 
 In shadow, `mode` is `SHADOW`, `outcome` is the observation status (`OBSERVED`, `UNAVAILABLE`,
 `TIMED_OUT`, `INVALID`), `executed` is always `false`, and `authorization` is always `null`. The
@@ -108,28 +110,55 @@ key, never sending the request again. The intent is re-hashed on the way in, so 
 longer matches its reference and is refused with `RECOVERY_BINDING_MISMATCH`. The process keeps no
 state between the two calls.
 
+### `POST /v1/escalations`
+
+An `ESCALATE` means a named person has to approve this exact intent. The executor resolves it in
+one of two shapes, chosen by `EXECUTOR_ESCALATION`; both are stateless on this side, and in both the
+authority decides again with the person's answer as evidence before any grant exists:
+
+| Shape     | Who talks to Presence                                                                                  | What the caller is handed                                                   |
+| --------- | ------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------- |
+| `DIRECT`  | This process, holding the Presence credential; the request is bound to the intent hash the person sees | `{ mode: "DIRECT", intent, request_id, approval_url, expires_at }`          |
+| `MANAGED` | The authority; no Presence credential exists in this process                                           | `{ mode: "MANAGED", intent, escalation }`, the authority's escalation state |
+
+The caller presents the `escalation` object back, unchanged, whenever it wants an answer. The
+executor makes one bounded lookup: still pending comes back as `ESCALATE_PENDING` with the state to
+present next time; an approval goes back to the authority, which evaluates the same intent again
+and, on `ALLOW`, the action runs once; a denial, expiry or cancellation is a `BLOCK`. The intent is
+re-hashed on the way in, so a receipt or an escalation that belongs to a different intent yields
+nothing, and an intent past `EXECUTOR_INTENT_TTL_SECONDS` is refused with `409 INTENT_EXPIRED`: an
+approval cannot revive an expired intent. Nothing waits inside a request, and nothing is kept
+between two.
+
 ## Configuration
 
 Every variable, in one list (`CONFIG_KEYS` in [`src/Config.ts`](./src/Config.ts)). A missing or
 invalid value is a refusal to start that names the variable and never its value. Nothing that
 identifies a tenant, a system, a person or a network path has a default.
 
-| Variable                                          | Meaning                                                                                      |
-| ------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `EXECUTOR_MODE`                                   | `SHADOW` or `ENFORCEMENT`                                                                    |
-| `EXECUTOR_BIND_ADDRESS`, `PORT`                   | Where the listener binds                                                                     |
-| `EXECUTOR_TENANT_ID`                              | The Decionis tenant, a UUID                                                                  |
-| `EXECUTOR_ACTOR_ID`, `_TYPE`                      | The actor the intent names; `EXECUTOR_ACTOR_RUNTIME` is optional                             |
-| `EXECUTOR_CALLER_TOKEN`                           | The token the proposing workflow presents; secret                                            |
-| `DECIONIS_API_URL`                                | The authority, HTTPS                                                                         |
-| `DECIONIS_API_KEY`                                | The server-side Decionis credential; secret                                                  |
-| `DECIONIS_ALLOW_INSECURE_LOOPBACK`                | `true` permits plain HTTP to loopback for local doubles; refused under `NODE_ENV=production` |
-| `DOWNSTREAM_URL`                                  | Where the shipped handler forwards the verified parameters, HTTPS                            |
-| `DOWNSTREAM_LOOKUP_URL`                           | Optional read-only lookup for reconciliation; must contain `{idempotency_key}`               |
-| `DOWNSTREAM_SYSTEM`, `_OPERATION`, `_ENVIRONMENT` | The downstream target the intent names                                                       |
-| `DOWNSTREAM_CREDENTIAL`                           | The header value the downstream expects, prefix included; secret                             |
-| `DOWNSTREAM_CREDENTIAL_HEADER`                    | The header it goes in                                                                        |
-| `DOWNSTREAM_TIMEOUT_MS`                           | Finite, at most fifteen seconds                                                              |
+| Variable                                                      | Meaning                                                                                                 |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `EXECUTOR_MODE`                                               | `SHADOW` or `ENFORCEMENT`                                                                               |
+| `EXECUTOR_BIND_ADDRESS`, `PORT`                               | Where the listener binds                                                                                |
+| `EXECUTOR_TENANT_ID`                                          | The Decionis tenant, a UUID                                                                             |
+| `EXECUTOR_ACTOR_ID`, `_TYPE`                                  | The actor the intent names; `EXECUTOR_ACTOR_RUNTIME` is optional                                        |
+| `EXECUTOR_INTENT_TTL_SECONDS`                                 | How long a proposal stays valid, at most five minutes; a ceremony has to finish inside it               |
+| `EXECUTOR_CALLER_TOKEN`                                       | The token the proposing workflow presents; secret                                                       |
+| `EXECUTOR_ESCALATION`                                         | `NONE`, `DIRECT` or `MANAGED`; refused in shadow, which never escalates                                 |
+| `DECIONIS_API_URL`                                            | The authority, HTTPS                                                                                    |
+| `DECIONIS_API_KEY`                                            | The server-side Decionis credential; secret                                                             |
+| `DECIONIS_ALLOW_INSECURE_LOOPBACK`                            | `true` permits plain HTTP to loopback for local doubles; refused under `NODE_ENV=production`            |
+| `PRESENCE_APPROVER_ID`                                        | The person who must approve (`DIRECT` and `MANAGED`); `PRESENCE_APPROVER_ROLE` is optional in `MANAGED` |
+| `PRESENCE_VERIFICATION_LEVEL`, `_METHODS`                     | `STANDARD` or `HIGH_CONFIDENCE`, and a comma-separated list of `WEBAUTHN`, `ACTIVE_LIVENESS`            |
+| `PRESENCE_API_URL`, `PRESENCE_API_KEY`                        | `DIRECT` only: the Presence service and its server-side credential; secret                              |
+| `PRESENCE_ORGANIZATION`                                       | `DIRECT` only: the requesting party the person sees                                                     |
+| `PRESENCE_HARDWARE_PKI_REQUIRED`, `_DISALLOW_VIRTUAL_CAMERAS` | `DIRECT` only: `true` or `false`                                                                        |
+| `DOWNSTREAM_URL`                                              | Where the shipped handler forwards the verified parameters, HTTPS                                       |
+| `DOWNSTREAM_LOOKUP_URL`                                       | Optional read-only lookup for reconciliation; must contain `{idempotency_key}`                          |
+| `DOWNSTREAM_SYSTEM`, `_OPERATION`, `_ENVIRONMENT`             | The downstream target the intent names                                                                  |
+| `DOWNSTREAM_CREDENTIAL`                                       | The header value the downstream expects, prefix included; secret                                        |
+| `DOWNSTREAM_CREDENTIAL_HEADER`                                | The header it goes in                                                                                   |
+| `DOWNSTREAM_TIMEOUT_MS`                                       | Finite, at most fifteen seconds                                                                         |
 
 Each secret may be given as the variable or as `<NAME>_FILE`, the path of a mounted file, and never
 both. The manifest uses the file form so no value sits in a pod specification.
@@ -149,8 +178,9 @@ docker build -f examples/trusted-executor/Dockerfile -t trusted-executor .
 ```
 
 Built from the repository root. The image bakes `NODE_ENV=production`, runs as a non-root user, and
-holds no configuration; [`deploy/`](../../deploy) has the manifest that supplies it and the runbook
-from shadow to enforcement.
+holds no configuration; [`deploy/`](../../deploy) has the manifest that supplies it, the runbook
+from shadow to enforcement, and how to take the image the release workflow publishes and verify it
+instead of building your own.
 
 ## What a green run is not
 

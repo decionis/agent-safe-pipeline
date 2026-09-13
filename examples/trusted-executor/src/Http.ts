@@ -22,6 +22,7 @@ export const ROUTES = [
   { method: "GET", path: "/ready", public: true },
   { method: "POST", path: "/v1/actions", public: false },
   { method: "POST", path: "/v1/reconciliations", public: false },
+  { method: "POST", path: "/v1/escalations", public: false },
 ] as const satisfies readonly RouteDefinition[];
 
 /** Every response, success or refusal, carries the same protective headers. */
@@ -96,6 +97,7 @@ export class ExecutorHttpServer {
           return ExecutorHttpServer.reply(response, 200, {
             status: "ready",
             mode: this.service.mode,
+            escalation: this.service.escalationMode,
             actions: this.service.actions,
           });
         case "/v1/actions":
@@ -109,6 +111,12 @@ export class ExecutorHttpServer {
             response,
             200,
             await this.service.reconcile(await ExecutorHttpServer.readJson(request)),
+          );
+        case "/v1/escalations":
+          return ExecutorHttpServer.reply(
+            response,
+            200,
+            await this.service.resume(await ExecutorHttpServer.readJson(request)),
           );
       }
     } catch (error) {
