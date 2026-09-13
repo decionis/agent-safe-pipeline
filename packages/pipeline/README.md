@@ -393,6 +393,10 @@ The banking profile of the protocol, whose reference runtime builds on this pack
 [banking.decionis.com](https://banking.decionis.com) (BEAP v0.1, Draft / Design Partner Review, not a
 finished standard). The Commerce Gate this repository's MCP server fronts is at
 [commerce.decionis.com](https://commerce.decionis.com).
+The proof-of-human infrastructure this package's `PresenceApprovalCoordinator` coordinates with is
+described at [decionis.com/presence](https://decionis.com/presence)
+and runs at [presence.decionis.com](https://presence.decionis.com); production enforcement there is
+sales-assisted.
 
 - Jejelowo, Festus. "The Execution Verifiability Gap: Why Model Governance Cannot Authorize
   Consequential Actions." Decionis Research, version 1.0, 21 August 2026.

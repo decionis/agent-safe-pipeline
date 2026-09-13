@@ -83,9 +83,11 @@ for (const directory of exampleDirectories) {
   }
   const familyRows = onboarding
     .split("\n")
-    .filter((line) => /^\| (?:AI agent|Commerce|Banking|Autonomous workflows) /.test(line));
-  if (familyRows.length !== 4)
-    problems.push(`expected four family rows, found ${familyRows.length}`);
+    .filter((line) =>
+      /^\| (?:AI agent|Commerce|Banking|Proof of human|Autonomous workflows) /.test(line),
+    );
+  if (familyRows.length !== 5)
+    problems.push(`expected five family rows, found ${familyRows.length}`);
   for (const row of familyRows) {
     const urls = [...row.matchAll(/https:\/\/[^\s)|]+/g)].map((match) => match[0]);
     if (urls.length !== 1)

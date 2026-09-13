@@ -163,6 +163,8 @@ Published research:
 
 Profiles of the protocol: the [Banking Execution Authority Profile (BEAP)](https://banking.decionis.com) applies this architecture to a bank's disbursement, payment run, or limit increase — execution domains, the canonical banking instruction, batch binding, multi-party sign-offs, effect evidence — and its reference runtime builds on `@decionis/agent-safe-pipeline`. BEAP v0.1 is a Draft / Design Partner Review document, not a finished standard; the runtime is not in this repository.
 
+Proof-of-human infrastructure: the [proof-of-human infrastructure page](https://decionis.com/presence) on the platform site says what the human-authority layer is — a verified, present person on their own device, bound to one exact action, sealed in a signed Presence Record the authority re-checks before commit — and the [Presence property](https://presence.decionis.com) is where it runs; this repository's `PresenceApprovalCoordinator` and the `examples/local-escalation`, `examples/presence-live-approval` and `examples/presence-managed-approval` examples are the reference for resolving an ESCALATE with it. Production enforcement is sales-assisted; the loopback double simulates the ceremony and proves nothing about a real one.
+
 Companion notes on the Execution Authority model, the authorization protocol, Presence-verified human approval, and Decision Dossiers are in preparation. Following this repository's discovery rules, a publication link is added here only after its canonical article resolves publicly.
 
 | Research concept              | Implementation in this repository                                                                                                                                                                  |
@@ -216,7 +218,7 @@ the trust boundary between synthetic conformance and production verification.
 ## Start here
 
 [ONBOARDING.md](./ONBOARDING.md) is the adopter's journey — install, capture, verdict, approval,
-grant, execute once, outcome, evidence — walked for four families: AI agent, commerce, banking,
+grant, execute once, outcome, evidence — walked for five families: AI agent, commerce, banking, proof of human,
 and autonomous workflows, each pointing at the example that runs it and the property that owns it.
 
 ## Evaluating this repository
