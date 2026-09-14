@@ -30,8 +30,16 @@ not imply a release date.
 
 - Continue closing documented OpenSSF Silver evidence gaps without overstating controls that are
   not yet independently exercised.
-- Publish the trusted executor image from the release workflow on the next release, signed and
-  attested like the tarball, so the kit under `deploy/` can be verified before it is mirrored.
+- Publish the trusted executor image, `ghcr.io/decionis/agentsafe`, from the release workflow on the
+  next release, signed and attested like the tarball, so the kit under `deploy/` can be verified
+  before it is mirrored; the executor itself is `@decionis/agentsafe` in `packages/agentsafe`.
+- Turn the trusted executor into a bank security boundary in eight pull requests
+  ([#136](https://github.com/decionis/agent-safe-pipeline/issues/136)): the package promotion,
+  verified host posture and secret handling, sealed egress with chained evidence, caller principals,
+  a durable attempt journal with a halt switch and host ceilings, an adapter tree whose first family
+  speaks the BEAP v0.1 vocabulary, a conformance-tested deployment kit, and incident-response
+  capabilities with offline drills. Each phase says "verified" or "shipped" where that is what it
+  is, and never claims a control the host still owns.
 
 The open issue tracker is the source of truth for scope, acceptance criteria, and progress. An item
 leaves this section when it is released, rejected with rationale, or explicitly moved back to

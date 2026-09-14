@@ -371,7 +371,7 @@ Runnable, offline, and fixture-backed unless noted. Each one uses this package u
 - [`golden-adversarial-demo`](https://github.com/decionis/agent-safe-pipeline/tree/master/examples/golden-adversarial-demo): one golden path, eight attacks, zero unauthorized executions.
 - [`whisper-boundary-demo`](https://github.com/decionis/agent-safe-pipeline/tree/master/examples/whisper-boundary-demo): the same proof for a shopping agent — six attacks, zero unauthorized effects.
 - [`crm-outreach-demo`](https://github.com/decionis/agent-safe-pipeline/tree/master/examples/crm-outreach-demo): who can approve a sales agent's CRM update or outbound message — six attacks, a lost provider response reconciled once, zero unauthorized effects.
-- [`trusted-executor`](https://github.com/decionis/agent-safe-pipeline/tree/master/examples/trusted-executor): the execution boundary as one deployable process — an HTTP trusted executor in front of these components, with an image, a Kubernetes manifest and a shadow-to-enforcement runbook in the repository's [deployment kit](https://github.com/decionis/agent-safe-pipeline/blob/master/deploy/README.md).
+- [`trusted-executor`](https://github.com/decionis/agent-safe-pipeline/tree/master/examples/trusted-executor): the proof of `@decionis/agentsafe`, the execution boundary as one deployable process — an HTTP trusted executor in front of these components — over real HTTP against the loopback doubles, and the adopter's template; the image, Kubernetes manifest and shadow-to-enforcement runbook are in the repository's [deployment kit](https://github.com/decionis/agent-safe-pipeline/blob/master/deploy/README.md).
 
 ## Open core
 

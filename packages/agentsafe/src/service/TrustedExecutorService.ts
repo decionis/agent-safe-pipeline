@@ -1,4 +1,3 @@
-import { z } from "zod";
 import {
   ActionRegistry,
   AuditRecorder,
@@ -7,120 +6,33 @@ import {
   DecionisGrantVerifier,
   ExecutionIntentSchema,
   IntentCapture,
-  JsonObjectSchema,
   SafeExecutor,
   ShadowPipeline,
   type CapturedIntent,
-  type ExecutionRecoveryReference,
   type GateDecision,
   type JsonObject,
   type SafeExecutionResult,
   type TrustedIntentContext,
 } from "@decionis/agent-safe-pipeline";
-import { LineAuditSink, type LineWriter } from "./Audit.js";
-import type { EscalationMode, ExecutorConfig, ExecutorMode } from "./Config.js";
+import { LineAuditSink, type LineWriter } from "../audit/LineAuditSink.js";
+import type { EscalationMode, ExecutorConfig, ExecutorMode } from "../config/ExecutorConfig.js";
+import type { FetchLike, HandlerRegistration } from "../handlers/HandlerRegistration.js";
 import {
   EscalationHandoffSchema,
   EscalationResolver,
   type EscalationDependencies,
   type EscalationHandoff,
   type EscalationState,
-} from "./Escalation.js";
-import { REGISTERED_ACTIONS, registerHandlers, type FetchLike } from "./Handlers.js";
-
-const identifier = z.string().trim().min(1).max(200);
-
-/**
- * What the caller sends. `proposal` is the agent's part and nothing else:
- * tenant, actor, downstream target and credentials come from the executor's
- * own configuration, and a request that tries to supply them is refused by
- * the strict schema. The idempotency key and correlation id are the caller's,
- * derived from its own record of the work, never from the model.
- */
-export const ProposalRequestSchema = z.strictObject({
-  proposal: z.strictObject({
-    action: z.string().trim().min(1).max(120),
-    target: z.string().trim().min(1).max(500),
-    parameters: JsonObjectSchema.optional(),
-  }),
-  idempotency_key: z.string().trim().min(1).max(180),
-  correlation_id: identifier.optional(),
-});
-
-export type ProposalRequest = z.infer<typeof ProposalRequestSchema>;
-
-/** The recovery reference the executor returned, presented back verbatim with the intent. */
-export const ReconciliationRequestSchema = z.strictObject({
-  intent: z.record(z.string(), z.unknown()),
-  reference: z.strictObject({
-    version: z.literal("agent-safe.recovery/1"),
-    decisionId: identifier,
-    dossierId: identifier,
-    grantId: identifier,
-    intentHash: z.string().regex(/^sha256:[0-9a-f]{64}$/),
-    expiresAt: z.string().datetime(),
-    idempotencyKey: z.string().trim().min(1).max(180),
-  }),
-});
-
-export type ReconciliationRequest = z.infer<typeof ReconciliationRequestSchema>;
-
-/** The consumed binding, as evidence. The token itself never leaves the process. */
-export interface AuthorizationBinding {
-  readonly decision_id: string;
-  readonly dossier_id: string;
-  readonly grant_id: string;
-  readonly expires_at: string;
-}
-
-export interface ActionResponse {
-  readonly mode: ExecutorMode;
-  readonly intent_id: string;
-  readonly intent_hash: string;
-  readonly verdict: "ALLOW" | "ESCALATE" | "BLOCK" | null;
-  readonly decision_id: string | null;
-  readonly dossier_id: string | null;
-  readonly reason_codes: readonly string[];
-  readonly fail_closed: boolean;
-  /**
-   * Shadow: the observation status. Enforcement: the executor outcome, or
-   * `ESCALATE_PENDING` while a person has yet to answer.
-   */
-  readonly outcome: string;
-  readonly executed: boolean | null;
-  readonly authorization: AuthorizationBinding | null;
-  readonly finalization: "RECORDED" | "PENDING" | "UNSUPPORTED" | null;
-  readonly result: unknown;
-  /** Present only for `UNKNOWN_AFTER_DISPATCH`: what to present to reconcile. */
-  readonly recovery: {
-    readonly intent: CapturedIntent["intent"];
-    readonly reference: ExecutionRecoveryReference;
-  } | null;
-  /** Present while an escalation is open: what to present to resume. */
-  readonly escalation: EscalationHandoff | null;
-}
-
-export interface ReconciliationResponse {
-  readonly intent_id: string;
-  readonly intent_hash: string;
-  readonly outcome: string;
-  readonly executed: boolean | null;
-  readonly recovered: boolean;
-  readonly reason_codes: readonly string[];
-  readonly authorization: AuthorizationBinding | null;
-  readonly result: unknown;
-}
-
-/** A refusal the service meant: a status and a stable code, nothing echoed. */
-export class ServiceError extends Error {
-  public constructor(
-    public readonly status: number,
-    public readonly code: string,
-  ) {
-    super(code);
-    this.name = "ServiceError";
-  }
-}
+} from "./EscalationResolver.js";
+import {
+  ProposalRequestSchema,
+  ReconciliationRequestSchema,
+  type ActionResponse,
+  type AuthorizationBinding,
+  type ProposalRequest,
+  type ReconciliationResponse,
+} from "./Requests.js";
+import { ServiceError } from "./ServiceError.js";
 
 export interface ServiceDependencies extends EscalationDependencies {
   /** Where audit lines go; stdout in the process, an array in the proof. */
@@ -146,13 +58,19 @@ export class TrustedExecutorService {
     private readonly config: ExecutorConfig,
     private readonly capture: IntentCapture,
     private readonly registry: ActionRegistry,
+    private readonly registered: readonly string[],
     private readonly executor: SafeExecutor,
     private readonly escalation: EscalationResolver,
     private readonly shadow: ShadowPipeline | null,
   ) {}
 
+  /**
+   * Wires the boundary. `handlers` is the adopter's seam: it registers what
+   * this process can run, and the registry is sealed the moment it returns.
+   */
   public static create(
     config: ExecutorConfig,
+    handlers: HandlerRegistration,
     dependencies: ServiceDependencies = {},
   ): TrustedExecutorService {
     const emit =
@@ -171,15 +89,18 @@ export class TrustedExecutorService {
     };
     const gate = new DecionisGate({ ...authority, mode: config.mode });
     const verifier = new DecionisGrantVerifier(authority);
-    const registry = registerHandlers(
-      new ActionRegistry(),
-      config.downstream,
-      dependencies.fetch ?? fetch,
-    ).seal();
+    const registry = new ActionRegistry();
+    const registered = handlers({
+      registry,
+      downstream: config.downstream,
+      fetch: dependencies.fetch ?? fetch,
+    });
+    registry.seal();
     return new TrustedExecutorService(
       config,
       new IntentCapture({ ttlSeconds: config.intentTtlSeconds }),
       registry,
+      registered,
       new SafeExecutor(registry, verifier, audit),
       new EscalationResolver(config.escalation, gate, audit, dependencies),
       config.mode === "SHADOW" ? new ShadowPipeline(gate, { audit }) : null,
@@ -196,7 +117,7 @@ export class TrustedExecutorService {
 
   /** The actions this process can run, for `/ready`. */
   public get actions(): readonly string[] {
-    return REGISTERED_ACTIONS.filter((action) => this.registry.has(action));
+    return this.registered.filter((action) => this.registry.has(action));
   }
 
   public async propose(input: unknown): Promise<ActionResponse> {

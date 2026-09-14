@@ -1,7 +1,7 @@
 # The trusted executor, deployed inside the adopter's own boundary.
 #
 # Nothing here carries a value that belongs to a deployment. IMAGE_PLACEHOLDER
-# is the executor image in your registry (examples/trusted-executor/Dockerfile);
+# is the executor image in your registry (packages/agentsafe/Dockerfile);
 # every host is `.example`; every credential is a Secret you create and this
 # manifest only references. There is no `kind: Secret` here.
 apiVersion: v1

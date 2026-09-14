@@ -1,16 +1,17 @@
 /**
  * The trusted executor as a process, proved offline.
  *
- * Starts the loopback Decionis and Presence doubles from the package's
+ * Starts the loopback Decionis and Presence doubles from the pipeline's
  * testing entry and a loopback stand-in for a downstream provider, then runs
- * this example's executor over real HTTP in every configuration: shadow,
- * where nothing executes; enforcement, where one ALLOW is one dispatch; and
- * enforcement with each escalation shape, where a person's answer is fetched
- * once and the authority decides again. Every expectation is asserted, so the
- * run is a self-checking proof: the process exits 0 only when every refusal
- * held, every legitimate path executed exactly once, a lost provider
- * response was reconciled without a second send, and no credential, token,
- * or key reached a response or an audit line.
+ * the executor from `@decionis/agentsafe`, with this example's handlers, over
+ * real HTTP in every configuration: shadow, where nothing executes;
+ * enforcement, where one ALLOW is one dispatch; and enforcement with each
+ * escalation shape, where a person's answer is fetched once and the authority
+ * decides again. Every expectation is asserted, so the run is a self-checking
+ * proof: the process exits 0 only when every refusal held, every legitimate
+ * path executed exactly once, a lost provider response was reconciled without
+ * a second send, and no credential, token, or key reached a response or an
+ * audit line.
  *
  * All identities are synthetic; the tokens are generated at run time.
  */
@@ -23,10 +24,16 @@ import {
   LocalAuthority,
   LocalPresence,
 } from "@decionis/agent-safe-pipeline/testing";
-import { CONFIG_KEYS, ExecutorConfigLoader } from "./Config.js";
-import { FORWARD_REQUEST_ACTION } from "./Handlers.js";
-import { ExecutorHttpServer, MAX_BODY_BYTES, RESPONSE_HEADERS } from "./Http.js";
-import { TrustedExecutorService } from "./Service.js";
+import {
+  CONFIG_KEYS,
+  ExecutorConfigLoader,
+  FORWARD_REQUEST_ACTION,
+  MAX_BODY_BYTES,
+  RESPONSE_HEADERS,
+  createTrustedExecutor,
+  type TrustedExecutor,
+} from "@decionis/agentsafe";
+import { handlers } from "./Handlers.js";
 
 const LOOPBACK_ORIGIN = "http://127.0.0.1";
 const TENANT_ID = "00000000-0000-4000-8000-000000000007";
@@ -176,7 +183,7 @@ const responses: string[] = [];
 
 interface RunningExecutor {
   readonly baseUrl: string;
-  readonly server: ExecutorHttpServer;
+  readonly executor: TrustedExecutor;
 }
 
 async function startExecutor(
@@ -184,12 +191,13 @@ async function startExecutor(
   escalation: Escalation = "NONE",
 ): Promise<RunningExecutor> {
   const config = ExecutorConfigLoader.load(environment(mode, escalation));
-  const service = TrustedExecutorService.create(config, {
-    emit: (line) => auditLines.push(line),
+  const executor = await createTrustedExecutor({
+    config,
+    handlers,
+    dependencies: { emit: (line) => auditLines.push(line) },
   });
-  const server = new ExecutorHttpServer(service, config.callerToken);
-  const address = await server.listen(0, "127.0.0.1");
-  return { baseUrl: `${LOOPBACK_ORIGIN}:${address.port}`, server };
+  const address = await executor.listen(0, "127.0.0.1");
+  return { baseUrl: `${LOOPBACK_ORIGIN}:${address.port}`, executor };
 }
 
 interface Reply {
@@ -199,14 +207,14 @@ interface Reply {
 }
 
 async function call(
-  executor: RunningExecutor,
+  running: RunningExecutor,
   path: string,
   init: { readonly method?: string; readonly body?: string; readonly token?: string | null },
 ): Promise<Reply> {
   const headers: Record<string, string> = { "content-type": "application/json" };
   const token = init.token === undefined ? callerToken : init.token;
   if (token !== null) headers["authorization"] = `Bearer ${token}`;
-  const response = await fetch(`${executor.baseUrl}${path}`, {
+  const response = await fetch(`${running.baseUrl}${path}`, {
     method: init.method ?? "POST",
     headers,
     ...(init.body === undefined ? {} : { body: init.body }),
@@ -335,7 +343,7 @@ heading("Shadow: observe, record, never execute");
     "each observation is an OBSERVATIONAL audit event",
     `${observational.length} events`,
   );
-  await executor.server.close();
+  await executor.executor.close();
 }
 
 heading("Enforcement: one ALLOW, one dispatch");
@@ -562,7 +570,7 @@ heading("Direct escalation: this process opens the Presence request");
     "a denial is a BLOCK, and nothing runs",
     `reason ${(denied.body["reason_codes"] as string[]).join(",")}`,
   );
-  await direct.server.close();
+  await direct.executor.close();
 }
 
 heading("Managed escalation: the authority orchestrates Presence");
@@ -613,7 +621,7 @@ heading("Managed escalation: the authority orchestrates Presence");
     "the authority reaches GRANT_READY and the action runs once",
     `outcome ${String(resumed.body["outcome"])}, ${provider.effects.size - effectsBefore} effect`,
   );
-  await managed.server.close();
+  await managed.executor.close();
 }
 
 heading("Nothing secret left the process");
@@ -644,7 +652,7 @@ heading("Nothing secret left the process");
   );
 }
 
-await executor.server.close();
+await executor.executor.close();
 await provider.stop();
 await authority.stop();
 await presence.stop();

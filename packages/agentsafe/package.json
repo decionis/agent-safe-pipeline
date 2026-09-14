@@ -1,0 +1,78 @@
+{
+  "name": "@decionis/agentsafe",
+  "version": "0.1.0",
+  "description": "The trusted executor of the Execution Authority architecture as one deployable process: a proposal in over HTTP, a verdict from the authority, one execution on a claimed single-use grant, and the evidence of each.",
+  "keywords": [
+    "execution-authority",
+    "ai-agents",
+    "agentic-ai",
+    "agent-security",
+    "trusted-executor",
+    "authorization",
+    "policy-enforcement",
+    "human-in-the-loop",
+    "single-use-grant",
+    "intent-binding",
+    "least-privilege",
+    "fail-closed",
+    "shadow-mode",
+    "audit-trail",
+    "typescript",
+    "decionis"
+  ],
+  "license": "Apache-2.0",
+  "author": "Decionis, Inc.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/decionis/agent-safe-pipeline.git",
+    "directory": "packages/agentsafe"
+  },
+  "bugs": {
+    "url": "https://github.com/decionis/agent-safe-pipeline/issues"
+  },
+  "homepage": "https://github.com/decionis/agent-safe-pipeline/tree/master/packages/agentsafe#readme",
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "main": "./dist/Index.js",
+  "types": "./dist/Index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/Index.d.ts",
+      "import": "./dist/Index.js"
+    }
+  },
+  "bin": {
+    "agentsafe": "./dist/Cli.js"
+  },
+  "engines": {
+    "node": ">=22.14.0"
+  },
+  "scripts": {
+    "build": "node ../../scripts/CleanBuildOutput.mjs && tsc -p tsconfig.build.json",
+    "lint": "eslint .",
+    "test": "vitest run --coverage",
+    "test:mutation": "pnpm --filter @decionis/agent-safe-pipeline build && stryker run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@decionis/agent-safe-pipeline": "workspace:^",
+    "@decionis/presence-node": "^0.2.0",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@stryker-mutator/core": "10.0.0",
+    "@stryker-mutator/vitest-runner": "10.0.0",
+    "@vitest/coverage-v8": "^4.1.10",
+    "vitest": "^4.1.11"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

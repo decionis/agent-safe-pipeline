@@ -8,14 +8,14 @@ import { readFileSync } from "node:fs";
  * specification. A failure names the variable and never the value, and
  * nothing here logs.
  */
-export class Secrets {
+export class SecretStore {
   public static resolve(env: Readonly<Record<string, string | undefined>>, name: string): string {
     const direct = env[name];
     const path = env[`${name}_FILE`];
     if (direct !== undefined && path !== undefined) {
       throw new Error(`CONFIG_SECRET_AMBIGUOUS: ${name}`);
     }
-    if (path !== undefined) return Secrets.readFile(path, name);
+    if (path !== undefined) return SecretStore.readFile(path, name);
     if (direct === undefined) throw new Error(`CONFIG_SECRET_MISSING: ${name}`);
     const value = direct.trim();
     if (value.length === 0) throw new Error(`CONFIG_SECRET_EMPTY: ${name}`);

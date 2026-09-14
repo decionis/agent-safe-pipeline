@@ -1,0 +1,47 @@
+/**
+ * Every variable the executor reads, in one list so the README's table and
+ * the deployment manifest can be checked against it. Secrets may be given
+ * as `<NAME>` or as `<NAME>_FILE`; nothing else has a second spelling.
+ */
+export const CONFIG_KEYS = [
+  "EXECUTOR_MODE",
+  "EXECUTOR_BIND_ADDRESS",
+  "PORT",
+  "EXECUTOR_TENANT_ID",
+  "EXECUTOR_ACTOR_ID",
+  "EXECUTOR_ACTOR_TYPE",
+  "EXECUTOR_ACTOR_RUNTIME",
+  "EXECUTOR_INTENT_TTL_SECONDS",
+  "EXECUTOR_CALLER_TOKEN",
+  "EXECUTOR_ESCALATION",
+  "DECIONIS_API_URL",
+  "DECIONIS_API_KEY",
+  "DECIONIS_ALLOW_INSECURE_LOOPBACK",
+  "PRESENCE_API_URL",
+  "PRESENCE_API_KEY",
+  "PRESENCE_ORGANIZATION",
+  "PRESENCE_APPROVER_ID",
+  "PRESENCE_APPROVER_ROLE",
+  "PRESENCE_VERIFICATION_LEVEL",
+  "PRESENCE_VERIFICATION_METHODS",
+  "PRESENCE_HARDWARE_PKI_REQUIRED",
+  "PRESENCE_DISALLOW_VIRTUAL_CAMERAS",
+  "DOWNSTREAM_URL",
+  "DOWNSTREAM_LOOKUP_URL",
+  "DOWNSTREAM_SYSTEM",
+  "DOWNSTREAM_OPERATION",
+  "DOWNSTREAM_ENVIRONMENT",
+  "DOWNSTREAM_CREDENTIAL",
+  "DOWNSTREAM_CREDENTIAL_HEADER",
+  "DOWNSTREAM_TIMEOUT_MS",
+] as const;
+
+export type ConfigKey = (typeof CONFIG_KEYS)[number];
+
+/** Secrets: given as the variable or as `<NAME>_FILE`, never both. */
+export const SECRET_KEYS = [
+  "EXECUTOR_CALLER_TOKEN",
+  "DECIONIS_API_KEY",
+  "PRESENCE_API_KEY",
+  "DOWNSTREAM_CREDENTIAL",
+] as const satisfies readonly ConfigKey[];

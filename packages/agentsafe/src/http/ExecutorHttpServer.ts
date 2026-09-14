@@ -1,38 +1,14 @@
 import { createHash, timingSafeEqual } from "node:crypto";
+import { once } from "node:events";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import { ServiceError, type TrustedExecutorService } from "./Service.js";
+import { ServiceError } from "../service/ServiceError.js";
+import type { TrustedExecutorService } from "../service/TrustedExecutorService.js";
+import { MAX_BODY_BYTES, RESPONSE_HEADERS, ROUTES } from "./Routes.js";
 
-/** The payload limit on every route, in bytes. */
-export const MAX_BODY_BYTES = 100 * 1024;
 const REQUEST_TIMEOUT_MS = 15_000;
 const HEADERS_TIMEOUT_MS = 5_000;
 const KEEP_ALIVE_TIMEOUT_MS = 5_000;
-
-export interface RouteDefinition {
-  readonly method: "GET" | "POST";
-  readonly path: string;
-  /** Public routes answer without the caller token; they carry no state. */
-  readonly public: boolean;
-}
-
-/** The whole surface. The README's table is checked against this list. */
-export const ROUTES = [
-  { method: "GET", path: "/health", public: true },
-  { method: "GET", path: "/ready", public: true },
-  { method: "POST", path: "/v1/actions", public: false },
-  { method: "POST", path: "/v1/reconciliations", public: false },
-  { method: "POST", path: "/v1/escalations", public: false },
-] as const satisfies readonly RouteDefinition[];
-
-/** Every response, success or refusal, carries the same protective headers. */
-export const RESPONSE_HEADERS = {
-  "content-type": "application/json; charset=utf-8",
-  "cache-control": "no-store",
-  "x-content-type-options": "nosniff",
-  "content-security-policy": "default-src 'none'; frame-ancestors 'none'",
-  "x-frame-options": "DENY",
-} as const;
 
 class GuardError extends Error {
   public constructor(
@@ -40,6 +16,7 @@ class GuardError extends Error {
     public readonly code: string,
   ) {
     super(code);
+    // Stryker disable next-line StringLiteral: the name is diagnostic and never reaches a response.
     this.name = "GuardError";
   }
 }
@@ -68,13 +45,9 @@ export class ExecutorHttpServer {
   }
 
   public async listen(port: number, address: string): Promise<AddressInfo> {
-    await new Promise<void>((resolve, reject) => {
-      this.server.once("error", reject);
-      this.server.listen(port, address, () => {
-        this.server.off("error", reject);
-        resolve();
-      });
-    });
+    this.server.listen(port, address);
+    // Resolves on "listening" and rejects on an "error" emitted before it.
+    await once(this.server, "listening");
     return this.server.address() as AddressInfo;
   }
 
@@ -85,6 +58,7 @@ export class ExecutorHttpServer {
 
   private async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
     try {
+      // Stryker disable next-line all: Node sets `url` on every request it hands out; the fallback satisfies the type.
       const pathname = new URL(request.url ?? "/", "http://executor.invalid").pathname;
       const route = ROUTES.find((candidate) => candidate.path === pathname);
       if (route === undefined) throw new GuardError(404, "NOT_FOUND");
@@ -129,16 +103,22 @@ export class ExecutorHttpServer {
   }
 
   private authenticate(request: IncomingMessage): void {
-    const header = request.headers.authorization ?? "";
-    const presented = header.startsWith("Bearer ") ? header.slice("Bearer ".length).trim() : "";
-    if (presented.length === 0) throw new GuardError(401, "CALLER_NOT_AUTHENTICATED");
+    const header = request.headers.authorization;
+    if (header === undefined || !header.startsWith("Bearer ")) {
+      throw new GuardError(401, "CALLER_NOT_AUTHENTICATED");
+    }
+    // HTTP parsers trim the value's whitespace, so a bare scheme never reaches
+    // here; whatever follows it is compared as a digest, however short.
+    const presented = header.slice("Bearer ".length).trim();
     if (!timingSafeEqual(ExecutorHttpServer.digest(presented), this.expectedToken)) {
       throw new GuardError(401, "CALLER_NOT_AUTHENTICATED");
     }
   }
 
   private static async readJson(request: IncomingMessage): Promise<unknown> {
-    const declared = Number(request.headers["content-length"] ?? "0");
+    // Absent or unparseable is NaN, which is not finite and so not refused here;
+    // the streamed count below still bounds what is read.
+    const declared = Number(request.headers["content-length"]);
     if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
       throw new GuardError(413, "BODY_TOO_LARGE");
     }
@@ -160,6 +140,7 @@ export class ExecutorHttpServer {
   }
 
   private static reply(response: ServerResponse, status: number, body: unknown): void {
+    // Stryker disable next-line ConditionalExpression: a reply is written once per request; the guard is defensive.
     if (response.headersSent) return;
     response.writeHead(status, RESPONSE_HEADERS);
     response.end(JSON.stringify(body));

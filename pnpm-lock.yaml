@@ -170,12 +170,9 @@ importers:
       '@decionis/agent-safe-pipeline':
         specifier: workspace:*
         version: link:../../packages/pipeline
-      '@decionis/presence-node':
-        specifier: ^0.2.0
-        version: 0.2.0
-      zod:
-        specifier: ^4.5.4
-        version: 4.5.4
+      '@decionis/agentsafe':
+        specifier: workspace:*
+        version: link:../../packages/agentsafe
 
   examples/whisper-boundary-demo:
     dependencies:
@@ -185,6 +182,31 @@ importers:
       zod:
         specifier: ^4.5.4
         version: 4.5.4
+
+  packages/agentsafe:
+    dependencies:
+      '@decionis/agent-safe-pipeline':
+        specifier: workspace:^
+        version: link:../pipeline
+      '@decionis/presence-node':
+        specifier: ^0.2.0
+        version: 0.2.0
+      zod:
+        specifier: ^4.5.4
+        version: 4.5.4
+    devDependencies:
+      '@stryker-mutator/core':
+        specifier: 10.0.0
+        version: 10.0.0(@types/node@26.2.0)
+      '@stryker-mutator/vitest-runner':
+        specifier: 10.0.0
+        version: 10.0.0(@stryker-mutator/core@10.0.0(@types/node@26.2.0))(vitest@4.1.11)
+      '@vitest/coverage-v8':
+        specifier: ^4.1.10
+        version: 4.1.10(vitest@4.1.11)
+      vitest:
+        specifier: ^4.1.11
+        version: 4.1.11(@types/node@26.2.0)(@vitest/coverage-v8@4.1.10)(vite@6.4.3(@types/node@26.2.0)(tsx@4.23.13)(yaml@2.9.0))
 
   packages/commerce-mcp:
     devDependencies:
