@@ -394,7 +394,7 @@ The banking profile of the protocol, whose reference runtime builds on this pack
 finished standard). The Commerce Gate this repository's MCP server fronts is at
 [commerce.decionis.com](https://commerce.decionis.com).
 The proof-of-human infrastructure this package's `PresenceApprovalCoordinator` coordinates with is
-described at [decionis.com/presence](https://decionis.com/presence)
+described at [decionis.com/proof-of-human-infrastructure](https://decionis.com/proof-of-human-infrastructure)
 and runs at [presence.decionis.com](https://presence.decionis.com); production enforcement there is
 sales-assisted.
 
