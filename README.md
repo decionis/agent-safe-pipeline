@@ -79,6 +79,23 @@ See the [package README](./packages/pipeline/README.md) for the complete enforce
 
 To run the boundary as its own service rather than in-process, [`examples/trusted-executor`](./examples/trusted-executor) is the executor as a process: a listener in front of the same components, proved offline over real HTTP. [`deploy/`](./deploy) is its image, the Kubernetes manifest with every credential referenced and never written, and the runbook from shadow to enforcement.
 
+## Installing the Decionis CLI
+
+This repository is also the public distribution home of the `decionis` command-line tool: its
+[GitHub releases](https://github.com/decionis/agent-safe-pipeline/releases) carry every release's
+npm tarball, Debian and RPM packages, Windows archive and registry manifests, and the two
+manifests below are what package managers read. The CLI itself is not part of this repository's
+Apache-2.0 source; `formula/` and `apps/` hold metadata only.
+
+- **npm**: `npm install -g decionis`
+- **Homebrew**: `brew tap decionis/agent-safe https://github.com/decionis/agent-safe-pipeline`
+  then `brew install decionis` ([`Formula/decionis.rb`](./Formula/decionis.rb) fetches the npm
+  tarball and pins its SHA-256)
+- **Decionis app install**: `app install decionis` reads [`apps/decionis.json`](./apps/decionis.json)
+- **Windows**: the WinGet manifest `Decionis.CLI` points at each release's
+  `decionis-windows-x64-<version>.zip` here; until the manifest is accepted into winget-pkgs,
+  download the archive from the release and add `decionis\bin` to `PATH`
+
 ## Repository map
 
 - [`packages/pipeline`](./packages/pipeline) — `IntentCapture`, `DecionisGate`, Presence coordination, and `SafeExecutor`.
