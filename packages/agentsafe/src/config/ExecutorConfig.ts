@@ -1,6 +1,8 @@
 import { z } from "zod";
 import type { PresenceVerificationRequirements } from "@decionis/agent-safe-pipeline";
-import { SecretStore } from "../secrets/SecretStore.js";
+import { INSPECTED_ENVIRONMENT, type PostureConfig } from "../posture/PostureChecks.js";
+import type { PostureMode } from "../posture/HostPosture.js";
+import { SecretError, type SecretName } from "../secrets/SecretStore.js";
 
 export type ExecutorMode = "SHADOW" | "ENFORCEMENT";
 export type EscalationMode = "NONE" | "DIRECT" | "MANAGED";
@@ -14,7 +16,7 @@ export interface DownstreamConfig {
   readonly system: string;
   readonly operation: string;
   readonly environment: string;
-  readonly credential: string;
+  /** The header the static credential goes in; the value lives in the secret store. */
   readonly credentialHeader: string;
   readonly timeoutMs: number;
 }
@@ -32,7 +34,6 @@ export type EscalationConfig =
       readonly mode: "DIRECT";
       readonly presence: {
         readonly baseUrl: string;
-        readonly apiKey: string;
         readonly organization: string;
       };
       readonly approverId: string;
@@ -48,22 +49,38 @@ export type EscalationConfig =
       };
     };
 
+/** What the posture verifies, and how: declared by the deployment, never defaulted to lenient. */
+export interface PostureSettings extends PostureConfig {
+  readonly mode: PostureMode;
+  readonly intervalSeconds: number;
+}
+
+/**
+ * The executor's configuration: every setting, and the names of the secrets
+ * it needs, but no secret value. Values live in a `SecretStore`, read through
+ * a handle at the moment of use, so a rotation is followed and nothing here
+ * can be printed by mistake.
+ */
 export interface ExecutorConfig {
   readonly mode: ExecutorMode;
+  readonly production: boolean;
   readonly bindAddress: string;
   readonly port: number;
   readonly tenantId: string;
   readonly actor: { readonly id: string; readonly type: string; readonly runtime?: string };
   /** How long a proposal stays valid; a ceremony has to finish inside it. */
   readonly intentTtlSeconds: number;
-  readonly callerToken: string;
   readonly escalation: EscalationConfig;
   readonly authority: {
     readonly baseUrl: string;
-    readonly apiKey: string;
     readonly allowInsecureLoopback: boolean;
   };
   readonly downstream: DownstreamConfig;
+  readonly posture: PostureSettings;
+  readonly secrets: {
+    /** The secrets this configuration needs; each is given as a file or, outside production, a variable. */
+    readonly required: readonly SecretName[];
+  };
 }
 
 const identifier = z.string().trim().min(1).max(200);
@@ -85,6 +102,9 @@ const EnvironmentSchema = z.object({
   EXECUTOR_ACTOR_RUNTIME: identifier.optional(),
   EXECUTOR_INTENT_TTL_SECONDS: z.coerce.number().int().min(1).max(300),
   EXECUTOR_ESCALATION: z.enum(["NONE", "DIRECT", "MANAGED"]),
+  EXECUTOR_POSTURE: z.enum(["ENFORCED", "DEVELOPMENT"]).optional(),
+  EXECUTOR_POSTURE_INTERVAL_SECONDS: z.coerce.number().int().min(10).max(600).optional(),
+  EXECUTOR_SECRETS_DIR: z.string().trim().min(1).max(500).optional(),
   DECIONIS_API_URL: z.string().trim().min(1).max(500),
   DECIONIS_ALLOW_INSECURE_LOOPBACK: booleanFlag.optional(),
   PRESENCE_API_URL: z.string().trim().min(1).max(500).optional(),
@@ -109,6 +129,7 @@ const EnvironmentSchema = z.object({
 });
 
 type Environment = z.infer<typeof EnvironmentSchema>;
+type EnvironmentMap = Readonly<Record<string, string | undefined>>;
 
 const DIRECT_KEYS = [
   "PRESENCE_API_URL",
@@ -130,10 +151,11 @@ const MANAGED_KEYS = [
  * Reads the executor's configuration from an environment map. Every failure
  * is a refusal to start that names the variable, never its value. There is
  * no default for anything that identifies a tenant, a system, a person, or
- * a network path: a deployment states all of it.
+ * a network path: a deployment states all of it. Secrets are located here
+ * (which variable, which file) and read elsewhere.
  */
 export class ExecutorConfigLoader {
-  public static load(env: Readonly<Record<string, string | undefined>>): ExecutorConfig {
+  public static load(env: EnvironmentMap): ExecutorConfig {
     const production = env["NODE_ENV"] === "production";
     const present: Record<string, string> = {};
     for (const key of Object.keys(EnvironmentSchema.shape)) {
@@ -150,12 +172,37 @@ export class ExecutorConfigLoader {
     if (allowInsecureLoopback && production) {
       throw new Error("CONFIG_INVALID: DECIONIS_ALLOW_INSECURE_LOOPBACK (forbidden in production)");
     }
+    const postureMode = values.EXECUTOR_POSTURE ?? "ENFORCED";
+    if (postureMode === "DEVELOPMENT" && production) {
+      throw new Error("CONFIG_INVALID: EXECUTOR_POSTURE (forbidden in production)");
+    }
     const lookupUrl = values.DOWNSTREAM_LOOKUP_URL;
     if (lookupUrl !== undefined && !lookupUrl.includes("{idempotency_key}")) {
       throw new Error("CONFIG_INVALID: DOWNSTREAM_LOOKUP_URL (must contain {idempotency_key})");
     }
+    const escalation = ExecutorConfigLoader.escalation(values, allowInsecureLoopback);
+    const required: SecretName[] = [
+      "EXECUTOR_CALLER_TOKEN",
+      "DECIONIS_API_KEY",
+      "DOWNSTREAM_CREDENTIAL",
+    ];
+    if (escalation.mode === "DIRECT") required.push("PRESENCE_API_KEY");
+    const located = ExecutorConfigLoader.locateSecrets(env, required, production);
+    const secretsDir = values.EXECUTOR_SECRETS_DIR ?? null;
+    if (secretsDir !== null && !secretsDir.startsWith("/")) {
+      throw new Error("CONFIG_INVALID: EXECUTOR_SECRETS_DIR (absolute path)");
+    }
+    if (production && secretsDir === null && Object.keys(located.files).length > 0) {
+      throw new Error("CONFIG_INVALID: EXECUTOR_SECRETS_DIR (required in production)");
+    }
+    const environment: Record<string, string> = {};
+    for (const key of INSPECTED_ENVIRONMENT) {
+      const value = env[key];
+      if (value !== undefined) environment[key] = value;
+    }
     return {
       mode: values.EXECUTOR_MODE,
+      production,
       bindAddress: values.EXECUTOR_BIND_ADDRESS,
       port: values.PORT,
       tenantId: values.EXECUTOR_TENANT_ID,
@@ -167,15 +214,13 @@ export class ExecutorConfigLoader {
           : { runtime: values.EXECUTOR_ACTOR_RUNTIME }),
       },
       intentTtlSeconds: values.EXECUTOR_INTENT_TTL_SECONDS,
-      callerToken: SecretStore.resolve(env, "EXECUTOR_CALLER_TOKEN"),
-      escalation: ExecutorConfigLoader.escalation(env, values, allowInsecureLoopback),
+      escalation,
       authority: {
         baseUrl: ExecutorConfigLoader.serviceUrl(
           values.DECIONIS_API_URL,
           "DECIONIS_API_URL",
           allowInsecureLoopback,
         ),
-        apiKey: SecretStore.resolve(env, "DECIONIS_API_KEY"),
         allowInsecureLoopback,
       },
       downstream: {
@@ -195,18 +240,53 @@ export class ExecutorConfigLoader {
         system: values.DOWNSTREAM_SYSTEM,
         operation: values.DOWNSTREAM_OPERATION,
         environment: values.DOWNSTREAM_ENVIRONMENT,
-        credential: SecretStore.resolve(env, "DOWNSTREAM_CREDENTIAL"),
         credentialHeader: values.DOWNSTREAM_CREDENTIAL_HEADER.toLowerCase(),
         timeoutMs: values.DOWNSTREAM_TIMEOUT_MS,
       },
+      posture: {
+        mode: postureMode,
+        intervalSeconds: values.EXECUTOR_POSTURE_INTERVAL_SECONDS ?? 60,
+        production,
+        environment,
+        secretsInEnvironment: located.fromEnvironment,
+        secretFiles: located.files,
+        secretsDir,
+      },
+      secrets: { required },
     };
   }
 
-  private static escalation(
-    env: Readonly<Record<string, string | undefined>>,
-    values: Environment,
-    allowInsecureLoopback: boolean,
-  ): EscalationConfig {
+  /**
+   * Where each required secret is: a file (`<NAME>_FILE`) or, outside
+   * production, the variable itself. Given both ways, neither way, or in the
+   * environment under production is a refusal that names the variable.
+   */
+  private static locateSecrets(
+    env: EnvironmentMap,
+    required: readonly SecretName[],
+    production: boolean,
+  ): {
+    readonly files: Readonly<Partial<Record<SecretName, string>>>;
+    readonly fromEnvironment: readonly SecretName[];
+  } {
+    const files: Partial<Record<SecretName, string>> = {};
+    const fromEnvironment: SecretName[] = [];
+    for (const name of required) {
+      const direct = env[name];
+      const path = env[`${name}_FILE`];
+      if (direct !== undefined && path !== undefined) {
+        throw new SecretError("CONFIG_SECRET_AMBIGUOUS", name);
+      }
+      if (path !== undefined) files[name] = path;
+      else if (direct !== undefined) {
+        if (production) throw new SecretError("CONFIG_SECRET_IN_ENV", name);
+        fromEnvironment.push(name);
+      } else throw new SecretError("CONFIG_SECRET_MISSING", name);
+    }
+    return { files, fromEnvironment };
+  }
+
+  private static escalation(values: Environment, allowInsecureLoopback: boolean): EscalationConfig {
     const mode = values.EXECUTOR_ESCALATION;
     if (mode === "NONE") return { mode };
     // Shadow observes; it never escalates, and a managed escalation in shadow
@@ -236,7 +316,6 @@ export class ExecutorConfigLoader {
           "PRESENCE_API_URL",
           allowInsecureLoopback,
         ),
-        apiKey: SecretStore.resolve(env, "PRESENCE_API_KEY"),
         organization: values.PRESENCE_ORGANIZATION ?? "",
       },
       approverId,

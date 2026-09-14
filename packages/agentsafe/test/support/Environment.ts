@@ -5,6 +5,9 @@ import {
   type LocalAuthority,
   type LocalPresence,
 } from "@decionis/agent-safe-pipeline/testing";
+import type { ExecutorConfig } from "../../src/config/ExecutorConfig.js";
+import { SecurityEvents } from "../../src/incident/SecurityEvents.js";
+import { CompositeSecretStore } from "../../src/secrets/CompositeSecretStore.js";
 
 export const LOOPBACK_ORIGIN = "http://127.0.0.1";
 export const TENANT_ID = "00000000-0000-4000-8000-000000000007";
@@ -26,6 +29,8 @@ export function offlineEnvironment(): Record<string, string> {
     EXECUTOR_INTENT_TTL_SECONDS: "300",
     EXECUTOR_CALLER_TOKEN: CALLER_TOKEN,
     EXECUTOR_ESCALATION: "NONE",
+    // Tests run on a developer's machine: the host checks are waived and said so.
+    EXECUTOR_POSTURE: "DEVELOPMENT",
     DECIONIS_API_URL: "https://authority.decionis.example",
     DECIONIS_API_KEY: "synthetic-authority-key",
     DOWNSTREAM_URL: "https://payouts.provider.example/v1/payouts",
@@ -78,6 +83,27 @@ export function loopbackEnvironment(
     DOWNSTREAM_ENVIRONMENT: "local",
     DOWNSTREAM_TIMEOUT_MS: "2000",
   };
+}
+
+/** A security stream that collects its lines. */
+export function collectedEvents(lines: string[] = []): SecurityEvents {
+  return new SecurityEvents((line) => {
+    lines.push(line);
+  });
+}
+
+/** The secrets a configuration names, opened from the same environment; unwatched, for tests. */
+export function openSecrets(
+  env: Readonly<Record<string, string | undefined>>,
+  config: ExecutorConfig,
+  events: SecurityEvents = collectedEvents(),
+): CompositeSecretStore {
+  return CompositeSecretStore.fromEnvironment(env, config.secrets.required, {
+    events,
+    production: config.production,
+    enforcePermissions: config.posture.mode === "ENFORCED",
+    watch: false,
+  });
 }
 
 /** A loopback port nothing listens on, for "the service is down" cases. */

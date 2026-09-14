@@ -1,35 +1,42 @@
-import { readFileSync } from "node:fs";
+import type { SECRET_KEYS } from "../config/ConfigKeys.js";
+import type { SecretHandle } from "./SecretHandle.js";
+
+export type SecretName = (typeof SECRET_KEYS)[number];
+
+export type ReloadReason = "WATCH" | "POLL" | "SIGHUP" | "OPERATOR";
+
+export interface ReloadReport {
+  readonly reason: ReloadReason;
+  /** Secrets whose value changed and whose new handle is now current. */
+  readonly rotated: readonly SecretName[];
+  /** Secrets whose new file was refused; the previous handle stays current. */
+  readonly refused: readonly { readonly name: SecretName; readonly code: string }[];
+}
 
 /**
- * A secret the executor holds: the caller token, the Decionis API key, the
- * downstream credential. Each is supplied once, either as the environment
- * variable itself or as `<NAME>_FILE`, the path of a mounted file, which is
- * what the Kubernetes manifest uses so the value never sits in the pod
- * specification. A failure names the variable and never the value, and
- * nothing here logs.
+ * Where the executor's secrets come from and how they change. A store hands
+ * out the current handle by name; a consumer that must follow rotation reads
+ * the handle at the moment of use, or subscribes. Every failure names the
+ * variable and never a value.
  */
-export class SecretStore {
-  public static resolve(env: Readonly<Record<string, string | undefined>>, name: string): string {
-    const direct = env[name];
-    const path = env[`${name}_FILE`];
-    if (direct !== undefined && path !== undefined) {
-      throw new Error(`CONFIG_SECRET_AMBIGUOUS: ${name}`);
-    }
-    if (path !== undefined) return SecretStore.readFile(path, name);
-    if (direct === undefined) throw new Error(`CONFIG_SECRET_MISSING: ${name}`);
-    const value = direct.trim();
-    if (value.length === 0) throw new Error(`CONFIG_SECRET_EMPTY: ${name}`);
-    return value;
-  }
+export interface SecretStore {
+  has(name: SecretName): boolean;
+  /** The current handle; throws `SECRET_UNKNOWN` for a name this store does not hold. */
+  get(name: SecretName): SecretHandle;
+  /** Notified after a rotation, with the new handle; returns the unsubscribe. */
+  onRotate(name: SecretName, listener: (next: SecretHandle) => void): () => void;
+  /** Re-reads every source; atomic per secret, never partial. */
+  reload(reason: ReloadReason): Promise<ReloadReport>;
+  close(): void;
+}
 
-  private static readFile(path: string, name: string): string {
-    let value: string;
-    try {
-      value = readFileSync(path, "utf8").trim();
-    } catch {
-      throw new Error(`CONFIG_SECRET_FILE_UNREADABLE: ${name}`);
-    }
-    if (value.length === 0) throw new Error(`CONFIG_SECRET_EMPTY: ${name}`);
-    return value;
+/** A refusal at start-up or reload: the code and the variable, never the value. */
+export class SecretError extends Error {
+  public constructor(
+    public readonly code: string,
+    public readonly secret: SecretName,
+  ) {
+    super(`${code}: ${secret}`);
+    this.name = "SecretError";
   }
 }

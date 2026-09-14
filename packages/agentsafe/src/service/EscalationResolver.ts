@@ -94,16 +94,21 @@ export class EscalationResolver {
     private readonly gate: DecionisGate,
     audit: AuditRecorder,
     dependencies: EscalationDependencies = {},
+    /** The Presence credential for `DIRECT`, read from its handle by the caller for this build. */
+    presenceApiKey: string | null = null,
   ) {
     if (config.mode !== "DIRECT") {
       this.coordinator = null;
       this.presence = null;
       return;
     }
+    if (dependencies.presence === undefined && presenceApiKey === null) {
+      throw new Error("CONFIG_SECRET_MISSING: PRESENCE_API_KEY");
+    }
     this.presence =
       dependencies.presence ??
       new HumanApprovalGate(
-        new PresenceClient({ baseUrl: config.presence.baseUrl, apiKey: config.presence.apiKey }),
+        new PresenceClient({ baseUrl: config.presence.baseUrl, apiKey: presenceApiKey ?? "" }),
       );
     this.coordinator = new PresenceApprovalCoordinator(
       this.presence,

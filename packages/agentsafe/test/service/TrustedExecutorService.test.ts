@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { JsonObjectSchema } from "@decionis/agent-safe-pipeline";
 import {
   LOCAL_AUTHORITY_API_KEY,
@@ -8,6 +11,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ExecutorConfigLoader } from "../../src/config/ExecutorConfig.js";
 import { forwardRequestHandlers } from "../../src/handlers/ForwardRequestHandler.js";
 import type { HandlerRegistration } from "../../src/handlers/HandlerRegistration.js";
+import type { PostureState } from "../../src/posture/HostPosture.js";
+import type { CompositeSecretStore } from "../../src/secrets/CompositeSecretStore.js";
 import type { EscalationHandoff } from "../../src/service/EscalationResolver.js";
 import { ServiceError } from "../../src/service/ServiceError.js";
 import { TrustedExecutorService } from "../../src/service/TrustedExecutorService.js";
@@ -17,7 +22,9 @@ import {
   DOWNSTREAM_CREDENTIAL,
   LOOPBACK_ORIGIN,
   closedPort,
+  collectedEvents,
   loopbackEnvironment,
+  openSecrets,
   proposal,
   type Escalation,
 } from "../support/Environment.js";
@@ -28,23 +35,52 @@ const presence = new LocalPresence({ autoComplete: "MANUAL", roles: { [APPROVER_
 const authority = new LocalAuthority({ presence });
 const provider = new ProviderDouble();
 const lines: string[] = [];
+const securityLines: string[] = [];
 
-function create(
+interface BuildOptions {
+  readonly presenceBaseUrl?: string;
+  readonly handlers?: HandlerRegistration;
+  /** Variables to add, or to remove when `undefined`. */
+  readonly env?: Readonly<Record<string, string | undefined>>;
+  readonly posture?: PostureState;
+}
+
+function build(
   mode: "SHADOW" | "ENFORCEMENT",
   escalation: Escalation = "NONE",
-  options: { readonly presenceBaseUrl?: string; readonly handlers?: HandlerRegistration } = {},
-): TrustedExecutorService {
-  const env = loopbackEnvironment(
+  options: BuildOptions = {},
+): { readonly service: TrustedExecutorService; readonly secrets: CompositeSecretStore } {
+  const env: Record<string, string> = loopbackEnvironment(
     { authority, presence, providerBaseUrl: provider.baseUrl },
     mode,
     escalation,
     options.presenceBaseUrl,
   );
-  return TrustedExecutorService.create(
-    ExecutorConfigLoader.load(env),
+  for (const [key, value] of Object.entries(options.env ?? {})) {
+    if (value === undefined) delete env[key];
+    else env[key] = value;
+  }
+  const config = ExecutorConfigLoader.load(env);
+  const secrets = openSecrets(env, config, collectedEvents(securityLines));
+  const service = TrustedExecutorService.create(
+    config,
+    secrets,
     options.handlers ?? forwardRequestHandlers(),
-    { emit: (line) => lines.push(line) },
+    {
+      emit: (line) => lines.push(line),
+      security: collectedEvents(securityLines),
+      ...(options.posture === undefined ? {} : { posture: options.posture }),
+    },
   );
+  return { service, secrets };
+}
+
+function create(
+  mode: "SHADOW" | "ENFORCEMENT",
+  escalation: Escalation = "NONE",
+  options: BuildOptions = {},
+): TrustedExecutorService {
+  return build(mode, escalation, options).service;
 }
 
 async function refusal(work: Promise<unknown>): Promise<ServiceError> {
@@ -434,12 +470,67 @@ describe("managed escalation", () => {
   });
 });
 
+describe("posture while running", () => {
+  it("refuses new enforcement work while a drift stands and leaves shadow observation alone", async () => {
+    const posture = { degraded: true };
+    const enforcing = create("ENFORCEMENT", "NONE", { posture });
+    const before = authority.requests.length;
+    expect(await refusal(enforcing.propose(proposal(5_000).body))).toMatchObject({
+      status: 503,
+      code: "POSTURE_DEGRADED",
+    });
+    expect(authority.requests.length).toBe(before);
+    expect(
+      await refusal(
+        enforcing.resume({
+          mode: "DIRECT",
+          intent: {},
+          request_id: "synthetic-request-1",
+          approval_url: null,
+          expires_at: null,
+        }),
+      ),
+    ).toMatchObject({ status: 409, code: "ESCALATION_NOT_CONFIGURED" });
+    const observing = create("SHADOW", "NONE", { posture });
+    expect(await observing.propose(proposal(5_000).body)).toMatchObject({ outcome: "OBSERVED" });
+    posture.degraded = false;
+    expect(await enforcing.propose(proposal(5_000).body)).toMatchObject({ outcome: "COMPLETED" });
+  });
+});
+
+describe("credential rotation", () => {
+  const directory = mkdtempSync(join(tmpdir(), "agentsafe-rotation-"));
+  afterAll(() => rmSync(directory, { recursive: true, force: true }));
+
+  it("uses the authority key the file holds now, and fails closed on a wrong one", async () => {
+    const path = join(directory, "decionis-api-key");
+    writeFileSync(path, `${LOCAL_AUTHORITY_API_KEY}\n`, { mode: 0o600 });
+    const { service, secrets } = build("ENFORCEMENT", "NONE", {
+      env: { DECIONIS_API_KEY: undefined, DECIONIS_API_KEY_FILE: path },
+    });
+    expect(await service.propose(proposal(5_000).body)).toMatchObject({ outcome: "COMPLETED" });
+
+    writeFileSync(path, "synthetic-wrong-key\n");
+    expect((await secrets.reload("OPERATOR")).rotated).toEqual(["DECIONIS_API_KEY"]);
+    const refused = await service.propose(proposal(5_000).body);
+    expect(refused).toMatchObject({ verdict: "BLOCK", fail_closed: true, executed: false });
+    expect(securityLines.some((line) => line.includes('"AUTHORITY_CLIENTS_REBUILT"'))).toBe(true);
+
+    writeFileSync(path, `${LOCAL_AUTHORITY_API_KEY}\n`);
+    await secrets.reload("OPERATOR");
+    expect(await service.propose(proposal(5_000).body)).toMatchObject({ outcome: "COMPLETED" });
+    service.close();
+    secrets.close();
+  });
+});
+
 describe("evidence", () => {
-  it("never writes a credential, token, or key to an audit line", () => {
-    const everything = lines.join("\n");
+  it("never writes a credential, token, or key to an audit or security line", () => {
+    const everything = [...lines, ...securityLines].join("\n");
     expect(everything).not.toContain(CALLER_TOKEN);
     expect(everything).not.toContain(DOWNSTREAM_CREDENTIAL);
     expect(everything).not.toContain(LOCAL_AUTHORITY_API_KEY);
+    expect(everything).not.toContain("synthetic-wrong-key");
     for (const token of authority.grants.keys()) expect(everything).not.toContain(token);
     expect(lines.filter((line) => line.includes('"EXECUTION_COMPLETED"')).length).toBeGreaterThan(
       0,

@@ -1,7 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { CONFIG_KEYS, SECRET_KEYS } from "../../src/config/ConfigKeys.js";
 import { ExecutorConfigLoader } from "../../src/config/ExecutorConfig.js";
 import { CALLER_TOKEN, DOWNSTREAM_CREDENTIAL, offlineEnvironment } from "../support/Environment.js";
@@ -27,6 +24,17 @@ const managed = (): Record<string, string> => ({
   PRESENCE_VERIFICATION_METHODS: "WEBAUTHN",
 });
 
+/** A production deployment's shape: every secret a file, every address HTTPS, posture enforced. */
+const production = (): Record<string, string> => {
+  const env = offlineEnvironment();
+  delete env["EXECUTOR_POSTURE"];
+  for (const name of ["EXECUTOR_CALLER_TOKEN", "DECIONIS_API_KEY", "DOWNSTREAM_CREDENTIAL"]) {
+    delete env[name];
+    env[`${name}_FILE`] = `/var/run/agent-safe/secrets/${name.toLowerCase()}`;
+  }
+  return { ...env, NODE_ENV: "production", EXECUTOR_SECRETS_DIR: "/var/run/agent-safe/secrets" };
+};
+
 const refusal = (env: Record<string, string | undefined>): string => {
   try {
     ExecutorConfigLoader.load(env);
@@ -37,20 +45,115 @@ const refusal = (env: Record<string, string | undefined>): string => {
 };
 
 describe("ExecutorConfigLoader", () => {
-  const directory = mkdtempSync(join(tmpdir(), "agentsafe-config-"));
-  afterAll(() => rmSync(directory, { recursive: true, force: true }));
-
   it("loads an enforcement configuration and normalises the header name", () => {
     const config = ExecutorConfigLoader.load(offlineEnvironment());
     expect(config.mode).toBe("ENFORCEMENT");
+    expect(config.production).toBe(false);
     expect(config.port).toBe(8443);
     expect(config.actor).toEqual({ id: "synthetic-payout-agent", type: "AI_AGENT" });
-    expect(config.callerToken).toBe(CALLER_TOKEN);
     expect(config.escalation).toEqual({ mode: "NONE" });
     expect(config.authority.allowInsecureLoopback).toBe(false);
     expect(config.downstream.credentialHeader).toBe("authorization");
-    expect(config.downstream.credential).toBe(DOWNSTREAM_CREDENTIAL);
     expect(config.downstream.lookupUrl).toContain("{idempotency_key}");
+  });
+
+  it("names the secrets it needs and never holds a value", () => {
+    const config = ExecutorConfigLoader.load(offlineEnvironment());
+    expect(config.secrets.required).toEqual([
+      "EXECUTOR_CALLER_TOKEN",
+      "DECIONIS_API_KEY",
+      "DOWNSTREAM_CREDENTIAL",
+    ]);
+    expect(config.posture.secretsInEnvironment).toEqual(config.secrets.required);
+    expect(config.posture.secretFiles).toEqual({});
+    const serialised = JSON.stringify(config);
+    expect(serialised).not.toContain(CALLER_TOKEN);
+    expect(serialised).not.toContain(DOWNSTREAM_CREDENTIAL);
+    expect(serialised).not.toContain("synthetic-authority-key");
+  });
+
+  it("requires the Presence credential only for the direct shape", () => {
+    expect(ExecutorConfigLoader.load(direct()).secrets.required).toContain("PRESENCE_API_KEY");
+    expect(ExecutorConfigLoader.load(managed()).secrets.required).not.toContain("PRESENCE_API_KEY");
+  });
+
+  it("locates a file-backed secret without reading it", () => {
+    const env = offlineEnvironment();
+    delete env["DECIONIS_API_KEY"];
+    const config = ExecutorConfigLoader.load({
+      ...env,
+      DECIONIS_API_KEY_FILE: "/nowhere/agent-safe/decionis-api-key",
+    });
+    expect(config.posture.secretFiles).toEqual({
+      DECIONIS_API_KEY: "/nowhere/agent-safe/decionis-api-key",
+    });
+    expect(config.posture.secretsInEnvironment).toEqual([
+      "EXECUTOR_CALLER_TOKEN",
+      "DOWNSTREAM_CREDENTIAL",
+    ]);
+  });
+
+  it("refuses a secret given twice, given neither way, or given in the environment under production", () => {
+    expect(
+      refusal({ ...offlineEnvironment(), DECIONIS_API_KEY_FILE: "/nowhere/decionis-api-key" }),
+    ).toBe("CONFIG_SECRET_AMBIGUOUS: DECIONIS_API_KEY");
+    const missing = offlineEnvironment();
+    delete missing["DOWNSTREAM_CREDENTIAL"];
+    expect(refusal(missing)).toBe("CONFIG_SECRET_MISSING: DOWNSTREAM_CREDENTIAL");
+    const leaked = production();
+    delete leaked["DECIONIS_API_KEY_FILE"];
+    leaked["DECIONIS_API_KEY"] = "synthetic-authority-key";
+    expect(refusal(leaked)).toBe("CONFIG_SECRET_IN_ENV: DECIONIS_API_KEY");
+  });
+
+  it("defaults to enforced posture and refuses development posture in production", () => {
+    const env = offlineEnvironment();
+    delete env["EXECUTOR_POSTURE"];
+    const config = ExecutorConfigLoader.load(env);
+    expect(config.posture.mode).toBe("ENFORCED");
+    expect(config.posture.intervalSeconds).toBe(60);
+    expect(ExecutorConfigLoader.load(offlineEnvironment()).posture.mode).toBe("DEVELOPMENT");
+    expect(refusal({ ...production(), EXECUTOR_POSTURE: "DEVELOPMENT" })).toBe(
+      "CONFIG_INVALID: EXECUTOR_POSTURE (forbidden in production)",
+    );
+    expect(refusal({ ...offlineEnvironment(), EXECUTOR_POSTURE_INTERVAL_SECONDS: "5" })).toBe(
+      "CONFIG_INVALID: EXECUTOR_POSTURE_INTERVAL_SECONDS",
+    );
+    expect(
+      ExecutorConfigLoader.load({
+        ...offlineEnvironment(),
+        EXECUTOR_POSTURE_INTERVAL_SECONDS: "120",
+      }).posture.intervalSeconds,
+    ).toBe(120);
+  });
+
+  it("loads a production shape and snapshots only the inspected environment", () => {
+    const config = ExecutorConfigLoader.load({
+      ...production(),
+      HTTPS_PROXY: "https://proxy.corp.example:3128",
+      UNRELATED: "value",
+    });
+    expect(config.production).toBe(true);
+    expect(config.posture.secretsDir).toBe("/var/run/agent-safe/secrets");
+    expect(Object.keys(config.posture.secretFiles).sort()).toEqual([
+      "DECIONIS_API_KEY",
+      "DOWNSTREAM_CREDENTIAL",
+      "EXECUTOR_CALLER_TOKEN",
+    ]);
+    expect(config.posture.secretsInEnvironment).toEqual([]);
+    expect(config.posture.environment).toEqual({
+      NODE_ENV: "production",
+      HTTPS_PROXY: "https://proxy.corp.example:3128",
+    });
+  });
+
+  it("requires an absolute secrets directory in production when files are mounted", () => {
+    const env = production();
+    delete env["EXECUTOR_SECRETS_DIR"];
+    expect(refusal(env)).toBe("CONFIG_INVALID: EXECUTOR_SECRETS_DIR (required in production)");
+    expect(refusal({ ...production(), EXECUTOR_SECRETS_DIR: "secrets" })).toBe(
+      "CONFIG_INVALID: EXECUTOR_SECRETS_DIR (absolute path)",
+    );
   });
 
   it("keeps the optional actor runtime only when given", () => {
@@ -77,13 +180,9 @@ describe("ExecutorConfigLoader", () => {
   });
 
   it("refuses plain HTTP in production even when asked for", () => {
-    expect(
-      refusal({
-        ...offlineEnvironment(),
-        DECIONIS_ALLOW_INSECURE_LOOPBACK: "true",
-        NODE_ENV: "production",
-      }),
-    ).toBe("CONFIG_INVALID: DECIONIS_ALLOW_INSECURE_LOOPBACK (forbidden in production)");
+    expect(refusal({ ...production(), DECIONIS_ALLOW_INSECURE_LOOPBACK: "true" })).toBe(
+      "CONFIG_INVALID: DECIONIS_ALLOW_INSECURE_LOOPBACK (forbidden in production)",
+    );
   });
 
   it("accepts loopback HTTP only when asked for", () => {
@@ -130,13 +229,12 @@ describe("ExecutorConfigLoader", () => {
     );
   });
 
-  it("loads the direct shape with its Presence credential and flags", () => {
+  it("loads the direct shape with its Presence address and flags", () => {
     const config = ExecutorConfigLoader.load(direct());
     expect(config.escalation).toEqual({
       mode: "DIRECT",
       presence: {
         baseUrl: "https://presence.decionis.example",
-        apiKey: "synthetic-presence-key",
         organization: "Synthetic Treasury",
       },
       approverId: "synthetic-approver",
@@ -174,20 +272,11 @@ describe("ExecutorConfigLoader", () => {
     }
   });
 
-  it("reads a secret from a mounted file and refuses it given twice", () => {
-    const path = join(directory, "downstream-credential");
-    writeFileSync(path, `${DOWNSTREAM_CREDENTIAL}\n`);
-    const env = offlineEnvironment();
-    delete env["DOWNSTREAM_CREDENTIAL"];
-    const config = ExecutorConfigLoader.load({ ...env, DOWNSTREAM_CREDENTIAL_FILE: path });
-    expect(config.downstream.credential).toBe(DOWNSTREAM_CREDENTIAL);
-    expect(refusal({ ...offlineEnvironment(), DOWNSTREAM_CREDENTIAL_FILE: path })).toBe(
-      "CONFIG_SECRET_AMBIGUOUS: DOWNSTREAM_CREDENTIAL",
-    );
-  });
-
   it("lists every schema key and every secret in CONFIG_KEYS", () => {
-    for (const key of Object.keys(direct())) expect(CONFIG_KEYS).toContain(key);
+    for (const key of Object.keys({ ...direct(), ...production() })) {
+      if (key === "NODE_ENV" || key.endsWith("_FILE")) continue;
+      expect(CONFIG_KEYS).toContain(key);
+    }
     for (const key of SECRET_KEYS) expect(CONFIG_KEYS).toContain(key);
   });
 });

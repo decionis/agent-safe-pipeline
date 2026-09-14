@@ -14,6 +14,9 @@ export const CONFIG_KEYS = [
   "EXECUTOR_INTENT_TTL_SECONDS",
   "EXECUTOR_CALLER_TOKEN",
   "EXECUTOR_ESCALATION",
+  "EXECUTOR_POSTURE",
+  "EXECUTOR_POSTURE_INTERVAL_SECONDS",
+  "EXECUTOR_SECRETS_DIR",
   "DECIONIS_API_URL",
   "DECIONIS_API_KEY",
   "DECIONIS_ALLOW_INSECURE_LOOPBACK",
@@ -38,7 +41,7 @@ export const CONFIG_KEYS = [
 
 export type ConfigKey = (typeof CONFIG_KEYS)[number];
 
-/** Secrets: given as the variable or as `<NAME>_FILE`, never both. */
+/** Secrets: given as the variable or as `<NAME>_FILE`, never both; only the file form in production. */
 export const SECRET_KEYS = [
   "EXECUTOR_CALLER_TOKEN",
   "DECIONIS_API_KEY",

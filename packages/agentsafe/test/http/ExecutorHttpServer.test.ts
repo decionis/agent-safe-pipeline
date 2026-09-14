@@ -2,6 +2,7 @@ import { createConnection, createServer } from "node:net";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ExecutorHttpServer } from "../../src/http/ExecutorHttpServer.js";
 import { MAX_BODY_BYTES, RESPONSE_HEADERS, ROUTES } from "../../src/http/Routes.js";
+import { SecretHandle } from "../../src/secrets/SecretHandle.js";
 import { ServiceError } from "../../src/service/ServiceError.js";
 import type { TrustedExecutorService } from "../../src/service/TrustedExecutorService.js";
 import { CALLER_TOKEN, LOOPBACK_ORIGIN } from "../support/Environment.js";
@@ -18,6 +19,7 @@ const service = {
   resume,
 } as unknown as TrustedExecutorService;
 
+let callerToken = SecretHandle.fromString("EXECUTOR_CALLER_TOKEN", CALLER_TOKEN);
 let server: ExecutorHttpServer;
 let port = 0;
 let baseUrl = "";
@@ -94,7 +96,7 @@ function raw(
 
 describe("ExecutorHttpServer", () => {
   beforeAll(async () => {
-    server = new ExecutorHttpServer(service, CALLER_TOKEN);
+    server = new ExecutorHttpServer(service, () => callerToken);
     const address = await server.listen(0, "127.0.0.1");
     port = address.port;
     baseUrl = `${LOOPBACK_ORIGIN}:${port}`;
@@ -103,6 +105,7 @@ describe("ExecutorHttpServer", () => {
     await server.close();
   });
   beforeEach(() => {
+    callerToken = SecretHandle.fromString("EXECUTOR_CALLER_TOKEN", CALLER_TOKEN);
     propose.mockReset();
     reconcile.mockReset();
     resume.mockReset();
@@ -182,6 +185,16 @@ describe("ExecutorHttpServer", () => {
     });
     expect(reply.status).toBe(200);
     expect(propose).toHaveBeenCalledOnce();
+  });
+
+  it("honours a rotated token from the next request and refuses the old one", async () => {
+    const body = JSON.stringify({ proposal: {} });
+    expect((await call("/v1/actions", { body })).status).toBe(200);
+    callerToken = SecretHandle.fromString("EXECUTOR_CALLER_TOKEN", "synthetic-rotated-token-0000");
+    expect((await call("/v1/actions", { body })).status).toBe(401);
+    expect(
+      (await call("/v1/actions", { body, token: "synthetic-rotated-token-0000" })).status,
+    ).toBe(200);
   });
 
   it("hands each authenticated route its parsed body and returns the service's answer", async () => {
@@ -266,11 +279,11 @@ describe("ExecutorHttpServer", () => {
     await new Promise<void>((resolve) => taken.listen(0, "127.0.0.1", () => resolve()));
     const address = taken.address();
     const takenPort = typeof address === "object" && address !== null ? address.port : 0;
-    const second = new ExecutorHttpServer(service, CALLER_TOKEN);
+    const second = new ExecutorHttpServer(service, () => callerToken);
     await expect(second.listen(takenPort, "127.0.0.1")).rejects.toThrow();
     await new Promise<void>((resolve) => taken.close(() => resolve()));
 
-    const third = new ExecutorHttpServer(service, CALLER_TOKEN);
+    const third = new ExecutorHttpServer(service, () => callerToken);
     const bound = await third.listen(0, "127.0.0.1");
     await third.close();
     await expect(fetch(`${LOOPBACK_ORIGIN}:${bound.port}/health`)).rejects.toThrow();
@@ -279,7 +292,7 @@ describe("ExecutorHttpServer", () => {
 
 describe("ExecutorHttpServer shutdown", () => {
   it("closes promptly even while a request is still being read", async () => {
-    const own = new ExecutorHttpServer(service, CALLER_TOKEN);
+    const own = new ExecutorHttpServer(service, () => callerToken);
     const bound = await own.listen(0, "127.0.0.1");
     const active = createConnection({ host: "127.0.0.1", port: bound.port });
     active.on("error", () => undefined);

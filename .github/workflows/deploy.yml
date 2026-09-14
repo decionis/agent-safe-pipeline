@@ -113,6 +113,72 @@ jobs:
             exit 1
           fi
           grep -q 'REFUSED_TO_START' <<<"$output"
+      # The posture the manifest declares, reproduced with docker: a non-root
+      # user, a read-only root, no capabilities, no new privileges, secrets as
+      # files owned by root and readable by the process's group only. The
+      # executor must verify it and listen; run as root, or behind a proxy, it
+      # must refuse and name the check.
+      - name: Verify the declared posture and refuse a broken one
+        shell: bash
+        run: |
+          set -euo pipefail
+          secrets="$RUNNER_TEMP/agent-safe-secrets"
+          mkdir -p "$secrets"
+          printf 'synthetic-caller-token-ci\n' > "$secrets/caller-token"
+          printf 'synthetic-authority-key-ci\n' > "$secrets/decionis-api-key"
+          printf 'Bearer synthetic-downstream-credential-ci\n' > "$secrets/downstream-credential"
+          sudo chown root:65532 "$secrets"/*
+          sudo chmod 0440 "$secrets"/*
+          env_file="$RUNNER_TEMP/agent-safe.env"
+          cat > "$env_file" <<'EOF'
+          EXECUTOR_MODE=SHADOW
+          EXECUTOR_BIND_ADDRESS=0.0.0.0
+          PORT=8080
+          EXECUTOR_TENANT_ID=00000000-0000-4000-8000-000000000001
+          EXECUTOR_ACTOR_ID=synthetic-payout-agent
+          EXECUTOR_ACTOR_TYPE=AI_AGENT
+          EXECUTOR_INTENT_TTL_SECONDS=300
+          EXECUTOR_ESCALATION=NONE
+          EXECUTOR_SECRETS_DIR=/var/run/agent-safe/secrets
+          EXECUTOR_CALLER_TOKEN_FILE=/var/run/agent-safe/secrets/caller-token
+          DECIONIS_API_URL=https://authority.decionis.example
+          DECIONIS_API_KEY_FILE=/var/run/agent-safe/secrets/decionis-api-key
+          DOWNSTREAM_URL=https://payouts.provider.example/v1/payouts
+          DOWNSTREAM_SYSTEM=payout-rail
+          DOWNSTREAM_OPERATION=create_payout
+          DOWNSTREAM_ENVIRONMENT=production
+          DOWNSTREAM_CREDENTIAL_FILE=/var/run/agent-safe/secrets/downstream-credential
+          DOWNSTREAM_CREDENTIAL_HEADER=Authorization
+          DOWNSTREAM_TIMEOUT_MS=5000
+          EOF
+          hardened=(--read-only --user 65532:65532 --cap-drop ALL --security-opt no-new-privileges
+            --env-file "$env_file"
+            --mount "type=bind,src=$secrets,dst=/var/run/agent-safe/secrets,readonly")
+
+          container="$(docker run -d "${hardened[@]}" agentsafe:ci)"
+          for _ in $(seq 1 30); do
+            if docker logs "$container" 2>&1 | grep -q '"LISTENING"'; then break; fi
+            sleep 1
+          done
+          logs="$(docker logs "$container" 2>&1)"
+          docker stop -t 10 "$container" >/dev/null
+          status="$(docker wait "$container")"
+          docker rm "$container" >/dev/null
+          echo "$logs"
+          grep -q '"POSTURE_VERIFIED"' <<<"$logs"
+          grep -q '"LISTENING"' <<<"$logs"
+          test "$status" = "0"
+
+          if output="$(docker run --rm "${hardened[@]:1}" --user 0:0 agentsafe:ci 2>&1)"; then
+            echo "The executor started as root." >&2
+            exit 1
+          fi
+          grep -q 'POSTURE_ROOT_UID' <<<"$output"
+          if output="$(docker run --rm "${hardened[@]}" -e HTTPS_PROXY=http://proxy.corp.example:3128 agentsafe:ci 2>&1)"; then
+            echo "The executor started behind a proxy." >&2
+            exit 1
+          fi
+          grep -q 'POSTURE_PROXY_ENV' <<<"$output"
 
   release:
     name: Release

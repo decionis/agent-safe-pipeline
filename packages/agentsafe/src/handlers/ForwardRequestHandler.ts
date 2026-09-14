@@ -5,17 +5,18 @@ import {
   type JsonObject,
 } from "@decionis/agent-safe-pipeline";
 import type { DownstreamConfig } from "../config/ExecutorConfig.js";
+import type { DownstreamCredential } from "../credential/DownstreamCredential.js";
 import type { FetchLike, HandlerRegistration } from "./HandlerRegistration.js";
 
 /**
  * The reference handler. Everything registered here runs only behind a
  * claimed single-use grant, with the parameters the authority evaluated and
  * nothing the agent could add afterwards. It forwards the verified parameters
- * to a configured downstream endpoint, carrying the downstream credential the
- * executor holds and the intent-bound idempotency key; an adopter replaces it
- * with the handlers for their own provider, keeping the shape: a strict
- * parameter schema, the side effect inside `dispatch.run`, and a read-only
- * `reconcile`.
+ * to a configured downstream endpoint, carrying the headers the credential
+ * resolves at dispatch and the intent-bound idempotency key; an adopter
+ * replaces it with the handlers for their own provider, keeping the shape: a
+ * strict parameter schema, the side effect inside `dispatch.run`, and a
+ * read-only `reconcile`.
  */
 export const FORWARD_REQUEST_ACTION = "forward_request";
 
@@ -33,14 +34,9 @@ type ForwardHandler = ActionHandler<JsonObject, DownstreamResult>;
 export function registerHandlers(
   registry: ActionRegistry,
   downstream: DownstreamConfig,
+  credential: DownstreamCredential,
   fetchImpl: FetchLike = fetch,
 ): ActionRegistry {
-  const headers = (extra: Readonly<Record<string, string>>): Record<string, string> => ({
-    // The credential exists only here, on the trusted side of the boundary.
-    [downstream.credentialHeader]: downstream.credential,
-    ...extra,
-  });
-
   const execute: ForwardHandler["execute"] = async ({
     intent,
     parameters,
@@ -48,18 +44,29 @@ export function registerHandlers(
     dispatch,
   }) =>
     await dispatch.run(async (idempotencyKey) => {
+      const body = JSON.stringify(parameters);
+      // The credential exists only here, on the trusted side of the boundary,
+      // and only for this request.
+      const credentialHeaders = await credential.headersFor({
+        method: "POST",
+        url: downstream.url,
+        body,
+        idempotencyKey,
+        intentHash: intent.intentHash,
+      });
       // Everything after this line is the point of no return: a transport
       // failure here is an unknown outcome, never a failure to retry.
       const response = await fetchImpl(downstream.url, {
         method: "POST",
-        headers: headers({
+        headers: {
+          ...credentialHeaders,
           "content-type": "application/json",
           "idempotency-key": idempotencyKey,
           "x-agent-safe-intent-hash": intent.intentHash,
           "x-agent-safe-decision-id": authorization.decisionId,
           "x-agent-safe-dossier-id": authorization.dossierId,
-        }),
-        body: JSON.stringify(parameters),
+        },
+        body,
         signal: AbortSignal.timeout(downstream.timeoutMs),
       });
       await response.body?.cancel();
@@ -68,14 +75,23 @@ export function registerHandlers(
 
   // Read-only: asks the downstream what it did with this idempotency key.
   // It never sends the request again.
-  const reconcile: NonNullable<ForwardHandler["reconcile"]> = async ({ idempotencyKey }) => {
+  const reconcile: NonNullable<ForwardHandler["reconcile"]> = async ({
+    intent,
+    idempotencyKey,
+  }) => {
     const url = (downstream.lookupUrl ?? "").replace(
       "{idempotency_key}",
       encodeURIComponent(idempotencyKey),
     );
     const response = await fetchImpl(url, {
       method: "GET",
-      headers: headers({}),
+      headers: await credential.headersFor({
+        method: "GET",
+        url,
+        body: null,
+        idempotencyKey,
+        intentHash: intent.intentHash,
+      }),
       signal: AbortSignal.timeout(downstream.timeoutMs),
     });
     await response.body?.cancel();
@@ -97,8 +113,8 @@ export function registerHandlers(
 
 /** The reference registration: the one forwarding handler, as a seam the executor accepts. */
 export function forwardRequestHandlers(): HandlerRegistration {
-  return ({ registry, downstream, fetch: fetchImpl }) => {
-    registerHandlers(registry, downstream, fetchImpl);
+  return ({ registry, downstream, credential, fetch: fetchImpl }) => {
+    registerHandlers(registry, downstream, credential, fetchImpl);
     return REGISTERED_ACTIONS;
   };
 }

@@ -7,9 +7,17 @@
 # token and key is supplied at run time (packages/agentsafe/README.md,
 # deploy/kubernetes/TrustedExecutor.yaml), and the process refuses to start
 # with one missing, naming the variable and never its value. NODE_ENV is
-# production, so the loopback doubles and plain HTTP are refused here.
+# production, so the loopback doubles, plain HTTP, development posture and
+# secrets in the environment are refused here.
+#
+# The runtime is distroless: no shell, no package manager, a non-root user
+# (65532), and node under its permission model, allowed to read the
+# application and the secret mounts, to write only the journal directory,
+# and to spawn nothing. The executor verifies that posture at start and
+# refuses to run without it.
 
 ARG NODE_BASE_IMAGE=public.ecr.aws/docker/library/node:22-alpine
+ARG RUNTIME_BASE_IMAGE=gcr.io/distroless/nodejs22-debian12:nonroot@sha256:13593b7570658e8477de39e2f4a1dd25db2f836d68a0ba771251572d23bb4f8e
 
 FROM ${NODE_BASE_IMAGE} AS base
 RUN corepack enable && corepack prepare pnpm@9.15.3 --activate
@@ -47,10 +55,10 @@ RUN pnpm --filter @decionis/agent-safe-pipeline build \
   && pnpm --filter @decionis/agentsafe build \
   && pnpm deploy --filter @decionis/agentsafe --prod /app/deploy
 
-# The runtime has no package manager and no workspace: node runs the built
-# entry as a non-root user on a read-only root filesystem (the manifest sets
-# the filesystem; the image sets the user).
-FROM ${NODE_BASE_IMAGE} AS runner
+# The runtime has no shell, no package manager and no workspace. The base
+# image's entrypoint is node itself and its user is `nonroot` (65532); the
+# manifest keeps the root filesystem read-only and drops every capability.
+FROM ${RUNTIME_BASE_IMAGE} AS runner
 LABEL org.opencontainers.image.source="https://github.com/decionis/agent-safe-pipeline" \
       org.opencontainers.image.title="AgentSafe trusted executor" \
       org.opencontainers.image.description="The execution boundary as one process: a proposal in, a verdict from the authority, one execution on a claimed single-use grant." \
@@ -58,6 +66,12 @@ LABEL org.opencontainers.image.source="https://github.com/decionis/agent-safe-pi
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=builder /app/deploy ./
-USER node
 EXPOSE 8080
-CMD ["node", "dist/Cli.js", "serve"]
+# Node's permission model: read the application and the mounts under
+# /var/run/agent-safe, write only under /var/lib/agent-safe, and never a
+# child process, a worker, or an addon. One path per flag.
+CMD ["--permission", \
+     "--allow-fs-read=/app", "--allow-fs-read=/app/*", \
+     "--allow-fs-read=/var/run/agent-safe", "--allow-fs-read=/var/run/agent-safe/*", \
+     "--allow-fs-write=/var/lib/agent-safe", "--allow-fs-write=/var/lib/agent-safe/*", \
+     "/app/dist/Cli.js", "serve"]

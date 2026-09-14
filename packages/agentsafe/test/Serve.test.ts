@@ -44,6 +44,9 @@ function recorded(env: Record<string, string>): Recorded {
   return { io, stdout, stderr, exits, signals, exited };
 }
 
+const parsed = (line: string | undefined): Record<string, unknown> =>
+  JSON.parse(line ?? "{}") as Record<string, unknown>;
+
 describe("serve", () => {
   it("refuses to start on invalid configuration, naming the variable and never the value", async () => {
     const env = offlineEnvironment();
@@ -53,28 +56,44 @@ describe("serve", () => {
     expect(run.exits).toEqual([1]);
     expect(run.stdout).toEqual([]);
     expect(run.stderr).toHaveLength(1);
-    const refusal = JSON.parse(run.stderr[0] ?? "{}") as Record<string, unknown>;
+    const refusal = parsed(run.stderr[0]);
     expect(refusal["event"]).toBe("REFUSED_TO_START");
     expect(String(refusal["reason"])).toContain("DECIONIS_API_URL");
     expect(run.stderr[0]).not.toContain(CALLER_TOKEN);
   });
 
-  it("listens on the configured address, reports it, and exits cleanly on a signal", async () => {
+  it("refuses to start under enforced posture on a host that does not hold it, before any secret is read", async () => {
+    const env = offlineEnvironment();
+    delete env["EXECUTOR_POSTURE"];
+    const run = recorded(env);
+    await serve(undefined, run.io);
+    expect(run.exits).toEqual([1]);
+    const refusal = parsed(run.stderr.at(-1));
+    expect(refusal["event"]).toBe("REFUSED_TO_START");
+    expect(String(refusal["reason"])).toMatch(/^POSTURE_[A-Z_]+/);
+    expect(run.stderr.join("\n")).not.toContain(CALLER_TOKEN);
+  });
+
+  it("verifies posture, opens the secrets, listens, reports, and exits cleanly on a signal", async () => {
     const port = await closedPort();
     const run = recorded({ ...offlineEnvironment(), PORT: String(port) });
     await serve(undefined, run.io);
-    expect(run.stderr).toEqual([]);
-    const listening = JSON.parse(run.stdout[0] ?? "{}") as Record<string, unknown>;
-    expect(listening).toEqual({
+    expect(run.exits).toEqual([]);
+    const events = run.stdout.map((line) => parsed(line)["event"]);
+    expect(events).toEqual(["POSTURE_VERIFIED", "LISTENING"]);
+    expect(parsed(run.stdout[0])).toMatchObject({ mode: "DEVELOPMENT" });
+    expect(parsed(run.stdout[1])).toEqual({
       event: "LISTENING",
       mode: "ENFORCEMENT",
       address: "127.0.0.1",
       port,
       actions: ["forward_request"],
     });
+    expect(run.stderr.map((line) => parsed(line)["event"])).toContain("POSTURE_VERIFIED");
     const health = await fetch(`${LOOPBACK_ORIGIN}:${port}/health`);
     expect(health.status).toBe(200);
-    expect([...run.signals.keys()]).toEqual(["SIGTERM", "SIGINT"]);
+    expect([...run.signals.keys()]).toEqual(["SIGTERM", "SIGINT", "SIGHUP"]);
+    run.signals.get("SIGHUP")?.();
     run.signals.get("SIGTERM")?.();
     expect(await run.exited).toBe(0);
     await expect(fetch(`${LOOPBACK_ORIGIN}:${port}/health`)).rejects.toThrow();

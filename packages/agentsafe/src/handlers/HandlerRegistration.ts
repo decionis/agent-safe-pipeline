@@ -1,12 +1,19 @@
 import type { ActionRegistry } from "@decionis/agent-safe-pipeline";
 import type { DownstreamConfig } from "../config/ExecutorConfig.js";
+import type { DownstreamCredential } from "../credential/DownstreamCredential.js";
 
 export type FetchLike = typeof fetch;
 
-/** What a registration receives: the registry to fill, the downstream it targets, the fetch it may use. */
+/**
+ * What a registration receives: the registry to fill, the downstream it
+ * targets, the credential that proves this process to the downstream, and
+ * the fetch it may use. A handler asks the credential for headers at the
+ * moment of dispatch and never holds a value of its own.
+ */
 export interface HandlerRegistrationContext {
   readonly registry: ActionRegistry;
   readonly downstream: DownstreamConfig;
+  readonly credential: DownstreamCredential;
   readonly fetch: FetchLike;
 }
 

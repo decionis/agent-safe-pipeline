@@ -1,12 +1,14 @@
 import { ActionRegistry, IntentCapture, type CapturedIntent } from "@decionis/agent-safe-pipeline";
 import { describe, expect, it, vi } from "vitest";
 import type { DownstreamConfig } from "../../src/config/ExecutorConfig.js";
+import { StaticHeaderCredential } from "../../src/credential/StaticHeaderCredential.js";
 import {
   FORWARD_REQUEST_ACTION,
   REGISTERED_ACTIONS,
   forwardRequestHandlers,
   registerHandlers,
 } from "../../src/handlers/ForwardRequestHandler.js";
+import { SecretHandle } from "../../src/secrets/SecretHandle.js";
 import { DOWNSTREAM_CREDENTIAL, TENANT_ID } from "../support/Environment.js";
 
 const downstream: DownstreamConfig = {
@@ -15,10 +17,13 @@ const downstream: DownstreamConfig = {
   system: "payout-rail",
   operation: "create_payout",
   environment: "production",
-  credential: DOWNSTREAM_CREDENTIAL,
   credentialHeader: "authorization",
   timeoutMs: 2_000,
 };
+
+const credential = new StaticHeaderCredential("authorization", () =>
+  SecretHandle.fromString("DOWNSTREAM_CREDENTIAL", DOWNSTREAM_CREDENTIAL),
+);
 
 function captured(idempotencyKey = "payout 1/v1"): CapturedIntent {
   return new IntentCapture({ ttlSeconds: 300 }).capture(
@@ -54,7 +59,12 @@ const response = (status: number): Response => new Response(null, { status });
 describe("forward_request handler", () => {
   it("posts the verified parameters with the credential and the intent-bound key", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(response(202));
-    const registry = registerHandlers(new ActionRegistry(), downstream, fetchImpl).seal();
+    const registry = registerHandlers(
+      new ActionRegistry(),
+      downstream,
+      credential,
+      fetchImpl,
+    ).seal();
     const intent = captured();
     const attempt = await registry.executeTracked(intent, authorization(intent));
     expect(attempt).toEqual({ status: "COMPLETED", result: { status: 202, accepted: true } });
@@ -75,7 +85,12 @@ describe("forward_request handler", () => {
 
   it("reports a provider refusal as a result, never a body", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response('{"secret":1}', { status: 500 }));
-    const registry = registerHandlers(new ActionRegistry(), downstream, fetchImpl).seal();
+    const registry = registerHandlers(
+      new ActionRegistry(),
+      downstream,
+      credential,
+      fetchImpl,
+    ).seal();
     const intent = captured();
     expect(await registry.executeTracked(intent, authorization(intent))).toEqual({
       status: "COMPLETED",
@@ -85,7 +100,12 @@ describe("forward_request handler", () => {
 
   it("reports a transport failure after dispatch as unknown", async () => {
     const fetchImpl = vi.fn().mockRejectedValue(new Error("socket hang up"));
-    const registry = registerHandlers(new ActionRegistry(), downstream, fetchImpl).seal();
+    const registry = registerHandlers(
+      new ActionRegistry(),
+      downstream,
+      credential,
+      fetchImpl,
+    ).seal();
     const intent = captured();
     expect(await registry.executeTracked(intent, authorization(intent))).toEqual({
       status: "UNKNOWN_AFTER_DISPATCH",
@@ -98,7 +118,12 @@ describe("forward_request handler", () => {
       .mockResolvedValueOnce(response(404))
       .mockResolvedValueOnce(response(200))
       .mockResolvedValueOnce(response(503));
-    const registry = registerHandlers(new ActionRegistry(), downstream, fetchImpl).seal();
+    const registry = registerHandlers(
+      new ActionRegistry(),
+      downstream,
+      credential,
+      fetchImpl,
+    ).seal();
     const intent = captured();
     expect(await registry.reconcile(intent, "payout 1/v1")).toEqual({ status: "NOT_EXECUTED" });
     expect(await registry.reconcile(intent, "payout 1/v1")).toEqual({
@@ -118,6 +143,7 @@ describe("forward_request handler", () => {
     const registry = registerHandlers(
       new ActionRegistry(),
       { ...downstream, lookupUrl: null },
+      credential,
       fetchImpl,
     ).seal();
     const intent = captured();
@@ -127,7 +153,12 @@ describe("forward_request handler", () => {
 
   it("is the reference registration the executor accepts", () => {
     const registry = new ActionRegistry();
-    const registered = forwardRequestHandlers()({ registry, downstream, fetch: vi.fn() });
+    const registered = forwardRequestHandlers()({
+      registry,
+      downstream,
+      credential,
+      fetch: vi.fn(),
+    });
     expect(registered).toBe(REGISTERED_ACTIONS);
     expect(registry.has(FORWARD_REQUEST_ACTION)).toBe(true);
   });

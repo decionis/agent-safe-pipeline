@@ -2,12 +2,8 @@ import {
   ActionRegistry,
   AuditRecorder,
   CanonicalIntentHasher,
-  DecionisGate,
-  DecionisGrantVerifier,
   ExecutionIntentSchema,
   IntentCapture,
-  SafeExecutor,
-  ShadowPipeline,
   type CapturedIntent,
   type GateDecision,
   type JsonObject,
@@ -16,10 +12,14 @@ import {
 } from "@decionis/agent-safe-pipeline";
 import { LineAuditSink, type LineWriter } from "../audit/LineAuditSink.js";
 import type { EscalationMode, ExecutorConfig, ExecutorMode } from "../config/ExecutorConfig.js";
+import { StaticHeaderCredential } from "../credential/StaticHeaderCredential.js";
 import type { FetchLike, HandlerRegistration } from "../handlers/HandlerRegistration.js";
+import { SecurityEvents } from "../incident/SecurityEvents.js";
+import type { PostureState } from "../posture/HostPosture.js";
+import type { SecretStore } from "../secrets/SecretStore.js";
+import { AuthorityClients } from "./AuthorityClients.js";
 import {
   EscalationHandoffSchema,
-  EscalationResolver,
   type EscalationDependencies,
   type EscalationHandoff,
   type EscalationState,
@@ -38,6 +38,10 @@ export interface ServiceDependencies extends EscalationDependencies {
   /** Where audit lines go; stdout in the process, an array in the proof. */
   readonly emit?: LineWriter;
   readonly fetch?: FetchLike;
+  /** Where security events go; stderr in the process. */
+  readonly security?: SecurityEvents;
+  /** Whether a posture drift is standing; an enforcement request is refused while it is. */
+  readonly posture?: PostureState;
 }
 
 /**
@@ -59,17 +63,18 @@ export class TrustedExecutorService {
     private readonly capture: IntentCapture,
     private readonly registry: ActionRegistry,
     private readonly registered: readonly string[],
-    private readonly executor: SafeExecutor,
-    private readonly escalation: EscalationResolver,
-    private readonly shadow: ShadowPipeline | null,
+    private readonly clients: AuthorityClients,
+    private readonly posture: PostureState,
   ) {}
 
   /**
    * Wires the boundary. `handlers` is the adopter's seam: it registers what
    * this process can run, and the registry is sealed the moment it returns.
+   * Every credential is read from `secrets` at the moment of use.
    */
   public static create(
     config: ExecutorConfig,
+    secrets: SecretStore,
     handlers: HandlerRegistration,
     dependencies: ServiceDependencies = {},
   ): TrustedExecutorService {
@@ -78,32 +83,41 @@ export class TrustedExecutorService {
       ((line: string): void => {
         process.stdout.write(`${line}\n`);
       });
+    const events =
+      dependencies.security ??
+      new SecurityEvents((line) => {
+        process.stderr.write(`${line}\n`);
+      });
     const audit = new AuditRecorder({
       sink: new LineAuditSink(emit),
       failurePolicy: "REQUIRE_BEFORE_EXECUTION",
     });
-    const authority = {
-      baseUrl: config.authority.baseUrl,
-      apiKey: config.authority.apiKey,
-      allowInsecureLoopback: config.authority.allowInsecureLoopback,
-    };
-    const gate = new DecionisGate({ ...authority, mode: config.mode });
-    const verifier = new DecionisGrantVerifier(authority);
     const registry = new ActionRegistry();
     const registered = handlers({
       registry,
       downstream: config.downstream,
+      credential: new StaticHeaderCredential(config.downstream.credentialHeader, () =>
+        secrets.get("DOWNSTREAM_CREDENTIAL"),
+      ),
       fetch: dependencies.fetch ?? fetch,
     });
     registry.seal();
+    const clients = new AuthorityClients({
+      config,
+      secrets,
+      registry,
+      audit,
+      events,
+      ...(dependencies.fetch === undefined ? {} : { fetch: dependencies.fetch }),
+      ...(dependencies.presence === undefined ? {} : { presence: dependencies.presence }),
+    });
     return new TrustedExecutorService(
       config,
       new IntentCapture({ ttlSeconds: config.intentTtlSeconds }),
       registry,
       registered,
-      new SafeExecutor(registry, verifier, audit),
-      new EscalationResolver(config.escalation, gate, audit, dependencies),
-      config.mode === "SHADOW" ? new ShadowPipeline(gate, { audit }) : null,
+      clients,
+      dependencies.posture ?? { degraded: false },
     );
   }
 
@@ -120,6 +134,11 @@ export class TrustedExecutorService {
     return this.registered.filter((action) => this.registry.has(action));
   }
 
+  /** Stops following credential rotation; the service answers nothing new after this. */
+  public close(): void {
+    this.clients.close();
+  }
+
   public async propose(input: unknown): Promise<ActionResponse> {
     const parsed = ProposalRequestSchema.safeParse(input);
     if (!parsed.success) throw new ServiceError(400, "REQUEST_INVALID");
@@ -130,7 +149,8 @@ export class TrustedExecutorService {
       throw new ServiceError(422, "ACTION_NOT_REGISTERED");
     }
     const captured = this.captureIntent(request);
-    if (this.shadow !== null) return await this.observe(captured);
+    if (this.config.mode === "SHADOW") return await this.observe(captured);
+    this.assertPosture();
     return await this.enforce(captured);
   }
 
@@ -140,7 +160,9 @@ export class TrustedExecutorService {
     // The caller presents the intent it was given; the hash is recomputed
     // here, so a changed intent no longer matches its recovery reference.
     const captured = this.presented(parsed.data.intent);
-    const outcome = await this.executor.reconcile(captured, parsed.data.reference);
+    const outcome = await this.clients
+      .current()
+      .executor.reconcile(captured, parsed.data.reference);
     return {
       intent_id: captured.intent.intentId,
       intent_hash: captured.intentHash,
@@ -162,7 +184,7 @@ export class TrustedExecutorService {
   public async resume(input: unknown): Promise<ActionResponse> {
     const parsed = EscalationHandoffSchema.safeParse(input);
     if (!parsed.success) throw new ServiceError(400, "REQUEST_INVALID");
-    if (this.shadow !== null || this.config.escalation.mode === "NONE") {
+    if (this.config.mode === "SHADOW" || this.config.escalation.mode === "NONE") {
       throw new ServiceError(409, "ESCALATION_NOT_CONFIGURED");
     }
     const captured = this.presented(parsed.data.intent);
@@ -172,9 +194,11 @@ export class TrustedExecutorService {
     if (!this.registry.has(captured.intent.action)) {
       throw new ServiceError(422, "ACTION_NOT_REGISTERED");
     }
-    const resolution = await this.escalation.resume(captured, parsed.data);
+    this.assertPosture();
+    const { escalation, executor } = this.clients.current();
+    const resolution = await escalation.resume(captured, parsed.data);
     if (resolution.kind === "DECISION") {
-      const outcome = await this.executor.run(captured, resolution.decision);
+      const outcome = await executor.run(captured, resolution.decision);
       return this.response(captured, resolution.decision, outcome, null);
     }
     if (resolution.kind === "PENDING") {
@@ -184,6 +208,11 @@ export class TrustedExecutorService {
       });
     }
     return this.held(captured, "BLOCK", resolution.reasonCodes, resolution.failClosed, null);
+  }
+
+  /** A standing posture drift refuses new enforcement work; nothing that has started is touched. */
+  private assertPosture(): void {
+    if (this.posture.degraded) throw new ServiceError(503, "POSTURE_DEGRADED");
   }
 
   private captureIntent(request: ProposalRequest): CapturedIntent {
@@ -220,7 +249,7 @@ export class TrustedExecutorService {
   }
 
   private async observe(captured: CapturedIntent): Promise<ActionResponse> {
-    const shadow = this.shadow;
+    const shadow = this.clients.current().shadow;
     if (shadow === null) throw new ServiceError(500, "MODE_MISMATCH");
     // The production action, if any, runs in the caller. What this process
     // contributes in shadow is the observation and its evidence, never an
@@ -247,14 +276,15 @@ export class TrustedExecutorService {
   }
 
   private async enforce(captured: CapturedIntent): Promise<ActionResponse> {
-    const decision = await this.escalation.evaluate(captured);
+    const { escalation, executor } = this.clients.current();
+    const decision = await escalation.evaluate(captured);
     // Every decision goes through the executor, an ESCALATE or BLOCK included,
     // so the audit stream carries the refusal as well as the execution.
-    const outcome = await this.executor.run(captured, decision);
+    const outcome = await executor.run(captured, decision);
     let handoff: EscalationHandoff | null = null;
     let unavailable = false;
     if (decision.verdict === "ESCALATE" && !decision.failClosed) {
-      const state: EscalationState | null = await this.escalation.handoff(captured, decision);
+      const state: EscalationState | null = await escalation.handoff(captured, decision);
       if (state !== null) handoff = { ...state, intent: captured.intent };
       else if (this.config.escalation.mode !== "NONE") unavailable = true;
     }
