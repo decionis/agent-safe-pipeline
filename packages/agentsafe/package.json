@@ -57,7 +57,7 @@
     "build": "node ../../scripts/CleanBuildOutput.mjs && tsc -p tsconfig.build.json",
     "lint": "eslint .",
     "test": "vitest run --coverage",
-    "test:mutation": "stryker run",
+    "test:mutation": "pnpm --filter @decionis/agent-safe-pipeline build && stryker run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
