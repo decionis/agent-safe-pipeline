@@ -2,18 +2,17 @@
   "name": "@decionis/agent-safe-example-trusted-executor",
   "version": "0.1.0",
   "private": true,
-  "description": "The execution boundary as one deployable process: a trusted executor service that receives proposals over HTTP, asks Decionis, and executes once on a claimed single-use grant.",
+  "description": "The trusted executor from @decionis/agentsafe, proved offline over real HTTP against the loopback doubles, and the template an adopter starts from.",
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
     "build": "node ../../scripts/CleanBuildOutput.mjs && tsc -p tsconfig.json",
-    "demo": "pnpm --filter @decionis/agent-safe-pipeline build && pnpm build && node dist/Index.js",
+    "demo": "pnpm --filter @decionis/agent-safe-pipeline build && pnpm --filter @decionis/agentsafe build && pnpm build && node dist/Index.js",
     "serve": "node dist/Serve.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@decionis/agent-safe-pipeline": "workspace:*",
-    "@decionis/presence-node": "^0.2.0",
-    "zod": "^4.5.4"
+    "@decionis/agentsafe": "workspace:*"
   }
 }

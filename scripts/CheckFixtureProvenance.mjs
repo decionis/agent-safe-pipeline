@@ -11,6 +11,8 @@ const git = spawnSync(
     "dossiers/**/*.json",
     "policies/*.json",
     "examples/*/src/*.ts",
+    "packages/agentsafe/test/*.ts",
+    "packages/agentsafe/test/**/*.ts",
     "packages/pipeline/test/*.ts",
     "packages/pipeline/test/**/*.ts",
     "tests/integration/*/*.mjs",

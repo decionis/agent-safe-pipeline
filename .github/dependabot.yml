@@ -39,7 +39,7 @@ updates:
           - "github/codeql-action/*"
 
   - package-ecosystem: docker
-    directory: "/examples/trusted-executor"
+    directory: "/packages/agentsafe"
     schedule:
       interval: weekly
       day: monday

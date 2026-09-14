@@ -29,6 +29,28 @@ export default [
     },
   },
   {
+    // The trusted executor opens a socket in two places only: its listener and
+    // its guarded egress. Every other module reaches the network through the
+    // fetch it is handed, so a stray import here is a review finding, not a
+    // style choice. A type import names a shape, not a socket.
+    files: ["packages/agentsafe/src/**/*.ts"],
+    ignores: ["packages/agentsafe/src/http/**/*.ts", "packages/agentsafe/src/egress/**/*.ts"],
+    rules: {
+      "@typescript-eslint/no-restricted-imports": [
+        "error",
+        {
+          paths: ["node:http", "node:https", "node:net", "node:tls", "node:dgram", "undici"].map(
+            (name) => ({
+              name,
+              message: "Sockets open only under src/http and src/egress; take a fetch instead.",
+              allowTypeImports: true,
+            }),
+          ),
+        },
+      ],
+    },
+  },
+  {
     // The CommerceGate MCP came in from decionis/Commerce with underscore-prefixed
     // unused parameters in its test doubles; keep that convention there.
     files: ["packages/commerce-mcp/**/*.ts"],

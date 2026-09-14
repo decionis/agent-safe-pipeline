@@ -98,10 +98,10 @@ for (const exception of [...exceptions, ...githubExceptions]) {
   }
 }
 
+/** Every Apache-2.0 package published from this repository under its own README, LICENSE, and NOTICE. */
+const publishedPackages = ["packages/pipeline", "packages/agentsafe"];
 const repositoryLicense = await readFile("LICENSE", "utf8");
-const packageLicense = await readFile("packages/pipeline/LICENSE", "utf8");
 const repositoryNotice = await readFile("NOTICE", "utf8");
-const packageNotice = await readFile("packages/pipeline/NOTICE", "utf8");
 const commercePackageLicense = await readFile("packages/commerce-mcp/LICENSE", "utf8");
 const commercePackageManifest = JSON.parse(
   await readFile("packages/commerce-mcp/package.json", "utf8"),
@@ -123,11 +123,13 @@ if (licenseDigest !== APACHE_2_CANONICAL_SHA256) {
     `LICENSE must be the canonical Apache-2.0 text (expected SHA-256 ${APACHE_2_CANONICAL_SHA256})`,
   );
 }
-if (packageLicense !== repositoryLicense) {
-  throw new Error("packages/pipeline/LICENSE must match the canonical repository LICENSE");
-}
-if (packageNotice !== repositoryNotice) {
-  throw new Error("packages/pipeline/NOTICE must match the repository NOTICE");
+for (const directory of publishedPackages) {
+  if ((await readFile(`${directory}/LICENSE`, "utf8")) !== repositoryLicense) {
+    throw new Error(`${directory}/LICENSE must match the canonical repository LICENSE`);
+  }
+  if ((await readFile(`${directory}/NOTICE`, "utf8")) !== repositoryNotice) {
+    throw new Error(`${directory}/NOTICE must match the repository NOTICE`);
+  }
 }
 if (noticeDigest !== REPOSITORY_NOTICE_SHA256) {
   throw new Error(
@@ -168,7 +170,8 @@ for (const requiredAttribution of [
 const exampleManifests = (await readdir("examples", { withFileTypes: true }))
   .filter((entry) => entry.isDirectory())
   .map((entry) => `examples/${entry.name}/package.json`);
-const manifests = ["package.json", "packages/pipeline/package.json", ...exampleManifests];
+const publishedManifests = publishedPackages.map((directory) => `${directory}/package.json`);
+const manifests = ["package.json", ...publishedManifests, ...exampleManifests];
 
 for (const path of manifests) {
   const manifest = JSON.parse(await readFile(path, "utf8"));
@@ -176,7 +179,7 @@ for (const path of manifests) {
     throw new Error(`${path} must declare Apache-2.0`);
   }
 
-  if (path === "package.json" || path === "packages/pipeline/package.json") {
+  if (path === "package.json" || publishedManifests.includes(path)) {
     for (const field of ["author", "bugs", "description", "homepage", "repository"]) {
       if (manifest[field] === undefined || manifest[field] === null || manifest[field] === "") {
         throw new Error(`${path} must declare ${field}`);
@@ -184,27 +187,29 @@ for (const path of manifests) {
     }
   }
 
-  if (path === "packages/pipeline/package.json") {
-    for (const requiredFile of ["LICENSE", "NOTICE"]) {
+  if (publishedManifests.includes(path)) {
+    for (const requiredFile of ["LICENSE", "NOTICE", "README.md"]) {
       if (!Array.isArray(manifest.files) || !manifest.files.includes(requiredFile)) {
-        throw new Error(`packages/pipeline/package.json must publish ${requiredFile}`);
+        throw new Error(`${path} must publish ${requiredFile}`);
       }
     }
   }
 }
 
 const repositoryManifest = JSON.parse(await readFile("package.json", "utf8"));
-const packageManifest = JSON.parse(await readFile("packages/pipeline/package.json", "utf8"));
 const presenceManifest = JSON.parse(
   await readFile("packages/pipeline/node_modules/@decionis/presence-node/package.json", "utf8"),
 );
-if (
-  repositoryManifest.engines?.node !== packageManifest.engines?.node ||
-  packageManifest.engines?.node !== presenceManifest.engines?.node
-) {
-  throw new Error(
-    "Workspace and package Node.js engines must match the strictest production dependency",
-  );
+for (const path of publishedManifests) {
+  const packageManifest = JSON.parse(await readFile(path, "utf8"));
+  if (
+    repositoryManifest.engines?.node !== packageManifest.engines?.node ||
+    packageManifest.engines?.node !== presenceManifest.engines?.node
+  ) {
+    throw new Error(
+      `Workspace and ${path} Node.js engines must match the strictest production dependency`,
+    );
+  }
 }
 
 process.stdout.write("Canonical Apache-2.0 metadata and dependency licenses satisfy policy.\n");

@@ -6,16 +6,21 @@ They are release requirements alongside `security.rules.md` and `discovery.rules
 
 ## 1. Structure and naming
 
-- Publishable TypeScript belongs under `packages/pipeline/src/`; its tests belong under the sibling
-  `packages/pipeline/test/` tree and should mirror the source feature when useful. Runnable consumer
+- Publishable TypeScript belongs under `packages/<name>/src/` (`packages/pipeline` is the library,
+  `packages/agentsafe` the trusted executor); its tests belong under the sibling
+  `packages/<name>/test/` tree and should mirror the source feature when useful. Runnable consumer
   examples belong under `examples/`, repository automation belongs under `scripts/`, and automation
   tests belong under `test/automation/`.
-- Group code by responsibility: `intent`, `decision`, `approval`, `execution`, `shadow`, and
-  narrowly scoped supporting modules such as `http`.
+- Directory names are one lowercase word with no hyphen. A compound concept becomes a nested
+  directory (`adapters/banking/`, `kubernetes/cilium/`), never `some-thing/`. Domain adapters live
+  under `src/adapters/<family>/` on one generic contract, so a new family is a new directory.
+- Group code by responsibility: `intent`, `decision`, `approval`, `execution`, `shadow` in the
+  library; `config`, `secrets`, `http`, `service`, `handlers`, `audit` in the executor; and narrowly
+  scoped supporting modules.
 - Use PascalCase for TypeScript file names, classes, interfaces, and exported types. Use camelCase
   for variables, properties, and methods.
-- Keep the public surface explicit through `packages/pipeline/src/Index.ts`. Internal helpers must
-  not become exports accidentally.
+- Keep the public surface explicit through each package's `src/Index.ts`. Internal helpers must not
+  become exports accidentally.
 - Keep each class or module focused on one trust-boundary responsibility. Extract shared behavior
   instead of duplicating security-sensitive validation.
 

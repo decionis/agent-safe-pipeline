@@ -103,12 +103,12 @@ jobs:
         with:
           persist-credentials: false
       - name: Build the trusted executor image
-        run: docker build -f examples/trusted-executor/Dockerfile -t agent-safe-trusted-executor:ci .
+        run: docker build -f packages/agentsafe/Dockerfile -t agentsafe:ci .
       - name: Refuse to start without configuration
         shell: bash
         run: |
           set -euo pipefail
-          if output="$(docker run --rm agent-safe-trusted-executor:ci 2>&1)"; then
+          if output="$(docker run --rm agentsafe:ci 2>&1)"; then
             echo "The executor started with no configuration." >&2
             exit 1
           fi
@@ -311,7 +311,7 @@ jobs:
         if: steps.release.outputs.exists != 'true'
         id: image
         env:
-          IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/agent-safe-trusted-executor
+          IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/agentsafe
           RELEASE_STEM: ${{ steps.release.outputs.stem }}
           RELEASE_VERSION: ${{ steps.release.outputs.version }}
           PUBLISH: ${{ github.event_name == 'push' && 'true' || 'false' }}
@@ -321,7 +321,7 @@ jobs:
         run: |
           set -euo pipefail
           image="$(printf '%s' "$IMAGE_NAME" | tr '[:upper:]' '[:lower:]')"
-          docker build -f examples/trusted-executor/Dockerfile \
+          docker build -f packages/agentsafe/Dockerfile \
             --label "org.opencontainers.image.version=$RELEASE_VERSION" \
             --label "org.opencontainers.image.revision=$GITHUB_SHA" \
             -t "$image:$RELEASE_VERSION" .

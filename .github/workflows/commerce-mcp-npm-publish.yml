@@ -10,6 +10,7 @@ on:
         type: choice
         options:
           - commerce-mcp
+          - agentsafe
       mode:
         description: Verify only or publish to npm
         required: true
@@ -64,6 +65,10 @@ jobs:
             commerce-mcp)
               package_directory="packages/commerce-mcp"
               gate_action="npm-publish-decionis-commerce-mcp"
+              ;;
+            agentsafe)
+              package_directory="packages/agentsafe"
+              gate_action="npm-publish-decionis-agentsafe"
               ;;
             *)
               echo "::error::Unsupported npm package selector: ${SELECTED_PACKAGE}"
