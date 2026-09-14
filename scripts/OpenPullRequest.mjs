@@ -229,16 +229,20 @@ export class PullRequestBot {
   }
 
   async findExistingPullRequest(branch) {
+    // Only an OPEN pull request counts as existing. A closed, unmerged pull
+    // request is a decision about that earlier branch, not about a branch of
+    // the same name recreated afterwards; asking for every state made the
+    // bot skip such a branch forever with "pull-request-exists".
     const pulls = await this.api.request("GET", "/repos/" + this.repository + "/pulls", {
       query: {
-        state: "all",
+        state: "open",
         head: this.owner + ":" + branch,
         base: this.defaultBranch,
         per_page: perPage,
       },
     });
     if (!Array.isArray(pulls)) throw new Error("Expected pull request list");
-    return pulls[0];
+    return pulls.find((pull) => pull?.state === undefined || pull.state === "open");
   }
 
   async compareBranch(branch) {
