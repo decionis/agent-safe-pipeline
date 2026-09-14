@@ -77,7 +77,7 @@ DECIONIS_API_KEY=server-side-secret
 
 See the [package README](./packages/pipeline/README.md) for the complete enforcement example and [`docs/shadow-mode.md`](./docs/shadow-mode.md) for the shadow rollout path.
 
-To run the boundary as its own service rather than in-process, [`examples/trusted-executor`](./examples/trusted-executor) is the executor as a process: a listener in front of the same components, proved offline over real HTTP. [`deploy/`](./deploy) is its image, the Kubernetes manifest with every credential referenced and never written, and the runbook from shadow to enforcement.
+To run the boundary as its own service rather than in-process, [`packages/agentsafe`](./packages/agentsafe) is the executor as a process: `@decionis/agentsafe`, a listener in front of the same components with a seam for your handlers. [`examples/trusted-executor`](./examples/trusted-executor) is its proof over real HTTP against the loopback doubles and the template an adopter starts from. [`deploy/`](./deploy) is its image, the Kubernetes manifest with every credential referenced and never written, and the runbook from shadow to enforcement.
 
 ## Installing the Decionis CLI
 
@@ -99,6 +99,7 @@ Apache-2.0 source; `formula/` and `apps/` hold metadata only.
 ## Repository map
 
 - [`packages/pipeline`](./packages/pipeline) — `IntentCapture`, `DecionisGate`, Presence coordination, and `SafeExecutor`.
+- [`packages/agentsafe`](./packages/agentsafe) — `@decionis/agentsafe`, the trusted executor as one deployable process: the HTTP listener, the configuration, escalation resolution, and the handler seam in front of `packages/pipeline`, with its own image.
 - [`packages/commerce-mcp`](./packages/commerce-mcp) — `@decionis/commerce`, the CommerceGate MCP server: lets an AI agent check a price change, stock change, order, fulfillment step, promotion, refund or return against the merchant's policy before acting, and read the signed record afterwards. A client adapter over the published Decionis contract; it holds no policy and contains no marketplace client.
 - [`packages/commerce-mcp-claude-extension`](./packages/commerce-mcp-claude-extension) — the dedicated MIT-licensed Claude Desktop wrapper and packaging checks. Its MCPB vendors the unchanged Apache-2.0 CommerceGate runtime with that runtime's license and notice.
 - [`examples/golden-adversarial-demo`](./examples/golden-adversarial-demo) — the self-checking proof: one golden path, eight attacks, zero unauthorized executions.
@@ -112,7 +113,7 @@ Apache-2.0 source; `formula/` and `apps/` hold metadata only.
 - [`examples/presence-live-approval`](./examples/presence-live-approval) — a Presence-bound enforcement against the real services with a FIDO2 or FIDO2-plus-liveness ceremony; needs real credentials.
 - [`examples/presence-managed-approval`](./examples/presence-managed-approval) — Decionis-managed Presence orchestration with Decionis-only polling and no Presence credential in the executor.
 - [`examples/local-escalation`](./examples/local-escalation) — both Presence integration modes against loopback Decionis and Presence doubles, no credentials, ceremony simulated.
-- [`examples/trusted-executor`](./examples/trusted-executor) — the execution boundary as one deployable process: an HTTP trusted executor in front of the same components, proved offline against the loopback doubles; the handler seam is the adopter's to fill.
+- [`examples/trusted-executor`](./examples/trusted-executor) — the proof of `@decionis/agentsafe` over real HTTP against the loopback doubles, and the template an adopter starts from: the handler seam and a process of a few lines.
 - [`deploy/`](./deploy) — the deployment kit: the executor image, a Kubernetes manifest with Secrets referenced and never written, and the runbook from shadow to enforcement.
 - [`ARCHITECTURE.md`](./ARCHITECTURE.md) and [`THREAT-MODEL.md`](./THREAT-MODEL.md) — trust boundary and abuse analysis.
 - [`OPEN-CORE.md`](./OPEN-CORE.md) — what is Apache-2.0 here, what Decionis operates, and the seam between them.

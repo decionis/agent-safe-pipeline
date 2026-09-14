@@ -9,7 +9,7 @@ import {
   type ManagedEscalationState,
   type PresenceApprovalClient,
 } from "@decionis/agent-safe-pipeline";
-import type { EscalationConfig } from "./Config.js";
+import type { EscalationConfig } from "../config/ExecutorConfig.js";
 
 const identifier = z.string().trim().min(1).max(200);
 

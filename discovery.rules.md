@@ -21,8 +21,9 @@ ships. They apply alongside `coding.rules.md` and `security.rules.md`.
 
 - `README.md` is the human entry point and must explain the trust boundary, install path, minimal
   usage, ALLOW/ESCALATE/BLOCK behavior, support, and license.
-- `packages/pipeline/README.md` is the package-facing source that ships to npm. It must not link to
-  repository-relative files that are absent from the published tarball.
+- `packages/pipeline/README.md` and `packages/agentsafe/README.md` are the package-facing sources
+  that ship to npm. They must not link to repository-relative files that are absent from the
+  published tarball.
 - `llms.txt` is the concise package and documentation map. `llms-full.txt` is its detailed superset;
   both must use the same frozen product vocabulary.
 - `package.json` metadata, exports, files, engine requirements, and repository links must match the
@@ -36,8 +37,8 @@ ships. They apply alongside `coding.rules.md` and `security.rules.md`.
   check whenever a new hand-maintained inventory or discovery surface is added.
 - Automated link checks may contact only explicitly reviewed public HTTPS hosts and must validate
   every redirect before following it. Pull-request content must not select arbitrary probe targets.
-- Every exported API named in discovery copy must exist in `packages/pipeline/src/Index.ts` and be
-  covered by build/type checks.
+- Every exported API named in discovery copy must exist in the owning package's `src/Index.ts`
+  (`packages/pipeline` or `packages/agentsafe`) and be covered by build/type checks.
 - Examples may demonstrate only public exports and documented environment variables. An example is
   not evidence that a hosted integration exists.
 - Remove stale claims and links in the same pull request that removes or renames the underlying
@@ -65,12 +66,12 @@ ships. They apply alongside `coding.rules.md` and `security.rules.md`.
 
 ## 6. Current validation entry points
 
-| Concern                  | AgentSafe source                 |
-| ------------------------ | -------------------------------- |
-| Public exports           | `packages/pipeline/src/Index.ts` |
-| Human documentation      | `README.md`                      |
-| npm documentation        | `packages/pipeline/README.md`    |
-| Machine-readable summary | `llms.txt`                       |
-| Detailed agent context   | `llms-full.txt`                  |
-| Discovery drift gate     | `scripts/CheckDiscovery.mjs`     |
-| Package metadata         | `packages/pipeline/package.json` |
+| Concern                  | AgentSafe source                                                    |
+| ------------------------ | ------------------------------------------------------------------- |
+| Public exports           | `packages/pipeline/src/Index.ts`, `packages/agentsafe/src/Index.ts` |
+| Human documentation      | `README.md`                                                         |
+| npm documentation        | `packages/pipeline/README.md`, `packages/agentsafe/README.md`       |
+| Machine-readable summary | `llms.txt`                                                          |
+| Detailed agent context   | `llms-full.txt`                                                     |
+| Discovery drift gate     | `scripts/CheckDiscovery.mjs`                                        |
+| Package metadata         | `packages/pipeline/package.json`, `packages/agentsafe/package.json` |

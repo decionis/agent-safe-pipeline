@@ -56,7 +56,7 @@ its own evidence independently in both modes; delivery of an opaque invitation i
 - Decionis controls policy decisions and execution grants.
 - Presence controls human-verification evidence, not execution authorization.
 - The executor controls handler selection and downstream secrets.
-- The executor may run in-process or as its own service. [`examples/trusted-executor`](./examples/trusted-executor) is the service form and [`deploy/`](./deploy) its image, manifest and runbook, with the agent on the far side of a network policy.
+- The executor may run in-process or as its own service. [`packages/agentsafe`](./packages/agentsafe) is the service form (`@decionis/agentsafe`), [`examples/trusted-executor`](./examples/trusted-executor) its proof and template, and [`deploy/`](./deploy) its image, manifest and runbook, with the agent on the far side of a network policy.
 
 ## Contract ownership
 
