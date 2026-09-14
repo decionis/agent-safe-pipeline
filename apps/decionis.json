@@ -1,0 +1,108 @@
+{
+  "schema": "https://decionis.com/schemas/app-install-manifest.v1.json",
+  "kind": "decionis.app-install",
+  "id": "decionis",
+  "name": "Decionis CLI",
+  "description": "Economic circuit breakers and execution gates for autonomous systems.",
+  "command": "app install decionis",
+  "version": "0.2.0",
+  "homepage": "https://decionis.com/docs/quickstart",
+  "artifact": {
+    "type": "npm",
+    "package": "decionis",
+    "version": "0.2.0",
+    "registry": "https://registry.npmjs.org/",
+    "tarball": "https://registry.npmjs.org/decionis/-/decionis-0.2.0.tgz",
+    "sha256": "bf0ce8f30e5e950d6e95c3628629b0f41408509775762cc1a368a690e07bdb96"
+  },
+  "runtime": { "node": ">=20", "bin": "decionis" },
+  "install": {
+    "primary": "app install decionis",
+    "fallback": ["brew install decionis", "npx decionis install", "npm install -g decionis"],
+    "postInstall": "decionis install"
+  },
+  "smoke": [
+    { "name": "help", "args": ["--help"] },
+    { "name": "project setup", "args": ["install", "--project", "app-install-smoke"] },
+    {
+      "name": "decision gate",
+      "args": [
+        "gate",
+        "--actor",
+        "app_install_agent",
+        "--action",
+        "SEND_PAYMENT",
+        "--amount",
+        "0.25",
+        "--policy",
+        "agent-spend-policy"
+      ]
+    },
+    {
+      "name": "delivery gate",
+      "args": [
+        "gate",
+        "--actor",
+        "app_install_agent",
+        "--action",
+        "GIT_PUSH",
+        "--target",
+        "git:push",
+        "--resource",
+        "refs/heads/main",
+        "--environment",
+        "production",
+        "--changeset-id",
+        "git:app-smoke",
+        "--policy",
+        "delivery-gate-policy"
+      ]
+    },
+    {
+      "name": "delivery attestation",
+      "args": [
+        "delivery",
+        "attest",
+        "--actor",
+        "app_install_agent",
+        "--action",
+        "PR_UPDATE",
+        "--target",
+        "github:pull_request",
+        "--resource",
+        "pull/1",
+        "--environment",
+        "pull_request",
+        "--changeset-id",
+        "git:app-smoke",
+        "--changed-file",
+        "src/index.ts",
+        "--diff-sha256",
+        "app-smoke-diff"
+      ]
+    },
+    {
+      "name": "delivery verification",
+      "args": [
+        "delivery",
+        "verify",
+        "--actor",
+        "app_install_agent",
+        "--action",
+        "PR_UPDATE",
+        "--target",
+        "github:pull_request",
+        "--resource",
+        "pull/1",
+        "--environment",
+        "pull_request",
+        "--changeset-id",
+        "git:app-smoke",
+        "--diff-sha256",
+        "app-smoke-diff",
+        "--no-recompute"
+      ]
+    },
+    { "name": "ledger verification", "args": ["ledger", "--verify"] }
+  ]
+}
