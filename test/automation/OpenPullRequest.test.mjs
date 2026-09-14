@@ -161,9 +161,13 @@ describe("PullRequestBot", () => {
   });
 
   it("does not create a duplicate pull request", async () => {
-    const { api, bot } = createBot(({ method, path }) => {
+    const { api, bot } = createBot(({ method, path, options }) => {
       if (path.endsWith("/pulls") && method === "GET") {
-        return [{ html_url: "https://github.com/decionis/agent-safe-pipeline/pull/24" }];
+        // The lookup asks GitHub for open pull requests only.
+        assert.equal(options?.query?.state, "open");
+        return [
+          { state: "open", html_url: "https://github.com/decionis/agent-safe-pipeline/pull/24" },
+        ];
       }
       throw new Error("Unexpected request: " + method + " " + path);
     });
@@ -176,6 +180,31 @@ describe("PullRequestBot", () => {
     assert.equal(
       api.calls.some(({ method }) => method === "POST"),
       false,
+    );
+  });
+
+  it("opens a pull request for a branch recreated after its earlier pull request was closed", async () => {
+    // A closed, unmerged pull request must not block the recreated branch:
+    // the open-only lookup returns nothing for it, and the branch is judged
+    // on its own commits.
+    const { api, bot } = createBot(({ method, path }) => {
+      if (path.endsWith("/pulls") && method === "GET") return [];
+      if (path.includes("/compare/")) return comparison();
+      if (path.includes("/actions/runs")) return { workflow_runs: [] };
+      if (path.endsWith("/pulls") && method === "POST") {
+        return { html_url: "https://github.com/decionis/agent-safe-pipeline/pull/126" };
+      }
+      throw new Error("Unexpected request: " + method + " " + path);
+    });
+
+    const outcomes = await bot.run("workflow_dispatch", {
+      inputs: { branch: "docs/recreated" },
+    });
+
+    assert.equal(outcomes[0].status, "created");
+    assert.equal(
+      api.calls.some(({ method, path }) => method === "POST" && path.endsWith("/pulls")),
+      true,
     );
   });
 
