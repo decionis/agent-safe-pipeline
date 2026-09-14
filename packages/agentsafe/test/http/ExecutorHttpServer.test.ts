@@ -276,3 +276,28 @@ describe("ExecutorHttpServer", () => {
     await expect(fetch(`${LOOPBACK_ORIGIN}:${bound.port}/health`)).rejects.toThrow();
   });
 });
+
+describe("ExecutorHttpServer shutdown", () => {
+  it("closes promptly even while a request is still being read", async () => {
+    const own = new ExecutorHttpServer(service, CALLER_TOKEN);
+    const bound = await own.listen(0, "127.0.0.1");
+    const active = createConnection({ host: "127.0.0.1", port: bound.port });
+    active.on("error", () => undefined);
+    await new Promise<void>((resolve) => active.once("connect", () => resolve()));
+    // Headers complete, body never arrives: the server is inside the read.
+    active.write(
+      `POST /v1/actions HTTP/1.1\r\nHost: executor.invalid\r\n` +
+        `Authorization: Bearer ${CALLER_TOKEN}\r\nContent-Type: application/json\r\n` +
+        `Content-Length: 100\r\n\r\n{"partial":`,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error("close waited for the open request")), 1_500);
+    });
+    deadline.catch(() => undefined);
+    await Promise.race([own.close(), deadline]);
+    clearTimeout(timer);
+    active.destroy();
+  });
+});
