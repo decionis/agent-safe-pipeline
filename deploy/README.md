@@ -51,18 +51,43 @@ builds their own image on the package: a process of a few lines that calls `serv
 
 ## Who supplies what
 
-| Piece                                                         | Who                                                                                   |
-| ------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| The executor, its image, the manifest, the proof              | This repository                                                                       |
-| The authority behind `DecionisGate`                           | The Decionis service, or your implementation of the two interfaces                    |
-| Policy                                                        | You, in the authority                                                                 |
-| The handlers, the parameter schemas, the downstream addresses | You, in your handler registration (the example's `src/Handlers.ts`) and the ConfigMap |
-| The escalation shape: who approves, through which ceremony    | You, in the ConfigMap (`DIRECT` or `MANAGED`; `NONE` returns the hold)                |
-| The caller token, the API key, the downstream credential      | You, as Secrets the manifest references                                               |
-| Executor isolation, agent egress denial, credential scoping   | Your cluster, starting from the NetworkPolicy in the manifest                         |
+| Piece                                                         | Who                                                                                                                                       |
+| ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| The executor, its image, the manifest, the proof              | This repository                                                                                                                           |
+| The authority behind `DecionisGate`                           | The Decionis service, or your implementation of the two interfaces                                                                        |
+| Policy                                                        | You, in the authority                                                                                                                     |
+| The handlers, the parameter schemas, the downstream addresses | You, in your handler registration (the example's `src/Handlers.ts`) and the ConfigMap                                                     |
+| The escalation shape: who approves, through which ceremony    | You, in the ConfigMap (`DIRECT` or `MANAGED`; `NONE` returns the hold)                                                                    |
+| The caller token, the API key, the downstream credential      | You, as Secrets the manifest references                                                                                                   |
+| Executor isolation, agent egress denial, credential scoping   | Your cluster, starting from the NetworkPolicy in the manifest; the executor verifies the posture it can see and refuses to run without it |
 
 The seam between the library and the authority is written down in [OPEN-CORE.md](../OPEN-CORE.md).
 This kit deploys the library's side of it.
+
+## Where secrets come from
+
+The executor reads every secret from a file under `EXECUTOR_SECRETS_DIR`, verifies that the file
+is private to it (owned by its user, or owned by root and readable by the pod's `fsGroup` and
+nobody else, which is what the manifest's `defaultMode` and `fsGroup` produce), and follows the
+file when it changes without a restart. Where the value comes from is a choice the manifest does
+not make for you:
+
+- A Kubernetes Secret, created out of band and referenced by name, as the manifest shows.
+- The Secrets Store CSI driver with a cloud KMS or Vault provider, mounting each secret as a file
+  at the same paths; rotation on the provider's side becomes a changed file here.
+- External Secrets, syncing a provider into the Secret the manifest references.
+
+None of these is integrated in the executor and no vendor client ships with it. An HSM-resident
+key that must never leave its device needs a signing sidecar, which this kit does not provide.
+
+## What the posture check makes visible
+
+The image runs as the distroless `nonroot` user under Node's permission model, and the process
+refuses to start unless the host holds the posture the manifest declares: a non-root user, a
+read-only root filesystem, no service-account token, no proxy or trust-anchor or inspector
+injection, secret files it alone can read, and no ability to write outside the journal directory
+or to spawn a process. Remove one of those from the manifest and the pod does not start; the
+refusal names the check. The [package README](../packages/agentsafe/README.md) lists every check.
 
 ## Three modes, taken in order
 

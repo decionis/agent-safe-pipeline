@@ -7,9 +7,12 @@ export {
   type EscalationMode,
   type ExecutorConfig,
   type ExecutorMode,
+  type PostureSettings,
   type VerificationLevel,
   type VerificationMethod,
 } from "./config/ExecutorConfig.js";
+export type { DownstreamCredential, DownstreamRequest } from "./credential/DownstreamCredential.js";
+export { StaticHeaderCredential } from "./credential/StaticHeaderCredential.js";
 export {
   FORWARD_REQUEST_ACTION,
   REGISTERED_ACTIONS,
@@ -24,7 +27,61 @@ export type {
 } from "./handlers/HandlerRegistration.js";
 export { ExecutorHttpServer } from "./http/ExecutorHttpServer.js";
 export { MAX_BODY_BYTES, RESPONSE_HEADERS, ROUTES, type RouteDefinition } from "./http/Routes.js";
-export { SecretStore } from "./secrets/SecretStore.js";
+export {
+  SECURITY_STREAM,
+  SecurityEventSchema,
+  SecurityEvents,
+  type SecurityEvent,
+} from "./incident/SecurityEvents.js";
+export { LineEmitter, type LineSinks } from "./logging/LineEmitter.js";
+export {
+  HostPosture,
+  PostureError,
+  type HostPostureOptions,
+  type PostureMode,
+  type PostureReport,
+  type PostureState,
+} from "./posture/HostPosture.js";
+export {
+  DRIFT_CHECKS,
+  INSPECTED_ENVIRONMENT,
+  SERVICE_ACCOUNT_TOKEN,
+  WAIVABLE_CHECKS,
+  processFacts,
+  type PostureCheckId,
+  type PostureConfig,
+  type PostureFacts,
+  type PostureFinding,
+} from "./posture/PostureChecks.js";
+export {
+  CompositeSecretStore,
+  type EnvironmentSecretOptions,
+} from "./secrets/CompositeSecretStore.js";
+export { EnvSecretStore } from "./secrets/EnvSecretStore.js";
+export {
+  FileSecretStore,
+  MAX_SECRET_BYTES,
+  type FileSecretStoreOptions,
+} from "./secrets/FileSecretStore.js";
+export {
+  MAX_LINE_BYTES,
+  Redactor,
+  type Redaction,
+  type RedactionPattern,
+} from "./secrets/Redactor.js";
+export { SecretHandle } from "./secrets/SecretHandle.js";
+export {
+  SecretError,
+  type ReloadReason,
+  type ReloadReport,
+  type SecretName,
+  type SecretStore,
+} from "./secrets/SecretStore.js";
+export {
+  AuthorityClients,
+  type AuthorityClientSet,
+  type AuthorityClientsOptions,
+} from "./service/AuthorityClients.js";
 export {
   EscalationHandoffSchema,
   EscalationResolver,

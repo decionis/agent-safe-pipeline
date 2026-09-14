@@ -21,6 +21,11 @@ data:
   EXECUTOR_ACTOR_RUNTIME: "workflow-runner"
   # A proposal stays valid this long; a ceremony has to finish inside it.
   EXECUTOR_INTENT_TTL_SECONDS: "300"
+  # EXECUTOR_POSTURE is deliberately not set: it defaults to ENFORCED, and
+  # the process refuses to start on a host that does not hold the posture
+  # this manifest declares. Every secret is a file under this directory,
+  # owned by root and readable by the pod's fsGroup only.
+  EXECUTOR_SECRETS_DIR: "/var/run/agent-safe/secrets"
   EXECUTOR_CALLER_TOKEN_FILE: "/var/run/agent-safe/secrets/caller-token"
   # NONE returns the hold. MANAGED has the authority orchestrate Presence and
   # needs PRESENCE_APPROVER_ID, PRESENCE_VERIFICATION_LEVEL and
@@ -65,6 +70,16 @@ spec:
         app: agent-safe-executor
     spec:
       automountServiceAccountToken: false
+      # The image runs as distroless `nonroot` (65532). The fsGroup makes the
+      # Secret volume readable by the process's group, which is one of the two
+      # ownership shapes the executor's posture accepts.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: executor
           image: IMAGE_PLACEHOLDER
@@ -94,9 +109,11 @@ spec:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             runAsNonRoot: true
-            runAsUser: 1000
+            runAsUser: 65532
             capabilities:
               drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
           resources:
             requests:
               cpu: 100m
@@ -109,8 +126,12 @@ spec:
             # Created out of band with the keys the ConfigMap names:
             # caller-token, decionis-api-key, downstream-credential, and
             # presence-api-key only for DIRECT escalation. Never checked in
-            # anywhere.
+            # anywhere. The mode is 0440 written as a decimal, because this
+            # file is read as YAML 1.2 by the repository's tooling: the files
+            # are root-owned, readable by the fsGroup, and by nobody else,
+            # which the executor verifies before it reads them.
             secretName: agent-safe-executor-secrets
+            defaultMode: 288
 ---
 apiVersion: v1
 kind: Service

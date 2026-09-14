@@ -2,6 +2,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { once } from "node:events";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
+import type { SecretHandle } from "../secrets/SecretHandle.js";
 import { ServiceError } from "../service/ServiceError.js";
 import type { TrustedExecutorService } from "../service/TrustedExecutorService.js";
 import { MAX_BODY_BYTES, RESPONSE_HEADERS, ROUTES } from "./Routes.js";
@@ -23,19 +24,18 @@ class GuardError extends Error {
 
 /**
  * The process's one listener. The caller token is compared in constant time
- * against a digest and never kept in clear; the body is bounded before it is
- * read; a failure is a status and a code, never a message, a stack, or
- * anything from the request.
+ * against the digest of the current handle, so a rotated token is honoured
+ * from the next request on and the old one is refused; the body is bounded
+ * before it is read; a failure is a status and a code, never a message, a
+ * stack, or anything from the request.
  */
 export class ExecutorHttpServer {
   private readonly server: Server;
-  private readonly expectedToken: Buffer;
 
   public constructor(
     private readonly service: TrustedExecutorService,
-    callerToken: string,
+    private readonly callerToken: () => SecretHandle,
   ) {
-    this.expectedToken = ExecutorHttpServer.digest(callerToken);
     this.server = createServer((request, response) => {
       void this.handle(request, response);
     });
@@ -110,7 +110,7 @@ export class ExecutorHttpServer {
     // HTTP parsers trim the value's whitespace, so a bare scheme never reaches
     // here; whatever follows it is compared as a digest, however short.
     const presented = header.slice("Bearer ".length).trim();
-    if (!timingSafeEqual(ExecutorHttpServer.digest(presented), this.expectedToken)) {
+    if (!timingSafeEqual(ExecutorHttpServer.digest(presented), this.callerToken().digestBytes())) {
       throw new GuardError(401, "CALLER_NOT_AUTHENTICATED");
     }
   }

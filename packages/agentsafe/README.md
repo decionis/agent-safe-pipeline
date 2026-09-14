@@ -22,20 +22,30 @@ npm install @decionis/agentsafe
 import { serve, type HandlerRegistration } from "@decionis/agentsafe";
 import { JsonObjectSchema } from "@decionis/agent-safe-pipeline";
 
-const handlers: HandlerRegistration = ({ registry, downstream, fetch }) => {
+const handlers: HandlerRegistration = ({ registry, downstream, credential, fetch }) => {
   registry.register("create_payout", {
     parametersSchema: JsonObjectSchema,
-    execute: ({ parameters, authorization, dispatch }) =>
+    execute: ({ intent, parameters, authorization, dispatch }) =>
       dispatch.run(async (idempotencyKey) => {
+        const body = JSON.stringify(parameters);
+        // The credential resolves the current secret for this request only;
+        // the handler never holds a value of its own.
+        const headers = await credential.headersFor({
+          method: "POST",
+          url: downstream.url,
+          body,
+          idempotencyKey,
+          intentHash: intent.intentHash,
+        });
         // The provider side effect, and nothing else, goes here.
         const response = await fetch(downstream.url, {
           method: "POST",
           headers: {
-            [downstream.credentialHeader]: downstream.credential,
+            ...headers,
             "idempotency-key": idempotencyKey,
             "x-agent-safe-dossier-id": authorization.dossierId,
           },
-          body: JSON.stringify(parameters),
+          body,
         });
         return { status: response.status, accepted: response.ok };
       }),
@@ -56,13 +66,15 @@ const handlers: HandlerRegistration = ({ registry, downstream, fetch }) => {
 await serve(handlers);
 ```
 
-`serve` reads the configuration from the environment and mounted files, refuses to start with any
-variable missing (naming the variable, never its value), binds the listener, and closes it on
-`SIGTERM`. The bin `agentsafe serve` does the same with the reference forwarding handler,
+`serve` reads the configuration from the environment, verifies the host posture, opens the secrets
+from their mounted files, binds the listener, and closes it on `SIGTERM`; `SIGHUP` re-reads the
+secret files. A missing or invalid variable, a host that does not hold the posture, or a secret
+file another user could read is a refusal to start that names the variable or the check, never a
+value. The bin `agentsafe serve` does the same with the reference forwarding handler,
 `forwardRequestHandlers()`, which posts the verified parameters to `DOWNSTREAM_URL`. To assemble the
-executor without a process around it, `createTrustedExecutor({ config, handlers })` returns the
-service and a `listen`/`close` pair; the offline proof in the repository does exactly that against
-loopback doubles.
+executor without a process around it, `createTrustedExecutor({ config, secrets, handlers })`
+verifies the posture, returns the service and a `listen`/`close` pair, and owns the secret store
+from then on; the offline proof in the repository does exactly that against loopback doubles.
 
 ## What it is, and is not
 
@@ -187,42 +199,104 @@ Every variable, in one list (`CONFIG_KEYS`). A missing or invalid value is a ref
 names the variable and never its value. Nothing that identifies a tenant, a system, a person or a
 network path has a default.
 
-| Variable                                                      | Meaning                                                                                                 |
-| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `EXECUTOR_MODE`                                               | `SHADOW` or `ENFORCEMENT`                                                                               |
-| `EXECUTOR_BIND_ADDRESS`, `PORT`                               | Where the listener binds                                                                                |
-| `EXECUTOR_TENANT_ID`                                          | The Decionis tenant, a UUID                                                                             |
-| `EXECUTOR_ACTOR_ID`, `_TYPE`                                  | The actor the intent names; `EXECUTOR_ACTOR_RUNTIME` is optional                                        |
-| `EXECUTOR_INTENT_TTL_SECONDS`                                 | How long a proposal stays valid, at most five minutes; a ceremony has to finish inside it               |
-| `EXECUTOR_CALLER_TOKEN`                                       | The token the proposing workflow presents; secret                                                       |
-| `EXECUTOR_ESCALATION`                                         | `NONE`, `DIRECT` or `MANAGED`; refused in shadow, which never escalates                                 |
-| `DECIONIS_API_URL`                                            | The authority, HTTPS                                                                                    |
-| `DECIONIS_API_KEY`                                            | The server-side Decionis credential; secret                                                             |
-| `DECIONIS_ALLOW_INSECURE_LOOPBACK`                            | `true` permits plain HTTP to loopback for local doubles; refused under `NODE_ENV=production`            |
-| `PRESENCE_APPROVER_ID`                                        | The person who must approve (`DIRECT` and `MANAGED`); `PRESENCE_APPROVER_ROLE` is optional in `MANAGED` |
-| `PRESENCE_VERIFICATION_LEVEL`, `_METHODS`                     | `STANDARD` or `HIGH_CONFIDENCE`, and a comma-separated list of `WEBAUTHN`, `ACTIVE_LIVENESS`            |
-| `PRESENCE_API_URL`, `PRESENCE_API_KEY`                        | `DIRECT` only: the Presence service and its server-side credential; secret                              |
-| `PRESENCE_ORGANIZATION`                                       | `DIRECT` only: the requesting party the person sees                                                     |
-| `PRESENCE_HARDWARE_PKI_REQUIRED`, `_DISALLOW_VIRTUAL_CAMERAS` | `DIRECT` only: `true` or `false`                                                                        |
-| `DOWNSTREAM_URL`                                              | Where the reference handler forwards the verified parameters, HTTPS                                     |
-| `DOWNSTREAM_LOOKUP_URL`                                       | Optional read-only lookup for reconciliation; must contain `{idempotency_key}`                          |
-| `DOWNSTREAM_SYSTEM`, `_OPERATION`, `_ENVIRONMENT`             | The downstream target the intent names                                                                  |
-| `DOWNSTREAM_CREDENTIAL`                                       | The header value the downstream expects, prefix included; secret                                        |
-| `DOWNSTREAM_CREDENTIAL_HEADER`                                | The header it goes in                                                                                   |
-| `DOWNSTREAM_TIMEOUT_MS`                                       | Finite, at most fifteen seconds                                                                         |
+| Variable                                                      | Meaning                                                                                                                  |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `EXECUTOR_MODE`                                               | `SHADOW` or `ENFORCEMENT`                                                                                                |
+| `EXECUTOR_BIND_ADDRESS`, `PORT`                               | Where the listener binds                                                                                                 |
+| `EXECUTOR_TENANT_ID`                                          | The Decionis tenant, a UUID                                                                                              |
+| `EXECUTOR_ACTOR_ID`, `_TYPE`                                  | The actor the intent names; `EXECUTOR_ACTOR_RUNTIME` is optional                                                         |
+| `EXECUTOR_INTENT_TTL_SECONDS`                                 | How long a proposal stays valid, at most five minutes; a ceremony has to finish inside it                                |
+| `EXECUTOR_CALLER_TOKEN`                                       | The token the proposing workflow presents; secret                                                                        |
+| `EXECUTOR_ESCALATION`                                         | `NONE`, `DIRECT` or `MANAGED`; refused in shadow, which never escalates                                                  |
+| `EXECUTOR_POSTURE`                                            | `ENFORCED` (the default) or `DEVELOPMENT`, which waives the host checks and says so; refused under `NODE_ENV=production` |
+| `EXECUTOR_POSTURE_INTERVAL_SECONDS`                           | How often the drift checks repeat while running; ten seconds to ten minutes, sixty by default                            |
+| `EXECUTOR_SECRETS_DIR`                                        | The directory every `<NAME>_FILE` must resolve inside; required in production when any file is mounted                   |
+| `DECIONIS_API_URL`                                            | The authority, HTTPS                                                                                                     |
+| `DECIONIS_API_KEY`                                            | The server-side Decionis credential; secret                                                                              |
+| `DECIONIS_ALLOW_INSECURE_LOOPBACK`                            | `true` permits plain HTTP to loopback for local doubles; refused under `NODE_ENV=production`                             |
+| `PRESENCE_APPROVER_ID`                                        | The person who must approve (`DIRECT` and `MANAGED`); `PRESENCE_APPROVER_ROLE` is optional in `MANAGED`                  |
+| `PRESENCE_VERIFICATION_LEVEL`, `_METHODS`                     | `STANDARD` or `HIGH_CONFIDENCE`, and a comma-separated list of `WEBAUTHN`, `ACTIVE_LIVENESS`                             |
+| `PRESENCE_API_URL`, `PRESENCE_API_KEY`                        | `DIRECT` only: the Presence service and its server-side credential; secret                                               |
+| `PRESENCE_ORGANIZATION`                                       | `DIRECT` only: the requesting party the person sees                                                                      |
+| `PRESENCE_HARDWARE_PKI_REQUIRED`, `_DISALLOW_VIRTUAL_CAMERAS` | `DIRECT` only: `true` or `false`                                                                                         |
+| `DOWNSTREAM_URL`                                              | Where the reference handler forwards the verified parameters, HTTPS                                                      |
+| `DOWNSTREAM_LOOKUP_URL`                                       | Optional read-only lookup for reconciliation; must contain `{idempotency_key}`                                           |
+| `DOWNSTREAM_SYSTEM`, `_OPERATION`, `_ENVIRONMENT`             | The downstream target the intent names                                                                                   |
+| `DOWNSTREAM_CREDENTIAL`                                       | The header value the downstream expects, prefix included; secret                                                         |
+| `DOWNSTREAM_CREDENTIAL_HEADER`                                | The header it goes in                                                                                                    |
+| `DOWNSTREAM_TIMEOUT_MS`                                       | Finite, at most fifteen seconds                                                                                          |
 
-Each secret may be given as the variable or as `<NAME>_FILE`, the path of a mounted file, and never
-both. The manifest uses the file form so no value sits in a pod specification.
+## Secrets
+
+Each secret is given as `<NAME>_FILE`, the path of a mounted file, or outside production as the
+variable `<NAME>`; never both, and in production only the file, because a file is the one shape
+whose permissions and rotation this process can verify. A secret file must be a regular file,
+inside `EXECUTOR_SECRETS_DIR`, and either private to the process's user or owned by root and
+readable by the process's group alone, which is how a Kubernetes Secret volume mounts with
+`fsGroup` set; anything else is a refusal that names the variable.
+
+Secrets are read into handles that hand the value out only for the duration of a request and zero
+it on disposal; a handle never becomes a string by `toString`, `toJSON`, or `util.inspect`. The
+mount directory is watched and polled: a changed file becomes current atomically, the clients that
+took a credential at construction (the gate, the verifier, the Presence client) are rebuilt as one
+set, the old handle is zeroed after a grace, and the security stream records `SECRET_ROTATED` with
+the name. A file that fails its checks on reload is refused with `SECRET_RELOAD_REFUSED` and the
+previous value stays current. A rotated caller token admits the new value from the next request
+and refuses the old one.
+
+Every line that leaves the process passes a redactor that holds no secret value, only the digests
+of the current secrets: a whole value that reaches a line is recognised by hashing the line's
+tokens, and a bearer credential, a PEM block, a compact JWS, or the configured downstream header is
+recognised by shape. A redaction is reported as `LEAK_SUSPECTED` on the security stream and never
+stops the line.
+
+Where the value comes from is yours: a Kubernetes Secret, the Secrets Store CSI driver in front of
+a cloud KMS or Vault, or External Secrets. Each lands the credential as a file this process reads
+and follows; none of them is integrated here, and an HSM-resident signing key that must never leave
+its device needs a signing sidecar this package does not provide.
+
+## Host posture
+
+A process cannot create its own isolation. What it can do is verify the posture it is able to
+observe and refuse to run without it, so that a deployment which skipped a control finds out at
+start rather than at an incident. Under `EXECUTOR_POSTURE=ENFORCED`, the default, every check
+below must hold or the process exits with `REFUSED_TO_START` naming the check; a subset is
+repeated every `EXECUTOR_POSTURE_INTERVAL_SECONDS`, and a regression while running is
+`POSTURE_DRIFT`, during which new enforcement work is refused with `503 POSTURE_DEGRADED` until the
+host recovers (`POSTURE_RESTORED`).
+
+| Check                                                                                             | What refuses                                                                                                |
+| ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `ROOT_UID`                                                                                        | The effective user is root                                                                                  |
+| `ROOT_WRITABLE`, `CWD_WRITABLE`                                                                   | The root filesystem or the working directory is writable                                                    |
+| `SA_TOKEN_PRESENT`                                                                                | A Kubernetes service-account token is mounted                                                               |
+| `NODE_ENV`                                                                                        | `NODE_ENV` is not `production`                                                                              |
+| `PROXY_ENV`                                                                                       | Any `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY` or `NODE_USE_ENV_PROXY` is set                     |
+| `NODE_OPTIONS`, `EXTRA_CA`, `KEYLOG`                                                              | `NODE_OPTIONS`, `NODE_EXTRA_CA_CERTS` or `SSLKEYLOGFILE` is set                                             |
+| `TLS_REJECT_DISABLED`                                                                             | `NODE_TLS_REJECT_UNAUTHORIZED=0`                                                                            |
+| `INSPECTOR_ACTIVE`                                                                                | The inspector is listening                                                                                  |
+| `SECRET_IN_ENV`                                                                                   | A secret was given as a variable in production                                                              |
+| `SECRET_FILE_OUTSIDE_DIR`, `SECRET_FILE_MODE`, `SECRET_FILE_OWNER`                                | A secret file resolves outside `EXECUTOR_SECRETS_DIR`, or another user could read it                        |
+| `PERMISSION_MODEL_ABSENT`, `PERMISSION_FS_WRITE`, `PERMISSION_CHILD_PROCESS`, `PERMISSION_WORKER` | Node's permission model is off, or allows writes outside the journal directory, child processes, or workers |
+
+`EXECUTOR_POSTURE=DEVELOPMENT`, for a developer's machine and the offline proof, waives the
+host-specific checks and records each waiver as `POSTURE_WAIVED` on the security stream. It never
+waives `ROOT_UID`, `SA_TOKEN_PRESENT`, or `TLS_REJECT_DISABLED`, and it is refused under
+`NODE_ENV=production`. The checks say what the process can see; the container runtime, Pod
+Security Admission, and the network policy in the
+[deployment kit](https://github.com/decionis/agent-safe-pipeline/blob/master/deploy/README.md)
+are what make the posture true.
 
 ## The seam
 
-A `HandlerRegistration` receives the registry, the downstream configuration, and the fetch it may
-use, registers what this process can run, and returns the action names in the order `/ready`
-reports them. The registry is sealed the moment it returns. Keep the shape: a strict parameter
-schema, the side effect inside `dispatch.run` so a transport failure after the point of no return
-is reported as unknown rather than retried, and a `reconcile` that only reads. The credential is
-resolved on this side of the boundary and handed to the handler; the agent never sees it and cannot
-name it.
+A `HandlerRegistration` receives the registry, the downstream configuration, the credential that
+proves this process to the downstream, and the fetch it may use, registers what this process can
+run, and returns the action names in the order `/ready` reports them. The registry is sealed the
+moment it returns. Keep the shape: a strict parameter schema, the side effect inside
+`dispatch.run` so a transport failure after the point of no return is reported as unknown rather
+than retried, and a `reconcile` that only reads. The credential is resolved on this side of the
+boundary at the moment of dispatch and handed to the handler as headers; the agent never sees it
+and cannot name it.
 
 ## The image
 
@@ -230,11 +304,15 @@ name it.
 docker build -f packages/agentsafe/Dockerfile -t agentsafe .
 ```
 
-Built from the repository root. The image bakes `NODE_ENV=production`, runs as a non-root user,
-holds no configuration, and starts `agentsafe serve` with the reference forwarding handler. The
+Built from the repository root. The runtime is distroless: no shell, no package manager, the
+`nonroot` user, `NODE_ENV=production` baked in, and node started under its permission model,
+allowed to read the application and the mounts under `/var/run/agent-safe`, to write only under
+`/var/lib/agent-safe`, and to spawn nothing. The image holds no configuration and starts
+`agentsafe serve` with the reference forwarding handler. The
 [deployment kit](https://github.com/decionis/agent-safe-pipeline/blob/master/deploy/README.md) has
-the manifest that supplies the configuration, the runbook from shadow to enforcement, and how to
-take the image the release workflow publishes and verify it instead of building your own.
+the manifest that supplies the configuration and the posture, the runbook from shadow to
+enforcement, and how to take the image the release workflow publishes and verify it instead of
+building your own.
 
 ## What a green run is not
 

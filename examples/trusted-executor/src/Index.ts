@@ -10,13 +10,19 @@
  * decides again. Every expectation is asserted, so the run is a self-checking
  * proof: the process exits 0 only when every refusal held, every legitimate
  * path executed exactly once, a lost provider response was reconciled without
- * a second send, and no credential, token, or key reached a response or an
- * audit line.
+ * a second send, a rotated caller token retired the old one, and no
+ * credential, token, or key reached a response, an audit line, or a security
+ * line.
  *
- * All identities are synthetic; the tokens are generated at run time.
+ * All identities are synthetic; the tokens are generated at run time. The
+ * host posture is declared as development, so the host checks a deployment
+ * enforces are waived here and said so on the security stream.
  */
 import { randomBytes } from "node:crypto";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import process from "node:process";
 import {
   LOCAL_AUTHORITY_API_KEY,
@@ -26,10 +32,12 @@ import {
 } from "@decionis/agent-safe-pipeline/testing";
 import {
   CONFIG_KEYS,
+  CompositeSecretStore,
   ExecutorConfigLoader,
   FORWARD_REQUEST_ACTION,
   MAX_BODY_BYTES,
   RESPONSE_HEADERS,
+  SecurityEvents,
   createTrustedExecutor,
   type TrustedExecutor,
 } from "@decionis/agentsafe";
@@ -156,6 +164,8 @@ function environment(
     EXECUTOR_MODE: mode,
     EXECUTOR_ESCALATION: escalation,
     EXECUTOR_INTENT_TTL_SECONDS: "300",
+    // This proof runs on whatever machine runs it: the host checks are waived and said so.
+    EXECUTOR_POSTURE: "DEVELOPMENT",
     ...presenceShape,
     EXECUTOR_BIND_ADDRESS: "127.0.0.1",
     PORT: "1",
@@ -178,26 +188,57 @@ function environment(
   };
 }
 
+/** A production deployment's shape, with nothing reachable: every address is a reserved example host. */
+function productionEnvironment(): Record<string, string> {
+  const env = environment("ENFORCEMENT");
+  delete env["EXECUTOR_POSTURE"];
+  delete env["DECIONIS_ALLOW_INSECURE_LOOPBACK"];
+  return {
+    ...env,
+    NODE_ENV: "production",
+    DECIONIS_API_URL: "https://authority.decionis.example",
+    DOWNSTREAM_URL: "https://payouts.provider.example/v1/payouts",
+    DOWNSTREAM_LOOKUP_URL: "https://payouts.provider.example/v1/payouts/{idempotency_key}",
+    EXECUTOR_SECRETS_DIR: "/var/run/agent-safe/secrets",
+  };
+}
+
 const auditLines: string[] = [];
+const securityLines: string[] = [];
 const responses: string[] = [];
 
 interface RunningExecutor {
   readonly baseUrl: string;
   readonly executor: TrustedExecutor;
+  readonly secrets: CompositeSecretStore;
 }
 
 async function startExecutor(
   mode: "SHADOW" | "ENFORCEMENT",
   escalation: Escalation = "NONE",
+  overrides: Record<string, string | undefined> = {},
 ): Promise<RunningExecutor> {
-  const config = ExecutorConfigLoader.load(environment(mode, escalation));
+  const env: Record<string, string> = { ...environment(mode, escalation) };
+  for (const [key, value] of Object.entries(overrides)) {
+    if (value === undefined) delete env[key];
+    else env[key] = value;
+  }
+  const config = ExecutorConfigLoader.load(env);
+  const security = new SecurityEvents((line) => securityLines.push(line));
+  const secrets = CompositeSecretStore.fromEnvironment(env, config.secrets.required, {
+    events: security,
+    production: config.production,
+    enforcePermissions: false,
+    watch: false,
+  });
   const executor = await createTrustedExecutor({
     config,
+    secrets,
     handlers,
-    dependencies: { emit: (line) => auditLines.push(line) },
+    dependencies: { emit: (line) => auditLines.push(line), security },
   });
   const address = await executor.listen(0, "127.0.0.1");
-  return { baseUrl: `${LOOPBACK_ORIGIN}:${address.port}`, executor };
+  return { baseUrl: `${LOOPBACK_ORIGIN}:${address.port}`, executor, secrets };
 }
 
 interface Reply {
@@ -280,6 +321,18 @@ heading("Refusals to start");
     "a secret given twice is refused",
     refusal(ambiguous),
   );
+  const inEnvironment = refusal(productionEnvironment());
+  check(
+    inEnvironment.includes("CONFIG_SECRET_IN_ENV") && !inEnvironment.includes(callerToken),
+    "a secret in the environment is refused in production",
+    inEnvironment,
+  );
+  const development = refusal({ ...productionEnvironment(), EXECUTOR_POSTURE: "DEVELOPMENT" });
+  check(
+    development.includes("EXECUTOR_POSTURE"),
+    "development posture is refused in production",
+    development,
+  );
   const listed = Object.keys(environment("ENFORCEMENT", "DIRECT")).every((key) =>
     (CONFIG_KEYS as readonly string[]).includes(key),
   );
@@ -349,6 +402,14 @@ heading("Shadow: observe, record, never execute");
 heading("Enforcement: one ALLOW, one dispatch");
 const executor = await startExecutor("ENFORCEMENT");
 {
+  const posture = executor.executor.posture;
+  check(
+    posture.mode === "DEVELOPMENT" &&
+      posture.failed.length === 0 &&
+      securityLines.some((line) => line.includes('"POSTURE_VERIFIED"')),
+    "the host posture was verified, with development waivers said out loud",
+    `${posture.findings.length} checks, ${posture.waived.length} waived`,
+  );
   const allowed = await call(executor, "/v1/actions", { body: proposal(5_000) });
   const allowedKey = lastKey;
   const authorization = allowed.body["authorization"] as Record<string, unknown> | null;
@@ -503,6 +564,44 @@ heading("A lost response is reconciled, never re-sent");
   );
 }
 
+heading("Rotation: a replaced caller token file retires the old one");
+{
+  const directory = mkdtempSync(join(tmpdir(), "agentsafe-proof-"));
+  const path = join(directory, "caller-token");
+  const first = randomBytes(24).toString("base64url");
+  const second = randomBytes(24).toString("base64url");
+  writeFileSync(path, `${first}\n`, { mode: 0o600 });
+  const rotating = await startExecutor("ENFORCEMENT", "NONE", {
+    EXECUTOR_CALLER_TOKEN: undefined,
+    EXECUTOR_CALLER_TOKEN_FILE: path,
+  });
+  const before = await call(rotating, "/v1/actions", { body: proposal(5_000), token: first });
+  check(
+    before.status === 200 && before.body["outcome"] === "COMPLETED",
+    "the token read from the mounted file admits the caller",
+    `${before.status} ${String(before.body["outcome"])}`,
+  );
+  writeFileSync(path, `${second}\n`);
+  const report = await rotating.secrets.reload("SIGHUP");
+  const stale = await call(rotating, "/v1/actions", { body: proposal(5_000), token: first });
+  const fresh = await call(rotating, "/v1/actions", { body: proposal(5_000), token: second });
+  check(
+    report.rotated.includes("EXECUTOR_CALLER_TOKEN") &&
+      stale.status === 401 &&
+      fresh.status === 200 &&
+      securityLines.some((line) => line.includes('"SECRET_ROTATED"')),
+    "after the file changes, the old token is refused and the new one admitted",
+    `rotated ${report.rotated.join(",")}; old ${stale.status}, new ${fresh.status}`,
+  );
+  check(
+    !securityLines.join("\n").includes(first) && !securityLines.join("\n").includes(second),
+    "the rotation event names the secret, not its values",
+    `${securityLines.filter((line) => line.includes("SECRET_ROTATED")).length} rotation events`,
+  );
+  await rotating.executor.close();
+  rmSync(directory, { recursive: true, force: true });
+}
+
 heading("Direct escalation: this process opens the Presence request");
 {
   const direct = await startExecutor("ENFORCEMENT", "DIRECT");
@@ -626,18 +725,19 @@ heading("Managed escalation: the authority orchestrates Presence");
 
 heading("Nothing secret left the process");
 {
-  const everything = [...responses, ...auditLines].join("\n");
+  const everything = [...responses, ...auditLines, ...securityLines].join("\n");
   const tokens = [...authority.grants.keys()];
   const leaked = [
     everything.includes(callerToken) ? "caller token" : null,
     everything.includes(downstreamCredential) ? "downstream credential" : null,
     everything.includes(LOCAL_AUTHORITY_API_KEY) ? "authority key" : null,
+    everything.includes(LOCAL_PRESENCE_API_KEY) ? "presence key" : null,
     tokens.some((token) => everything.includes(token)) ? "grant token" : null,
   ].filter((item) => item !== null);
   check(
     leaked.length === 0 && tokens.length > 0,
-    "no credential, token, or key in any response or audit line",
-    `${responses.length} responses, ${auditLines.length} audit lines, ${tokens.length} grants`,
+    "no credential, token, or key in any response, audit line, or security line",
+    `${responses.length} responses, ${auditLines.length} audit lines, ${securityLines.length} security lines, ${tokens.length} grants`,
   );
   const executions = auditLines.filter((line) => line.includes('"EXECUTION_COMPLETED"')).length;
   const reconciliations = auditLines.filter((line) =>
@@ -658,6 +758,6 @@ await authority.stop();
 await presence.stop();
 
 out(
-  `\n${failures === 0 ? "PROVEN" : "NOT PROVEN"}: ${authority.grants.size} grants claimed, ${provider.effects.size} provider effects, ${presence.receipts.size} ceremonies completed by a person, one lost response reconciled without a second send; ${failures} failed expectations.`,
+  `\n${failures === 0 ? "PROVEN" : "NOT PROVEN"}: ${authority.grants.size} grants claimed, ${provider.effects.size} provider effects, ${presence.receipts.size} ceremonies completed by a person, one lost response reconciled without a second send, one caller token rotated; ${failures} failed expectations.`,
 );
 process.exitCode = failures === 0 ? 0 : 1;
