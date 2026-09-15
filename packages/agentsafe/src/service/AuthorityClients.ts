@@ -86,7 +86,10 @@ export class AuthorityClients {
       config.escalation,
       gate,
       audit,
-      options.presence === undefined ? {} : { presence: options.presence },
+      {
+        ...(options.presence === undefined ? {} : { presence: options.presence }),
+        ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+      },
       presenceApiKey,
     );
     return {

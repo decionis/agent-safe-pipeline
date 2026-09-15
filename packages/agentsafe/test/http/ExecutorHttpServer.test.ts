@@ -1,11 +1,12 @@
 import { createConnection, createServer } from "node:net";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ExecutorHttpServer } from "../../src/http/ExecutorHttpServer.js";
+import { RequestContext } from "../../src/http/RequestContext.js";
 import { MAX_BODY_BYTES, RESPONSE_HEADERS, ROUTES } from "../../src/http/Routes.js";
 import { SecretHandle } from "../../src/secrets/SecretHandle.js";
 import { ServiceError } from "../../src/service/ServiceError.js";
 import type { TrustedExecutorService } from "../../src/service/TrustedExecutorService.js";
-import { CALLER_TOKEN, LOOPBACK_ORIGIN } from "../support/Environment.js";
+import { CALLER_TOKEN, LOOPBACK_ORIGIN, collectedEvents } from "../support/Environment.js";
 
 const propose = vi.fn();
 const reconcile = vi.fn();
@@ -114,18 +115,63 @@ describe("ExecutorHttpServer", () => {
     resume.mockResolvedValue({ outcome: "ESCALATE_PENDING" });
   });
 
-  it("declares two public routes and three authenticated ones", () => {
+  it("declares two public routes, three caller routes, and one operator route", () => {
     expect(ROUTES.map((route) => `${route.method} ${route.path}`)).toEqual([
       "GET /health",
       "GET /ready",
       "POST /v1/actions",
       "POST /v1/reconciliations",
       "POST /v1/escalations",
+      "GET /metrics",
     ]);
     expect(ROUTES.filter((route) => route.public).map((route) => route.path)).toEqual([
       "/health",
       "/ready",
     ]);
+    expect(ROUTES.filter((route) => "role" in route).map((route) => route.path)).toEqual([
+      "/metrics",
+    ]);
+  });
+
+  it("runs each authenticated request inside a scope that names the caller, and reports refusals at the door", async () => {
+    const lines: string[] = [];
+    const own = new ExecutorHttpServer(service, () => callerToken, {
+      events: collectedEvents(lines),
+    });
+    const bound = await own.listen(0, "127.0.0.1");
+    propose.mockImplementation(async () => ({
+      principal: RequestContext.current()?.principal ?? null,
+    }));
+    const origin = `${LOOPBACK_ORIGIN}:${bound.port}`;
+    const accepted = await fetch(`${origin}/v1/actions`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${CALLER_TOKEN}`, "content-type": "application/json" },
+      body: "{}",
+    });
+    expect(await accepted.json()).toEqual({ principal: "legacy-caller" });
+    expect(RequestContext.current()).toBeNull();
+    const anonymous = await fetch(`${origin}/v1/actions`, { method: "POST", body: "{}" });
+    expect(anonymous.status).toBe(401);
+    const wrong = await fetch(`${origin}/v1/actions`, {
+      method: "POST",
+      headers: { authorization: "Bearer wrong" },
+      body: "{}",
+    });
+    expect(wrong.status).toBe(401);
+    expect(lines.map((line) => JSON.parse(line) as Record<string, unknown>)).toEqual([
+      expect.objectContaining({ event: "AUTH_FAILED", method: "bearer" }),
+      expect.objectContaining({ event: "AUTH_FAILED", method: "bearer" }),
+    ]);
+    own.rotateTls();
+    await own.close();
+  });
+
+  it("refuses the operator route to the caller until an operator exists", async () => {
+    const reply = await call("/metrics", { method: "GET" });
+    expect(reply.status).toBe(403);
+    expect(reply.body).toEqual({ code: "OPERATOR_NOT_CONFIGURED" });
+    const anonymous = await call("/metrics", { method: "GET", token: null });
+    expect(anonymous.status).toBe(401);
   });
 
   it("answers health without a token and with every protective header", async () => {

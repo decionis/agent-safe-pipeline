@@ -10,10 +10,16 @@ import {
   type SafeExecutionResult,
   type TrustedIntentContext,
 } from "@decionis/agent-safe-pipeline";
-import { LineAuditSink, type LineWriter } from "../audit/LineAuditSink.js";
+import { readFileSync } from "node:fs";
+import { HashChain } from "../audit/HashChain.js";
+import { EVIDENCE_STREAM, HashChainedAuditSink } from "../audit/HashChainedAuditSink.js";
+import type { LineWriter } from "../audit/LineAuditSink.js";
 import type { EscalationMode, ExecutorConfig, ExecutorMode } from "../config/ExecutorConfig.js";
 import { StaticHeaderCredential } from "../credential/StaticHeaderCredential.js";
+import { EgressPolicy } from "../egress/EgressPolicy.js";
+import { GuardedFetch, type AddressResolver } from "../egress/GuardedFetch.js";
 import type { FetchLike, HandlerRegistration } from "../handlers/HandlerRegistration.js";
+import { executorMetrics, type ExecutorMetrics } from "../incident/Metrics.js";
 import { SecurityEvents } from "../incident/SecurityEvents.js";
 import type { PostureState } from "../posture/HostPosture.js";
 import type { SecretStore } from "../secrets/SecretStore.js";
@@ -34,14 +40,22 @@ import {
 } from "./Requests.js";
 import { ServiceError } from "./ServiceError.js";
 
-export interface ServiceDependencies extends EscalationDependencies {
+export interface ServiceDependencies extends Omit<EscalationDependencies, "fetch"> {
   /** Where audit lines go; stdout in the process, an array in the proof. */
   readonly emit?: LineWriter;
+  /** The transport under the guard; `node:https` when absent. An injected one is still policy-checked. */
   readonly fetch?: FetchLike;
+  /** Name resolution for the guard; the system resolver when absent. */
+  readonly resolve?: AddressResolver;
+  /** Reads a CA bundle the configuration names; the filesystem when absent. */
+  readonly readFile?: (path: string) => string;
   /** Where security events go; stderr in the process. */
   readonly security?: SecurityEvents;
   /** Whether a posture drift is standing; an enforcement request is refused while it is. */
   readonly posture?: PostureState;
+  /** The evidence chain to link audit lines on; a fresh one from genesis when absent. */
+  readonly chain?: HashChain;
+  readonly metrics?: ExecutorMetrics;
 }
 
 /**
@@ -65,6 +79,9 @@ export class TrustedExecutorService {
     private readonly registered: readonly string[],
     private readonly clients: AuthorityClients,
     private readonly posture: PostureState,
+    private readonly egress: GuardedFetch,
+    public readonly metrics: ExecutorMetrics,
+    private readonly unsubscribeMetrics: () => void,
   ) {}
 
   /**
@@ -89,8 +106,19 @@ export class TrustedExecutorService {
         process.stderr.write(`${line}\n`);
       });
     const audit = new AuditRecorder({
-      sink: new LineAuditSink(emit),
+      sink: new HashChainedAuditSink(emit, dependencies.chain ?? new HashChain(EVIDENCE_STREAM)),
       failurePolicy: "REQUIRE_BEFORE_EXECUTION",
+    });
+    // Every connection this process opens, the authority's and the Presence
+    // service's included, goes through the one guarded fetch.
+    const readFile =
+      dependencies.readFile ?? ((path: string): string => readFileSync(path, "utf8"));
+    const egress = new GuardedFetch({
+      policy: EgressPolicy.fromConfig(config, readFile),
+      events,
+      maxResponseBytes: config.egress.maxResponseBytes,
+      ...(dependencies.fetch === undefined ? {} : { transport: dependencies.fetch }),
+      ...(dependencies.resolve === undefined ? {} : { resolve: dependencies.resolve }),
     });
     const registry = new ActionRegistry();
     const registered = handlers({
@@ -99,7 +127,7 @@ export class TrustedExecutorService {
       credential: new StaticHeaderCredential(config.downstream.credentialHeader, () =>
         secrets.get("DOWNSTREAM_CREDENTIAL"),
       ),
-      fetch: dependencies.fetch ?? fetch,
+      fetch: egress.fetch,
     });
     registry.seal();
     const clients = new AuthorityClients({
@@ -108,9 +136,10 @@ export class TrustedExecutorService {
       registry,
       audit,
       events,
-      ...(dependencies.fetch === undefined ? {} : { fetch: dependencies.fetch }),
+      fetch: egress.fetch,
       ...(dependencies.presence === undefined ? {} : { presence: dependencies.presence }),
     });
+    const metrics = dependencies.metrics ?? executorMetrics();
     return new TrustedExecutorService(
       config,
       new IntentCapture({ ttlSeconds: config.intentTtlSeconds }),
@@ -118,6 +147,9 @@ export class TrustedExecutorService {
       registered,
       clients,
       dependencies.posture ?? { degraded: false },
+      egress,
+      metrics,
+      events.subscribe(metrics.observe),
     );
   }
 
@@ -134,9 +166,11 @@ export class TrustedExecutorService {
     return this.registered.filter((action) => this.registry.has(action));
   }
 
-  /** Stops following credential rotation; the service answers nothing new after this. */
+  /** Stops following credential rotation and closes every outbound connection; the service answers nothing new after this. */
   public close(): void {
     this.clients.close();
+    this.egress.close();
+    this.unsubscribeMetrics();
   }
 
   public async propose(input: unknown): Promise<ActionResponse> {
@@ -149,7 +183,15 @@ export class TrustedExecutorService {
       throw new ServiceError(422, "ACTION_NOT_REGISTERED");
     }
     const captured = this.captureIntent(request);
-    if (this.config.mode === "SHADOW") return await this.observe(captured);
+    const answer =
+      this.config.mode === "SHADOW"
+        ? await this.observe(captured)
+        : await this.enforceAfterPosture(captured);
+    this.metrics.proposals.inc({ verdict: answer.verdict ?? "NONE" });
+    return answer;
+  }
+
+  private async enforceAfterPosture(captured: CapturedIntent): Promise<ActionResponse> {
     this.assertPosture();
     return await this.enforce(captured);
   }
@@ -199,6 +241,7 @@ export class TrustedExecutorService {
     const resolution = await escalation.resume(captured, parsed.data);
     if (resolution.kind === "DECISION") {
       const outcome = await executor.run(captured, resolution.decision);
+      this.metrics.executions.inc({ outcome: outcome.outcome });
       return this.response(captured, resolution.decision, outcome, null);
     }
     if (resolution.kind === "PENDING") {
@@ -281,6 +324,7 @@ export class TrustedExecutorService {
     // Every decision goes through the executor, an ESCALATE or BLOCK included,
     // so the audit stream carries the refusal as well as the execution.
     const outcome = await executor.run(captured, decision);
+    this.metrics.executions.inc({ outcome: outcome.outcome });
     let handoff: EscalationHandoff | null = null;
     let unavailable = false;
     if (decision.verdict === "ESCALATE" && !decision.failClosed) {

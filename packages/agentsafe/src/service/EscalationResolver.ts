@@ -10,6 +10,7 @@ import {
   type PresenceApprovalClient,
 } from "@decionis/agent-safe-pipeline";
 import type { EscalationConfig } from "../config/ExecutorConfig.js";
+import type { FetchLike } from "../handlers/HandlerRegistration.js";
 
 const identifier = z.string().trim().min(1).max(200);
 
@@ -77,6 +78,8 @@ export type EscalationResolution =
 
 export interface EscalationDependencies {
   readonly presence?: PresenceApprovalClient;
+  /** The fetch the Presence transport uses; the guarded one in the process. */
+  readonly fetch?: FetchLike;
 }
 
 /**
@@ -108,7 +111,11 @@ export class EscalationResolver {
     this.presence =
       dependencies.presence ??
       new HumanApprovalGate(
-        new PresenceClient({ baseUrl: config.presence.baseUrl, apiKey: presenceApiKey ?? "" }),
+        new PresenceClient({
+          baseUrl: config.presence.baseUrl,
+          apiKey: presenceApiKey ?? "",
+          ...(dependencies.fetch === undefined ? {} : { fetchImpl: dependencies.fetch }),
+        }),
       );
     this.coordinator = new PresenceApprovalCoordinator(
       this.presence,

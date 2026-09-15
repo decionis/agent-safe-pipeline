@@ -14,7 +14,7 @@ data:
   # after the runbook's stopping criteria are met (deploy/Runbook.md).
   EXECUTOR_MODE: "SHADOW"
   EXECUTOR_BIND_ADDRESS: "0.0.0.0"
-  PORT: "8080"
+  PORT: "8443"
   EXECUTOR_TENANT_ID: "00000000-0000-4000-8000-000000000001"
   EXECUTOR_ACTOR_ID: "synthetic-payout-agent"
   EXECUTOR_ACTOR_TYPE: "AI_AGENT"
@@ -24,9 +24,21 @@ data:
   # EXECUTOR_POSTURE is deliberately not set: it defaults to ENFORCED, and
   # the process refuses to start on a host that does not hold the posture
   # this manifest declares. Every secret is a file under this directory,
-  # owned by root and readable by the pod's fsGroup only.
-  EXECUTOR_SECRETS_DIR: "/var/run/agent-safe/secrets"
+  # owned by root and readable by the pod's fsGroup only; the TLS key is
+  # one of them, mounted from its own Secret beside the others.
+  EXECUTOR_SECRETS_DIR: "/var/run/agent-safe"
   EXECUTOR_CALLER_TOKEN_FILE: "/var/run/agent-safe/secrets/caller-token"
+  # The listener is TLS 1.3. The certificate and key come from a Secret of
+  # type kubernetes.io/tls (tls.crt, tls.key) that you create; the probes
+  # below speak HTTPS and present no client certificate, which the public
+  # routes admit. To require client certificates on every other route, add
+  # EXECUTOR_TLS_CLIENT_CA_FILE pointing at a mounted CA bundle.
+  EXECUTOR_TLS_CERT_FILE: "/var/run/agent-safe/tls/tls.crt"
+  EXECUTOR_TLS_KEY_FILE: "/var/run/agent-safe/tls/tls.key"
+  # The evidence chains' heads persist here across a container restart; the
+  # volume below is an emptyDir, which a pod eviction does not keep. The log
+  # pipeline is the durable store; this keeps the sequence honest.
+  EXECUTOR_JOURNAL_DIR: "/var/lib/agent-safe/journal"
   # NONE returns the hold. MANAGED has the authority orchestrate Presence and
   # needs PRESENCE_APPROVER_ID, PRESENCE_VERIFICATION_LEVEL and
   # PRESENCE_VERIFICATION_METHODS (PRESENCE_APPROVER_ROLE optional). DIRECT
@@ -84,7 +96,7 @@ spec:
         - name: executor
           image: IMAGE_PLACEHOLDER
           ports:
-            - containerPort: 8080
+            - containerPort: 8443
               protocol: TCP
           envFrom:
             - configMapRef:
@@ -93,16 +105,23 @@ spec:
             - name: secrets
               mountPath: /var/run/agent-safe/secrets
               readOnly: true
+            - name: tls
+              mountPath: /var/run/agent-safe/tls
+              readOnly: true
+            - name: journal
+              mountPath: /var/lib/agent-safe
           readinessProbe:
             httpGet:
               path: /ready
-              port: 8080
+              port: 8443
+              scheme: HTTPS
             initialDelaySeconds: 3
             periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /health
-              port: 8080
+              port: 8443
+              scheme: HTTPS
             initialDelaySeconds: 10
             periodSeconds: 20
           securityContext:
@@ -132,6 +151,15 @@ spec:
             # which the executor verifies before it reads them.
             secretName: agent-safe-executor-secrets
             defaultMode: 288
+        - name: tls
+          secret:
+            # A kubernetes.io/tls Secret you create: tls.crt and tls.key for
+            # the name the callers connect to. Same ownership shape as above.
+            secretName: agent-safe-executor-tls
+            defaultMode: 288
+        - name: journal
+          emptyDir:
+            sizeLimit: 64Mi
 ---
 apiVersion: v1
 kind: Service
@@ -143,8 +171,8 @@ spec:
   selector:
     app: agent-safe-executor
   ports:
-    - port: 80
-      targetPort: 8080
+    - port: 8443
+      targetPort: 8443
       protocol: TCP
 ---
 # Only the workflow that proposes may reach the executor, and the executor
@@ -166,7 +194,7 @@ spec:
             matchLabels:
               agent-safe-caller: "true"
       ports:
-        - port: 8080
+        - port: 8443
           protocol: TCP
   egress:
     # DNS.

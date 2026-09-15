@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { PresenceVerificationRequirements } from "@decionis/agent-safe-pipeline";
 import { INSPECTED_ENVIRONMENT, type PostureConfig } from "../posture/PostureChecks.js";
+import type { TlsMinVersion } from "../http/TlsListener.js";
 import type { PostureMode } from "../posture/HostPosture.js";
 import { SecretError, type SecretName } from "../secrets/SecretStore.js";
 
@@ -55,6 +56,38 @@ export interface PostureSettings extends PostureConfig {
   readonly intervalSeconds: number;
 }
 
+/** How the listener presents itself: TLS with the given material, or plaintext outside production only. */
+export interface ListenerConfig {
+  readonly tls: {
+    readonly certFile: string;
+    /** When set, every connection is asked for a client certificate and non-public routes require one. */
+    readonly clientCaFile: string | null;
+    readonly minVersion: TlsMinVersion;
+  } | null;
+}
+
+/** How a destination is trusted beyond the platform's own store: a CA bundle, SPKI pins, or neither. */
+export interface TrustAnchor {
+  readonly caFile: string | null;
+  /** `sha256/<base64>` over the DER SubjectPublicKeyInfo; empty, or at least two. */
+  readonly pins: readonly string[];
+}
+
+export interface EgressConfig {
+  readonly maxResponseBytes: number;
+  readonly trust: {
+    readonly authority: TrustAnchor;
+    readonly presence: TrustAnchor;
+    readonly downstream: TrustAnchor;
+  };
+}
+
+/** Where the chain heads are kept across a restart, and how often. */
+export interface EvidenceConfig {
+  readonly journalDir: string | null;
+  readonly checkpointLines: number;
+}
+
 /**
  * The executor's configuration: every setting, and the names of the secrets
  * it needs, but no secret value. Values live in a `SecretStore`, read through
@@ -76,6 +109,9 @@ export interface ExecutorConfig {
     readonly allowInsecureLoopback: boolean;
   };
   readonly downstream: DownstreamConfig;
+  readonly listener: ListenerConfig;
+  readonly egress: EgressConfig;
+  readonly evidence: EvidenceConfig;
   readonly posture: PostureSettings;
   readonly secrets: {
     /** The secrets this configuration needs; each is given as a file or, outside production, a variable. */
@@ -91,6 +127,19 @@ const headerName = z
   .max(128)
   .regex(/^[\w!#$%&'*+.^`|~-]+$/);
 const booleanFlag = z.enum(["true", "false"]);
+const absolutePath = z.string().trim().min(1).max(500).regex(/^\//);
+const pinList = z
+  .string()
+  .trim()
+  .regex(/^sha256\/[\w+/]{43}=(?:,sha256\/[\w+/]{43}=)*$/);
+const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
+const TLS_KEYS = [
+  "EXECUTOR_TLS_CERT_FILE",
+  "EXECUTOR_TLS_KEY",
+  "EXECUTOR_TLS_KEY_FILE",
+  "EXECUTOR_TLS_CLIENT_CA_FILE",
+  "EXECUTOR_TLS_MIN_VERSION",
+] as const;
 
 const EnvironmentSchema = z.object({
   EXECUTOR_MODE: z.enum(["SHADOW", "ENFORCEMENT"]),
@@ -105,9 +154,24 @@ const EnvironmentSchema = z.object({
   EXECUTOR_POSTURE: z.enum(["ENFORCED", "DEVELOPMENT"]).optional(),
   EXECUTOR_POSTURE_INTERVAL_SECONDS: z.coerce.number().int().min(10).max(600).optional(),
   EXECUTOR_SECRETS_DIR: z.string().trim().min(1).max(500).optional(),
+  EXECUTOR_TLS_CERT_FILE: absolutePath.optional(),
+  EXECUTOR_TLS_CLIENT_CA_FILE: absolutePath.optional(),
+  EXECUTOR_TLS_MIN_VERSION: z.enum(["1.2", "1.3"]).optional(),
+  EXECUTOR_ALLOW_PLAINTEXT_LISTENER: booleanFlag.optional(),
+  EXECUTOR_EGRESS_MAX_RESPONSE_BYTES: z.coerce
+    .number()
+    .int()
+    .min(1024)
+    .max(MAX_RESPONSE_BYTES)
+    .optional(),
+  EXECUTOR_JOURNAL_DIR: absolutePath.optional(),
+  EXECUTOR_AUDIT_CHECKPOINT_LINES: z.coerce.number().int().min(1).max(10_000).optional(),
   DECIONIS_API_URL: z.string().trim().min(1).max(500),
   DECIONIS_ALLOW_INSECURE_LOOPBACK: booleanFlag.optional(),
+  DECIONIS_CA_FILE: absolutePath.optional(),
+  DECIONIS_SPKI_PINS: pinList.optional(),
   PRESENCE_API_URL: z.string().trim().min(1).max(500).optional(),
+  PRESENCE_CA_FILE: absolutePath.optional(),
   PRESENCE_ORGANIZATION: z.string().trim().min(1).max(200).optional(),
   PRESENCE_APPROVER_ID: identifier.optional(),
   PRESENCE_APPROVER_ROLE: identifier.optional(),
@@ -125,6 +189,8 @@ const EnvironmentSchema = z.object({
   DOWNSTREAM_OPERATION: identifier,
   DOWNSTREAM_ENVIRONMENT: identifier,
   DOWNSTREAM_CREDENTIAL_HEADER: headerName,
+  DOWNSTREAM_CA_FILE: absolutePath.optional(),
+  DOWNSTREAM_SPKI_PINS: pinList.optional(),
   DOWNSTREAM_TIMEOUT_MS: z.coerce.number().int().min(1).max(15_000),
 });
 
@@ -181,12 +247,38 @@ export class ExecutorConfigLoader {
       throw new Error("CONFIG_INVALID: DOWNSTREAM_LOOKUP_URL (must contain {idempotency_key})");
     }
     const escalation = ExecutorConfigLoader.escalation(values, allowInsecureLoopback);
+    const listener = ExecutorConfigLoader.listener(values, env, production);
+    const authorityUrl = ExecutorConfigLoader.serviceUrl(
+      values.DECIONIS_API_URL,
+      "DECIONIS_API_URL",
+      allowInsecureLoopback,
+    );
+    const downstreamUrl = ExecutorConfigLoader.serviceUrl(
+      values.DOWNSTREAM_URL,
+      "DOWNSTREAM_URL",
+      allowInsecureLoopback,
+    );
+    const downstreamLookupUrl =
+      lookupUrl === undefined
+        ? null
+        : ExecutorConfigLoader.serviceUrl(
+            lookupUrl,
+            "DOWNSTREAM_LOOKUP_URL",
+            allowInsecureLoopback,
+          );
+    const egress = ExecutorConfigLoader.egress(
+      values,
+      escalation.mode,
+      authorityUrl,
+      downstreamUrl,
+    );
     const required: SecretName[] = [
       "EXECUTOR_CALLER_TOKEN",
       "DECIONIS_API_KEY",
       "DOWNSTREAM_CREDENTIAL",
     ];
     if (escalation.mode === "DIRECT") required.push("PRESENCE_API_KEY");
+    if (listener.tls !== null) required.push("EXECUTOR_TLS_KEY");
     const located = ExecutorConfigLoader.locateSecrets(env, required, production);
     const secretsDir = values.EXECUTOR_SECRETS_DIR ?? null;
     if (secretsDir !== null && !secretsDir.startsWith("/")) {
@@ -215,33 +307,21 @@ export class ExecutorConfigLoader {
       },
       intentTtlSeconds: values.EXECUTOR_INTENT_TTL_SECONDS,
       escalation,
-      authority: {
-        baseUrl: ExecutorConfigLoader.serviceUrl(
-          values.DECIONIS_API_URL,
-          "DECIONIS_API_URL",
-          allowInsecureLoopback,
-        ),
-        allowInsecureLoopback,
-      },
+      authority: { baseUrl: authorityUrl, allowInsecureLoopback },
       downstream: {
-        url: ExecutorConfigLoader.serviceUrl(
-          values.DOWNSTREAM_URL,
-          "DOWNSTREAM_URL",
-          allowInsecureLoopback,
-        ),
-        lookupUrl:
-          lookupUrl === undefined
-            ? null
-            : ExecutorConfigLoader.serviceUrl(
-                lookupUrl,
-                "DOWNSTREAM_LOOKUP_URL",
-                allowInsecureLoopback,
-              ),
+        url: downstreamUrl,
+        lookupUrl: downstreamLookupUrl,
         system: values.DOWNSTREAM_SYSTEM,
         operation: values.DOWNSTREAM_OPERATION,
         environment: values.DOWNSTREAM_ENVIRONMENT,
         credentialHeader: values.DOWNSTREAM_CREDENTIAL_HEADER.toLowerCase(),
         timeoutMs: values.DOWNSTREAM_TIMEOUT_MS,
+      },
+      listener,
+      egress,
+      evidence: {
+        journalDir: values.EXECUTOR_JOURNAL_DIR ?? null,
+        checkpointLines: values.EXECUTOR_AUDIT_CHECKPOINT_LINES ?? 100,
       },
       posture: {
         mode: postureMode,
@@ -253,6 +333,90 @@ export class ExecutorConfigLoader {
         secretsDir,
       },
       secrets: { required },
+    };
+  }
+
+  /**
+   * TLS unless plaintext is asked for by name, which production refuses.
+   * A plaintext listener with TLS material beside it is a contradiction
+   * and is refused too, naming what was given.
+   */
+  private static listener(
+    values: Environment,
+    env: EnvironmentMap,
+    production: boolean,
+  ): ListenerConfig {
+    const plaintext = values.EXECUTOR_ALLOW_PLAINTEXT_LISTENER === "true";
+    if (plaintext) {
+      if (production) {
+        throw new Error(
+          "CONFIG_INVALID: EXECUTOR_ALLOW_PLAINTEXT_LISTENER (forbidden in production)",
+        );
+      }
+      const given = TLS_KEYS.filter((key) => env[key] !== undefined);
+      if (given.length > 0) {
+        throw new Error(
+          `CONFIG_INVALID: EXECUTOR_ALLOW_PLAINTEXT_LISTENER (plaintext listener with ${given.join(", ")})`,
+        );
+      }
+      return { tls: null };
+    }
+    const certFile = values.EXECUTOR_TLS_CERT_FILE;
+    if (certFile === undefined) {
+      throw new Error(
+        "CONFIG_INVALID: EXECUTOR_TLS_CERT_FILE (required unless EXECUTOR_ALLOW_PLAINTEXT_LISTENER=true)",
+      );
+    }
+    return {
+      tls: {
+        certFile,
+        clientCaFile: values.EXECUTOR_TLS_CLIENT_CA_FILE ?? null,
+        minVersion: values.EXECUTOR_TLS_MIN_VERSION === "1.2" ? "TLSv1.2" : "TLSv1.3",
+      },
+    };
+  }
+
+  /** The trust anchors per destination; one origin has one anchor, and a pin set is two or more. */
+  private static egress(
+    values: Environment,
+    escalation: EscalationMode,
+    authorityUrl: string,
+    downstreamUrl: string,
+  ): EgressConfig {
+    const pins = (value: string | undefined, key: string): readonly string[] => {
+      if (value === undefined) return [];
+      const distinct = [...new Set(value.split(","))];
+      if (distinct.length < 2)
+        throw new Error(`CONFIG_INVALID: ${key} (at least two distinct pins)`);
+      return distinct;
+    };
+    if (values.PRESENCE_CA_FILE !== undefined && escalation !== "DIRECT") {
+      throw new Error("CONFIG_INVALID: PRESENCE_CA_FILE (DIRECT escalation only)");
+    }
+    const authority: TrustAnchor = {
+      caFile: values.DECIONIS_CA_FILE ?? null,
+      pins: pins(values.DECIONIS_SPKI_PINS, "DECIONIS_SPKI_PINS"),
+    };
+    const downstream: TrustAnchor = {
+      caFile: values.DOWNSTREAM_CA_FILE ?? null,
+      pins: pins(values.DOWNSTREAM_SPKI_PINS, "DOWNSTREAM_SPKI_PINS"),
+    };
+    const sameOrigin = new URL(authorityUrl).origin === new URL(downstreamUrl).origin;
+    const sameAnchor =
+      authority.caFile === downstream.caFile &&
+      authority.pins.join(",") === downstream.pins.join(",");
+    if (sameOrigin && !sameAnchor) {
+      throw new Error(
+        "CONFIG_INVALID: DOWNSTREAM_CA_FILE, DOWNSTREAM_SPKI_PINS (one origin, one trust anchor)",
+      );
+    }
+    return {
+      maxResponseBytes: values.EXECUTOR_EGRESS_MAX_RESPONSE_BYTES ?? 1024 * 1024,
+      trust: {
+        authority,
+        presence: { caFile: values.PRESENCE_CA_FILE ?? null, pins: [] },
+        downstream,
+      },
     };
   }
 

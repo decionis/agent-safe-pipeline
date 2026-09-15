@@ -6,6 +6,8 @@ export interface RouteDefinition {
   readonly path: string;
   /** Public routes answer without the caller token; they carry no state. */
   readonly public: boolean;
+  /** A route only an operator may reach; until principals exist, nobody is one. */
+  readonly role?: "OPERATOR";
 }
 
 /** The whole surface. The README's table is checked against this list. */
@@ -15,6 +17,7 @@ export const ROUTES = [
   { method: "POST", path: "/v1/actions", public: false },
   { method: "POST", path: "/v1/reconciliations", public: false },
   { method: "POST", path: "/v1/escalations", public: false },
+  { method: "GET", path: "/metrics", public: false, role: "OPERATOR" },
 ] as const satisfies readonly RouteDefinition[];
 
 /** Every response, success or refusal, carries the same protective headers. */

@@ -24,15 +24,22 @@ const managed = (): Record<string, string> => ({
   PRESENCE_VERIFICATION_METHODS: "WEBAUTHN",
 });
 
-/** A production deployment's shape: every secret a file, every address HTTPS, posture enforced. */
+/** A production deployment's shape: every secret a file, every address HTTPS, posture enforced, TLS on. */
 const production = (): Record<string, string> => {
   const env = offlineEnvironment();
   delete env["EXECUTOR_POSTURE"];
+  delete env["EXECUTOR_ALLOW_PLAINTEXT_LISTENER"];
   for (const name of ["EXECUTOR_CALLER_TOKEN", "DECIONIS_API_KEY", "DOWNSTREAM_CREDENTIAL"]) {
     delete env[name];
     env[`${name}_FILE`] = `/var/run/agent-safe/secrets/${name.toLowerCase()}`;
   }
-  return { ...env, NODE_ENV: "production", EXECUTOR_SECRETS_DIR: "/var/run/agent-safe/secrets" };
+  return {
+    ...env,
+    NODE_ENV: "production",
+    EXECUTOR_SECRETS_DIR: "/var/run/agent-safe",
+    EXECUTOR_TLS_CERT_FILE: "/var/run/agent-safe/tls/tls.crt",
+    EXECUTOR_TLS_KEY_FILE: "/var/run/agent-safe/tls/tls.key",
+  };
 };
 
 const refusal = (env: Record<string, string | undefined>): string => {
@@ -134,12 +141,20 @@ describe("ExecutorConfigLoader", () => {
       UNRELATED: "value",
     });
     expect(config.production).toBe(true);
-    expect(config.posture.secretsDir).toBe("/var/run/agent-safe/secrets");
+    expect(config.posture.secretsDir).toBe("/var/run/agent-safe");
     expect(Object.keys(config.posture.secretFiles).sort()).toEqual([
       "DECIONIS_API_KEY",
       "DOWNSTREAM_CREDENTIAL",
       "EXECUTOR_CALLER_TOKEN",
+      "EXECUTOR_TLS_KEY",
     ]);
+    expect(config.listener).toEqual({
+      tls: {
+        certFile: "/var/run/agent-safe/tls/tls.crt",
+        clientCaFile: null,
+        minVersion: "TLSv1.3",
+      },
+    });
     expect(config.posture.secretsInEnvironment).toEqual([]);
     expect(config.posture.environment).toEqual({
       NODE_ENV: "production",
@@ -270,6 +285,123 @@ describe("ExecutorConfigLoader", () => {
       const reason = refusal({ ...managed(), PRESENCE_VERIFICATION_METHODS: methods });
       expect(reason).toContain("PRESENCE_VERIFICATION_METHODS");
     }
+  });
+
+  it("requires TLS material unless plaintext is asked for by name, outside production only", () => {
+    expect(ExecutorConfigLoader.load(offlineEnvironment()).listener).toEqual({ tls: null });
+    const unnamed = offlineEnvironment();
+    delete unnamed["EXECUTOR_ALLOW_PLAINTEXT_LISTENER"];
+    expect(refusal(unnamed)).toBe(
+      "CONFIG_INVALID: EXECUTOR_TLS_CERT_FILE (required unless EXECUTOR_ALLOW_PLAINTEXT_LISTENER=true)",
+    );
+    expect(refusal({ ...production(), EXECUTOR_ALLOW_PLAINTEXT_LISTENER: "true" })).toBe(
+      "CONFIG_INVALID: EXECUTOR_ALLOW_PLAINTEXT_LISTENER (forbidden in production)",
+    );
+    expect(
+      refusal({
+        ...offlineEnvironment(),
+        EXECUTOR_TLS_CERT_FILE: "/etc/agent-safe/tls.crt",
+        EXECUTOR_TLS_KEY: "not-a-key",
+      }),
+    ).toBe(
+      "CONFIG_INVALID: EXECUTOR_ALLOW_PLAINTEXT_LISTENER (plaintext listener with EXECUTOR_TLS_CERT_FILE, EXECUTOR_TLS_KEY)",
+    );
+    const tls = ExecutorConfigLoader.load({
+      ...unnamed,
+      EXECUTOR_TLS_CERT_FILE: "/etc/agent-safe/tls.crt",
+      EXECUTOR_TLS_KEY: "synthetic-key-material",
+      EXECUTOR_TLS_CLIENT_CA_FILE: "/etc/agent-safe/clients.pem",
+      EXECUTOR_TLS_MIN_VERSION: "1.2",
+    });
+    expect(tls.listener.tls).toEqual({
+      certFile: "/etc/agent-safe/tls.crt",
+      clientCaFile: "/etc/agent-safe/clients.pem",
+      minVersion: "TLSv1.2",
+    });
+    expect(tls.secrets.required).toContain("EXECUTOR_TLS_KEY");
+    expect(refusal({ ...unnamed, EXECUTOR_TLS_CERT_FILE: "relative/tls.crt" })).toBe(
+      "CONFIG_INVALID: EXECUTOR_TLS_CERT_FILE",
+    );
+    expect(refusal({ ...unnamed, EXECUTOR_TLS_CERT_FILE: "/etc/agent-safe/tls.crt" })).toBe(
+      "CONFIG_SECRET_MISSING: EXECUTOR_TLS_KEY",
+    );
+  });
+
+  it("carries the trust anchors and the response bound the egress policy is sealed from", () => {
+    const plain = ExecutorConfigLoader.load(offlineEnvironment());
+    expect(plain.egress).toEqual({
+      maxResponseBytes: 1024 * 1024,
+      trust: {
+        authority: { caFile: null, pins: [] },
+        presence: { caFile: null, pins: [] },
+        downstream: { caFile: null, pins: [] },
+      },
+    });
+    expect(plain.evidence).toEqual({ journalDir: null, checkpointLines: 100 });
+    const pinned = ExecutorConfigLoader.load({
+      ...direct(),
+      DECIONIS_CA_FILE: "/etc/agent-safe/authority-ca.pem",
+      DECIONIS_SPKI_PINS: `sha256/${"A".repeat(43)}=,sha256/${"B".repeat(43)}=`,
+      PRESENCE_CA_FILE: "/etc/agent-safe/presence-ca.pem",
+      DOWNSTREAM_CA_FILE: "/etc/agent-safe/downstream-ca.pem",
+      DOWNSTREAM_SPKI_PINS: `sha256/${"C".repeat(43)}=,sha256/${"D".repeat(43)}=,sha256/${"C".repeat(43)}=`,
+      EXECUTOR_EGRESS_MAX_RESPONSE_BYTES: "4096",
+      EXECUTOR_JOURNAL_DIR: "/var/lib/agent-safe/journal",
+      EXECUTOR_AUDIT_CHECKPOINT_LINES: "10",
+    });
+    expect(pinned.egress).toEqual({
+      maxResponseBytes: 4096,
+      trust: {
+        authority: {
+          caFile: "/etc/agent-safe/authority-ca.pem",
+          pins: [`sha256/${"A".repeat(43)}=`, `sha256/${"B".repeat(43)}=`],
+        },
+        presence: { caFile: "/etc/agent-safe/presence-ca.pem", pins: [] },
+        downstream: {
+          caFile: "/etc/agent-safe/downstream-ca.pem",
+          pins: [`sha256/${"C".repeat(43)}=`, `sha256/${"D".repeat(43)}=`],
+        },
+      },
+    });
+    expect(pinned.evidence).toEqual({
+      journalDir: "/var/lib/agent-safe/journal",
+      checkpointLines: 10,
+    });
+    expect(
+      refusal({ ...offlineEnvironment(), DECIONIS_SPKI_PINS: `sha256/${"A".repeat(43)}=` }),
+    ).toBe("CONFIG_INVALID: DECIONIS_SPKI_PINS (at least two distinct pins)");
+    expect(
+      refusal({
+        ...offlineEnvironment(),
+        DOWNSTREAM_SPKI_PINS: `sha256/${"A".repeat(43)}=,sha256/${"A".repeat(43)}=`,
+      }),
+    ).toBe("CONFIG_INVALID: DOWNSTREAM_SPKI_PINS (at least two distinct pins)");
+    expect(refusal({ ...offlineEnvironment(), DOWNSTREAM_SPKI_PINS: "sha256:abc" })).toBe(
+      "CONFIG_INVALID: DOWNSTREAM_SPKI_PINS",
+    );
+    expect(refusal({ ...offlineEnvironment(), PRESENCE_CA_FILE: "/etc/agent-safe/ca.pem" })).toBe(
+      "CONFIG_INVALID: PRESENCE_CA_FILE (DIRECT escalation only)",
+    );
+    expect(refusal({ ...offlineEnvironment(), EXECUTOR_JOURNAL_DIR: "journal" })).toBe(
+      "CONFIG_INVALID: EXECUTOR_JOURNAL_DIR",
+    );
+    expect(
+      refusal({
+        ...offlineEnvironment(),
+        DOWNSTREAM_URL: "https://authority.decionis.example/v1/payouts",
+        DOWNSTREAM_LOOKUP_URL: "https://authority.decionis.example/v1/payouts/{idempotency_key}",
+        DOWNSTREAM_CA_FILE: "/etc/agent-safe/downstream-ca.pem",
+      }),
+    ).toBe(
+      "CONFIG_INVALID: DOWNSTREAM_CA_FILE, DOWNSTREAM_SPKI_PINS (one origin, one trust anchor)",
+    );
+    expect(
+      ExecutorConfigLoader.load({
+        ...offlineEnvironment(),
+        DOWNSTREAM_URL: "https://authority.decionis.example/v1/payouts",
+        DOWNSTREAM_LOOKUP_URL: "https://authority.decionis.example/v1/payouts/{idempotency_key}",
+      }).egress.trust.downstream,
+    ).toEqual({ caFile: null, pins: [] });
   });
 
   it("lists every schema key and every secret in CONFIG_KEYS", () => {

@@ -524,7 +524,61 @@ describe("credential rotation", () => {
   });
 });
 
+describe("sealed egress", () => {
+  it("refuses a handler that reaches an origin the configuration never named, before any socket exists", async () => {
+    const handlers: HandlerRegistration = ({ registry, fetch }) => {
+      registry.register("reach_elsewhere", {
+        parametersSchema: JsonObjectSchema,
+        execute: async ({ dispatch }) => {
+          await fetch("https://elsewhere.example/v1/anything", { method: "POST", body: "{}" });
+          return await dispatch.run(() => ({ reached: true }));
+        },
+      });
+      return ["reach_elsewhere"];
+    };
+    const service = create("ENFORCEMENT", "NONE", { handlers });
+    const before = securityLines.length;
+    const answer = await service.propose({
+      ...proposal(25_00).body,
+      proposal: {
+        action: "reach_elsewhere",
+        target: "elsewhere:1",
+        parameters: { amountMinor: 2500 },
+      },
+    });
+    expect(answer.verdict).toBe("ALLOW");
+    expect(answer.executed).toBe(false);
+    expect(answer.outcome).toBe("FAILED_BEFORE_DISPATCH");
+    expect(answer.reason_codes).toContain("HANDLER_FAILED_BEFORE_DISPATCH");
+    const refusals = securityLines
+      .slice(before)
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+      .filter((event) => event["event"] === "EGRESS_REFUSED");
+    expect(refusals).toEqual([
+      expect.objectContaining({
+        origin: "https://elsewhere.example",
+        code: "EGRESS_ORIGIN_NOT_ALLOWED",
+      }),
+    ]);
+    expect(service.metrics.egressRefused.get({ code: "EGRESS_ORIGIN_NOT_ALLOWED" })).toBe(1);
+    expect(service.metrics.proposals.get({ verdict: "ALLOW" })).toBe(1);
+    expect(service.metrics.executions.get({ outcome: "FAILED_BEFORE_DISPATCH" })).toBe(1);
+    service.close();
+  });
+});
+
 describe("evidence", () => {
+  it("chains every audit line and names no caller when the service is used directly", () => {
+    const first = JSON.parse(lines[0] ?? "{}") as Record<string, unknown>;
+    expect(first).toMatchObject({
+      stream: "agent-safe.executor-evidence/1",
+      seq: 1,
+      caller_principal: null,
+    });
+    expect(typeof first["hash"]).toBe("string");
+    expect(lines.every((line) => line.includes('"caller_principal":null'))).toBe(true);
+  });
+
   it("never writes a credential, token, or key to an audit or security line", () => {
     const everything = [...lines, ...securityLines].join("\n");
     expect(everything).not.toContain(CALLER_TOKEN);

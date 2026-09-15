@@ -66,12 +66,16 @@ LABEL org.opencontainers.image.source="https://github.com/decionis/agent-safe-pi
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=builder /app/deploy ./
-EXPOSE 8080
+# The listener is TLS; the certificate and key are mounted, never built in.
+EXPOSE 8443
 # Node's permission model: read the application and the mounts under
-# /var/run/agent-safe, write only under /var/lib/agent-safe, and never a
-# child process, a worker, or an addon. One path per flag.
+# /var/run/agent-safe, read and write /var/lib/agent-safe (the evidence
+# chains' journal: a checkpoint is written to a temporary file and renamed
+# over the head, and a restart reads the head back), and never a child
+# process, a worker, or an addon. One path per flag.
 CMD ["--permission", \
      "--allow-fs-read=/app", "--allow-fs-read=/app/*", \
      "--allow-fs-read=/var/run/agent-safe", "--allow-fs-read=/var/run/agent-safe/*", \
+     "--allow-fs-read=/var/lib/agent-safe", "--allow-fs-read=/var/lib/agent-safe/*", \
      "--allow-fs-write=/var/lib/agent-safe", "--allow-fs-write=/var/lib/agent-safe/*", \
      "/app/dist/Cli.js", "serve"]
