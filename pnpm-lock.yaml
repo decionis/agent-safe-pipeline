@@ -191,6 +191,9 @@ importers:
       '@decionis/presence-node':
         specifier: ^0.2.0
         version: 0.2.0
+      jose:
+        specifier: ^6.2.10
+        version: 6.2.10
       zod:
         specifier: ^4.5.4
         version: 4.5.4
@@ -2695,9 +2698,6 @@ packages:
   jose@6.2.10:
     resolution: {integrity: sha512-iiW7J9qRFlGxvCOIBDBDxFePQSn7ZMAnrYGhrrOo6siO/MIqwfyilLR27pkfDgUk+raLuzADS8A3S/KLBisc0g==}
 
-  jose@6.2.8:
-    resolution: {integrity: sha512-Bsdjwm3Qsd/P0jR+BHDe3LytDfY7WBq2HmCCLIwuVRHMuEC9ae7/R474GIUdF1NgCyZjzVo/A9DOiOBtXq8ZoQ==}
-
   joycon@3.1.1:
     resolution: {integrity: sha512-34wB/Y7MW7bzjKRjUKTa46I2Z7eV62Rkhva+KkopW7Qvv/OSWBqvkSY7vusOPrNuZcUG3tApvdVgNB8POj3SPw==}
     engines: {node: '>=10'}
@@ -4590,7 +4590,7 @@ snapshots:
       express: 5.2.1
       express-rate-limit: 8.6.2(express@5.2.1)
       hono: 4.13.7
-      jose: 6.2.8
+      jose: 6.2.10
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
       raw-body: 3.0.2
@@ -6229,8 +6229,6 @@ snapshots:
       istanbul-lib-report: 3.0.1
 
   jose@6.2.10: {}
-
-  jose@6.2.8: {}
 
   joycon@3.1.1: {}
 

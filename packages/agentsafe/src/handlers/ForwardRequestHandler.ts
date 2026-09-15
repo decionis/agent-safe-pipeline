@@ -42,18 +42,20 @@ export function registerHandlers(
     parameters,
     authorization,
     dispatch,
-  }) =>
-    await dispatch.run(async (idempotencyKey) => {
-      const body = JSON.stringify(parameters);
-      // The credential exists only here, on the trusted side of the boundary,
-      // and only for this request.
-      const credentialHeaders = await credential.headersFor({
-        method: "POST",
-        url: downstream.url,
-        body,
-        idempotencyKey,
-        intentHash: intent.intentHash,
-      });
+  }) => {
+    const body = JSON.stringify(parameters);
+    // The credential is resolved before the point of no return, so a token
+    // that cannot be obtained or a key that cannot sign is a failure before
+    // dispatch, never an unknown outcome; it exists only here, on the
+    // trusted side of the boundary, and only for this request.
+    const credentialHeaders = await credential.headersFor({
+      method: "POST",
+      url: downstream.url,
+      body,
+      idempotencyKey: dispatch.idempotencyKey,
+      intentHash: intent.intentHash,
+    });
+    return await dispatch.run(async (idempotencyKey) => {
       // Everything after this line is the point of no return: a transport
       // failure here is an unknown outcome, never a failure to retry.
       const response = await fetchImpl(downstream.url, {
@@ -72,6 +74,7 @@ export function registerHandlers(
       await response.body?.cancel();
       return { status: response.status, accepted: response.ok };
     });
+  };
 
   // Read-only: asks the downstream what it did with this idempotency key.
   // It never sends the request again.

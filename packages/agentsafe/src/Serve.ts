@@ -77,7 +77,7 @@ export async function serve(
     { stdout: io.stdout, stderr: io.stderr },
     new Redactor(
       () => (store === null ? [] : store.names().map((name) => store?.get(name).digest() ?? "")),
-      () => [config.downstream.credentialHeader],
+      () => config.downstream.redactedHeaders,
     ),
   );
   // A journal that cannot be opened is a refusal to start, but not the first

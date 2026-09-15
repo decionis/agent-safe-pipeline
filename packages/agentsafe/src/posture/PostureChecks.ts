@@ -25,7 +25,9 @@ export type PostureCheckId =
   | "PERMISSION_FS_WRITE"
   | "PERMISSION_CHILD_PROCESS"
   | "PERMISSION_WORKER"
-  | "GLOBAL_FETCH_UNLOCKED";
+  | "GLOBAL_FETCH_UNLOCKED"
+  | "PRINCIPALS_FILE_MODE"
+  | "PRINCIPALS_FILE_OWNER";
 
 /** The checks a deployment may waive by declaring development posture; the rest never are. */
 export const WAIVABLE_CHECKS: ReadonlySet<PostureCheckId> = new Set<PostureCheckId>([
@@ -45,6 +47,8 @@ export const WAIVABLE_CHECKS: ReadonlySet<PostureCheckId> = new Set<PostureCheck
   "PERMISSION_CHILD_PROCESS",
   "PERMISSION_WORKER",
   "GLOBAL_FETCH_UNLOCKED",
+  "PRINCIPALS_FILE_MODE",
+  "PRINCIPALS_FILE_OWNER",
 ]);
 
 /** The checks cheap enough to repeat while running, whose regression is drift. */
@@ -64,6 +68,8 @@ export const DRIFT_CHECKS: ReadonlySet<PostureCheckId> = new Set<PostureCheckId>
   "PERMISSION_CHILD_PROCESS",
   "PERMISSION_WORKER",
   "GLOBAL_FETCH_UNLOCKED",
+  "PRINCIPALS_FILE_MODE",
+  "PRINCIPALS_FILE_OWNER",
 ]);
 
 /** The environment keys the posture inspects. Their values are never reported. */
@@ -121,6 +127,8 @@ export interface PostureConfig {
   readonly secretsInEnvironment: readonly SecretName[];
   readonly secretFiles: Readonly<Partial<Record<SecretName, string>>>;
   readonly secretsDir: string | null;
+  /** The principals file, checked for its mode and owner like a secret; it holds digests, not tokens. */
+  readonly principalsFile: string | null;
 }
 
 export function processFacts(): PostureFacts {
@@ -210,6 +218,15 @@ export function evaluate(config: PostureConfig, facts: PostureFacts): PostureFin
       ok: refusal !== "CONFIG_SECRET_FILE_OWNER",
       subject: name,
     });
+  }
+  if (config.principalsFile !== null) {
+    const stat = facts.fileStat(config.principalsFile);
+    const refusal =
+      stat === null || !stat.isFile
+        ? "CONFIG_SECRET_FILE_MODE"
+        : FileSecretStore.permissionRefusal(stat.mode, stat.uid, stat.gid, facts.euid, facts.egid);
+    findings.push({ id: "PRINCIPALS_FILE_MODE", ok: refusal !== "CONFIG_SECRET_FILE_MODE" });
+    findings.push({ id: "PRINCIPALS_FILE_OWNER", ok: refusal !== "CONFIG_SECRET_FILE_OWNER" });
   }
   const permission = facts.permission();
   findings.push({ id: "PERMISSION_MODEL_ABSENT", ok: permission.active });

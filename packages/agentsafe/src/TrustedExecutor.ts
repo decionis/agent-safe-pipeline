@@ -10,6 +10,9 @@ import { forwardRequestHandlers } from "./handlers/ForwardRequestHandler.js";
 import type { HandlerRegistration } from "./handlers/HandlerRegistration.js";
 import { ExecutorHttpServer } from "./http/ExecutorHttpServer.js";
 import { TlsListener } from "./http/TlsListener.js";
+import { Authenticator } from "./identity/Authenticator.js";
+import type { PrincipalRegistry } from "./identity/PrincipalRegistry.js";
+import { RateLimiter } from "./identity/RateLimiter.js";
 import { executorMetrics, type ExecutorMetrics } from "./incident/Metrics.js";
 import { SECURITY_STREAM, SecurityEvents } from "./incident/SecurityEvents.js";
 import { LineEmitter } from "./logging/LineEmitter.js";
@@ -30,6 +33,8 @@ export interface TrustedExecutorDependencies extends Omit<
   /** Where chain heads persist; built from the configuration when absent, none when null. */
   readonly journal?: ChainJournal | null;
   readonly metrics?: ExecutorMetrics;
+  /** The windows and locks the door keeps; a fresh one unless a test injects a clock through its own. */
+  readonly limits?: RateLimiter;
 }
 
 export interface TrustedExecutorOptions {
@@ -47,6 +52,10 @@ export interface TrustedExecutor {
   /** What was verified at start, and what development posture waived. */
   readonly posture: PostureReport;
   readonly metrics: ExecutorMetrics;
+  /** Who may call, as loaded at start. */
+  readonly principals: PrincipalRegistry;
+  /** The one chokepoint the door calls; exposed so a test can drive it directly. */
+  readonly authenticator: Authenticator;
   /** The evidence chain's head: the sequence and hash of the last line written. */
   readonly evidence: HashChain;
   /** Binds the listener and starts following posture drift; the configured port and address unless overridden. */
@@ -118,11 +127,18 @@ export async function createTrustedExecutor(
           }),
           events: security,
         });
-  const server = new ExecutorHttpServer(
-    service,
-    () => options.secrets.get("EXECUTOR_CALLER_TOKEN"),
-    { tls, events: security },
-  );
+  const authenticator = new Authenticator({
+    registry: service.principals,
+    jwt: service.jwt,
+    audience: config.identity.jwt?.audience ?? null,
+    limits: dependencies.limits ?? new RateLimiter(),
+    unauthenticated: config.identity.unauthenticated,
+    lockout: config.identity.lockout,
+    requireCertificate: service.principals.legacy && tls?.mutual === true,
+    events: security,
+  });
+  service.jwt?.start();
+  const server = new ExecutorHttpServer(service, authenticator, { tls });
   const stopRotation =
     tls !== null && options.secrets.has("EXECUTOR_TLS_KEY")
       ? options.secrets.onRotate("EXECUTOR_TLS_KEY", () => server.rotateTls())
@@ -136,6 +152,8 @@ export async function createTrustedExecutor(
     service,
     posture: report,
     metrics,
+    principals: service.principals,
+    authenticator,
     evidence,
     listen: async (port = config.port, address = config.bindAddress) => {
       const bound = await server.listen(port, address);
@@ -173,7 +191,7 @@ function lines(
     },
     new Redactor(
       () => options.config.secrets.required.map((name) => options.secrets.get(name).digest()),
-      () => [options.config.downstream.credentialHeader],
+      () => options.config.downstream.redactedHeaders,
     ),
   );
   let security = dependencies.security;

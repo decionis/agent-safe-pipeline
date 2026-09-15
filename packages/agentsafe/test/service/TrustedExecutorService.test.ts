@@ -568,15 +568,15 @@ describe("sealed egress", () => {
 });
 
 describe("evidence", () => {
-  it("chains every audit line and names no caller when the service is used directly", () => {
+  it("chains every audit line and names the legacy caller when the service is used directly", () => {
     const first = JSON.parse(lines[0] ?? "{}") as Record<string, unknown>;
     expect(first).toMatchObject({
       stream: "agent-safe.executor-evidence/1",
       seq: 1,
-      caller_principal: null,
+      caller_principal: "legacy-caller",
     });
     expect(typeof first["hash"]).toBe("string");
-    expect(lines.every((line) => line.includes('"caller_principal":null'))).toBe(true);
+    expect(lines.every((line) => line.includes('"caller_principal":"legacy-caller"'))).toBe(true);
   });
 
   it("never writes a credential, token, or key to an audit or security line", () => {

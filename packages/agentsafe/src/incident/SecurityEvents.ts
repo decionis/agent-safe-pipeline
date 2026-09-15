@@ -6,6 +6,8 @@ const code = z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/);
 const name = z.string().min(1).max(64);
 const origin = z.string().min(1).max(256);
 const sequence = z.number().int().nonnegative();
+const principal = z.string().min(1).max(200);
+const count = z.number().int().nonnegative();
 
 /**
  * What the security stream may say. Every field is an identifier, a code, an
@@ -29,7 +31,27 @@ export const SecurityEventSchema = z.discriminatedUnion("event", [
     patterns: z.array(z.string().max(32)).max(8),
   }),
   z.strictObject({ event: z.literal("EGRESS_REFUSED"), origin: origin.nullable(), code }),
-  z.strictObject({ event: z.literal("AUTH_FAILED"), method: z.enum(["bearer", "mtls"]) }),
+  z.strictObject({
+    event: z.literal("AUTH_FAILED"),
+    method: z.enum(["bearer", "jwt", "mtls", "none"]),
+    code,
+  }),
+  z.strictObject({ event: z.literal("PRINCIPAL_LOCKED"), principal }),
+  z.strictObject({
+    event: z.literal("PRINCIPALS_LOADED"),
+    principals: count,
+    proposers: count,
+    operators: count,
+  }),
+  z.strictObject({ event: z.literal("LEGACY_PRINCIPAL_MODE") }),
+  z.strictObject({ event: z.literal("BEARER_PRINCIPAL_CONFIGURED"), principal }),
+  z.strictObject({ event: z.literal("JWKS_REFRESHED"), keys: count }),
+  z.strictObject({ event: z.literal("JWKS_REFRESH_FAILED"), code }),
+  z.strictObject({
+    event: z.literal("OPERATOR_ACTION"),
+    principal,
+    action: z.enum(["status", "secrets.reload", "metrics"]),
+  }),
   z.strictObject({ event: z.literal("TLS_CONTEXT_ROTATED") }),
   z.strictObject({ event: z.literal("CHAIN_RESUMED"), chain: name, head: sequence }),
   z.strictObject({ event: z.literal("CHAIN_CHECKPOINT"), chain: name, head: sequence }),

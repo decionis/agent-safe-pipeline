@@ -27,7 +27,6 @@ data:
   # owned by root and readable by the pod's fsGroup only; the TLS key is
   # one of them, mounted from its own Secret beside the others.
   EXECUTOR_SECRETS_DIR: "/var/run/agent-safe"
-  EXECUTOR_CALLER_TOKEN_FILE: "/var/run/agent-safe/secrets/caller-token"
   # The listener is TLS 1.3. The certificate and key come from a Secret of
   # type kubernetes.io/tls (tls.crt, tls.key) that you create; the probes
   # below speak HTTPS and present no client certificate, which the public
@@ -45,6 +44,22 @@ data:
   # has this process open the Presence request and additionally needs
   # PRESENCE_API_URL, PRESENCE_API_KEY_FILE, PRESENCE_ORGANIZATION,
   # PRESENCE_HARDWARE_PKI_REQUIRED and PRESENCE_DISALLOW_VIRTUAL_CAMERAS.
+  # Who may call, and as what. The ConfigMap below holds digests and
+  # identities only: a bearer credential is the SHA-256 of a token the caller
+  # holds, a certificate is named by its SAN URI, a workload token by its
+  # issuer and subject. EXECUTOR_TENANT_ID and EXECUTOR_ACTOR_* are absent
+  # deliberately: each principal carries its own.
+  EXECUTOR_PRINCIPALS_FILE: "/var/run/agent-safe/principals/principals.json"
+  # Workload tokens are verified against the cluster's own signing keys. Fill
+  # the ConfigMap below from `kubectl get --raw /openid/v1/jwks`, and set
+  # EXECUTOR_JWKS_URL if you would rather the executor refresh it itself (it
+  # then needs the API server's range in the egress policy below).
+  EXECUTOR_JWT_AUDIENCE: "agentsafe"
+  EXECUTOR_JWKS_FILE: "/var/run/agent-safe/jwks/jwks.json"
+  # Attempts that never became a principal share one window; a principal whose
+  # proven identity keeps failing is locked out for five minutes.
+  EXECUTOR_RATE_LIMIT_UNAUTHENTICATED: "20/60"
+  EXECUTOR_AUTH_LOCKOUT: "10/60/300"
   EXECUTOR_ESCALATION: "MANAGED"
   PRESENCE_APPROVER_ID: "synthetic-treasury-approver"
   PRESENCE_APPROVER_ROLE: "CRO"
@@ -57,9 +72,72 @@ data:
   DOWNSTREAM_SYSTEM: "payout-rail"
   DOWNSTREAM_OPERATION: "create_payout"
   DOWNSTREAM_ENVIRONMENT: "production"
+  # STATIC_HEADER is the simplest kind. PRIVATE_KEY_JWT (an OAuth 2.0 client
+  # assertion to DOWNSTREAM_TOKEN_URL) and SIGNED_REQUEST (an RFC 9421
+  # signature per request) are the other two; each names its own secret and
+  # forbids the others' keys.
+  DOWNSTREAM_CREDENTIAL_KIND: "STATIC_HEADER"
   DOWNSTREAM_CREDENTIAL_FILE: "/var/run/agent-safe/secrets/downstream-credential"
   DOWNSTREAM_CREDENTIAL_HEADER: "Authorization"
   DOWNSTREAM_TIMEOUT_MS: "5000"
+---
+# Who may call. Digests and identities only; no token, key or certificate is
+# in this file. One principal per workload: a PROPOSER carries the tenant and
+# actor its intents name and the actions it may propose, an OPERATOR carries
+# the control scopes it may use. The executor refuses to load a file that
+# names an action nobody registered, a credential two principals share, or a
+# workload credential without the JWKS below.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-safe-executor-principals
+  namespace: agent-safe
+data:
+  principals.json: |
+    {
+      "version": "agent-safe.principals/1",
+      "principals": [
+        {
+          "id": "treasury-workflow",
+          "role": "PROPOSER",
+          "tenant_id": "00000000-0000-4000-8000-000000000001",
+          "actor": {
+            "id": "synthetic-payout-agent",
+            "type": "AI_AGENT",
+            "runtime": "workflow-runner"
+          },
+          "allowed_actions": ["forward_request"],
+          "credential": {
+            "kind": "WORKLOAD_JWT",
+            "issuer": "https://kubernetes.default.svc.cluster.example",
+            "subject": "system:serviceaccount:agent-safe-agents:treasury-workflow",
+            "required_claims": { "kubernetes.io/namespace": "agent-safe-agents" }
+          },
+          "rate_limit": "120/60"
+        },
+        {
+          "id": "ops-oncall",
+          "role": "OPERATOR",
+          "scopes": ["status", "metrics", "secrets.reload"],
+          "credential": {
+            "kind": "MTLS",
+            "san_uri": "spiffe://cluster.example/ns/agent-safe-ops/sa/oncall"
+          }
+        }
+      ]
+    }
+---
+# The cluster's own token-signing keys, so a projected service-account token
+# proves the caller. Populate from `kubectl get --raw /openid/v1/jwks`; it is
+# public key material and belongs in a ConfigMap, not a Secret.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-safe-executor-jwks
+  namespace: agent-safe
+data:
+  jwks.json: |
+    { "keys": [] }
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -107,6 +185,12 @@ spec:
               readOnly: true
             - name: tls
               mountPath: /var/run/agent-safe/tls
+              readOnly: true
+            - name: principals
+              mountPath: /var/run/agent-safe/principals
+              readOnly: true
+            - name: jwks
+              mountPath: /var/run/agent-safe/jwks
               readOnly: true
             - name: journal
               mountPath: /var/lib/agent-safe
@@ -157,9 +241,40 @@ spec:
             # the name the callers connect to. Same ownership shape as above.
             secretName: agent-safe-executor-tls
             defaultMode: 288
+        - name: principals
+          configMap:
+            name: agent-safe-executor-principals
+            defaultMode: 288
+        - name: jwks
+          configMap:
+            name: agent-safe-executor-jwks
+            defaultMode: 288
         - name: journal
           emptyDir:
             sizeLimit: 64Mi
+#
+# The proposing workflow, in the agent zone, presents a projected
+# service-account token whose audience is the executor's. Nothing here needs a
+# shared secret: the cluster signs the token, the executor verifies it against
+# the JWKS above, and the principals file says which subject may propose what.
+#
+#   spec:
+#     serviceAccountName: treasury-workflow
+#     containers:
+#       - name: workflow
+#         volumeMounts:
+#           - name: executor-token
+#             mountPath: /var/run/secrets/agent-safe
+#             readOnly: true
+#     volumes:
+#       - name: executor-token
+#         projected:
+#           sources:
+#             - serviceAccountToken:
+#                 path: token
+#                 audience: agentsafe
+#                 expirationSeconds: 600
+#
 ---
 apiVersion: v1
 kind: Service

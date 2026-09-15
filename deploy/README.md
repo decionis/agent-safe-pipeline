@@ -60,6 +60,8 @@ builds their own image on the package: a process of a few lines that calls `serv
 | The escalation shape: who approves, through which ceremony    | You, in the ConfigMap (`DIRECT` or `MANAGED`; `NONE` returns the hold)                                                                    |
 | The caller token, the API key, the downstream credential      | You, as Secrets the manifest references                                                                                                   |
 | The listener's certificate and key; the client CA, if any     | You, as a TLS Secret the manifest references, and a ConfigMap for the CA your callers' certificates chain to                              |
+| Who may call: the principals file                             | You, as the ConfigMap the manifest mounts; digests and identities only, one principal per workload, roles and scopes named                |
+| The JWKS workload tokens are verified against                 | You, as a ConfigMap populated from the cluster's `/openid/v1/jwks`, or the address the executor refreshes it from                         |
 | CA bundles or SPKI pins for the authority and the downstream  | You, in the ConfigMap, when the platform's trust store is not the anchor you want; the executor reaches nothing else                      |
 | Executor isolation, agent egress denial, credential scoping   | Your cluster, starting from the NetworkPolicy in the manifest; the executor verifies the posture it can see and refuses to run without it |
 
@@ -94,7 +96,8 @@ injection, secret files it alone can read, and no ability to read or write outsi
 the mounts and the journal directory, or to spawn a process. Remove one of those from the manifest and the pod does not start; the
 refusal names the check. The [package README](../packages/agentsafe/README.md) lists every check.
 
-What the process adds to that on its own: it seals the global `fetch` at start and opens
+What the process adds to that on its own: it admits only the principals the file names, each by
+its own credential and for its own role; it seals the global `fetch` at start and opens
 connections only to the origins the ConfigMap names, over TLS verified against the anchors and
 pins the ConfigMap declares; it listens over TLS 1.3 with the certificate the TLS Secret holds;
 and it chains every evidence line, persisting the chain heads under the journal volume so a

@@ -7,6 +7,7 @@ import { TLS12_CIPHERS, TlsListener, type TlsMinVersion } from "../../src/http/T
 import { SecretHandle } from "../../src/secrets/SecretHandle.js";
 import type { TrustedExecutorService } from "../../src/service/TrustedExecutorService.js";
 import { CALLER_TOKEN, collectedEvents } from "../support/Environment.js";
+import { legacyAuthenticator } from "../support/Principals.js";
 import {
   TestCertificateAuthority,
   type IssuedCertificate,
@@ -71,10 +72,14 @@ async function start(
     },
     events,
   });
-  const server = new ExecutorHttpServer(service, () => callerToken, {
-    tls: listener,
-    ...(options.silent === true ? {} : { events }),
-  });
+  const server = new ExecutorHttpServer(
+    service,
+    legacyAuthenticator(() => callerToken, {
+      requireCertificate: listener.mutual,
+      ...(options.silent === true ? {} : { events }),
+    }),
+    { tls: listener },
+  );
   const bound = await server.listen(0, "127.0.0.1");
   return { server, listener, port: bound.port, lines, close: () => server.close() };
 }
@@ -229,6 +234,12 @@ describe("TlsListener", () => {
       .filter((event) => event.event === "AUTH_FAILED")
       .map((event) => event.method);
     expect(failures).toEqual(["mtls", "mtls", "bearer", "bearer"]);
+    expect(
+      running.lines
+        .map((line) => JSON.parse(line) as { code?: string })
+        .filter((event) => event.code !== undefined)
+        .every((event) => event.code === "CALLER_NOT_AUTHENTICATED"),
+    ).toBe(true);
     await running.close();
     const silent = await start({ clientCa: clients.certificate, silent: true });
     const unreported = await call(silent.port, "/v1/actions", { body: "{}" });

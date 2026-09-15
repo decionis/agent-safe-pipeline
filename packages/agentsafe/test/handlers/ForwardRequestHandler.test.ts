@@ -17,7 +17,8 @@ const downstream: DownstreamConfig = {
   system: "payout-rail",
   operation: "create_payout",
   environment: "production",
-  credentialHeader: "authorization",
+  credential: { kind: "STATIC_HEADER", header: "authorization" },
+  redactedHeaders: ["authorization"],
   timeoutMs: 2_000,
 };
 

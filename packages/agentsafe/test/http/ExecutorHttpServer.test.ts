@@ -7,6 +7,7 @@ import { SecretHandle } from "../../src/secrets/SecretHandle.js";
 import { ServiceError } from "../../src/service/ServiceError.js";
 import type { TrustedExecutorService } from "../../src/service/TrustedExecutorService.js";
 import { CALLER_TOKEN, LOOPBACK_ORIGIN, collectedEvents } from "../support/Environment.js";
+import { legacyAuthenticator } from "../support/Principals.js";
 
 const propose = vi.fn();
 const reconcile = vi.fn();
@@ -97,7 +98,10 @@ function raw(
 
 describe("ExecutorHttpServer", () => {
   beforeAll(async () => {
-    server = new ExecutorHttpServer(service, () => callerToken);
+    server = new ExecutorHttpServer(
+      service,
+      legacyAuthenticator(() => callerToken),
+    );
     const address = await server.listen(0, "127.0.0.1");
     port = address.port;
     baseUrl = `${LOOPBACK_ORIGIN}:${port}`;
@@ -115,29 +119,56 @@ describe("ExecutorHttpServer", () => {
     resume.mockResolvedValue({ outcome: "ESCALATE_PENDING" });
   });
 
-  it("declares two public routes, three caller routes, and one operator route", () => {
+  it("declares two public routes, three proposer routes, and three operator routes with their scopes", () => {
     expect(ROUTES.map((route) => `${route.method} ${route.path}`)).toEqual([
       "GET /health",
       "GET /ready",
       "POST /v1/actions",
       "POST /v1/reconciliations",
       "POST /v1/escalations",
+      "GET /v1/control/status",
+      "POST /v1/control/secrets/reload",
       "GET /metrics",
     ]);
     expect(ROUTES.filter((route) => route.public).map((route) => route.path)).toEqual([
       "/health",
       "/ready",
     ]);
-    expect(ROUTES.filter((route) => "role" in route).map((route) => route.path)).toEqual([
-      "/metrics",
+    expect(
+      ROUTES.filter((route) => "role" in route && route.role === "PROPOSER").map(
+        (route) => route.path,
+      ),
+    ).toEqual(["/v1/actions", "/v1/reconciliations", "/v1/escalations"]);
+    expect(
+      ROUTES.flatMap((route) =>
+        "role" in route && route.role === "OPERATOR" ? [`${route.path}:${route.scope}`] : [],
+      ),
+    ).toEqual([
+      "/v1/control/status:status",
+      "/v1/control/secrets/reload:secrets.reload",
+      "/metrics:metrics",
     ]);
+  });
+
+  it("refuses every operator route to the legacy caller, who holds no operator role", async () => {
+    for (const [path, method] of [
+      ["/metrics", "GET"],
+      ["/v1/control/status", "GET"],
+      ["/v1/control/secrets/reload", "POST"],
+    ] as const) {
+      const reply = await call(path, method === "POST" ? { method, body: "{}" } : { method });
+      expect([path, reply.status, reply.body]).toEqual([path, 403, { code: "ROLE_FORBIDDEN" }]);
+    }
+    const anonymous = await call("/metrics", { method: "GET", token: null });
+    expect(anonymous.status).toBe(401);
   });
 
   it("runs each authenticated request inside a scope that names the caller, and reports refusals at the door", async () => {
     const lines: string[] = [];
-    const own = new ExecutorHttpServer(service, () => callerToken, {
-      events: collectedEvents(lines),
-    });
+    const own = new ExecutorHttpServer(
+      service,
+      legacyAuthenticator(() => callerToken, { events: collectedEvents(lines) }),
+    );
     const bound = await own.listen(0, "127.0.0.1");
     propose.mockImplementation(async () => ({
       principal: RequestContext.current()?.principal ?? null,
@@ -159,19 +190,19 @@ describe("ExecutorHttpServer", () => {
     });
     expect(wrong.status).toBe(401);
     expect(lines.map((line) => JSON.parse(line) as Record<string, unknown>)).toEqual([
-      expect.objectContaining({ event: "AUTH_FAILED", method: "bearer" }),
-      expect.objectContaining({ event: "AUTH_FAILED", method: "bearer" }),
+      expect.objectContaining({
+        event: "AUTH_FAILED",
+        method: "bearer",
+        code: "CALLER_NOT_AUTHENTICATED",
+      }),
+      expect.objectContaining({
+        event: "AUTH_FAILED",
+        method: "bearer",
+        code: "CALLER_NOT_AUTHENTICATED",
+      }),
     ]);
     own.rotateTls();
     await own.close();
-  });
-
-  it("refuses the operator route to the caller until an operator exists", async () => {
-    const reply = await call("/metrics", { method: "GET" });
-    expect(reply.status).toBe(403);
-    expect(reply.body).toEqual({ code: "OPERATOR_NOT_CONFIGURED" });
-    const anonymous = await call("/metrics", { method: "GET", token: null });
-    expect(anonymous.status).toBe(401);
   });
 
   it("answers health without a token and with every protective header", async () => {
@@ -247,15 +278,24 @@ describe("ExecutorHttpServer", () => {
     const actions = await call("/v1/actions", { body: JSON.stringify({ proposal: { a: 1 } }) });
     expect(actions.status).toBe(200);
     expect(actions.body).toEqual({ outcome: "COMPLETED" });
-    expect(propose).toHaveBeenCalledWith({ proposal: { a: 1 } });
+    expect(propose).toHaveBeenCalledWith(
+      { proposal: { a: 1 } },
+      expect.objectContaining({ id: "legacy-caller" }),
+    );
     const reconciliations = await call("/v1/reconciliations", {
       body: JSON.stringify({ intent: {}, reference: {} }),
     });
     expect(reconciliations.body).toEqual({ outcome: "COMPLETED", recovered: true });
-    expect(reconcile).toHaveBeenCalledWith({ intent: {}, reference: {} });
+    expect(reconcile).toHaveBeenCalledWith(
+      { intent: {}, reference: {} },
+      expect.objectContaining({ id: "legacy-caller" }),
+    );
     const escalations = await call("/v1/escalations", { body: JSON.stringify({ mode: "DIRECT" }) });
     expect(escalations.body).toEqual({ outcome: "ESCALATE_PENDING" });
-    expect(resume).toHaveBeenCalledWith({ mode: "DIRECT" });
+    expect(resume).toHaveBeenCalledWith(
+      { mode: "DIRECT" },
+      expect.objectContaining({ id: "legacy-caller" }),
+    );
   });
 
   it("maps a refusal the service meant to its status and code, and nothing else", async () => {
@@ -325,11 +365,17 @@ describe("ExecutorHttpServer", () => {
     await new Promise<void>((resolve) => taken.listen(0, "127.0.0.1", () => resolve()));
     const address = taken.address();
     const takenPort = typeof address === "object" && address !== null ? address.port : 0;
-    const second = new ExecutorHttpServer(service, () => callerToken);
+    const second = new ExecutorHttpServer(
+      service,
+      legacyAuthenticator(() => callerToken),
+    );
     await expect(second.listen(takenPort, "127.0.0.1")).rejects.toThrow();
     await new Promise<void>((resolve) => taken.close(() => resolve()));
 
-    const third = new ExecutorHttpServer(service, () => callerToken);
+    const third = new ExecutorHttpServer(
+      service,
+      legacyAuthenticator(() => callerToken),
+    );
     const bound = await third.listen(0, "127.0.0.1");
     await third.close();
     await expect(fetch(`${LOOPBACK_ORIGIN}:${bound.port}/health`)).rejects.toThrow();
@@ -338,7 +384,10 @@ describe("ExecutorHttpServer", () => {
 
 describe("ExecutorHttpServer shutdown", () => {
   it("closes promptly even while a request is still being read", async () => {
-    const own = new ExecutorHttpServer(service, () => callerToken);
+    const own = new ExecutorHttpServer(
+      service,
+      legacyAuthenticator(() => callerToken),
+    );
     const bound = await own.listen(0, "127.0.0.1");
     const active = createConnection({ host: "127.0.0.1", port: bound.port });
     active.on("error", () => undefined);

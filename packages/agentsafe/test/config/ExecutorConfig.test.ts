@@ -39,6 +39,8 @@ const production = (): Record<string, string> => {
     EXECUTOR_SECRETS_DIR: "/var/run/agent-safe",
     EXECUTOR_TLS_CERT_FILE: "/var/run/agent-safe/tls/tls.crt",
     EXECUTOR_TLS_KEY_FILE: "/var/run/agent-safe/tls/tls.key",
+    // The legacy caller in production is a choice made by name.
+    EXECUTOR_ALLOW_LEGACY_CALLER: "true",
   };
 };
 
@@ -57,10 +59,18 @@ describe("ExecutorConfigLoader", () => {
     expect(config.mode).toBe("ENFORCEMENT");
     expect(config.production).toBe(false);
     expect(config.port).toBe(8443);
-    expect(config.actor).toEqual({ id: "synthetic-payout-agent", type: "AI_AGENT" });
+    expect(config.identity.legacy).toEqual({
+      tenantId: "00000000-0000-4000-8000-000000000007",
+      actor: { id: "synthetic-payout-agent", type: "AI_AGENT" },
+    });
+    expect(config.identity.principalsFile).toBeNull();
     expect(config.escalation).toEqual({ mode: "NONE" });
     expect(config.authority.allowInsecureLoopback).toBe(false);
-    expect(config.downstream.credentialHeader).toBe("authorization");
+    expect(config.downstream.credential).toEqual({
+      kind: "STATIC_HEADER",
+      header: "authorization",
+    });
+    expect(config.downstream.redactedHeaders).toEqual(["authorization"]);
     expect(config.downstream.lookupUrl).toContain("{idempotency_key}");
   });
 
@@ -176,8 +186,10 @@ describe("ExecutorConfigLoader", () => {
       ...offlineEnvironment(),
       EXECUTOR_ACTOR_RUNTIME: "workflow-runner",
     });
-    expect(withRuntime.actor.runtime).toBe("workflow-runner");
-    expect("runtime" in ExecutorConfigLoader.load(offlineEnvironment()).actor).toBe(false);
+    expect(withRuntime.identity.legacy?.actor.runtime).toBe("workflow-runner");
+    expect(
+      "runtime" in (ExecutorConfigLoader.load(offlineEnvironment()).identity.legacy?.actor ?? {}),
+    ).toBe(false);
   });
 
   it("treats a missing lookup URL as no reconciliation lookup", () => {
@@ -402,6 +414,217 @@ describe("ExecutorConfigLoader", () => {
         DOWNSTREAM_LOOKUP_URL: "https://authority.decionis.example/v1/payouts/{idempotency_key}",
       }).egress.trust.downstream,
     ).toEqual({ caFile: null, pins: [] });
+  });
+
+  it("switches to a principals file, refusing the legacy variables beside it and requiring it in production unless said otherwise", () => {
+    const principals = offlineEnvironment();
+    for (const key of [
+      "EXECUTOR_TENANT_ID",
+      "EXECUTOR_ACTOR_ID",
+      "EXECUTOR_ACTOR_TYPE",
+      "EXECUTOR_CALLER_TOKEN",
+    ]) {
+      delete principals[key];
+    }
+    principals["EXECUTOR_PRINCIPALS_FILE"] = "/var/run/agent-safe/principals/principals.json";
+    const config = ExecutorConfigLoader.load(principals);
+    expect(config.identity).toEqual({
+      principalsFile: "/var/run/agent-safe/principals/principals.json",
+      allowLegacyCaller: false,
+      legacy: null,
+      jwt: null,
+      unauthenticated: { count: 20, windowSeconds: 60 },
+      lockout: { failures: 10, windowSeconds: 60, lockSeconds: 300 },
+    });
+    expect(config.secrets.required).toEqual(["DECIONIS_API_KEY", "DOWNSTREAM_CREDENTIAL"]);
+    expect(config.posture.principalsFile).toBe("/var/run/agent-safe/principals/principals.json");
+    expect(
+      refusal({ ...principals, EXECUTOR_CALLER_TOKEN: CALLER_TOKEN, EXECUTOR_ACTOR_ID: "x" }),
+    ).toBe(
+      "CONFIG_INVALID: EXECUTOR_PRINCIPALS_FILE (principals file with EXECUTOR_ACTOR_ID, EXECUTOR_CALLER_TOKEN)",
+    );
+    expect(refusal({ ...principals, EXECUTOR_PRINCIPALS_FILE: "principals.json" })).toBe(
+      "CONFIG_INVALID: EXECUTOR_PRINCIPALS_FILE",
+    );
+    const legacyInProduction = production();
+    delete legacyInProduction["EXECUTOR_ALLOW_LEGACY_CALLER"];
+    expect(refusal(legacyInProduction)).toBe(
+      "CONFIG_INVALID: EXECUTOR_PRINCIPALS_FILE (required in production unless EXECUTOR_ALLOW_LEGACY_CALLER=true)",
+    );
+    expect(ExecutorConfigLoader.load(production()).identity.allowLegacyCaller).toBe(true);
+    const missing = offlineEnvironment();
+    delete missing["EXECUTOR_ACTOR_TYPE"];
+    expect(refusal(missing)).toBe("CONFIG_INVALID: EXECUTOR_ACTOR_TYPE");
+    expect(refusal({ ...offlineEnvironment(), EXECUTOR_RATE_LIMIT_UNAUTHENTICATED: "20" })).toBe(
+      "CONFIG_INVALID: EXECUTOR_RATE_LIMIT_UNAUTHENTICATED (expected <count>/<seconds>)",
+    );
+    expect(refusal({ ...offlineEnvironment(), EXECUTOR_AUTH_LOCKOUT: "5/60" })).toBe(
+      "CONFIG_INVALID: EXECUTOR_AUTH_LOCKOUT (expected <failures>/<seconds>/<lock seconds>)",
+    );
+    expect(
+      ExecutorConfigLoader.load({
+        ...offlineEnvironment(),
+        EXECUTOR_RATE_LIMIT_UNAUTHENTICATED: "5/30",
+        EXECUTOR_AUTH_LOCKOUT: "0/60/300",
+      }).identity,
+    ).toMatchObject({ unauthenticated: { count: 5, windowSeconds: 30 }, lockout: null });
+    expect(refusal({ ...managed(), PRESENCE_APPROVER_ID: "synthetic-payout-agent" })).toBe(
+      "CONFIG_INVALID: PRESENCE_APPROVER_ID (separation of duties: also the actor)",
+    );
+  });
+
+  it("takes the workload token settings together, with an optional refresh address and its anchor", () => {
+    const jwt = ExecutorConfigLoader.load({
+      ...offlineEnvironment(),
+      EXECUTOR_JWT_AUDIENCE: "agentsafe",
+      EXECUTOR_JWKS_FILE: "/var/run/agent-safe/jwks/jwks.json",
+    }).identity.jwt;
+    expect(jwt).toEqual({
+      audience: "agentsafe",
+      jwksFile: "/var/run/agent-safe/jwks/jwks.json",
+      jwksUrl: null,
+      jwksCaFile: null,
+      refreshSeconds: 300,
+      clockToleranceSeconds: 30,
+    });
+    const refreshed = ExecutorConfigLoader.load({
+      ...offlineEnvironment(),
+      EXECUTOR_JWT_AUDIENCE: "agentsafe",
+      EXECUTOR_JWKS_FILE: "/var/run/agent-safe/jwks/jwks.json",
+      EXECUTOR_JWKS_URL: "https://kubernetes.default.svc.cluster.example/openid/v1/jwks",
+      EXECUTOR_JWKS_CA_FILE: "/var/run/agent-safe/jwks/ca.pem",
+      EXECUTOR_JWKS_REFRESH_SECONDS: "600",
+      EXECUTOR_JWT_CLOCK_TOLERANCE_SECONDS: "5",
+    }).identity.jwt;
+    expect(refreshed).toMatchObject({
+      jwksUrl: "https://kubernetes.default.svc.cluster.example/openid/v1/jwks",
+      jwksCaFile: "/var/run/agent-safe/jwks/ca.pem",
+      refreshSeconds: 600,
+      clockToleranceSeconds: 5,
+    });
+    expect(refusal({ ...offlineEnvironment(), EXECUTOR_JWT_AUDIENCE: "agentsafe" })).toBe(
+      "CONFIG_INVALID: EXECUTOR_JWT_AUDIENCE, EXECUTOR_JWKS_FILE (given together or not at all)",
+    );
+    expect(
+      refusal({
+        ...offlineEnvironment(),
+        EXECUTOR_JWKS_URL: "https://issuer.synthetic.example/jwks",
+      }),
+    ).toBe("CONFIG_INVALID: EXECUTOR_JWKS_URL (without EXECUTOR_JWKS_FILE)");
+    expect(
+      refusal({
+        ...offlineEnvironment(),
+        EXECUTOR_JWT_AUDIENCE: "agentsafe",
+        EXECUTOR_JWKS_FILE: "/var/run/agent-safe/jwks/jwks.json",
+        EXECUTOR_JWKS_CA_FILE: "/var/run/agent-safe/jwks/ca.pem",
+      }),
+    ).toBe("CONFIG_INVALID: EXECUTOR_JWKS_CA_FILE (without EXECUTOR_JWKS_URL)");
+    expect(
+      refusal({
+        ...offlineEnvironment(),
+        EXECUTOR_JWT_AUDIENCE: "agentsafe",
+        EXECUTOR_JWKS_FILE: "/var/run/agent-safe/jwks/jwks.json",
+        EXECUTOR_JWKS_URL: "http://issuer.synthetic.example/jwks",
+      }),
+    ).toBe("CONFIG_INVALID: EXECUTOR_JWKS_URL (https required)");
+  });
+
+  it("selects the downstream credential kind and refuses the other kinds' keys beside it", () => {
+    const base = offlineEnvironment();
+    delete base["DOWNSTREAM_CREDENTIAL"];
+    delete base["DOWNSTREAM_CREDENTIAL_HEADER"];
+    const jwt = ExecutorConfigLoader.load({
+      ...base,
+      DOWNSTREAM_CREDENTIAL_KIND: "PRIVATE_KEY_JWT",
+      DOWNSTREAM_TOKEN_URL: "https://payouts.provider.example/oauth/token",
+      DOWNSTREAM_CLIENT_ID: "synthetic-client",
+      DOWNSTREAM_PRIVATE_KEY: "synthetic-key-material",
+      DOWNSTREAM_PRIVATE_KEY_ID: "k1",
+      DOWNSTREAM_PRIVATE_KEY_ALGORITHM: "PS256",
+      DOWNSTREAM_TOKEN_AUDIENCE: "https://payouts.provider.example/",
+      DOWNSTREAM_TOKEN_SCOPE: "payouts:write",
+    });
+    expect(jwt.downstream.credential).toEqual({
+      kind: "PRIVATE_KEY_JWT",
+      tokenUrl: "https://payouts.provider.example/oauth/token",
+      clientId: "synthetic-client",
+      keyId: "k1",
+      algorithm: "PS256",
+      audience: "https://payouts.provider.example/",
+      scope: "payouts:write",
+    });
+    expect(jwt.downstream.redactedHeaders).toEqual(["authorization"]);
+    expect(jwt.secrets.required).toContain("DOWNSTREAM_PRIVATE_KEY");
+    expect(jwt.secrets.required).not.toContain("DOWNSTREAM_CREDENTIAL");
+    const minimal = ExecutorConfigLoader.load({
+      ...base,
+      DOWNSTREAM_CREDENTIAL_KIND: "PRIVATE_KEY_JWT",
+      DOWNSTREAM_TOKEN_URL: "https://payouts.provider.example/oauth/token",
+      DOWNSTREAM_CLIENT_ID: "synthetic-client",
+      DOWNSTREAM_PRIVATE_KEY: "synthetic-key-material",
+    }).downstream.credential;
+    expect(minimal).toMatchObject({ keyId: null, algorithm: "ES256", audience: null, scope: null });
+    const signed = ExecutorConfigLoader.load({
+      ...base,
+      DOWNSTREAM_CREDENTIAL_KIND: "SIGNED_REQUEST",
+      DOWNSTREAM_SIGNING_KEY: "synthetic-key-material",
+      DOWNSTREAM_SIGNING_KEY_ID: "k2",
+    });
+    expect(signed.downstream.credential).toEqual({
+      kind: "SIGNED_REQUEST",
+      algorithm: "ed25519",
+      keyId: "k2",
+    });
+    expect(signed.downstream.redactedHeaders).toEqual(["signature"]);
+    expect(signed.secrets.required).toContain("DOWNSTREAM_SIGNING_KEY");
+    expect(
+      ExecutorConfigLoader.load({
+        ...base,
+        DOWNSTREAM_CREDENTIAL_KIND: "SIGNED_REQUEST",
+        DOWNSTREAM_SIGNING_KEY: "synthetic-key-material",
+        DOWNSTREAM_SIGNING_KEY_ID: "k2",
+        DOWNSTREAM_SIGNING_ALGORITHM: "hmac-sha256",
+      }).downstream.credential,
+    ).toMatchObject({ algorithm: "hmac-sha256" });
+    expect(refusal({ ...offlineEnvironment(), DOWNSTREAM_SIGNING_KEY_ID: "k2" })).toBe(
+      "CONFIG_INVALID: DOWNSTREAM_CREDENTIAL_KIND (STATIC_HEADER with DOWNSTREAM_SIGNING_KEY_ID)",
+    );
+    expect(
+      refusal({
+        ...base,
+        DOWNSTREAM_CREDENTIAL_KIND: "PRIVATE_KEY_JWT",
+        DOWNSTREAM_TOKEN_URL: "https://payouts.provider.example/oauth/token",
+        DOWNSTREAM_CLIENT_ID: "synthetic-client",
+        DOWNSTREAM_PRIVATE_KEY: "synthetic-key-material",
+        DOWNSTREAM_CREDENTIAL_HEADER: "Authorization",
+      }),
+    ).toBe(
+      "CONFIG_INVALID: DOWNSTREAM_CREDENTIAL_KIND (PRIVATE_KEY_JWT with DOWNSTREAM_CREDENTIAL_HEADER)",
+    );
+    expect(
+      refusal({
+        ...base,
+        DOWNSTREAM_CREDENTIAL_KIND: "PRIVATE_KEY_JWT",
+        DOWNSTREAM_PRIVATE_KEY: "x",
+      }),
+    ).toBe("CONFIG_INVALID: DOWNSTREAM_TOKEN_URL, DOWNSTREAM_CLIENT_ID");
+    expect(
+      refusal({
+        ...base,
+        DOWNSTREAM_CREDENTIAL_KIND: "SIGNED_REQUEST",
+        DOWNSTREAM_SIGNING_KEY: "x",
+      }),
+    ).toBe("CONFIG_INVALID: DOWNSTREAM_SIGNING_KEY_ID");
+    expect(refusal({ ...base, DOWNSTREAM_CREDENTIAL: DOWNSTREAM_CREDENTIAL })).toBe(
+      "CONFIG_INVALID: DOWNSTREAM_CREDENTIAL_HEADER",
+    );
+    expect(
+      refusal({
+        ...base,
+        DOWNSTREAM_CREDENTIAL_KIND: "SIGNED_REQUEST",
+        DOWNSTREAM_SIGNING_KEY_ID: "k2",
+      }),
+    ).toBe("CONFIG_SECRET_MISSING: DOWNSTREAM_SIGNING_KEY");
   });
 
   it("lists every schema key and every secret in CONFIG_KEYS", () => {

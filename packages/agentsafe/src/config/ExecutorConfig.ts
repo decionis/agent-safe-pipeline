@@ -1,7 +1,10 @@
 import { z } from "zod";
 import type { PresenceVerificationRequirements } from "@decionis/agent-safe-pipeline";
 import { INSPECTED_ENVIRONMENT, type PostureConfig } from "../posture/PostureChecks.js";
+import type { PrivateKeyJwtAlgorithm } from "../credential/PrivateKeyJwtCredential.js";
+import type { SignedRequestAlgorithm } from "../credential/SignedRequestCredential.js";
 import type { TlsMinVersion } from "../http/TlsListener.js";
+import { RateLimiter, type LockoutRule, type RateLimitRule } from "../identity/RateLimiter.js";
 import type { PostureMode } from "../posture/HostPosture.js";
 import { SecretError, type SecretName } from "../secrets/SecretStore.js";
 
@@ -10,6 +13,29 @@ export type EscalationMode = "NONE" | "DIRECT" | "MANAGED";
 export type VerificationMethod = "WEBAUTHN" | "ACTIVE_LIVENESS";
 export type VerificationLevel = "STANDARD" | "HIGH_CONFIDENCE";
 
+/**
+ * How this process proves itself to the downstream. A static header value
+ * from the secret store; an OAuth 2.0 client-credentials token obtained with
+ * a `private_key_jwt` assertion; or an RFC 9421 signature over each request.
+ * The secret each kind needs is named by the kind, never by the caller.
+ */
+export type DownstreamCredentialConfig =
+  | { readonly kind: "STATIC_HEADER"; readonly header: string }
+  | {
+      readonly kind: "PRIVATE_KEY_JWT";
+      readonly tokenUrl: string;
+      readonly clientId: string;
+      readonly keyId: string | null;
+      readonly algorithm: PrivateKeyJwtAlgorithm;
+      readonly audience: string | null;
+      readonly scope: string | null;
+    }
+  | {
+      readonly kind: "SIGNED_REQUEST";
+      readonly algorithm: SignedRequestAlgorithm;
+      readonly keyId: string;
+    };
+
 export interface DownstreamConfig {
   readonly url: string;
   /** Read-only lookup for reconciliation; `{idempotency_key}` is substituted. */
@@ -17,9 +43,31 @@ export interface DownstreamConfig {
   readonly system: string;
   readonly operation: string;
   readonly environment: string;
-  /** The header the static credential goes in; the value lives in the secret store. */
-  readonly credentialHeader: string;
+  readonly credential: DownstreamCredentialConfig;
+  /** The header names whose values the redactor treats as credentials. */
+  readonly redactedHeaders: readonly string[];
   readonly timeoutMs: number;
+}
+
+/** Who may call: the principals file, or the one legacy caller the configuration names. */
+export interface IdentityConfig {
+  readonly principalsFile: string | null;
+  readonly allowLegacyCaller: boolean;
+  /** The legacy caller's tenant and actor; null when a principals file names the callers. */
+  readonly legacy: {
+    readonly tenantId: string;
+    readonly actor: { readonly id: string; readonly type: string; readonly runtime?: string };
+  } | null;
+  readonly jwt: {
+    readonly audience: string;
+    readonly jwksFile: string;
+    readonly jwksUrl: string | null;
+    readonly jwksCaFile: string | null;
+    readonly refreshSeconds: number;
+    readonly clockToleranceSeconds: number;
+  } | null;
+  readonly unauthenticated: RateLimitRule;
+  readonly lockout: LockoutRule | null;
 }
 
 /**
@@ -99,8 +147,7 @@ export interface ExecutorConfig {
   readonly production: boolean;
   readonly bindAddress: string;
   readonly port: number;
-  readonly tenantId: string;
-  readonly actor: { readonly id: string; readonly type: string; readonly runtime?: string };
+  readonly identity: IdentityConfig;
   /** How long a proposal stays valid; a ceremony has to finish inside it. */
   readonly intentTtlSeconds: number;
   readonly escalation: EscalationConfig;
@@ -141,14 +188,56 @@ const TLS_KEYS = [
   "EXECUTOR_TLS_MIN_VERSION",
 ] as const;
 
+const LEGACY_KEYS = [
+  "EXECUTOR_TENANT_ID",
+  "EXECUTOR_ACTOR_ID",
+  "EXECUTOR_ACTOR_TYPE",
+  "EXECUTOR_ACTOR_RUNTIME",
+  "EXECUTOR_CALLER_TOKEN",
+  "EXECUTOR_CALLER_TOKEN_FILE",
+] as const;
+const CREDENTIAL_KEYS = {
+  STATIC_HEADER: [
+    "DOWNSTREAM_CREDENTIAL",
+    "DOWNSTREAM_CREDENTIAL_FILE",
+    "DOWNSTREAM_CREDENTIAL_HEADER",
+  ],
+  PRIVATE_KEY_JWT: [
+    "DOWNSTREAM_TOKEN_URL",
+    "DOWNSTREAM_CLIENT_ID",
+    "DOWNSTREAM_PRIVATE_KEY",
+    "DOWNSTREAM_PRIVATE_KEY_FILE",
+    "DOWNSTREAM_PRIVATE_KEY_ID",
+    "DOWNSTREAM_PRIVATE_KEY_ALGORITHM",
+    "DOWNSTREAM_TOKEN_AUDIENCE",
+    "DOWNSTREAM_TOKEN_SCOPE",
+  ],
+  SIGNED_REQUEST: [
+    "DOWNSTREAM_SIGNING_KEY",
+    "DOWNSTREAM_SIGNING_KEY_FILE",
+    "DOWNSTREAM_SIGNING_ALGORITHM",
+    "DOWNSTREAM_SIGNING_KEY_ID",
+  ],
+} as const;
+
 const EnvironmentSchema = z.object({
   EXECUTOR_MODE: z.enum(["SHADOW", "ENFORCEMENT"]),
   EXECUTOR_BIND_ADDRESS: z.string().trim().min(1).max(64),
   PORT: z.coerce.number().int().min(1).max(65_535),
-  EXECUTOR_TENANT_ID: z.string().uuid(),
-  EXECUTOR_ACTOR_ID: identifier,
-  EXECUTOR_ACTOR_TYPE: identifier,
+  EXECUTOR_TENANT_ID: z.string().uuid().optional(),
+  EXECUTOR_ACTOR_ID: identifier.optional(),
+  EXECUTOR_ACTOR_TYPE: identifier.optional(),
   EXECUTOR_ACTOR_RUNTIME: identifier.optional(),
+  EXECUTOR_PRINCIPALS_FILE: absolutePath.optional(),
+  EXECUTOR_ALLOW_LEGACY_CALLER: booleanFlag.optional(),
+  EXECUTOR_JWT_AUDIENCE: z.string().trim().min(1).max(200).optional(),
+  EXECUTOR_JWKS_FILE: absolutePath.optional(),
+  EXECUTOR_JWKS_URL: z.string().trim().min(1).max(500).optional(),
+  EXECUTOR_JWKS_CA_FILE: absolutePath.optional(),
+  EXECUTOR_JWKS_REFRESH_SECONDS: z.coerce.number().int().min(60).max(86_400).optional(),
+  EXECUTOR_JWT_CLOCK_TOLERANCE_SECONDS: z.coerce.number().int().min(0).max(300).optional(),
+  EXECUTOR_RATE_LIMIT_UNAUTHENTICATED: z.string().trim().min(1).max(20).optional(),
+  EXECUTOR_AUTH_LOCKOUT: z.string().trim().min(1).max(30).optional(),
   EXECUTOR_INTENT_TTL_SECONDS: z.coerce.number().int().min(1).max(300),
   EXECUTOR_ESCALATION: z.enum(["NONE", "DIRECT", "MANAGED"]),
   EXECUTOR_POSTURE: z.enum(["ENFORCED", "DEVELOPMENT"]).optional(),
@@ -188,7 +277,18 @@ const EnvironmentSchema = z.object({
   DOWNSTREAM_SYSTEM: identifier,
   DOWNSTREAM_OPERATION: identifier,
   DOWNSTREAM_ENVIRONMENT: identifier,
-  DOWNSTREAM_CREDENTIAL_HEADER: headerName,
+  DOWNSTREAM_CREDENTIAL_KIND: z
+    .enum(["STATIC_HEADER", "PRIVATE_KEY_JWT", "SIGNED_REQUEST"])
+    .optional(),
+  DOWNSTREAM_CREDENTIAL_HEADER: headerName.optional(),
+  DOWNSTREAM_TOKEN_URL: z.string().trim().min(1).max(500).optional(),
+  DOWNSTREAM_CLIENT_ID: identifier.optional(),
+  DOWNSTREAM_PRIVATE_KEY_ID: identifier.optional(),
+  DOWNSTREAM_PRIVATE_KEY_ALGORITHM: z.enum(["ES256", "PS256"]).optional(),
+  DOWNSTREAM_TOKEN_AUDIENCE: z.string().trim().min(1).max(500).optional(),
+  DOWNSTREAM_TOKEN_SCOPE: z.string().trim().min(1).max(500).optional(),
+  DOWNSTREAM_SIGNING_ALGORITHM: z.enum(["ed25519", "hmac-sha256"]).optional(),
+  DOWNSTREAM_SIGNING_KEY_ID: identifier.optional(),
   DOWNSTREAM_CA_FILE: absolutePath.optional(),
   DOWNSTREAM_SPKI_PINS: pinList.optional(),
   DOWNSTREAM_TIMEOUT_MS: z.coerce.number().int().min(1).max(15_000),
@@ -266,19 +366,31 @@ export class ExecutorConfigLoader {
             "DOWNSTREAM_LOOKUP_URL",
             allowInsecureLoopback,
           );
+    const identity = ExecutorConfigLoader.identity(values, env, production, allowInsecureLoopback);
+    const credential = ExecutorConfigLoader.credential(values, env, allowInsecureLoopback);
     const egress = ExecutorConfigLoader.egress(
       values,
       escalation.mode,
       authorityUrl,
       downstreamUrl,
     );
-    const required: SecretName[] = [
-      "EXECUTOR_CALLER_TOKEN",
-      "DECIONIS_API_KEY",
-      "DOWNSTREAM_CREDENTIAL",
-    ];
+    const required: SecretName[] = [];
+    if (identity.legacy !== null) required.push("EXECUTOR_CALLER_TOKEN");
+    required.push("DECIONIS_API_KEY");
+    if (credential.kind === "STATIC_HEADER") required.push("DOWNSTREAM_CREDENTIAL");
+    if (credential.kind === "PRIVATE_KEY_JWT") required.push("DOWNSTREAM_PRIVATE_KEY");
+    if (credential.kind === "SIGNED_REQUEST") required.push("DOWNSTREAM_SIGNING_KEY");
     if (escalation.mode === "DIRECT") required.push("PRESENCE_API_KEY");
     if (listener.tls !== null) required.push("EXECUTOR_TLS_KEY");
+    if (
+      escalation.mode !== "NONE" &&
+      identity.legacy !== null &&
+      escalation.approverId === identity.legacy.actor.id
+    ) {
+      throw new Error(
+        "CONFIG_INVALID: PRESENCE_APPROVER_ID (separation of duties: also the actor)",
+      );
+    }
     const located = ExecutorConfigLoader.locateSecrets(env, required, production);
     const secretsDir = values.EXECUTOR_SECRETS_DIR ?? null;
     if (secretsDir !== null && !secretsDir.startsWith("/")) {
@@ -297,14 +409,7 @@ export class ExecutorConfigLoader {
       production,
       bindAddress: values.EXECUTOR_BIND_ADDRESS,
       port: values.PORT,
-      tenantId: values.EXECUTOR_TENANT_ID,
-      actor: {
-        id: values.EXECUTOR_ACTOR_ID,
-        type: values.EXECUTOR_ACTOR_TYPE,
-        ...(values.EXECUTOR_ACTOR_RUNTIME === undefined
-          ? {}
-          : { runtime: values.EXECUTOR_ACTOR_RUNTIME }),
-      },
+      identity,
       intentTtlSeconds: values.EXECUTOR_INTENT_TTL_SECONDS,
       escalation,
       authority: { baseUrl: authorityUrl, allowInsecureLoopback },
@@ -314,7 +419,13 @@ export class ExecutorConfigLoader {
         system: values.DOWNSTREAM_SYSTEM,
         operation: values.DOWNSTREAM_OPERATION,
         environment: values.DOWNSTREAM_ENVIRONMENT,
-        credentialHeader: values.DOWNSTREAM_CREDENTIAL_HEADER.toLowerCase(),
+        credential,
+        redactedHeaders:
+          credential.kind === "STATIC_HEADER"
+            ? [credential.header]
+            : credential.kind === "PRIVATE_KEY_JWT"
+              ? ["authorization"]
+              : ["signature"],
         timeoutMs: values.DOWNSTREAM_TIMEOUT_MS,
       },
       listener,
@@ -331,8 +442,148 @@ export class ExecutorConfigLoader {
         secretsInEnvironment: located.fromEnvironment,
         secretFiles: located.files,
         secretsDir,
+        principalsFile: identity.principalsFile,
       },
       secrets: { required },
+    };
+  }
+
+  /**
+   * Who may call. A principals file names every caller and excludes the
+   * legacy variables; without one, the legacy caller is synthesised from
+   * them, which production refuses unless asked for by name.
+   */
+  private static identity(
+    values: Environment,
+    env: EnvironmentMap,
+    production: boolean,
+    allowInsecureLoopback: boolean,
+  ): IdentityConfig {
+    const principalsFile = values.EXECUTOR_PRINCIPALS_FILE ?? null;
+    const allowLegacyCaller = values.EXECUTOR_ALLOW_LEGACY_CALLER === "true";
+    let legacy: IdentityConfig["legacy"] = null;
+    if (principalsFile !== null) {
+      const given = LEGACY_KEYS.filter((key) => env[key] !== undefined);
+      if (given.length > 0) {
+        throw new Error(
+          `CONFIG_INVALID: EXECUTOR_PRINCIPALS_FILE (principals file with ${given.join(", ")})`,
+        );
+      }
+    } else {
+      if (production && !allowLegacyCaller) {
+        throw new Error(
+          "CONFIG_INVALID: EXECUTOR_PRINCIPALS_FILE (required in production unless EXECUTOR_ALLOW_LEGACY_CALLER=true)",
+        );
+      }
+      const missing = (
+        ["EXECUTOR_TENANT_ID", "EXECUTOR_ACTOR_ID", "EXECUTOR_ACTOR_TYPE"] as const
+      ).filter((key) => values[key] === undefined);
+      if (missing.length > 0) throw new Error(`CONFIG_INVALID: ${missing.join(", ")}`);
+      legacy = {
+        tenantId: values.EXECUTOR_TENANT_ID ?? "",
+        actor: {
+          id: values.EXECUTOR_ACTOR_ID ?? "",
+          type: values.EXECUTOR_ACTOR_TYPE ?? "",
+          ...(values.EXECUTOR_ACTOR_RUNTIME === undefined
+            ? {}
+            : { runtime: values.EXECUTOR_ACTOR_RUNTIME }),
+        },
+      };
+    }
+    const audience = values.EXECUTOR_JWT_AUDIENCE;
+    const jwksFile = values.EXECUTOR_JWKS_FILE;
+    if ((audience === undefined) !== (jwksFile === undefined)) {
+      throw new Error(
+        "CONFIG_INVALID: EXECUTOR_JWT_AUDIENCE, EXECUTOR_JWKS_FILE (given together or not at all)",
+      );
+    }
+    if (audience === undefined && values.EXECUTOR_JWKS_URL !== undefined) {
+      throw new Error("CONFIG_INVALID: EXECUTOR_JWKS_URL (without EXECUTOR_JWKS_FILE)");
+    }
+    if (values.EXECUTOR_JWKS_URL === undefined && values.EXECUTOR_JWKS_CA_FILE !== undefined) {
+      throw new Error("CONFIG_INVALID: EXECUTOR_JWKS_CA_FILE (without EXECUTOR_JWKS_URL)");
+    }
+    const jwt =
+      audience === undefined || jwksFile === undefined
+        ? null
+        : {
+            audience,
+            jwksFile,
+            jwksUrl:
+              values.EXECUTOR_JWKS_URL === undefined
+                ? null
+                : ExecutorConfigLoader.serviceUrl(
+                    values.EXECUTOR_JWKS_URL,
+                    "EXECUTOR_JWKS_URL",
+                    allowInsecureLoopback,
+                  ),
+            jwksCaFile: values.EXECUTOR_JWKS_CA_FILE ?? null,
+            refreshSeconds: values.EXECUTOR_JWKS_REFRESH_SECONDS ?? 300,
+            clockToleranceSeconds: values.EXECUTOR_JWT_CLOCK_TOLERANCE_SECONDS ?? 30,
+          };
+    return {
+      principalsFile,
+      allowLegacyCaller,
+      legacy,
+      jwt,
+      unauthenticated: RateLimiter.parseRule(
+        values.EXECUTOR_RATE_LIMIT_UNAUTHENTICATED ?? "20/60",
+        "EXECUTOR_RATE_LIMIT_UNAUTHENTICATED",
+      ),
+      lockout: RateLimiter.parseLockout(
+        values.EXECUTOR_AUTH_LOCKOUT ?? "10/60/300",
+        "EXECUTOR_AUTH_LOCKOUT",
+      ),
+    };
+  }
+
+  /** The downstream credential kind, with the keys of the other kinds refused by name. */
+  private static credential(
+    values: Environment,
+    env: EnvironmentMap,
+    allowInsecureLoopback: boolean,
+  ): DownstreamCredentialConfig {
+    const kind = values.DOWNSTREAM_CREDENTIAL_KIND ?? "STATIC_HEADER";
+    const foreign = (Object.keys(CREDENTIAL_KEYS) as (keyof typeof CREDENTIAL_KEYS)[])
+      .filter((other) => other !== kind)
+      .flatMap((other) => CREDENTIAL_KEYS[other].filter((key) => env[key] !== undefined));
+    if (foreign.length > 0) {
+      throw new Error(
+        `CONFIG_INVALID: DOWNSTREAM_CREDENTIAL_KIND (${kind} with ${foreign.join(", ")})`,
+      );
+    }
+    if (kind === "STATIC_HEADER") {
+      if (values.DOWNSTREAM_CREDENTIAL_HEADER === undefined) {
+        throw new Error("CONFIG_INVALID: DOWNSTREAM_CREDENTIAL_HEADER");
+      }
+      return { kind, header: values.DOWNSTREAM_CREDENTIAL_HEADER.toLowerCase() };
+    }
+    if (kind === "PRIVATE_KEY_JWT") {
+      const missing = (["DOWNSTREAM_TOKEN_URL", "DOWNSTREAM_CLIENT_ID"] as const).filter(
+        (key) => values[key] === undefined,
+      );
+      if (missing.length > 0) throw new Error(`CONFIG_INVALID: ${missing.join(", ")}`);
+      return {
+        kind,
+        tokenUrl: ExecutorConfigLoader.serviceUrl(
+          values.DOWNSTREAM_TOKEN_URL ?? "",
+          "DOWNSTREAM_TOKEN_URL",
+          allowInsecureLoopback,
+        ),
+        clientId: values.DOWNSTREAM_CLIENT_ID ?? "",
+        keyId: values.DOWNSTREAM_PRIVATE_KEY_ID ?? null,
+        algorithm: values.DOWNSTREAM_PRIVATE_KEY_ALGORITHM ?? "ES256",
+        audience: values.DOWNSTREAM_TOKEN_AUDIENCE ?? null,
+        scope: values.DOWNSTREAM_TOKEN_SCOPE ?? null,
+      };
+    }
+    if (values.DOWNSTREAM_SIGNING_KEY_ID === undefined) {
+      throw new Error("CONFIG_INVALID: DOWNSTREAM_SIGNING_KEY_ID");
+    }
+    return {
+      kind,
+      algorithm: values.DOWNSTREAM_SIGNING_ALGORITHM ?? "ed25519",
+      keyId: values.DOWNSTREAM_SIGNING_KEY_ID,
     };
   }
 

@@ -1,4 +1,3 @@
-import { createHash, timingSafeEqual } from "node:crypto";
 import { once } from "node:events";
 import {
   createServer,
@@ -9,13 +8,22 @@ import {
 } from "node:http";
 import type { Server as HttpsServer } from "node:https";
 import type { AddressInfo } from "node:net";
-import type { TLSSocket } from "node:tls";
-import type { SecurityEvents } from "../incident/SecurityEvents.js";
-import type { SecretHandle } from "../secrets/SecretHandle.js";
+import {
+  AuthError,
+  type AuthenticatedPrincipal,
+  type Authenticator,
+} from "../identity/Authenticator.js";
+import { peerIdentity, type PeerSocket } from "../identity/PeerIdentity.js";
 import { ServiceError } from "../service/ServiceError.js";
 import type { TrustedExecutorService } from "../service/TrustedExecutorService.js";
-import { LEGACY_CALLER_PRINCIPAL, RequestContext } from "./RequestContext.js";
-import { MAX_BODY_BYTES, RESPONSE_HEADERS, ROUTES } from "./Routes.js";
+import { RequestContext } from "./RequestContext.js";
+import {
+  MAX_BODY_BYTES,
+  METRICS_CONTENT_TYPE,
+  RESPONSE_HEADERS,
+  ROUTES,
+  type RoutePath,
+} from "./Routes.js";
 import type { TlsListener } from "./TlsListener.js";
 
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -25,8 +33,6 @@ const KEEP_ALIVE_TIMEOUT_MS = 5_000;
 export interface ExecutorHttpServerOptions {
   /** The TLS listener; plaintext when null, which the configuration allows outside production only. */
   readonly tls?: TlsListener | null;
-  /** Where a refusal at the door is reported. */
-  readonly events?: SecurityEvents;
 }
 
 class GuardError extends Error {
@@ -41,27 +47,23 @@ class GuardError extends Error {
 }
 
 /**
- * The process's one listener. The caller token is compared in constant time
- * against the digest of the current handle, so a rotated token is honoured
- * from the next request on and the old one is refused; when a client CA is
- * configured a non-public route also requires the connection to carry an
- * authorized client certificate; the body is bounded before it is read; a
- * failure is a status and a code, never a message, a stack, or anything
- * from the request. Every authenticated request runs inside a request
- * scope, so the evidence lines it causes name the caller.
+ * The process's one listener. Every route that is not public goes through
+ * the authenticator, which decides who the caller is and whether the route
+ * is theirs; the body is bounded before it is read; a failure is a status
+ * and a code, never a message, a stack, or anything from the request.
+ * Every authenticated request runs inside a request scope, so the evidence
+ * lines it causes name the principal.
  */
 export class ExecutorHttpServer {
   private readonly server: Server;
   private readonly tls: TlsListener | null;
-  private readonly events: SecurityEvents | null;
 
   public constructor(
     private readonly service: TrustedExecutorService,
-    private readonly callerToken: () => SecretHandle,
+    private readonly authenticator: Authenticator,
     options: ExecutorHttpServerOptions = {},
   ) {
     this.tls = options.tls ?? null;
-    this.events = options.events ?? null;
     const handler: RequestListener = (request, response) => {
       void this.handle(request, response);
     };
@@ -96,17 +98,30 @@ export class ExecutorHttpServer {
       const route = ROUTES.find((candidate) => candidate.path === pathname);
       if (route === undefined) throw new GuardError(404, "NOT_FOUND");
       if (route.method !== request.method) throw new GuardError(405, "METHOD_NOT_ALLOWED");
-      if (route.public) {
-        await this.dispatch(route.path, request, response);
-        return;
+      if (route.path === "/health")
+        return ExecutorHttpServer.reply(response, 200, { status: "ok" });
+      if (route.path === "/ready") {
+        return ExecutorHttpServer.reply(response, 200, {
+          status: "ready",
+          mode: this.service.mode,
+          escalation: this.service.escalationMode,
+          actions: this.service.actions,
+        });
       }
-      this.authenticate(request);
-      if ("role" in route) throw new GuardError(403, "OPERATOR_NOT_CONFIGURED");
-      await RequestContext.run({ principal: LEGACY_CALLER_PRINCIPAL }, () =>
-        this.dispatch(route.path, request, response),
+      const caller = await this.authenticator.authenticate({
+        authorization: request.headers.authorization,
+        peer: peerIdentity(request.socket as PeerSocket),
+        route,
+      });
+      await RequestContext.run({ principal: caller.principal.id }, () =>
+        this.dispatch(route.path, request, response, caller),
       );
     } catch (error) {
-      if (error instanceof GuardError || error instanceof ServiceError) {
+      if (
+        error instanceof GuardError ||
+        error instanceof ServiceError ||
+        error instanceof AuthError
+      ) {
         ExecutorHttpServer.reply(response, error.status, { code: error.code });
       } else {
         ExecutorHttpServer.reply(response, 500, { code: "INTERNAL_ERROR" });
@@ -115,57 +130,43 @@ export class ExecutorHttpServer {
   }
 
   private async dispatch(
-    path: Exclude<(typeof ROUTES)[number], { role: string }>["path"],
+    path: Exclude<RoutePath, "/health" | "/ready">,
     request: IncomingMessage,
     response: ServerResponse,
+    caller: AuthenticatedPrincipal,
   ): Promise<void> {
     switch (path) {
-      case "/health":
-        return ExecutorHttpServer.reply(response, 200, { status: "ok" });
-      case "/ready":
-        return ExecutorHttpServer.reply(response, 200, {
-          status: "ready",
-          mode: this.service.mode,
-          escalation: this.service.escalationMode,
-          actions: this.service.actions,
-        });
       case "/v1/actions":
         return ExecutorHttpServer.reply(
           response,
           200,
-          await this.service.propose(await ExecutorHttpServer.readJson(request)),
+          await this.service.propose(await ExecutorHttpServer.readJson(request), caller.principal),
         );
       case "/v1/reconciliations":
         return ExecutorHttpServer.reply(
           response,
           200,
-          await this.service.reconcile(await ExecutorHttpServer.readJson(request)),
+          await this.service.reconcile(
+            await ExecutorHttpServer.readJson(request),
+            caller.principal,
+          ),
         );
       case "/v1/escalations":
         return ExecutorHttpServer.reply(
           response,
           200,
-          await this.service.resume(await ExecutorHttpServer.readJson(request)),
+          await this.service.resume(await ExecutorHttpServer.readJson(request), caller.principal),
         );
-    }
-  }
-
-  private authenticate(request: IncomingMessage): void {
-    if (this.tls?.mutual === true && (request.socket as TLSSocket).authorized !== true) {
-      this.events?.emit({ event: "AUTH_FAILED", method: "mtls" });
-      throw new GuardError(401, "CALLER_NOT_AUTHENTICATED");
-    }
-    const header = request.headers.authorization;
-    if (header === undefined || !header.startsWith("Bearer ")) {
-      this.events?.emit({ event: "AUTH_FAILED", method: "bearer" });
-      throw new GuardError(401, "CALLER_NOT_AUTHENTICATED");
-    }
-    // HTTP parsers trim the value's whitespace, so a bare scheme never reaches
-    // here; whatever follows it is compared as a digest, however short.
-    const presented = header.slice("Bearer ".length).trim();
-    if (!timingSafeEqual(ExecutorHttpServer.digest(presented), this.callerToken().digestBytes())) {
-      this.events?.emit({ event: "AUTH_FAILED", method: "bearer" });
-      throw new GuardError(401, "CALLER_NOT_AUTHENTICATED");
+      case "/v1/control/status":
+        return ExecutorHttpServer.reply(response, 200, this.service.status(caller.principal));
+      case "/v1/control/secrets/reload":
+        return ExecutorHttpServer.reply(
+          response,
+          200,
+          await this.service.reloadSecrets(caller.principal),
+        );
+      case "/metrics":
+        return ExecutorHttpServer.replyText(response, this.service.metricsText(caller.principal));
     }
   }
 
@@ -200,7 +201,10 @@ export class ExecutorHttpServer {
     response.end(JSON.stringify(body));
   }
 
-  private static digest(value: string): Buffer {
-    return createHash("sha256").update(value).digest();
+  private static replyText(response: ServerResponse, text: string): void {
+    // Stryker disable next-line ConditionalExpression: a reply is written once per request; the guard is defensive.
+    if (response.headersSent) return;
+    response.writeHead(200, { ...RESPONSE_HEADERS, "content-type": METRICS_CONTENT_TYPE });
+    response.end(text);
   }
 }
