@@ -130,6 +130,7 @@ class ProviderDouble {
   /** How many banking actions were posted, and what a read-back reports. */
   public actions = 0;
   public effect: Record<string, unknown> | null = null;
+  private declineNext = false;
   public readonly requests: {
     readonly path: string;
     readonly headers: IncomingMessage["headers"];
@@ -144,6 +145,11 @@ class ProviderDouble {
 
   public loseNext(): void {
     this.loseNextResponse = true;
+  }
+
+  /** Makes the next banking action a deterministic refusal. */
+  public decline(): void {
+    this.declineNext = true;
   }
 
   public async start(): Promise<void> {
@@ -176,6 +182,10 @@ class ProviderDouble {
         // back, and whose read-back a test can make disagree on purpose.
         if (request.method === "POST" && path === "/actions") {
           this.actions += 1;
+          if (this.declineNext) {
+            this.declineNext = false;
+            return reply(409, { status: "REJECTED", reason_code: "LIMIT" });
+          }
           return reply(200, { status: "POSTED", reference: `fixture_ref_${this.actions}` });
         }
         if (request.method === "GET" && path.startsWith("/actions/")) {
@@ -290,6 +300,8 @@ function productionEnvironment(): Record<string, string> {
 /** How many provider responses were lost on purpose, and how many a restart resolved. */
 let lostResponses = 0;
 let startupRecoveries = 0;
+/** Dispatches the provider refused deterministically: a dispatch, never an execution. */
+let providerRefusals = 0;
 const loseNextResponse = (): void => {
   lostResponses += 1;
   provider.loseNext();
@@ -855,6 +867,27 @@ heading("Banking: the effect is read back, compared, and a mismatch stops the ex
     "a read-back that matches what was authorised is the only confirmation",
     `${String(effect["comparison"])}, ${String(effect["confirmation"])}`,
   );
+  // A provider that was reached and refused: the outcome and the effect block
+  // have to agree, or an operator reads one and acts on the other.
+  const declined = bankingAction("synthetic-req-proof-5");
+  provider.decline();
+  const rejected = await call(banking, "/v1/actions", { body: beapProposal(declined) });
+  check(
+    rejected.body["outcome"] === "DEFINITELY_NOT_EXECUTED" &&
+      rejected.body["executed"] === false &&
+      (rejected.body["reason_codes"] as string[]).includes("POLICY_STATE_CHANGED") &&
+      rejected.body["result"] === null &&
+      // No effect block: the handler threw, so there is no result to read one
+      // from. The reason code is what tells the caller why, and the authority
+      // still received the observation the adapter registered before throwing.
+      rejected.body["effect"] === null &&
+      // And nothing to reconcile, because nothing is unknown.
+      rejected.body["recovery"] === null,
+    "a provider's own refusal is definitely not executed, and says why once",
+    `${String(rejected.body["outcome"])}, ${(rejected.body["reason_codes"] as string[]).join(",")}`,
+  );
+  providerRefusals += 1;
+
   const grantsBefore = authority.grants.size;
   const differing = bankingAction("synthetic-req-proof-2");
   provider.effect = { ...expectedEffect(differing), amount: "1.00" };
@@ -1370,13 +1403,13 @@ heading("Nothing secret left the process");
   ).length;
   const presenceEvents = auditLines.filter((line) => line.includes('"PRESENCE_')).length;
   check(
-    executions === dispatches - lostResponses &&
+    executions === dispatches - lostResponses - providerRefusals &&
       reconciliations === lostResponses - startupRecoveries &&
       lostResponses > 0 &&
       startupRecoveries > 0 &&
       presenceEvents >= 4,
     "the audit stream counts every execution, reconciliation and ceremony",
-    `${executions} executions for ${dispatches} dispatches, ${lostResponses} lost (${startupRecoveries} recovered at start), ${reconciliations} reconciliations, ${presenceEvents} Presence events`,
+    `${executions} executions for ${dispatches} dispatches, ${lostResponses} lost and ${providerRefusals} refused (${startupRecoveries} recovered at start), ${reconciliations} reconciliations, ${presenceEvents} Presence events`,
   );
 }
 

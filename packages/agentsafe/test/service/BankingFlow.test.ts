@@ -229,6 +229,28 @@ describe("a BEAP action through the whole boundary", () => {
     service.close();
   });
 
+  it("reports a provider's refusal as definitely not executed, with the effect agreeing", async () => {
+    const built = build();
+    const proposal = beapProposal();
+    provider.answer({ status: 409, body: { status: "REJECTED", reason_code: "LIMIT" } });
+    provider.readBack = null;
+    const response = await built.service.propose(proposal.body);
+    // Both halves say the same thing now. Before the pipeline had a signal
+    // for a refusal, this read `COMPLETED, executed: true` with an effect
+    // block saying nothing was effected.
+    expect(response.outcome).toBe("DEFINITELY_NOT_EXECUTED");
+    expect(response.executed).toBe(false);
+    expect(response.finalization).toBe("RECORDED");
+    expect(response.reason_codes).toContain("POLICY_STATE_CHANGED");
+    // The observation still reached the authority: the adapter registered it
+    // before the refusal was thrown.
+    const finalize = authority.requests.filter((one) => one.path.includes("finalize")).at(-1);
+    expect((finalize?.body as { readonly outcome?: string } | undefined)?.outcome).toBe("FAILED");
+    // And there is nothing to reconcile, because nothing is unknown.
+    expect(response.recovery).toBeNull();
+    built.service.close();
+  });
+
   it("alerts without halting when the institution's policy says so", async () => {
     const { service, halt, securityLines } = build({ EXECUTOR_ON_EFFECT_MISMATCH: "ALERT" });
     const proposal = beapProposal();

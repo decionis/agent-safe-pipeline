@@ -194,6 +194,12 @@ executor is configured to resolve one (below); with `EXECUTOR_ESCALATION=NONE` t
 answer. `authorization` is the consumed binding, kept as evidence; the grant token itself never
 leaves the process.
 
+A provider that was reached and refused deterministically comes back as `DEFINITELY_NOT_EXECUTED`
+with `executed: false`, its own reason among the reason codes, and no `effect` block: a handler
+that throws returns no result to read one from. The observation is not lost — the adapter registers
+it before throwing, so the authority receives the effect evidence with the finalization, and the
+security stream carries `PROVIDER_REFUSED`.
+
 `effect` is what the adapter observed, for a family that has an effect plane: the outcome, the
 confirmation, the comparison against what was authorised, the fields that differ, the observation
 method, both effect digests, the response digest, the provider's reference, and the digest of the

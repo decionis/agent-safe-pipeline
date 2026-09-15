@@ -1,3 +1,4 @@
+import { ProviderRefusal } from "@decionis/agent-safe-pipeline";
 import type {
   ActionExecutionContext,
   ActionHandler,
@@ -102,8 +103,16 @@ export function adapterActionHandler<TAction>(
     if (indeterminate !== null) {
       throw new IndeterminateOutcome(indeterminate.reason, indeterminate.providerStatus);
     }
+    // A provider that was reached and said no is a fact, not a success. The
+    // evidence is registered above either way, so the authority still learns
+    // what was observed; the throw is what tells the pipeline that nothing
+    // was effected, so it reports `DEFINITELY_NOT_EXECUTED` rather than a
+    // completed execution whose own effect block says otherwise.
+    if (record.outcome === "FAILED") {
+      throw new ProviderRefusal(record.reasonCodes[0] ?? "PROVIDER_REFUSED");
+    }
     return {
-      outcome: record.outcome === "FAILED" ? "FAILED" : "COMMITTED",
+      outcome: "COMMITTED",
       confirmation: record.confirmation,
       comparison: record.comparison,
       mismatchedFields: record.mismatched,

@@ -1,4 +1,8 @@
-import { CanonicalIntentHasher, type CapturedIntent } from "@decionis/agent-safe-pipeline";
+import {
+  CanonicalIntentHasher,
+  ProviderRefusal,
+  type CapturedIntent,
+} from "@decionis/agent-safe-pipeline";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { adapterActionHandler, effectBlock } from "../../src/adapters/AdapterActionHandler.js";
@@ -187,7 +191,11 @@ describe("adapterActionHandler", () => {
     expect((result as { readonly observedEffectDigest: unknown }).observedEffectDigest).toBeNull();
   });
 
-  it("reports a deterministic refusal as FAILED, with evidence and without a throw", async () => {
+  it("throws a provider's own refusal, after registering what it observed", async () => {
+    // A provider that was reached and said no is a fact. Returning here
+    // would tell the pipeline the side effect happened, so the refusal is
+    // thrown — and the evidence is registered first, because the authority
+    // still has to learn what was observed.
     const adapter = fakeAdapter({
       execute: async () =>
         await Promise.resolve(
@@ -195,9 +203,21 @@ describe("adapterActionHandler", () => {
         ),
     });
     const { result, register, error } = await execute(adapter);
-    expect(error).toBeNull();
-    expect(result).toMatchObject({ outcome: "FAILED", confirmation: "NOT_EFFECTED" });
-    expect(register.take(authorization)?.outcome).toBe("FAILED");
+    expect(result).toBeNull();
+    expect(error).toBeInstanceOf(ProviderRefusal);
+    expect((error as ProviderRefusal).reason).toBe("POLICY_STATE_CHANGED");
+    const registered = register.take(authorization);
+    expect(registered?.outcome).toBe("FAILED");
+    expect(registered?.confirmation).toBe("NOT_EFFECTED");
+  });
+
+  it("names the refusal PROVIDER_REFUSED when the provider gave no reason of its own", async () => {
+    const adapter = fakeAdapter({
+      execute: async () =>
+        await Promise.resolve(answer({ status: "FAILED", observed: null, failureReason: null })),
+    });
+    const { error } = await execute(adapter);
+    expect((error as ProviderRefusal).reason).toBe("PROVIDER_REFUSED");
   });
 
   it("names a mismatch, tells the watcher its fields, and never confirms it", async () => {

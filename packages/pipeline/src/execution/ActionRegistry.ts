@@ -50,7 +50,37 @@ interface RegisteredAction {
 export type ActionExecutionAttempt =
   | { readonly status: "COMPLETED"; readonly result: unknown }
   | { readonly status: "FAILED_BEFORE_DISPATCH" }
+  | { readonly status: "REFUSED_AFTER_DISPATCH"; readonly reason: string }
   | { readonly status: "UNKNOWN_AFTER_DISPATCH" };
+
+/**
+ * What a handler throws when the provider refused, definitively, after the
+ * dispatch boundary was crossed.
+ *
+ * Without this, a handler has two ways to report a refusal and neither is
+ * true. Returning normally says the side effect happened. Throwing says the
+ * outcome is unknown, which invites a reconciliation of something that never
+ * needed one. This says the third thing: the request reached the provider,
+ * the provider said no, and nothing was effected.
+ *
+ * Only the provider's own deterministic refusal belongs here — a 4xx with a
+ * body that says which rule refused it. A timeout, a 5xx, a dropped
+ * connection or an unreadable answer is not a refusal, and throwing this for
+ * one of those would turn "nobody knows" into "definitely not", which is the
+ * one direction this boundary must never move in.
+ *
+ * Thrown before the dispatch, it is a handler failure like any other: a
+ * refusal cannot be claimed for a request that was never sent.
+ */
+export class ProviderRefusal extends Error {
+  public constructor(
+    /** The provider's own reason, as a code; never its response body. */
+    public readonly reason: string,
+  ) {
+    super(reason);
+    this.name = "ProviderRefusal";
+  }
+}
 
 export class ActionRegistry {
   private readonly actions = new Map<string, RegisteredAction>();
@@ -128,7 +158,13 @@ export class ActionRegistry {
           dispatch,
         }),
       };
-    } catch {
+    } catch (error) {
+      // A refusal the provider made is only a refusal if the request reached
+      // it. Before the dispatch it is a handler failure, because nothing was
+      // sent for anyone to refuse.
+      if (dispatched && error instanceof ProviderRefusal) {
+        return { status: "REFUSED_AFTER_DISPATCH", reason: error.reason };
+      }
       return { status: dispatched ? "UNKNOWN_AFTER_DISPATCH" : "FAILED_BEFORE_DISPATCH" };
     }
   }
