@@ -1,4 +1,22 @@
 export {
+  EVIDENCE_BUNDLE_VERSION,
+  EvidenceError,
+  EvidenceExport,
+  LineWindow,
+  type BundleFile,
+  type EvidenceBundle,
+  type EvidenceBundleManifest,
+  type EvidenceExportInput,
+  type EvidenceExportOptions,
+} from "./incident/EvidenceExport.js";
+export {
+  verifyEvidenceBundle,
+  type BundleFinding,
+  type BundleFindingCode,
+  type BundleSource,
+  type BundleVerification,
+} from "./verify/VerifyEvidenceBundle.js";
+export {
   adapterActionHandler,
   effectBlock,
   type AdapterExecutionResult,

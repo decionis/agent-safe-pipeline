@@ -181,6 +181,19 @@ export class ExecutorHttpServer {
         );
       case "/v1/control/open-attempts":
         return ExecutorHttpServer.reply(response, 200, this.service.openAttempts(caller.principal));
+      case "/v1/control/evidence-export": {
+        const bundle = await this.service.exportEvidence(
+          await ExecutorHttpServer.readJson(request),
+          caller.principal,
+        );
+        // The bundle's own manifest and where it was written, so an operator
+        // can fetch it; the files themselves stay on the volume.
+        return ExecutorHttpServer.reply(response, 200, {
+          directory: bundle.directory,
+          signed: bundle.signature !== null,
+          manifest: bundle.manifest,
+        });
+      }
       case "/v1/control/secrets/reload":
         return ExecutorHttpServer.reply(
           response,

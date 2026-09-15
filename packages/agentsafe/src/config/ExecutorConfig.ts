@@ -144,6 +144,16 @@ export interface EvidenceConfig {
   readonly journalRetainDays: number;
   /** Whether `/ready` waits while an attempt's outcome is still unknown. */
   readonly readyRequiresNoUnknownAttempts: boolean;
+  /** Where an evidence bundle is written; exporting is refused when null. */
+  readonly exportDir: string | null;
+  /** How many lines of each stream this process keeps for an export. */
+  readonly windowLines: number;
+  /**
+   * The image digest this deployment believes it is running, as the platform
+   * reported it. Carried into a bundle and marked as not self-verified,
+   * because a process cannot read the digest of its own image.
+   */
+  readonly imageDigest: string | null;
 }
 
 /** When the executor stops taking work, and what it takes to let it through again. */
@@ -296,6 +306,14 @@ const EnvironmentSchema = z.object({
   EXECUTOR_JOURNAL_RETAIN_DAYS: z.coerce.number().int().min(1).max(365).optional(),
   EXECUTOR_READY_REQUIRES_NO_UNKNOWN_ATTEMPTS: booleanFlag.optional(),
   EXECUTOR_AUDIT_CHECKPOINT_LINES: z.coerce.number().int().min(1).max(10_000).optional(),
+  EXECUTOR_EVIDENCE_DIR: absolutePath.optional(),
+  EXECUTOR_EVIDENCE_WINDOW_LINES: z.coerce.number().int().min(100).max(200_000).optional(),
+  // As the platform reports it, in the one form a registry uses.
+  EXECUTOR_IMAGE_DIGEST: z
+    .string()
+    .trim()
+    .regex(/^sha256:[0-9a-f]{64}$/)
+    .optional(),
   EXECUTOR_HALT_FILE: absolutePath.optional(),
   EXECUTOR_HALT_ON_AUTH_FAILURES: z.string().trim().min(1).max(20).optional(),
   EXECUTOR_HALT_ON_EGRESS_REFUSALS: z.string().trim().min(1).max(20).optional(),
@@ -453,6 +471,18 @@ export class ExecutorConfigLoader {
     if (credential.kind === "SIGNED_REQUEST") required.push("DOWNSTREAM_SIGNING_KEY");
     if (escalation.mode === "DIRECT") required.push("PRESENCE_API_KEY");
     if (listener.tls !== null) required.push("EXECUTOR_TLS_KEY");
+    // A signing key for the bundle manifest is optional: without it a bundle
+    // proves its own internal consistency and nothing about who made it, and
+    // the verifier says which of the two it is holding.
+    const evidenceSigning =
+      env["EXECUTOR_EVIDENCE_SIGNING_KEY"] !== undefined ||
+      env["EXECUTOR_EVIDENCE_SIGNING_KEY_FILE"] !== undefined;
+    if (evidenceSigning) {
+      if (values.EXECUTOR_EVIDENCE_DIR === undefined) {
+        throw new Error("CONFIG_INVALID: EXECUTOR_EVIDENCE_DIR (required to sign a bundle)");
+      }
+      required.push("EXECUTOR_EVIDENCE_SIGNING_KEY");
+    }
     if (
       escalation.mode !== "NONE" &&
       identity.legacy !== null &&
@@ -521,6 +551,9 @@ export class ExecutorConfigLoader {
         journalRetainDays: values.EXECUTOR_JOURNAL_RETAIN_DAYS ?? 7,
         readyRequiresNoUnknownAttempts:
           values.EXECUTOR_READY_REQUIRES_NO_UNKNOWN_ATTEMPTS === "true",
+        exportDir: values.EXECUTOR_EVIDENCE_DIR ?? null,
+        windowLines: values.EXECUTOR_EVIDENCE_WINDOW_LINES ?? 5_000,
+        imageDigest: values.EXECUTOR_IMAGE_DIGEST ?? null,
       },
       halt: {
         file: values.EXECUTOR_HALT_FILE ?? null,

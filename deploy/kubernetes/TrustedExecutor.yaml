@@ -43,6 +43,32 @@ data:
   # it. The journal carries the request's own parameters, so protect it as
   # you protect the traffic.
   EXECUTOR_JOURNAL_DIR: "/var/lib/agent-safe/journal"
+  # Where an operator's evidence bundle is written: on the same volume, one
+  # directory per export. Without this the export route answers 409 and
+  # nothing is written, which is the right answer for a deployment that has
+  # not decided where its evidence goes.
+  EXECUTOR_EVIDENCE_DIR: "/var/lib/agent-safe/evidence"
+  # A bundle carries the last N lines of each chained stream. The log
+  # pipeline is still the durable store; this is what one process can hand an
+  # operator during an incident, and the bundle says how many lines it had
+  # already dropped.
+  EXECUTOR_EVIDENCE_WINDOW_LINES: "5000"
+  # Two more belong here once you have them, and both are commented because a
+  # placeholder would be worse than their absence.
+  #
+  #   EXECUTOR_IMAGE_DIGEST: "sha256:<the digest you mirrored and verified>"
+  #
+  # What this deployment believes it is running, as you recorded it. A bundle
+  # carries it and marks it not self-verified, because a process cannot read
+  # the digest of its own image and claiming otherwise would be the most
+  # misleading line in the bundle.
+  #
+  #   EXECUTOR_EVIDENCE_SIGNING_KEY_FILE: "/var/run/agent-safe/secrets/evidence-signing-key"
+  #
+  # An Ed25519 key turns a bundle from internally consistent into
+  # origin-bearing. Add the key to the secrets Secret, and give whoever
+  # verifies bundles the matching public key; without it `verify-bundle` says
+  # INTERNAL_CONSISTENCY and means it.
   # Stay out of the load balancer while any attempt's outcome is unknown, so
   # a replica that cannot say what it did takes no new work.
   EXECUTOR_READY_REQUIRES_NO_UNKNOWN_ATTEMPTS: "true"

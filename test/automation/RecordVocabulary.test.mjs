@@ -41,7 +41,7 @@ function tableRows(markdown, file) {
         .slice(1, -1)
         .map((cell) => cell.trim()),
     );
-  assert.equal(rows.length, 8, `${file} table has eight rows`);
+  assert.equal(rows.length, 9, `${file} table has nine rows`);
   return rows;
 }
 
@@ -65,8 +65,14 @@ describe("record vocabulary", () => {
     });
   });
 
-  it("names only tokens that exist in the package source", async () => {
-    const source = await sourceText("packages/pipeline/src");
+  it("names only tokens that exist in the published sources", async () => {
+    // The table spans two published packages now: the library's own records
+    // and the trusted executor's evidence bundle. A token in neither source
+    // is a name the documentation invented.
+    const source = [
+      await sourceText("packages/pipeline/src"),
+      await sourceText("packages/agentsafe/src"),
+    ].join("\n");
     for (const row of tableRows(await read("README.md"), "README.md")) {
       for (const token of tokens(row)) {
         assert.ok(

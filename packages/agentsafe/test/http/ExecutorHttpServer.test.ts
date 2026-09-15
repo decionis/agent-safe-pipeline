@@ -20,6 +20,18 @@ const halt = vi.fn(() => ({
 }));
 const resumeWork = vi.fn(() => ({ halted: false, trigger: null, reason: null, since: null }));
 const openAttempts = vi.fn(() => ({ attempts: [], unknown: 0 }));
+const exportEvidence = vi.fn(
+  (): Promise<{
+    directory: string;
+    signature: string | null;
+    manifest: Record<string, unknown>;
+  }> =>
+    Promise.resolve({
+      directory: "/var/lib/agent-safe/evidence/2026-03-02T10-00-00-000Z",
+      signature: null,
+      manifest: { version: "agent-safe.evidence-bundle/1", files: [] },
+    }),
+);
 const readiness = vi.fn(() => ({
   ready: true,
   body: {
@@ -41,6 +53,7 @@ const service = {
   halt,
   resumeWork,
   openAttempts,
+  exportEvidence,
 } as unknown as TrustedExecutorService;
 
 let callerToken = SecretHandle.fromString("EXECUTOR_CALLER_TOKEN", CALLER_TOKEN);
@@ -141,7 +154,7 @@ describe("ExecutorHttpServer", () => {
     resume.mockResolvedValue({ outcome: "ESCALATE_PENDING" });
   });
 
-  it("declares two public routes, three proposer routes, and three operator routes with their scopes", () => {
+  it("declares two public routes, three proposer routes, and six operator routes with their scopes", () => {
     expect(ROUTES.map((route) => `${route.method} ${route.path}`)).toEqual([
       "GET /health",
       "GET /ready",
@@ -153,6 +166,7 @@ describe("ExecutorHttpServer", () => {
       "POST /v1/control/resume",
       "GET /v1/control/open-attempts",
       "POST /v1/control/secrets/reload",
+      "POST /v1/control/evidence-export",
       "GET /metrics",
     ]);
     expect(ROUTES.filter((route) => route.public).map((route) => route.path)).toEqual([
@@ -174,6 +188,7 @@ describe("ExecutorHttpServer", () => {
       "/v1/control/resume:resume",
       "/v1/control/open-attempts:status",
       "/v1/control/secrets/reload:secrets.reload",
+      "/v1/control/evidence-export:evidence",
       "/metrics:metrics",
     ]);
   });
@@ -304,6 +319,50 @@ describe("ExecutorHttpServer", () => {
     });
     propose.mockResolvedValueOnce({ outcome: "COMPLETED" });
     expect((await send("/v1/actions", CALLER_TOKEN, "{}")).status).toBe(200);
+    await operated.close();
+  });
+
+  it("returns a bundle's manifest and where it was written, never its files", async () => {
+    const operated = new ExecutorHttpServer(service, mixedAuthenticator(), { tls: null });
+    const bound = await operated.listen(0, "127.0.0.1");
+    const origin = `${LOOPBACK_ORIGIN}:${bound.port}`;
+    const post = async (
+      token: string,
+      body: string,
+    ): Promise<{ status: number; body: Record<string, unknown> }> => {
+      const response = await fetch(`${origin}/v1/control/evidence-export`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body,
+      });
+      return { status: response.status, body: (await response.json()) as Record<string, unknown> };
+    };
+    const exported = await post(OPERATOR_TOKEN, JSON.stringify({ reason: "on-call took one" }));
+    expect(exported.status).toBe(200);
+    expect(exported.body).toEqual({
+      directory: "/var/lib/agent-safe/evidence/2026-03-02T10-00-00-000Z",
+      signed: false,
+      manifest: { version: "agent-safe.evidence-bundle/1", files: [] },
+    });
+    expect(exportEvidence).toHaveBeenCalledWith(
+      { reason: "on-call took one" },
+      expect.objectContaining({ id: "synthetic-ops-oncall" }),
+    );
+    // Signed is the manifest's own fact, reported rather than assumed.
+    exportEvidence.mockResolvedValueOnce({
+      directory: "/evidence/one",
+      signature: "eyJ.signed.value",
+      manifest: { version: "agent-safe.evidence-bundle/1", files: [] },
+    });
+    const signed = await post(OPERATOR_TOKEN, JSON.stringify({ reason: "again" }));
+    expect(signed.body["signed"]).toBe(true);
+    // The signature itself is not in the answer: it is a file in the bundle.
+    expect(JSON.stringify(signed.body)).not.toContain("eyJ.signed.value");
+    // A proposer cannot ask, and a refusal from the service is passed through.
+    expect((await post(CALLER_TOKEN, "{}")).body).toEqual({ code: "ROLE_FORBIDDEN" });
+    exportEvidence.mockRejectedValueOnce(new ServiceError(409, "EVIDENCE_DIR_NOT_CONFIGURED"));
+    const refused = await post(OPERATOR_TOKEN, JSON.stringify({ reason: "nowhere to write" }));
+    expect([refused.status, refused.body["code"]]).toEqual([409, "EVIDENCE_DIR_NOT_CONFIGURED"]);
     await operated.close();
   });
 
