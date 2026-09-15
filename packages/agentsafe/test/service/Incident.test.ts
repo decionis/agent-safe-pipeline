@@ -44,6 +44,7 @@ interface Built {
   readonly lines: string[];
   readonly securityLines: string[];
   readonly evidenceDir: string | null;
+  readonly journal: InMemoryExecutionJournal;
 }
 
 let sequence = 0;
@@ -63,6 +64,7 @@ function build(overrides: Record<string, string | undefined> = {}): Built {
   const lines: string[] = [];
   const securityLines: string[] = [];
   const events = collectedEvents(securityLines);
+  const journal = new InMemoryExecutionJournal();
   const service = TrustedExecutorService.create(
     config,
     openSecrets(env, config, events),
@@ -70,7 +72,7 @@ function build(overrides: Record<string, string | undefined> = {}): Built {
     {
       emit: (line) => lines.push(line),
       security: events,
-      journal: new InMemoryExecutionJournal(),
+      journal,
       halt: new HaltSwitch({ events }),
     },
   );
@@ -91,6 +93,7 @@ function build(overrides: Record<string, string | undefined> = {}): Built {
     lines,
     securityLines,
     evidenceDir: dir,
+    journal,
   };
 }
 
@@ -155,7 +158,20 @@ describe("taking evidence out of a running executor", () => {
 
   it("carries no secret, no parameter, and no provider body", async () => {
     const built = build();
-    await built.service.propose(proposal(2_500).body, built.proposer);
+    // A reference nothing in the bundle's own vocabulary could produce: a
+    // digest is hex, so a decimal amount would collide with one by chance
+    // and an assertion about a bare number would fail on a lucky hash.
+    const marker = "synthetic-parameter-marker-zzqx";
+    await built.service.propose(
+      proposal(2_500, {
+        proposal: { action: "forward_request", target: "payout:x", parameters: { marker } },
+      }).body,
+      built.proposer,
+    );
+    // The positive control: the journal does carry parameters, so finding the
+    // marker there proves it reached the process and was left out of the
+    // bundle on purpose rather than never having travelled.
+    expect(JSON.stringify(built.journal.all)).toContain(marker);
     const bundle = await built.service.exportEvidence({ reason: "a drill" }, built.operator);
     const everything = readdirSync(bundle.directory)
       .map((name) => readFileSync(join(bundle.directory, name), "utf8"))
@@ -166,7 +182,7 @@ describe("taking evidence out of a running executor", () => {
       "synthetic-downstream-credential",
       "Bearer ",
       "amountMinor",
-      "2500",
+      marker,
     ]) {
       expect(everything, forbidden).not.toContain(forbidden);
     }
