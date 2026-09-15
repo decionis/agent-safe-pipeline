@@ -86,6 +86,24 @@ export const SecurityEventSchema = z.discriminatedUnion("event", [
     // Field names from the family's own projection, never their values.
     fields: z.array(name).max(16),
   }),
+  z.strictObject({
+    event: z.literal("EFFECT_PENDING_CONFIRMATION"),
+    intent_id: identifier,
+    method: code,
+  }),
+  z.strictObject({ event: z.literal("PROVIDER_REFUSED"), intent_id: identifier, code }),
+  z.strictObject({
+    event: z.literal("FINALIZATION_PENDING"),
+    intent_id: identifier,
+    outcome: code,
+  }),
+  z.strictObject({ event: z.literal("SEPARATION_OF_DUTIES_VIOLATED"), principal }),
+  z.strictObject({
+    event: z.literal("EVIDENCE_EXPORTED"),
+    principal,
+    files: count,
+    signed: z.boolean(),
+  }),
 ]);
 
 export type SecurityEvent = z.infer<typeof SecurityEventSchema>;
@@ -110,6 +128,7 @@ export class SecurityEvents {
   private readonly clock: () => Date;
   public readonly chain: HashChain;
   private readonly listeners: ((event: SecurityEvent) => void)[] = [];
+  private readonly taps: ((line: string) => void)[] = [];
 
   public constructor(
     private readonly write: LineWriter,
@@ -127,6 +146,19 @@ export class SecurityEvents {
     return this.chain.head;
   }
 
+  /**
+   * Every line this stream writes, as written. The evidence export keeps a
+   * bounded window of them; a subscriber that wants the event rather than
+   * the line uses `subscribe`.
+   */
+  public tap(listener: (line: string) => void): () => void {
+    this.taps.push(listener);
+    return () => {
+      const index = this.taps.indexOf(listener);
+      if (index !== -1) this.taps.splice(index, 1);
+    };
+  }
+
   public subscribe(listener: (event: SecurityEvent) => void): () => void {
     this.listeners.push(listener);
     return () => {
@@ -141,7 +173,10 @@ export class SecurityEvents {
       this.droppedCount += 1;
       return;
     }
-    this.chain.link({ at: this.clock().toISOString(), ...parsed.data }, this.write);
+    this.chain.link({ at: this.clock().toISOString(), ...parsed.data }, (line) => {
+      this.write(line);
+      for (const tap of this.taps) tap(line);
+    });
     for (const listener of this.listeners) listener(parsed.data);
   }
 }

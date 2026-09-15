@@ -99,19 +99,20 @@ where those controls are written down.
 
 ## The wire contract
 
-| Method | Path                         | Who                                 | What it does                                                                               |
-| ------ | ---------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------ |
-| `GET`  | `/health`                    | anyone                              | The process is up                                                                          |
-| `GET`  | `/ready`                     | anyone                              | Ready, or 503 while halted or still resolving an attempt; reports the mode and the actions |
-| `POST` | `/v1/actions`                | a `PROPOSER`                        | Capture, evaluate, and in enforcement execute once on an `ALLOW`                           |
-| `POST` | `/v1/reconciliations`        | the `PROPOSER` that proposed        | Read-only: what the provider did with an attempt whose answer was lost                     |
-| `POST` | `/v1/escalations`            | the `PROPOSER` that proposed        | Resume an open escalation: one lookup, then a fresh decision if the person answered        |
-| `GET`  | `/v1/control/status`         | an `OPERATOR` with `status`         | Mode, actions, posture, principals, the chain's head, the halt, the open attempts          |
-| `POST` | `/v1/control/halt`           | an `OPERATOR` with `halt`           | Stop taking new work, with a reason                                                        |
-| `POST` | `/v1/control/resume`         | an `OPERATOR` with `resume`         | Take work again, with a reason; refused while the cause of the halt stands                 |
-| `GET`  | `/v1/control/open-attempts`  | an `OPERATOR` with `status`         | The attempts whose outcome this process does not know                                      |
-| `POST` | `/v1/control/secrets/reload` | an `OPERATOR` with `secrets.reload` | Re-read every secret file now; the report names files, never values                        |
-| `GET`  | `/metrics`                   | an `OPERATOR` with `metrics`        | The OpenMetrics exposition                                                                 |
+| Method | Path                          | Who                                 | What it does                                                                               |
+| ------ | ----------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------ |
+| `GET`  | `/health`                     | anyone                              | The process is up                                                                          |
+| `GET`  | `/ready`                      | anyone                              | Ready, or 503 while halted or still resolving an attempt; reports the mode and the actions |
+| `POST` | `/v1/actions`                 | a `PROPOSER`                        | Capture, evaluate, and in enforcement execute once on an `ALLOW`                           |
+| `POST` | `/v1/reconciliations`         | the `PROPOSER` that proposed        | Read-only: what the provider did with an attempt whose answer was lost                     |
+| `POST` | `/v1/escalations`             | the `PROPOSER` that proposed        | Resume an open escalation: one lookup, then a fresh decision if the person answered        |
+| `GET`  | `/v1/control/status`          | an `OPERATOR` with `status`         | Mode, actions, posture, principals, the chain's head, the halt, the open attempts          |
+| `POST` | `/v1/control/halt`            | an `OPERATOR` with `halt`           | Stop taking new work, with a reason                                                        |
+| `POST` | `/v1/control/resume`          | an `OPERATOR` with `resume`         | Take work again, with a reason; refused while the cause of the halt stands                 |
+| `GET`  | `/v1/control/open-attempts`   | an `OPERATOR` with `status`         | The attempts whose outcome this process does not know                                      |
+| `POST` | `/v1/control/secrets/reload`  | an `OPERATOR` with `secrets.reload` | Re-read every secret file now; the report names files, never values                        |
+| `POST` | `/v1/control/evidence-export` | an `OPERATOR` with `evidence`       | Write a bundle of this process's own evidence, and return its manifest                     |
+| `GET`  | `/metrics`                    | an `OPERATOR` with `metrics`        | The OpenMetrics exposition                                                                 |
 
 Who may call is the principals file, described below; without one, the one legacy caller presents
 the caller token as `Authorization: Bearer <token>`. Every request that is not public passes the
@@ -281,6 +282,10 @@ network path has a default.
 | `EXECUTOR_HARD_LIMIT_WINDOW_SUM_MINOR`                        | Optional: the most value that may move inside the window, in minor units                                                   |
 | `EXECUTOR_MAX_CLOCK_SKEW_MS`                                  | How far the authority's clock may differ before the executor halts; two seconds by default                                 |
 | `EXECUTOR_AUDIT_CHECKPOINT_LINES`                             | How many chained lines between persisted heads, one hundred by default                                                     |
+| `EXECUTOR_EVIDENCE_DIR`                                       | Where an operator's evidence bundle is written; exporting is refused with `409` when absent                                |
+| `EXECUTOR_EVIDENCE_WINDOW_LINES`                              | Lines of each stream this process keeps for a bundle, 100 to 200000, five thousand by default                              |
+| `EXECUTOR_EVIDENCE_SIGNING_KEY`                               | Optional Ed25519 PKCS#8 key that signs a bundle's manifest; secret, and needs an evidence directory                        |
+| `EXECUTOR_IMAGE_DIGEST`                                       | What the platform says this deployment is running; carried into a bundle and marked not self-verified                      |
 | `DECIONIS_API_URL`                                            | The authority, HTTPS                                                                                                       |
 | `DECIONIS_API_KEY`                                            | The server-side Decionis credential; secret                                                                                |
 | `DECIONIS_ALLOW_INSECURE_LOOPBACK`                            | `true` permits plain HTTP to loopback for local doubles; refused under `NODE_ENV=production`                               |
@@ -671,6 +676,58 @@ actions by action. They are rendered as OpenMetrics
 text through `executor.metrics.registry.render()` and on `GET /metrics` to an operator with the
 `metrics` scope; a proposer is not the party that should read them, and every operator action is
 recorded as `OPERATOR_ACTION` with the principal and the action.
+
+## Incident response
+
+Three things are for the moment something has gone wrong.
+
+**The stop**, which is above. Reach for it early: work in flight finishes and is journaled, so a
+halt costs the proposals that have not started and nothing else.
+
+**A bundle**, taken from a running process by an operator holding the `evidence` scope:
+
+```bash
+curl -sS -X POST https://executor.example:8443/v1/control/evidence-export   -H 'content-type: application/json' -d '{"reason":"on-call took a bundle"}'
+```
+
+It writes five files into a directory under `EXECUTOR_EVIDENCE_DIR`, named by the instant so two
+exports during one incident do not overwrite each other: both chained streams as this process
+still held them, the open attempts, the posture by check, and a manifest that digests every one of
+them. The manifest also carries the chain heads, a digest of the non-secret configuration, the
+image digest as the platform reported it (marked not self-verified, because a process cannot read
+the digest of its own image), and every secret's name with a rotation count.
+
+What is not in it: any secret, any digest of a secret (a low-entropy credential's digest is a
+guessable oracle), any request parameter, and any provider body. The attempt journal holds
+parameters, so a bundle names attempts by identifier and state and never copies the journal. Take
+that from the volume, under the same handling as the traffic, and only when you need it.
+
+**A verifier** that needs nothing from the executor:
+
+```bash
+agentsafe verify-bundle ./2026-03-02T10-00-00-000Z
+```
+
+It recomputes every file's digest against the manifest, walks both chains, and checks that each
+stream's last line is the head the manifest claims. Then it says which of two things it
+established:
+
+| It reports               | What that means                                                                     |
+| ------------------------ | ----------------------------------------------------------------------------------- |
+| `INTERNAL_CONSISTENCY`   | The bundle is the bundle that was made. Nothing here establishes **who** made it    |
+| `ORIGIN_AND_CONSISTENCY` | A signature over the manifest verified against a public key **the reader** supplied |
+
+The reader's key comes from `AGENTSAFE_EVIDENCE_PUBLIC_KEY`, never from the bundle: a signature
+verified with a key the bundle carried would prove nothing, so the verifier will not do it. Set
+`EXECUTOR_EVIDENCE_SIGNING_KEY_FILE` before an incident if you want the second row; afterwards is
+too late.
+
+The six playbooks, per incident class, are in
+[incident response](https://github.com/decionis/agent-safe-pipeline/blob/master/docs/incident-response.md),
+with command-bearing copies under
+[`deploy/incident/`](https://github.com/decionis/agent-safe-pipeline/blob/master/deploy/incident)
+and alerting rules as data, applied by nothing, in
+[`deploy/alerts/TrustedExecutor.yaml`](https://github.com/decionis/agent-safe-pipeline/blob/master/deploy/alerts/TrustedExecutor.yaml).
 
 ## The seam
 

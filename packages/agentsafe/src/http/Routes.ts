@@ -39,6 +39,13 @@ export const ROUTES = [
     role: "OPERATOR",
     scope: "secrets.reload",
   },
+  {
+    method: "POST",
+    path: "/v1/control/evidence-export",
+    public: false,
+    role: "OPERATOR",
+    scope: "evidence",
+  },
   { method: "GET", path: "/metrics", public: false, role: "OPERATOR", scope: "metrics" },
 ] as const satisfies readonly RouteDefinition[];
 

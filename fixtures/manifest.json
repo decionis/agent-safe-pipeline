@@ -411,6 +411,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/incident/EvidenceExport.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/incident/HaltSwitch.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
@@ -501,6 +507,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/service/Incident.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/service/Principals.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
@@ -568,6 +580,12 @@
     },
     {
       "path": "packages/agentsafe/test/verify/VerifyAuditChain.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/verify/VerifyEvidenceBundle.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false

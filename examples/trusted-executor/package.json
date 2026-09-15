@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@decionis/agent-safe-pipeline": "workspace:*",
-    "@decionis/agentsafe": "workspace:*"
+    "@decionis/agentsafe": "workspace:*",
+    "jose": "^6.2.10"
   }
 }

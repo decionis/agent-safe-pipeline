@@ -18,20 +18,23 @@ business model from the code.
 
 ## What is Apache-2.0 here
 
-| Component                                                                 | Where                                                        | Why it is open                                                                                                             |
-| ------------------------------------------------------------------------- | ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
-| `IntentCapture`, `CanonicalIntentHasher`, `agent-safe.intent/1`           | `packages/pipeline/src/intent`                               | The intent contract must be independently implementable or the hash binding proves nothing                                 |
-| `SafeExecutor`, `ActionRegistry`, `AuthorizationVerifier`, `ReplayStore`  | `packages/pipeline/src/execution`                            | The execution boundary runs inside the customer's trust domain and must be inspectable                                     |
-| `DecionisGate`, `DecionisGrantVerifier`                                   | `packages/pipeline/src/decision`, `execution`                | Client adapters for the published Decionis contract; they hold no policy logic                                             |
-| `PresenceApprovalCoordinator`                                             | `packages/pipeline/src/approval`                             | The evidence-not-authority rule for human approval is part of the architecture, not the product                            |
-| CommerceGate MCP server (`@decionis/commerce`)                            | `packages/commerce-mcp`                                      | A local STDIO client adapter over the published CommerceGate contract; it holds no policy logic and no marketplace client  |
-| `AuditRecorder`, `AuditPolicyRevisionVerifier`, `agent-safe.audit/1`      | `packages/pipeline/src/audit`                                | Customers own their evidence stream; the redaction and immutability rules are public                                       |
-| `ShadowPipeline`                                                          | `packages/pipeline/src/shadow`                               | The adoption path has to be trustworthy before enforcement is; see [shadow mode](./docs/shadow-mode.md)                    |
-| Trusted executor process (`@decionis/agentsafe`), its proof, and the kit  | `packages/agentsafe`, `examples/trusted-executor`, `deploy/` | The boundary has to be deployable inside the customer's trust domain with its handler seam, image and manifest inspectable |
-| `FixtureDecisionAuthority` and fixture verifier                           | `packages/pipeline/src/decision`                             | Development test doubles; refuse to construct under `NODE_ENV=production`                                                  |
-| `LocalPresence`, `LocalAuthority` (`./testing` entry)                     | `packages/pipeline/src/testing`                              | Loopback doubles so anyone can test escalations locally; refuse to construct under `NODE_ENV=production`                   |
-| Conformance vectors and synthetic Decision Dossier corpus                 | `conformance/`, `dossiers/`                                  | Cross-implementation proof that canonicalization and offline verification are stable                                       |
-| Examples, synthetic policies, threat model, architecture, release tooling | `examples/`, `policies/`, root docs                          | Reference material and reproducible supply-chain evidence                                                                  |
+| Component                                                                 | Where                                                                        | Why it is open                                                                                                             |
+| ------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `IntentCapture`, `CanonicalIntentHasher`, `agent-safe.intent/1`           | `packages/pipeline/src/intent`                                               | The intent contract must be independently implementable or the hash binding proves nothing                                 |
+| `SafeExecutor`, `ActionRegistry`, `AuthorizationVerifier`, `ReplayStore`  | `packages/pipeline/src/execution`                                            | The execution boundary runs inside the customer's trust domain and must be inspectable                                     |
+| `DecionisGate`, `DecionisGrantVerifier`                                   | `packages/pipeline/src/decision`, `execution`                                | Client adapters for the published Decionis contract; they hold no policy logic                                             |
+| `PresenceApprovalCoordinator`                                             | `packages/pipeline/src/approval`                                             | The evidence-not-authority rule for human approval is part of the architecture, not the product                            |
+| CommerceGate MCP server (`@decionis/commerce`)                            | `packages/commerce-mcp`                                                      | A local STDIO client adapter over the published CommerceGate contract; it holds no policy logic and no marketplace client  |
+| `AuditRecorder`, `AuditPolicyRevisionVerifier`, `agent-safe.audit/1`      | `packages/pipeline/src/audit`                                                | Customers own their evidence stream; the redaction and immutability rules are public                                       |
+| `ShadowPipeline`                                                          | `packages/pipeline/src/shadow`                                               | The adoption path has to be trustworthy before enforcement is; see [shadow mode](./docs/shadow-mode.md)                    |
+| Trusted executor process (`@decionis/agentsafe`), its proof, and the kit  | `packages/agentsafe`, `examples/trusted-executor`, `deploy/`                 | The boundary has to be deployable inside the customer's trust domain with its handler seam, image and manifest inspectable |
+| The adapter contract and the banking family                               | `packages/agentsafe/src/adapters`                                            | How a domain reaches a provider, and how an effect is compared with what was authorised, has to be inspectable per family  |
+| The attempt journal and startup reconciliation                            | `packages/agentsafe/src/journal`                                             | Whether a lost outcome can be recovered is a property of the customer's own process, not of a service                      |
+| Incident tooling: the evidence bundle, its verifier, the playbooks        | `packages/agentsafe/src/incident`, `src/verify`, `docs/incident-response.md` | Evidence that needs the producer's cooperation to read is not evidence; the bundle verifies offline with no key at all     |
+| `FixtureDecisionAuthority` and fixture verifier                           | `packages/pipeline/src/decision`                                             | Development test doubles; refuse to construct under `NODE_ENV=production`                                                  |
+| `LocalPresence`, `LocalAuthority` (`./testing` entry)                     | `packages/pipeline/src/testing`                                              | Loopback doubles so anyone can test escalations locally; refuse to construct under `NODE_ENV=production`                   |
+| Conformance vectors and synthetic Decision Dossier corpus                 | `conformance/`, `dossiers/`                                                  | Cross-implementation proof that canonicalization and offline verification are stable                                       |
+| Examples, synthetic policies, threat model, architecture, release tooling | `examples/`, `policies/`, root docs                                          | Reference material and reproducible supply-chain evidence                                                                  |
 
 The two runtime dependencies published by Decionis, `@decionis/presence-node` and
 `@decionis/verify`, are also Apache-2.0.
@@ -134,6 +137,26 @@ runtime packages, and MIT for the dedicated Claude Desktop wrapper. The
 [trademark policy](./TRADEMARKS.md) asks that a modified distribution not present itself as the
 official project or imply Decionis endorsement. The README's request not to mirror the canonical
 repository is about avoiding security-fix drift, not about restricting forks.
+
+## What the executor package commits to
+
+Five commitments hold across every phase of this boundary's development, and they are checkable
+rather than promised:
+
+1. **`SafeExecutor` is untouched.** The executor package composes over it and never edits it. Its
+   own mutation gate is at 100%, so a change would have to survive that.
+2. **The seam does not move.** Everything the executor adds enters through public interfaces:
+   `DecisionAuthority`, `AuthorizationVerifier`, `ActionHandler`, `AuditSink`, the gate's and the
+   verifier's `fetch`, and the intent's trusted `context`.
+3. **`agent-safe.audit/1` is unchanged.** The executor's own streams are separate envelopes
+   (`agent-safe.executor-evidence/1`, `agent-safe.security/1`, `agent-safe.evidence-bundle/1`), so
+   an adopter reading the audit contract sees the same fields they always did.
+4. **No invented wire field.** Where the authority's contract does not expose something, the
+   executor says it is not exposed rather than adding a field of its own. `docs/beap-conformance.md`
+   lists two such cases by name.
+5. **No Decionis-only path.** An adopter who implements the two interfaces gets every executor
+   feature: the posture checks, the principals, the journal, the halt, the adapters and the
+   evidence bundle all work against any conforming authority.
 
 ## Why this shape
 

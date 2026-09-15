@@ -17,6 +17,7 @@ Agent-Safe Pipeline is a reference architecture in which AI agents propose actio
 - Audit events: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/audit-events.md
 - Executor evidence (the trusted executor's chained evidence and security streams): https://github.com/decionis/agent-safe-pipeline/blob/master/docs/executor-evidence.md
 - BEAP v0.1 conformance (what the trusted executor implements of the banking effect-attestation profile, and what it does not claim): https://github.com/decionis/agent-safe-pipeline/blob/master/docs/beap-conformance.md
+- Incident response for the trusted executor (six playbooks, the evidence bundle and its offline verifier, alerting rules as data, and the resume checklist): https://github.com/decionis/agent-safe-pipeline/blob/master/docs/incident-response.md
 - Human approval: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/human-approval.md
 - Presence Evidence semantics: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/presence-evidence.md
 - Remote CRO authorization sequence: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/remote-cro-authorization.md

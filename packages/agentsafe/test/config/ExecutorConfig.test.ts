@@ -358,6 +358,9 @@ describe("ExecutorConfigLoader", () => {
       journalRequired: false,
       journalRetainDays: 7,
       readyRequiresNoUnknownAttempts: false,
+      exportDir: null,
+      windowLines: 5000,
+      imageDigest: null,
     });
     const pinned = ExecutorConfigLoader.load({
       ...direct(),
@@ -390,6 +393,9 @@ describe("ExecutorConfigLoader", () => {
       journalRequired: false,
       journalRetainDays: 7,
       readyRequiresNoUnknownAttempts: false,
+      exportDir: null,
+      windowLines: 5000,
+      imageDigest: null,
     });
     expect(
       refusal({ ...offlineEnvironment(), DECIONIS_SPKI_PINS: `sha256/${"A".repeat(43)}=` }),

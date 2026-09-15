@@ -19,8 +19,8 @@
  * host posture is declared as development, so the host checks a deployment
  * enforces are waived here and said so on the security stream.
  */
-import { createHash, randomBytes } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createHash, generateKeyPairSync, randomBytes } from "node:crypto";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -49,10 +49,12 @@ import {
   transportActionName,
   transportTarget,
   verifyAuditChain,
+  verifyEvidenceBundle,
   type BankingAction,
   type HandlerRegistration,
   type TrustedExecutor,
 } from "@decionis/agentsafe";
+import { compactVerify, importSPKI } from "jose";
 import { handlers } from "./Handlers.js";
 
 /** A canonical BEAP action, synthetic throughout, as the profile's own example shapes it. */
@@ -1221,6 +1223,106 @@ heading("Managed escalation: the authority orchestrates Presence");
     `outcome ${String(resumed.body["outcome"])}, ${provider.effects.size - effectsBefore} effect`,
   );
   await managed.executor.close();
+}
+
+heading("Incident response: the evidence an operator can take, and verify");
+{
+  const directory = mkdtempSync(join(tmpdir(), "agentsafe-evidence-"));
+  const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+  const keyPath = join(directory, "signing.pem");
+  writeFileSync(keyPath, privateKey.export({ type: "pkcs8", format: "pem" }).toString());
+  const running = await startExecutor("ENFORCEMENT", "NONE", {
+    EXECUTOR_EVIDENCE_DIR: join(directory, "bundles"),
+    EXECUTOR_EVIDENCE_SIGNING_KEY_FILE: keyPath,
+    EXECUTOR_PRINCIPALS_FILE: undefined,
+  });
+  // One execution, so there is something in the evidence stream to carry.
+  await call(running, "/v1/actions", { body: proposal(3_000) });
+  const operator = {
+    id: "synthetic-ops-oncall",
+    role: "OPERATOR" as const,
+    tenantId: null,
+    actor: null,
+    scopes: new Set(["evidence", "status"]),
+    allowedActions: new Set<string>(),
+    credential: { kind: "BEARER" as const, token_sha256: "0".repeat(64) },
+    rateLimit: null,
+  };
+  const bundle = await running.executor.service.exportEvidence(
+    { reason: "drill: on-call took a bundle" },
+    operator as never,
+  );
+  const files = readdirSync(bundle.directory).sort();
+  check(
+    files.length === 6 &&
+      files.includes("manifest.json") &&
+      files.includes("manifest.jws") &&
+      bundle.signature !== null,
+    "an operator with the evidence scope takes a bundle, signed",
+    `${files.length} files, signed ${String(bundle.signature !== null)}`,
+  );
+  const read = (name: string): string | null => {
+    try {
+      return readFileSync(join(bundle.directory, name), "utf8");
+    } catch {
+      return null;
+    }
+  };
+  const spki = publicKey.export({ type: "spki", format: "pem" }).toString();
+  const verifySignature = async (signature: string, manifest: string): Promise<boolean> => {
+    try {
+      const verified = await compactVerify(signature, await importSPKI(spki, "EdDSA"));
+      return Buffer.from(verified.payload).toString("utf8") === manifest;
+    } catch {
+      return false;
+    }
+  };
+  const verified = await verifyEvidenceBundle({ read, verifySignature });
+  check(
+    verified.ok && verified.establishes === "ORIGIN_AND_CONSISTENCY",
+    "the bundle verifies offline, and says it establishes origin too",
+    `${verified.establishes}, ${verified.files} files, ${verified.findings.length} findings`,
+  );
+  // The same bundle, one byte different.
+  const flipped = await verifyEvidenceBundle({
+    read: (name) => (name === "posture.json" ? `${read(name) ?? ""} ` : read(name)),
+    verifySignature,
+  });
+  check(
+    !flipped.ok && flipped.findings.some((finding) => finding.subject === "posture.json"),
+    "a flipped byte fails verification, and names the file it was in",
+    `${flipped.findings[0]?.code ?? "nothing"} in ${String(flipped.findings[0]?.subject)}`,
+  );
+  // A signature over a different manifest establishes nothing.
+  const restated = await verifyEvidenceBundle({
+    read: (name) =>
+      name === "manifest.json" ? (read(name) ?? "").replace("drill", "DRILL") : read(name),
+    verifySignature,
+  });
+  check(
+    !restated.ok &&
+      restated.establishes === "INTERNAL_CONSISTENCY" &&
+      restated.findings.some((finding) => finding.code === "BUNDLE_SIGNATURE_INVALID"),
+    "a manifest that was changed after signing is refused, not downgraded quietly",
+    `${restated.establishes}, ${restated.findings.length} findings`,
+  );
+  const manifest = JSON.parse(read("manifest.json") ?? "{}") as Record<string, unknown>;
+  const everything = files.map((name) => read(name) ?? "").join("\n");
+  const leaked = [
+    everything.includes(LOCAL_AUTHORITY_API_KEY) ? "authority key" : null,
+    everything.includes(callerToken) ? "caller token" : null,
+    everything.includes(downstreamCredential) ? "downstream credential" : null,
+    everything.includes("BEGIN PRIVATE KEY") ? "signing key" : null,
+    everything.includes("amountMinor") ? "a request parameter" : null,
+  ].filter((found): found is string => found !== null);
+  check(
+    leaked.length === 0 &&
+      (manifest["image"] as { self_verified?: unknown })?.self_verified === false,
+    "the bundle carries no secret and no parameter, and does not claim to verify its own image",
+    `${leaked.join(", ") || "nothing leaked"}`,
+  );
+  await running.executor.close();
+  rmSync(directory, { recursive: true, force: true });
 }
 
 heading("Nothing secret left the process");

@@ -120,6 +120,8 @@ export interface ExecutorMetrics {
   readonly hardLimitRefusals: Counter;
   readonly journalWriteFailures: Counter;
   readonly effectComparisons: Counter;
+  readonly finalizations: Counter;
+  readonly evidenceExports: Counter;
   readonly openAttempts: Gauge;
   readonly clockSkew: Gauge;
   observe(event: SecurityEvent): void;
@@ -194,6 +196,15 @@ export function executorMetrics(registry: Metrics = new Metrics()): ExecutorMetr
       "Observed effects compared with what was authorised, by result.",
       ["comparison"],
     ),
+    finalizations: registry.counter(
+      "agentsafe_finalizations",
+      "Commits reported back to the authority, by what it answered.",
+      ["status"],
+    ),
+    evidenceExports: registry.counter(
+      "agentsafe_evidence_exports",
+      "Evidence bundles an operator took from this process.",
+    ),
     openAttempts: registry.gauge(
       "agentsafe_open_attempts",
       "Attempts whose outcome this process does not know, by state.",
@@ -232,6 +243,8 @@ export function executorMetrics(registry: Metrics = new Metrics()): ExecutorMetr
           return metrics.journalWriteFailures.inc({ record: event.record });
         case "EFFECT_OBSERVED":
           return metrics.effectComparisons.inc({ comparison: event.comparison });
+        case "EVIDENCE_EXPORTED":
+          return metrics.evidenceExports.inc();
         case "CLOCK_SKEW_EXCEEDED":
           return metrics.clockSkew.set(event.skew_ms);
         default:

@@ -41,9 +41,15 @@ import { assertSeparationOfDuties, separationViolated } from "../identity/Separa
 import { WorkloadJwtVerifier } from "../identity/WorkloadJwtVerifier.js";
 import { executorMetrics, type ExecutorMetrics } from "../incident/Metrics.js";
 import { SecurityEvents } from "../incident/SecurityEvents.js";
+import {
+  EvidenceError,
+  EvidenceExport,
+  LineWindow,
+  type EvidenceBundle,
+} from "../incident/EvidenceExport.js";
 import { RequestContext } from "../http/RequestContext.js";
-import type { PostureState } from "../posture/HostPosture.js";
-import type { ReloadReport, SecretStore } from "../secrets/SecretStore.js";
+import type { PostureReport, PostureState } from "../posture/HostPosture.js";
+import type { ReloadReport, SecretName, SecretStore } from "../secrets/SecretStore.js";
 import { AuthorityClients } from "./AuthorityClients.js";
 import {
   EscalationHandoffSchema,
@@ -122,6 +128,69 @@ export interface Readiness {
  * token, the API keys, the caller token and the downstream credential never
  * appear in a response or an audit line.
  */
+/** This package's own version, for a bundle to name what produced it. */
+const PACKAGE_VERSION = "0.1.0";
+
+/** The posture as reported, or an empty report when a test injected only a state. */
+function reportOf(posture: PostureState | undefined): PostureReport {
+  const report = (posture as { readonly report?: PostureReport } | undefined)?.report;
+  return report ?? { mode: "ENFORCED", findings: [], failed: [], waived: [] };
+}
+
+/**
+ * What this process was told, minus every secret: addresses, modes, ceilings
+ * and thresholds. A digest over it says two replicas were configured the same
+ * way without putting the configuration itself in a bundle.
+ */
+function nonSecretConfiguration(config: ExecutorConfig): JsonObject {
+  return {
+    mode: config.mode,
+    escalation: config.escalation.mode,
+    posture: config.posture.mode,
+    authority: config.authority.baseUrl,
+    downstream: {
+      url: config.downstream.url,
+      system: config.downstream.system,
+      operation: config.downstream.operation,
+      environment: config.downstream.environment,
+      credential_kind: config.downstream.credential.kind,
+    },
+    banking: {
+      adapter: config.banking.adapterId,
+      version: config.banking.adapterVersion,
+      on_effect_mismatch: config.banking.onEffectMismatch,
+    },
+    journal: { required: config.evidence.journalRequired, dir: config.evidence.journalDir },
+    halt: {
+      file: config.halt.file,
+      auth_failures:
+        config.halt.authFailures === null
+          ? null
+          : `${config.halt.authFailures.count}/${config.halt.authFailures.windowSeconds}`,
+      egress_refusals:
+        config.halt.egressRefusals === null
+          ? null
+          : `${config.halt.egressRefusals.count}/${config.halt.egressRefusals.windowSeconds}`,
+    },
+    limits:
+      config.limits === null
+        ? null
+        : {
+            currencies: [...config.limits.singleMinor.keys()],
+            window_seconds: config.limits.windowSeconds,
+          },
+    max_clock_skew_ms: config.maxClockSkewMs,
+  };
+}
+
+/** An Ed25519 detached JWS over the manifest, from the configured key. */
+async function signBundle(secrets: SecretStore, payload: Uint8Array): Promise<string> {
+  const { importPKCS8, CompactSign } = await import("jose");
+  const pem = secrets.get("EXECUTOR_EVIDENCE_SIGNING_KEY").use((value) => value.toString("utf8"));
+  const key = await importPKCS8(pem, "EdDSA");
+  return await new CompactSign(payload).setProtectedHeader({ alg: "EdDSA" }).sign(key);
+}
+
 export class TrustedExecutorService {
   private readonly hasher = new CanonicalIntentHasher();
   private recovery: RecoveryReport | null = null;
@@ -135,6 +204,8 @@ export class TrustedExecutorService {
     private readonly clients: AuthorityClients,
     private readonly posture: PostureState,
     private readonly egress: GuardedFetch,
+    /** Where an incident's evidence is written, when the configuration names a directory. */
+    private readonly evidence: EvidenceExport,
     /** The security stream this service writes to; a test drives the halt through it. */
     public readonly events: SecurityEvents,
     private readonly chain: HashChain,
@@ -172,8 +243,15 @@ export class TrustedExecutorService {
         process.stderr.write(`${line}\n`);
       });
     const chain = dependencies.chain ?? new HashChain(EVIDENCE_STREAM);
+    // A bounded window of each stream, so an operator can take a bundle out
+    // of a running process during an incident without first arranging log
+    // export. The log pipeline is still the durable store, and the bundle
+    // says how many lines it no longer held.
+    const auditWindow = new LineWindow(config.evidence.windowLines);
+    const securityWindow = new LineWindow(config.evidence.windowLines);
+    events.tap((line) => securityWindow.push(line));
     const audit = new AuditRecorder({
-      sink: new HashChainedAuditSink(emit, chain),
+      sink: new HashChainedAuditSink(auditWindow.tee(emit), chain),
       failurePolicy: "REQUIRE_BEFORE_EXECUTION",
     });
     // Every connection this process opens, the authority's and the Presence
@@ -267,6 +345,47 @@ export class TrustedExecutorService {
       observer: { id: config.banking.adapterId, version: config.banking.adapterVersion },
       ...(dependencies.presence === undefined ? {} : { presence: dependencies.presence }),
     });
+    const posture = dependencies.posture ?? { degraded: false };
+    // How many times each credential became current from a changed file.
+    // During an incident "was this rotated inside the window?" is one of the
+    // first questions, and the count answers it without naming a value.
+    const rotations = new Map<SecretName, number>();
+    const unsubscribeRotations = config.secrets.required
+      .filter((name) => secrets.has(name))
+      .map((name) =>
+        secrets.onRotate(name, () => rotations.set(name, (rotations.get(name) ?? 0) + 1)),
+      );
+    const unsubscribeEvents = events.subscribe((event) => {
+      metrics.observe(event);
+      if (event.event === "AUTH_FAILED") halt.recordAuthFailure();
+      if (event.event === "EGRESS_REFUSED") halt.recordEgressRefusal();
+      if (event.event === "POSTURE_DRIFT") halt.halt("POSTURE_DRIFT", `check ${event.check}`);
+    });
+    const evidence = new EvidenceExport({
+      dir: config.evidence.exportDir,
+      audit: auditWindow,
+      security: securityWindow,
+      packageVersion: PACKAGE_VERSION,
+      imageDigest: config.evidence.imageDigest,
+      // The report the process verified at start, or an empty one when a test
+      // injected a posture state rather than a checker.
+      posture: () => reportOf(dependencies.posture),
+      openAttempts: () => ({}),
+      heads: () => ({ [chain.stream]: chain.head, [events.chain.stream]: events.chain.head }),
+      configuration: () => nonSecretConfiguration(config),
+      secrets: () =>
+        config.secrets.required.map((name) => ({
+          name,
+          present: secrets.has(name),
+          rotations: rotations.get(name) ?? 0,
+        })),
+      ...(secrets.has("EXECUTOR_EVIDENCE_SIGNING_KEY")
+        ? { sign: async (payload) => await signBundle(secrets, payload) }
+        : {}),
+      ...(dependencies.clock === undefined
+        ? {}
+        : { clock: (): Date => new Date((dependencies.clock as () => number)()) }),
+    });
     return new TrustedExecutorService(
       config,
       secrets,
@@ -274,8 +393,9 @@ export class TrustedExecutorService {
       registry,
       registered,
       clients,
-      dependencies.posture ?? { degraded: false },
+      posture,
       egress,
+      evidence,
       events,
       chain,
       metrics,
@@ -286,12 +406,10 @@ export class TrustedExecutorService {
       journal,
       halt,
       config.limits === null ? null : new HardLimits(config.limits, dependencies.clock),
-      events.subscribe((event) => {
-        metrics.observe(event);
-        if (event.event === "AUTH_FAILED") halt.recordAuthFailure();
-        if (event.event === "EGRESS_REFUSED") halt.recordEgressRefusal();
-        if (event.event === "POSTURE_DRIFT") halt.halt("POSTURE_DRIFT", `check ${event.check}`);
-      }),
+      () => {
+        for (const stop of unsubscribeRotations) stop();
+        unsubscribeEvents();
+      },
     );
   }
 
@@ -541,6 +659,7 @@ export class TrustedExecutorService {
         this.principals.operators,
       )
     ) {
+      this.events.emit({ event: "SEPARATION_OF_DUTIES_VIOLATED", principal: proposer.id });
       throw new ServiceError(422, "SEPARATION_OF_DUTIES_VIOLATED");
     }
     const captured = this.captureIntent(request, proposer);
@@ -934,6 +1053,23 @@ export class TrustedExecutorService {
       comparison: comparison === "MATCH" || comparison === "MISMATCH" ? comparison : "PENDING",
       confirmation: typeof block["confirmation"] === "string" ? block["confirmation"] : "UNKNOWN",
     });
+    if (comparison === "PENDING") {
+      // Committed, and nothing has read the effect back. Worth alerting on:
+      // a provider that is always pending is a read-back that is not wired.
+      this.events.emit({
+        event: "EFFECT_PENDING_CONFIRMATION",
+        intent_id: captured.intent.intentId,
+        method:
+          typeof block["observation_method"] === "string" ? block["observation_method"] : "UNKNOWN",
+      });
+    }
+    if (block["outcome"] === "FAILED") {
+      this.events.emit({
+        event: "PROVIDER_REFUSED",
+        intent_id: captured.intent.intentId,
+        code: TrustedExecutorService.effectReasons(block)[0] ?? "PROVIDER_REFUSED",
+      });
+    }
     if (comparison !== "MISMATCH") return block;
     this.events.emit({
       event: "EFFECT_MISMATCH",
@@ -1026,6 +1162,18 @@ export class TrustedExecutorService {
     extraReasonCodes: readonly string[] = [],
   ): ActionResponse {
     const effect = this.effect(captured, outcome.result);
+    // A finalization the authority did not take is the authority's lease
+    // recovery's problem now, and an operator should know it happened.
+    if ("finalization" in outcome && outcome.finalization === "PENDING") {
+      this.events.emit({
+        event: "FINALIZATION_PENDING",
+        intent_id: captured.intent.intentId,
+        outcome: outcome.outcome,
+      });
+    }
+    if ("finalization" in outcome && outcome.finalization !== null) {
+      this.metrics.finalizations.inc({ status: outcome.finalization });
+    }
     return {
       mode: "ENFORCEMENT",
       intent_id: captured.intent.intentId,
@@ -1080,6 +1228,34 @@ export class TrustedExecutorService {
       recovery: null,
       escalation: handoff,
     };
+  }
+
+  /**
+   * The bundle: what this process can say about an incident, written where an
+   * operator can pick it up. Only an operator holding the `evidence` scope
+   * may ask, and the reason they give travels with it.
+   */
+  public async exportEvidence(input: unknown, caller?: Principal): Promise<EvidenceBundle> {
+    const operator = this.operator(caller, "evidence");
+    const parsed = HaltRequestSchema.safeParse(input);
+    if (!parsed.success) throw new ServiceError(400, "REQUEST_INVALID");
+    if (!this.evidence.configured) throw new ServiceError(409, "EVIDENCE_DIR_NOT_CONFIGURED");
+    let bundle: EvidenceBundle;
+    try {
+      bundle = await this.evidence.export({
+        principal: operator.id,
+        reason: parsed.data.reason,
+      });
+    } catch (error) {
+      throw new ServiceError(500, error instanceof EvidenceError ? error.code : "EVIDENCE_FAILED");
+    }
+    this.events.emit({
+      event: "EVIDENCE_EXPORTED",
+      principal: operator.id,
+      files: bundle.manifest.files.length,
+      signed: bundle.signature !== null,
+    });
+    return bundle;
   }
 
   private static binding(

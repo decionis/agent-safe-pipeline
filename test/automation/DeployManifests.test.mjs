@@ -39,7 +39,9 @@ function documents() {
 
 const all = documents();
 const byKind = (kind) => all.filter(({ object }) => object.kind === kind);
-const kubernetes = all.filter(({ file }) => !file.startsWith("kubernetes/cilium/"));
+const kubernetes = all.filter(
+  ({ file }) => file.startsWith("kubernetes/") && !file.startsWith("kubernetes/cilium/"),
+);
 const text = () => manifestFiles().map((path) => readFileSync(path, "utf8"));
 
 const EXECUTOR_LABELS = { app: "agent-safe-executor" };
@@ -63,6 +65,7 @@ describe("the deployment kit's manifests", () => {
   it("are all parseable, and there are the files the kit claims", () => {
     const files = manifestFiles().map((path) => relative(ROOT, path));
     assert.deepEqual(files, [
+      "alerts/TrustedExecutor.yaml",
       "kubernetes/AgentZone.yaml",
       "kubernetes/DefaultDeny.yaml",
       "kubernetes/ExecutorEgress.yaml",
@@ -79,7 +82,10 @@ describe("the deployment kit's manifests", () => {
     const kustomization = byKind("Kustomization");
     assert.equal(kustomization.length, 1);
     const listed = kustomization[0].object.resources;
+    // Everything under `kubernetes/` except the order itself and the Cilium
+    // replacement; the alerting rules live outside it and apply to nothing.
     const applicable = manifestFiles()
+      .filter((path) => relative(ROOT, path).startsWith("kubernetes/"))
       .map((path) => relative(KUBERNETES, path))
       .filter((path) => path !== "kustomization.yaml" && !path.startsWith("cilium/"));
     assert.deepEqual([...listed].sort(), applicable.sort());
@@ -372,6 +378,52 @@ describe("the deployment kit's manifests", () => {
         `${file}: ${object.kind}/${object.metadata.name} is in ${object.metadata.namespace}`,
       );
     }
+  });
+
+  it("alert on signals the executor's own registry declares, and on nothing invented", () => {
+    const source = readFileSync(
+      new URL("../../packages/agentsafe/src/incident/Metrics.ts", import.meta.url).pathname,
+      "utf8",
+    );
+    const declared = new Set(
+      [...source.matchAll(/registry\.(?:counter|gauge)\(\s*"([a-z_]+)"/g)].map((match) => match[1]),
+    );
+    assert.ok(declared.size > 10, "the registry should declare its families here");
+    const rules = byKind("PrometheusRule");
+    assert.equal(rules.length, 1, "one alerting file");
+    const expressions = rules[0].object.spec.groups.flatMap((group) =>
+      group.rules.map((rule) => rule.expr),
+    );
+    assert.ok(expressions.length > 8, "the file should carry the signals worth paging on");
+    for (const expression of expressions) {
+      // A counter is exposed with `_total`; a gauge is exposed as it is named.
+      for (const metric of expression.match(/agentsafe_[a-z_]+/g) ?? []) {
+        const base = metric.endsWith("_total") ? metric.slice(0, -"_total".length) : metric;
+        assert.ok(
+          declared.has(base) || declared.has(metric),
+          `alerts on a metric the registry does not declare: ${metric}`,
+        );
+      }
+    }
+  });
+
+  it("say what every alert is and how severe, and are applied by nothing", () => {
+    const rules = byKind("PrometheusRule")[0].object;
+    assert.equal(rules.metadata.namespace, "agent-safe-executor");
+    for (const group of rules.spec.groups) {
+      for (const rule of group.rules) {
+        assert.ok(rule.alert, "every rule names itself");
+        assert.ok(
+          ["critical", "warning", "info"].includes(rule.labels?.severity),
+          `${rule.alert}: a severity a rota can act on`,
+        );
+        assert.ok(rule.annotations?.summary, `${rule.alert}: a summary in words`);
+      }
+    }
+    // Applied by nothing: it has never run against a live Prometheus, so it
+    // must not be in the order `kubectl apply -k` walks.
+    const listed = byKind("Kustomization")[0].object.resources.join(" ");
+    assert.ok(!listed.includes("alerts"));
   });
 
   it("keep one replica available while a disruption runs", () => {

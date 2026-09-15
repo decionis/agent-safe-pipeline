@@ -1,0 +1,150 @@
+# Alerting rules as data, and unverified against any live Prometheus.
+#
+# Nothing applies this file. It is not in `kubernetes/kustomization.yaml` and
+# it has never run against a live Prometheus: the thresholds below are the
+# ones a treasury team would probably want on the first day, and every one of
+# them is a guess about your traffic. Read each rule, decide whether the
+# number is right for you, and copy it into your own monitoring repository.
+#
+# What is checked is the shape: `pnpm verify` parses this file, holds every
+# document to `PrometheusRule`, requires a severity and a summary on every
+# rule, and asserts that every metric named here is one the executor's own
+# registry actually declares — so a renamed metric is a failing test rather
+# than an alert that silently never fires.
+#
+# The `for` durations matter more than the thresholds. Every signal here is
+# something the executor already refused: the alert exists so a person learns
+# that refusals are happening, not so the refusal happens.
+#
+# The metric names are the executor's own, from `GET /metrics`, which needs an
+# OPERATOR principal holding the `metrics` scope. Point your scraper at it
+# with that credential; an unauthenticated scrape gets a 401 and no data.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: agent-safe-executor
+  namespace: agent-safe-executor
+  labels:
+    role: alert-rules
+spec:
+  groups:
+    - name: agent-safe-executor.effects
+      rules:
+        # The one that should page. An observed effect that is not the
+        # authorised one means money may have moved differently than a person
+        # approved, and the executor has halted itself by default.
+        - alert: AgentSafeEffectMismatch
+          expr: increase(agentsafe_effect_comparisons_total{comparison="MISMATCH"}[5m]) > 0
+          for: 0m
+          labels:
+            severity: critical
+          annotations:
+            summary: An observed effect did not match what the authority allowed
+            runbook: docs/incident-response.md#duplicate-dispatch-or-effect-mismatch
+        # Not an error, but a control that is not doing its job: every commit
+        # is acknowledged and none is ever read back, so nothing is confirmed.
+        - alert: AgentSafeNothingEverConfirmed
+          expr: |
+            increase(agentsafe_effect_comparisons_total{comparison="PENDING"}[1h]) > 0
+            and increase(agentsafe_effect_comparisons_total{comparison="MATCH"}[1h]) == 0
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: Effects are acknowledged but never confirmed; check the read-back address
+            runbook: docs/beap-conformance.md
+    - name: agent-safe-executor.outcomes
+      rules:
+        # An attempt nobody can resolve is the one state that needs a human
+        # and the provider's own records.
+        - alert: AgentSafeUnknownAttempt
+          expr: agentsafe_open_attempts{state="UNKNOWN"} > 0
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: An attempt's outcome is unknown and has not been reconciled
+            runbook: docs/incident-response.md#duplicate-dispatch-or-effect-mismatch
+        # The journal is what makes an unknown outcome recoverable. A failure
+        # to write it means the next unknown outcome will not be.
+        - alert: AgentSafeJournalWriteFailing
+          expr: increase(agentsafe_journal_write_failures_total[5m]) > 0
+          for: 0m
+          labels:
+            severity: critical
+          annotations:
+            summary: The attempt journal could not be written
+            runbook: deploy/Runbook.md
+        # The authority did not take a finalization. Its lease recovery owns
+        # the outcome now; a standing rate of these is a connectivity problem.
+        - alert: AgentSafeFinalizationPending
+          expr: increase(agentsafe_finalizations_total{status="PENDING"}[15m]) > 3
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: Finalizations are not reaching the authority
+            runbook: docs/execution-outcomes.md#finalization
+    - name: agent-safe-executor.boundary
+      rules:
+        # The executor stopped. Whether it stopped itself or an operator
+        # stopped it, nothing new is running until someone resumes it.
+        - alert: AgentSafeHalted
+          expr: increase(agentsafe_halts_total[5m]) > 0
+          for: 0m
+          labels:
+            severity: critical
+          annotations:
+            summary: The executor halted and is taking no new work
+            runbook: deploy/Runbook.md#stopping-and-starting-again
+        # A handler tried to reach somewhere the policy does not admit. One is
+        # a misconfiguration; a rate of them is worth looking at closely.
+        - alert: AgentSafeEgressRefused
+          expr: increase(agentsafe_egress_refused_total[5m]) > 0
+          for: 0m
+          labels:
+            severity: warning
+          annotations:
+            summary: An outbound request was refused by the sealed egress policy
+            runbook: docs/incident-response.md#executor-host-compromise
+        # Credentials being refused at the door in volume. The executor halts
+        # on its own at the configured threshold; this fires before that.
+        - alert: AgentSafeAuthFailureRate
+          expr: sum(rate(agentsafe_auth_failures_total[5m])) > 0.5
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: Credentials are being refused at the door
+            runbook: docs/incident-response.md#proposer-compromise
+        # The posture the manifest declares stopped holding while running.
+        - alert: AgentSafePostureDrift
+          expr: increase(agentsafe_posture_drift_total[5m]) > 0
+          for: 0m
+          labels:
+            severity: critical
+          annotations:
+            summary: The host posture regressed while the executor was running
+            runbook: docs/incident-response.md#executor-host-compromise
+        # The redactor changed a line before it left the process. Usually a
+        # correlation id shaped like a token; occasionally not.
+        - alert: AgentSafeLeakSuspected
+          expr: increase(agentsafe_leaks_suspected_total[15m]) > 0
+          for: 0m
+          labels:
+            severity: warning
+          annotations:
+            summary: A line was redacted on its way out of the process
+            runbook: docs/incident-response.md#credential-leak
+    - name: agent-safe-executor.clock
+      rules:
+        # Grants are short-lived and time-bound, so a drifting clock is a
+        # correctness problem before it is an availability one.
+        - alert: AgentSafeClockSkew
+          expr: abs(agentsafe_clock_skew_ms) > 1000
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: This host's clock is drifting from the authority's
+            runbook: deploy/Runbook.md
