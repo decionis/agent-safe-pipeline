@@ -74,6 +74,18 @@ export const SecurityEventSchema = z.discriminatedUnion("event", [
     intent_id: identifier,
     resolution: code,
   }),
+  z.strictObject({
+    event: z.literal("EFFECT_OBSERVED"),
+    intent_id: identifier,
+    comparison: z.enum(["MATCH", "MISMATCH", "PENDING"]),
+    confirmation: code,
+  }),
+  z.strictObject({
+    event: z.literal("EFFECT_MISMATCH"),
+    intent_id: identifier,
+    // Field names from the family's own projection, never their values.
+    fields: z.array(name).max(16),
+  }),
 ]);
 
 export type SecurityEvent = z.infer<typeof SecurityEventSchema>;

@@ -11,6 +11,11 @@ import {
   type TrustedIntentContext,
 } from "@decionis/agent-safe-pipeline";
 import { readFileSync } from "node:fs";
+import { EffectEvidenceRegister } from "../adapters/EffectEvidenceRegister.js";
+import { effectBlock } from "../adapters/AdapterActionHandler.js";
+import { bindBankingAction, BindingError } from "../adapters/banking/BankingIntentBinder.js";
+import { BankingAdapter, BankingActionError } from "../adapters/banking/BankingAdapter.js";
+import { isBankingActionName, type BankingAction } from "../adapters/banking/BankingAction.js";
 import { HashChain } from "../audit/HashChain.js";
 import { EVIDENCE_STREAM, HashChainedAuditSink } from "../audit/HashChainedAuditSink.js";
 import type { LineWriter } from "../audit/LineAuditSink.js";
@@ -197,11 +202,14 @@ export class TrustedExecutorService {
     // Every handler the registration accepts is wrapped, so the durable
     // claim is not something an adopter can forget to write.
     const registry = new JournaledRegistry(() => journal);
+    const effects = new EffectEvidenceRegister();
     const registered = handlers({
       registry,
       downstream: config.downstream,
       credential,
       fetch: egress.fetch,
+      effects,
+      banking: config.banking,
     });
     registry.seal();
     const principals =
@@ -255,6 +263,8 @@ export class TrustedExecutorService {
       audit,
       events,
       fetch: authorityFetch,
+      effects,
+      observer: { id: config.banking.adapterId, version: config.banking.adapterVersion },
       ...(dependencies.presence === undefined ? {} : { presence: dependencies.presence }),
     });
     return new TrustedExecutorService(
@@ -584,6 +594,7 @@ export class TrustedExecutorService {
         authorization: null,
         finalization: null,
         result: null,
+        effect: null,
         recovery: null,
         escalation: null,
       } satisfies ActionResponse,
@@ -644,15 +655,20 @@ export class TrustedExecutorService {
         this.events.emit({ event: "JOURNAL_WRITE_FAILED", record: "RECONCILED" });
       }
     }
+    const effect = this.effect(captured, outcome.result);
     return {
       intent_id: captured.intent.intentId,
       intent_hash: captured.intentHash,
       outcome: outcome.outcome,
       executed: outcome.executed,
       recovered: "recovered" in outcome ? outcome.recovered : false,
-      reason_codes: "reason" in outcome ? [outcome.reason] : [],
+      reason_codes: [
+        ...("reason" in outcome ? [outcome.reason] : []),
+        ...TrustedExecutorService.effectReasons(effect),
+      ],
       authorization: TrustedExecutorService.binding(outcome.authorization),
       result: outcome.result,
+      effect,
     };
   }
 
@@ -814,6 +830,14 @@ export class TrustedExecutorService {
       readonly actor: NonNullable<Principal["actor"]>;
     },
   ): CapturedIntent {
+    // A BEAP action carries its own canonical form in the parameters, so the
+    // transport's name and target are derived from it rather than trusted,
+    // and the digests the authority binds its grant to are computed here
+    // from the action itself. The proposal schema already refuses a
+    // caller-supplied context, so none of this can be presented from outside.
+    const bound = isBankingActionName(request.proposal.action)
+      ? this.bindBanking(request, proposer)
+      : null;
     const trusted: TrustedIntentContext = {
       tenantId: proposer.tenantId,
       actor: proposer.actor,
@@ -822,9 +846,10 @@ export class TrustedExecutorService {
         operation: this.config.downstream.operation,
         environment: this.config.downstream.environment,
       },
-      context: { caller_principal: proposer.id },
+      context: { caller_principal: proposer.id, ...(bound === null ? {} : bound.context) },
       idempotencyKey: request.idempotency_key,
       ...(request.correlation_id === undefined ? {} : { correlationId: request.correlation_id }),
+      ...(bound === null ? {} : { expectedEffectDigest: bound.expectedEffectDigest }),
     };
     const parameters: JsonObject = request.proposal.parameters ?? {};
     try {
@@ -835,6 +860,97 @@ export class TrustedExecutorService {
     } catch {
       throw new ServiceError(400, "PROPOSAL_INVALID");
     }
+  }
+
+  /**
+   * The banking binder. Every disagreement between what the caller said over
+   * the transport and what the canonical action says is a refusal before the
+   * authority is asked, so a mismatch costs no dossier and no grant.
+   */
+  private bindBanking(
+    request: ProposalRequest,
+    proposer: Principal & { readonly actor: NonNullable<Principal["actor"]> },
+  ): { readonly context: JsonObject; readonly expectedEffectDigest: string } {
+    try {
+      const bound = bindBankingAction(
+        {
+          action: request.proposal.action,
+          target: request.proposal.target,
+          parameters: request.proposal.parameters ?? {},
+          idempotencyKey: request.idempotency_key,
+          downstream: this.config.downstream,
+          actor: proposer.actor,
+        },
+        (action) => this.bankingDigests(action),
+      );
+      return { context: bound.context, expectedEffectDigest: bound.expectedEffectDigest };
+    } catch (error) {
+      if (error instanceof BindingError) throw new ServiceError(422, error.code);
+      if (error instanceof BankingActionError) throw new ServiceError(422, error.code);
+      throw new ServiceError(422, "BANKING_ACTION_INVALID");
+    }
+  }
+
+  /**
+   * The two digests a banking intent is bound to, taken from the profile's
+   * own arithmetic. This reaches nothing: `prepare` is pure, which is why
+   * the transport it is handed refuses to be used.
+   */
+  private bankingDigests(action: BankingAction): {
+    readonly intentDigest: string;
+    readonly expectedEffectDigest: string;
+  } {
+    const prepared = new BankingAdapter({
+      id: this.config.banking.adapterId,
+      version: this.config.banking.adapterVersion,
+      transport: {
+        execute: () => Promise.reject(new BankingActionError("BANKING_PREPARE_ONLY")),
+        reconcile: () => Promise.reject(new BankingActionError("BANKING_PREPARE_ONLY")),
+      },
+    }).prepare(action);
+    return {
+      intentDigest: prepared.intentDigest,
+      expectedEffectDigest: prepared.expectedEffectDigest,
+    };
+  }
+
+  /**
+   * What the adapter observed, for the response and for the stream. An
+   * observation that does not match what was authorised is the institution's
+   * exception: it is named in the evidence, counted, and by default it stops
+   * the executor, because the next proposal would otherwise be made against
+   * a state nobody has reconciled.
+   */
+  private effect(captured: CapturedIntent, result: unknown): JsonObject | null {
+    const block = effectBlock(result);
+    if (block === null) return null;
+    const comparison = block["comparison"];
+    const fields = Array.isArray(block["mismatched_fields"])
+      ? block["mismatched_fields"].filter((field): field is string => typeof field === "string")
+      : [];
+    this.events.emit({
+      event: "EFFECT_OBSERVED",
+      intent_id: captured.intent.intentId,
+      comparison: comparison === "MATCH" || comparison === "MISMATCH" ? comparison : "PENDING",
+      confirmation: typeof block["confirmation"] === "string" ? block["confirmation"] : "UNKNOWN",
+    });
+    if (comparison !== "MISMATCH") return block;
+    this.events.emit({
+      event: "EFFECT_MISMATCH",
+      intent_id: captured.intent.intentId,
+      fields: fields.slice(0, 16),
+    });
+    if (this.config.banking.onEffectMismatch === "HALT") {
+      this.haltSwitch.halt("EFFECT_MISMATCH", `${fields.length} field(s) differ from the grant`);
+    }
+    return block;
+  }
+
+  /** The reason codes an effect block contributes to the response. */
+  private static effectReasons(effect: JsonObject | null): readonly string[] {
+    const codes = effect?.["reason_codes"];
+    if (!Array.isArray(codes)) return [];
+    return codes.filter((code): code is string => typeof code === "string");
   }
 
   /** An intent the caller presents back, re-hashed rather than trusted. */
@@ -868,6 +984,7 @@ export class TrustedExecutorService {
       authorization: null,
       finalization: null,
       result: null,
+      effect: null,
       recovery: null,
       escalation: null,
     };
@@ -908,6 +1025,7 @@ export class TrustedExecutorService {
     handoff: EscalationHandoff | null,
     extraReasonCodes: readonly string[] = [],
   ): ActionResponse {
+    const effect = this.effect(captured, outcome.result);
     return {
       mode: "ENFORCEMENT",
       intent_id: captured.intent.intentId,
@@ -918,6 +1036,7 @@ export class TrustedExecutorService {
       reason_codes: [
         ...decision.reasonCodes,
         ...("reason" in outcome && outcome.reason !== "DECISION_NOT_ALLOW" ? [outcome.reason] : []),
+        ...TrustedExecutorService.effectReasons(effect),
         ...extraReasonCodes,
       ],
       fail_closed: decision.failClosed,
@@ -926,6 +1045,7 @@ export class TrustedExecutorService {
       authorization: TrustedExecutorService.binding(outcome.authorization),
       finalization: "finalization" in outcome ? outcome.finalization : null,
       result: outcome.result,
+      effect,
       recovery:
         outcome.outcome === "UNKNOWN_AFTER_DISPATCH"
           ? { intent: captured.intent, reference: outcome.recovery }
@@ -956,6 +1076,7 @@ export class TrustedExecutorService {
       authorization: null,
       finalization: null,
       result: null,
+      effect: null,
       recovery: null,
       escalation: handoff,
     };

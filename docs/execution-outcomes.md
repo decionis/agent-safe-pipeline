@@ -104,6 +104,63 @@ pipeline holds an API key string with no way to learn its own key id. A deployer
 allowlist server-side and configures the matching observer id in the evidence the trusted runtime
 builds can reach `CONFIRMED`; nothing here makes it automatic.
 
+## Confirmation states
+
+An adapter family reports what it observed separately from what the pipeline calls the outcome, and
+the two answer different questions. The pipeline's outcome says whether the handler returned; the
+confirmation says what is known about the effect.
+
+| Confirmation   | What it means                                                              |
+| -------------- | -------------------------------------------------------------------------- |
+| `PENDING`      | Committed, and nothing has read the effect back yet                        |
+| `CONFIRMED`    | Read back through a method the profile marks sufficient, and it matched    |
+| `NOT_EFFECTED` | The provider refused deterministically; nothing happened                   |
+| `REVERSED`     | The effect existed and was reversed                                        |
+| `UNKNOWN`      | Nobody can say: an indeterminate dispatch, or an observation that differed |
+
+Two rules decide every row. An acknowledgement is never a confirmation: a provider saying
+"accepted" has told you it took the request, not that the effect exists. And the absence of an
+error is never success: only a read-back whose projection matches what was authorised confirms
+anything, which is also why a reconciliation completes only on a matching read-back.
+
+## Effect mismatch
+
+When the observed projection differs from the authorised one, the pipeline's outcome stays
+`COMPLETED` — the handler returned a provider result, and that is what the word means. The effect
+plane says the rest:
+
+- the record's comparison is `MISMATCH` with the differing field names, and its confirmation is
+  `UNKNOWN`, not `NOT_EFFECTED`: something happened, and what it was is exactly what nobody can say;
+- both digests are kept, so a later reader can see what was expected and what was seen;
+- the authority receives `UNCONFIRMED` carrying the observed digest;
+- the response's `effect` block carries the comparison and the fields, and `EFFECT_MISMATCH` joins
+  the response's reason codes;
+- the security stream emits `EFFECT_OBSERVED` and then `EFFECT_MISMATCH` with the field names only;
+- `EXECUTOR_ON_EFFECT_MISMATCH` decides what the institution does about it. The default, `HALT`,
+  stops the executor, because the next proposal would otherwise be made against a state nobody has
+  reconciled. `ALERT` records and counts it and keeps taking work.
+
+`agent-safe.audit/1` lines are unchanged by any of this.
+
+## The FAILED-after-dispatch divergence
+
+One case is named rather than hidden. When the provider refused **deterministically after the
+dispatch**, the handler returns a result whose own outcome is `FAILED`, and the response reads:
+
+```json
+{
+  "outcome": "COMPLETED",
+  "executed": true,
+  "effect": { "outcome": "FAILED", "confirmation": "NOT_EFFECTED" }
+}
+```
+
+`SafeExecutor` asked the verifier to finalize `COMMITTED` because the handler returned; the effect
+plane says nothing was effected. Both statements are true of different things, and the second is
+the one an operator acts on. The clean fix is a pipeline change — a handler signal for a definitive
+post-dispatch refusal, so `SafeExecutor` reports `executed: false` and finalizes `FAILED` itself —
+and that touches the mutation-gated file, so it is a follow-up rather than part of this boundary.
+
 ## Trusted handler contract
 
 Put the provider side effect inside `dispatch.run`. The callback receives the idempotency key that

@@ -5,8 +5,11 @@ import {
   ShadowPipeline,
   type ActionRegistry,
   type AuditRecorder,
+  type AuthorizationVerifier,
   type PresenceApprovalClient,
 } from "@decionis/agent-safe-pipeline";
+import { EffectAwareGrantVerifier } from "../adapters/EffectAwareGrantVerifier.js";
+import type { EffectEvidenceRegister } from "../adapters/EffectEvidenceRegister.js";
 import type { ExecutorConfig } from "../config/ExecutorConfig.js";
 import type { FetchLike } from "../handlers/HandlerRegistration.js";
 import type { SecurityEvents } from "../incident/SecurityEvents.js";
@@ -16,7 +19,7 @@ import { EscalationResolver } from "./EscalationResolver.js";
 /** Everything that holds an authority or Presence credential, built together. */
 export interface AuthorityClientSet {
   readonly gate: DecionisGate;
-  readonly verifier: DecionisGrantVerifier;
+  readonly verifier: AuthorizationVerifier;
   readonly executor: SafeExecutor;
   readonly escalation: EscalationResolver;
   readonly shadow: ShadowPipeline | null;
@@ -30,6 +33,9 @@ export interface AuthorityClientsOptions {
   readonly events: SecurityEvents;
   readonly fetch?: FetchLike;
   readonly presence?: PresenceApprovalClient;
+  /** The effect observations a handler registered, for the verifier to finalize with. */
+  readonly effects?: EffectEvidenceRegister;
+  readonly observer?: { readonly id: string; readonly version: string };
 }
 
 const ROTATING: readonly SecretName[] = ["DECIONIS_API_KEY", "PRESENCE_API_KEY"];
@@ -77,7 +83,17 @@ export class AuthorityClients {
       ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
     };
     const gate = new DecionisGate({ ...authority, mode: config.mode });
-    const verifier = new DecionisGrantVerifier(authority);
+    const grantVerifier = new DecionisGrantVerifier(authority);
+    // The verifier the executor runs finalizes with whatever the handler
+    // observed; without an effect plane it is the grant verifier itself.
+    const verifier =
+      options.effects === undefined
+        ? grantVerifier
+        : new EffectAwareGrantVerifier({
+            verifier: grantVerifier,
+            register: options.effects,
+            observer: options.observer ?? { id: "agentsafe", version: "0.1.0" },
+          });
     const presenceApiKey =
       config.escalation.mode === "DIRECT"
         ? secrets.get("PRESENCE_API_KEY").use((value) => value.toString("utf8"))

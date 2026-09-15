@@ -157,6 +157,19 @@ export interface HaltConfig {
 export type LimitsConfig = HardLimitSettings | null;
 
 /**
+ * The banking family's settings. `onEffectMismatch` is the institution's
+ * exception policy in one word: an observation that does not match what was
+ * authorised either stops the executor or is recorded and alerted on.
+ */
+export interface BankingConfig {
+  readonly adapterId: string;
+  readonly adapterVersion: string;
+  readonly onEffectMismatch: "HALT" | "ALERT";
+  /** Where a posted effect is read back by the provider's own reference. */
+  readonly lookupByReferenceUrl: string | null;
+}
+
+/**
  * The executor's configuration: every setting, and the names of the secrets
  * it needs, but no secret value. Values live in a `SecretStore`, read through
  * a handle at the moment of use, so a rotation is followed and nothing here
@@ -181,6 +194,7 @@ export interface ExecutorConfig {
   readonly evidence: EvidenceConfig;
   readonly halt: HaltConfig;
   readonly limits: LimitsConfig;
+  readonly banking: BankingConfig;
   /** The most the authority's clock may differ from this host's before the executor halts. */
   readonly maxClockSkewMs: number;
   readonly posture: PostureSettings;
@@ -294,6 +308,9 @@ const EnvironmentSchema = z.object({
     .regex(/^\d{1,30}$/)
     .optional(),
   EXECUTOR_MAX_CLOCK_SKEW_MS: z.coerce.number().int().min(100).max(300_000).optional(),
+  EXECUTOR_ON_EFFECT_MISMATCH: z.enum(["HALT", "ALERT"]).optional(),
+  BANKING_ADAPTER_ID: identifier.optional(),
+  BANKING_ADAPTER_VERSION: z.string().trim().min(1).max(100).optional(),
   DECIONIS_API_URL: z.string().trim().min(1).max(500),
   DECIONIS_ALLOW_INSECURE_LOOPBACK: booleanFlag.optional(),
   DECIONIS_CA_FILE: absolutePath.optional(),
@@ -313,6 +330,7 @@ const EnvironmentSchema = z.object({
   PRESENCE_DISALLOW_VIRTUAL_CAMERAS: booleanFlag.optional(),
   DOWNSTREAM_URL: z.string().trim().min(1).max(500),
   DOWNSTREAM_LOOKUP_URL: z.string().trim().min(1).max(500).optional(),
+  DOWNSTREAM_LOOKUP_BY_REFERENCE_URL: z.string().trim().min(1).max(500).optional(),
   DOWNSTREAM_SYSTEM: identifier,
   DOWNSTREAM_OPERATION: identifier,
   DOWNSTREAM_ENVIRONMENT: identifier,
@@ -385,6 +403,12 @@ export class ExecutorConfigLoader {
     if (lookupUrl !== undefined && !lookupUrl.includes("{idempotency_key}")) {
       throw new Error("CONFIG_INVALID: DOWNSTREAM_LOOKUP_URL (must contain {idempotency_key})");
     }
+    const byReference = values.DOWNSTREAM_LOOKUP_BY_REFERENCE_URL;
+    if (byReference !== undefined && !byReference.includes("{provider_reference}")) {
+      throw new Error(
+        "CONFIG_INVALID: DOWNSTREAM_LOOKUP_BY_REFERENCE_URL (must contain {provider_reference})",
+      );
+    }
     const escalation = ExecutorConfigLoader.escalation(values, allowInsecureLoopback);
     const listener = ExecutorConfigLoader.listener(values, env, production);
     const authorityUrl = ExecutorConfigLoader.serviceUrl(
@@ -403,6 +427,14 @@ export class ExecutorConfigLoader {
         : ExecutorConfigLoader.serviceUrl(
             lookupUrl,
             "DOWNSTREAM_LOOKUP_URL",
+            allowInsecureLoopback,
+          );
+    const byReferenceUrl =
+      byReference === undefined
+        ? null
+        : ExecutorConfigLoader.serviceUrl(
+            byReference,
+            "DOWNSTREAM_LOOKUP_BY_REFERENCE_URL",
             allowInsecureLoopback,
           );
     const identity = ExecutorConfigLoader.identity(values, env, production, allowInsecureLoopback);
@@ -502,6 +534,12 @@ export class ExecutorConfigLoader {
         ),
       },
       limits: ExecutorConfigLoader.limits(values),
+      banking: {
+        adapterId: values.BANKING_ADAPTER_ID ?? "AGENTSAFE_CORE_BANKING",
+        adapterVersion: values.BANKING_ADAPTER_VERSION ?? "0.1.0",
+        onEffectMismatch: values.EXECUTOR_ON_EFFECT_MISMATCH ?? "HALT",
+        lookupByReferenceUrl: byReferenceUrl,
+      },
       maxClockSkewMs: values.EXECUTOR_MAX_CLOCK_SKEW_MS ?? 2_000,
       posture: {
         mode: postureMode,

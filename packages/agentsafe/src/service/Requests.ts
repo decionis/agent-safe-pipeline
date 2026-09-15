@@ -83,6 +83,13 @@ export interface ActionResponse {
   readonly authorization: AuthorizationBinding | null;
   readonly finalization: "RECORDED" | "PENDING" | "UNSUPPORTED" | null;
   readonly result: unknown;
+  /**
+   * What the adapter observed about the effect, for an action family that has
+   * an effect plane: statuses, digests and the projected fields that differ.
+   * Null for an action with no adapter, and never a provider body, a
+   * parameter, or a credential.
+   */
+  readonly effect: Readonly<Record<string, unknown>> | null;
   /** Present only for `UNKNOWN_AFTER_DISPATCH`: what to present to reconcile. */
   readonly recovery: {
     readonly intent: CapturedIntent["intent"];
@@ -101,4 +108,5 @@ export interface ReconciliationResponse {
   readonly reason_codes: readonly string[];
   readonly authorization: AuthorizationBinding | null;
   readonly result: unknown;
+  readonly effect: Readonly<Record<string, unknown>> | null;
 }

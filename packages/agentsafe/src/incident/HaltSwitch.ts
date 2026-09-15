@@ -11,7 +11,8 @@ export type HaltTrigger =
   | "AUTH_FAILURE_SPIKE"
   | "EGRESS_REFUSAL_SPIKE"
   | "CLOCK_SKEW"
-  | "AUDIT_CHAIN_BROKEN";
+  | "AUDIT_CHAIN_BROKEN"
+  | "EFFECT_MISMATCH";
 
 export interface HaltState {
   readonly halted: boolean;

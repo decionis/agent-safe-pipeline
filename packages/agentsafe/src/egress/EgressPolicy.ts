@@ -69,6 +69,9 @@ export class EgressPolicy {
       ...(config.downstream.credential.kind === "PRIVATE_KEY_JWT"
         ? [config.downstream.credential.tokenUrl]
         : []),
+      ...(config.banking.lookupByReferenceUrl === null
+        ? []
+        : [config.banking.lookupByReferenceUrl]),
     ];
     const jwt = config.identity.jwt;
     const jwks =
