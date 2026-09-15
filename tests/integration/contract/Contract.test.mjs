@@ -231,14 +231,24 @@ test(
     // The authority's double returns a claim lease, and the verifier reports
     // it: it is the window this attempt has to commit inside, shorter than
     // the grant's own expiry and the one a dispatch is actually bounded by.
+    // It also returns the digest it bound over the parameters, which the
+    // verifier has already checked against its own before this object
+    // exists, and the claim attestation a downstream verifies for itself.
     assert.deepEqual(Object.keys(result.authorization).sort(), [
+      "claimAttestation",
       "decisionId",
       "dossierId",
       "expiresAt",
       "grantId",
       "intentHash",
       "leaseExpiresAt",
+      "payloadDigest",
     ]);
+    assert.match(result.authorization.claimAttestation, /^[\w-]+\.[\w-]+\.[\w-]+$/);
+    assert.equal(
+      result.authorization.payloadDigest,
+      DecionisGrantVerifier.parametersDigest(captured.intent.parameters),
+    );
     assert.deepEqual(
       {
         decisionId: result.authorization.decisionId,

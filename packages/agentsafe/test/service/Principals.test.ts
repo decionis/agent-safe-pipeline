@@ -372,20 +372,24 @@ describe("credential kinds through the service", () => {
       Object.entries(seen?.headers ?? {}).map(([name, value]) => [name, String(value)]),
     );
     expect(headers["authorization"]).toBeUndefined();
+    // A dispatch covers the grant and the decision it executes under, so a
+    // provider can require both and still verify.
     expect(
       SignedRequestCredential.verify(
-        {
+        SignedRequestCredential.materialFrom({
           method: "POST",
           path: "/dispatches",
           body: seen?.body ?? "",
-          idempotencyKey: headers["idempotency-key"] ?? "",
-          intentHash: headers["x-agent-safe-intent-hash"] ?? "",
-        },
+          headers,
+        }),
         headers,
         { publicKeyPem },
+        { require: ["x-agent-safe-grant-id", "x-agent-safe-decision-id"] },
       ),
     ).toBe(true);
     expect(headers["x-agent-safe-intent-hash"]).toBe(answer.intent_hash);
+    expect(headers["x-agent-safe-grant-id"]).toMatch(/\S/);
+    expect(headers["x-agent-safe-decision-id"]).toMatch(/\S/);
     service.close();
   });
 

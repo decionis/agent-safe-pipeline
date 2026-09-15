@@ -152,7 +152,12 @@ export {
   type VerificationMethod,
 } from "./config/ExecutorConfig.js";
 export { CredentialError } from "./credential/CredentialError.js";
-export type { DownstreamCredential, DownstreamRequest } from "./credential/DownstreamCredential.js";
+export type {
+  DownstreamCredential,
+  DownstreamGrant,
+  DownstreamRequest,
+} from "./credential/DownstreamCredential.js";
+export { grantOf } from "./credential/GrantOf.js";
 export {
   CLIENT_ASSERTION_TYPE,
   PrivateKeyJwtCredential,
@@ -160,12 +165,17 @@ export {
   type PrivateKeyJwtOptions,
 } from "./credential/PrivateKeyJwtCredential.js";
 export {
+  ATTESTATION_COMPONENT,
+  BASE_COMPONENTS,
+  GRANT_COMPONENTS,
   SIGNATURE_LABEL,
   SIGNED_COMPONENTS,
   SignedRequestCredential,
+  type SignedComponent,
   type SignedRequestAlgorithm,
   type SignedRequestMaterial,
   type SignedRequestOptions,
+  type SignedRequestVerification,
 } from "./credential/SignedRequestCredential.js";
 export { StaticHeaderCredential } from "./credential/StaticHeaderCredential.js";
 export { EgressError, type EgressCode } from "./egress/EgressError.js";

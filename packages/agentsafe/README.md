@@ -452,49 +452,77 @@ the credential for headers before the point of no return and never holds a value
   downstream's anchor; the access token is held as a secret handle until thirty seconds before it
   expires, with one refresh in flight at a time. A token that cannot be obtained is a failure
   before dispatch, never an unknown outcome.
-- `SIGNED_REQUEST`: an RFC 9421 signature over a fixed set of components with an RFC 9530 content
-  digest, Ed25519 or HMAC-SHA256 with `DOWNSTREAM_SIGNING_KEY`, so the downstream can prove that
-  this process, holding this key, sent this request for this intent. The handler must send
-  `idempotency-key` and `x-agent-safe-intent-hash` with the values it asked the credential to
-  sign; the reference handler does.
+- `SIGNED_REQUEST`: an RFC 9421 signature with an RFC 9530 content digest, Ed25519 or HMAC-SHA256
+  with `DOWNSTREAM_SIGNING_KEY`. Every request covers the method, the path, the body's digest, the
+  idempotency key and the intent hash, so the downstream can prove that this process, holding this
+  key, sent this request for this intent. A dispatch also covers `x-agent-safe-grant-id` and
+  `x-agent-safe-decision-id`, and, when the authority attested the claim,
+  `x-agent-safe-claim-attestation`: the authority's own signed proof that this grant was claimed
+  for this intent, which a downstream verifies against the authority's public JWKS. The handler
+  must send every covered header with the value it asked the credential to sign; `headersFor`
+  returns them beside the signature, and the reference handlers send them.
 
 The three are not equally strong, and the choice decides what an agent that reaches the provider
 anyway can do with the path:
 
-| Kind              | What the downstream is shown                 | What a captured value is worth                                                   |
-| ----------------- | -------------------------------------------- | -------------------------------------------------------------------------------- |
-| `STATIC_HEADER`   | A bearer                                     | Everything, until it is rotated: whoever holds it is the executor                |
-| `PRIVATE_KEY_JWT` | A bearer minted from a key                   | The access token until `exp`; the key itself stays in the process                |
-| `SIGNED_REQUEST`  | A per-request signature over five components | Nothing. It is bound to this method, path, body, idempotency key and intent hash |
+| Kind              | What the downstream is shown                                          | What a captured value is worth                                                                    |
+| ----------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `STATIC_HEADER`   | A bearer                                                              | Everything, until it is rotated: whoever holds it is the executor                                 |
+| `PRIVATE_KEY_JWT` | A bearer minted from a key                                            | The access token until `exp`; the key itself stays in the process                                 |
+| `SIGNED_REQUEST`  | A per-request signature, and the authority's attestation of the claim | Nothing. It is bound to this method, path, body, idempotency key, intent hash, grant and decision |
 
 For anything reaching a system of record, `SIGNED_REQUEST` is the one that keeps the boundary when
-the network does not: a caller with a perfect route and a copied header still cannot produce a
-signature, so the provider can refuse it. It proves that this process sent this request, not that
-the authority allowed it -- the grant is not in the signature base -- so a compromised executor
-still signs validly. See [bypass resistance](../../docs/bypass-resistance.md).
+the network does not: a caller with a perfect route and a copied set of headers still cannot
+produce a signature, so the provider can refuse it. With the attestation covered, the provider can
+also refuse an instruction the authority never claimed, not merely one the executor never signed:
+the signature proves that this process sent this request, and the attestation inside it proves
+that the authority claimed this grant for this intent, with a digest of the very parameters the
+provider is looking at. See [bypass resistance](../../docs/bypass-resistance.md).
 
 The keys of the kinds not selected must be absent, and each kind names the one secret it needs. A
 downstream verifies a signed request like this:
 
 ```text
-components  = ("@method" "@path" "content-digest" "idempotency-key" "x-agent-safe-intent-hash")
 params      = the text after "agentsafe=" in the signature-input header:
               (components);created=<unix seconds>;keyid="<id>";alg="ed25519"|"hmac-sha256"
-base        = '"@method": ' + METHOD                                   + "\n"
-            + '"@path": ' + PATH                                       + "\n"
-            + '"content-digest": sha-256=:' + base64(sha256(body)) + ':' + "\n"
-            + '"idempotency-key": ' + the idempotency-key header       + "\n"
-            + '"x-agent-safe-intent-hash": ' + that header             + "\n"
-            + '"@signature-params": ' + params
+components  = the quoted names inside the parentheses, in order. Always:
+              "@method" "@path" "content-digest" "idempotency-key" "x-agent-safe-intent-hash"
+              On a dispatch, also: "x-agent-safe-grant-id" "x-agent-safe-decision-id"
+              When the authority attested the claim, also: "x-agent-safe-claim-attestation"
+base        = for each component, in that order, one line:
+                '"@method": ' + METHOD
+                '"@path": ' + PATH
+                '"content-digest": sha-256=:' + base64(sha256(body)) + ':'
+                '"<header-name>": ' + that header's value, for every other component
+              joined by "\n", then
+            + "\n" + '"@signature-params": ' + params
 signature   = base64 between the colons after "agentsafe=" in the signature header
-accept only if the content-digest matches the body you received,
-           created is inside your clock window,
-           keyid names a key you issued to the executor,
-           and verify(alg, key, base, signature) holds
+refuse unless the content-digest matches the body you received,
+              every component you require is among the covered ones -- a system of
+              record that effects anything requires all eight --
+              every covered header is present and equals the value in the base,
+              created is inside your clock window,
+              keyid names a key you issued to the executor,
+              and verify(alg, key, base, signature) holds
+then, for anything you will effect, verify the attestation:
+              split x-agent-safe-claim-attestation on "." into header, payload, signature
+              header.alg is "EdDSA", header.typ is "decionis-claim-attestation+jwt"
+              header.kid names a key in the authority's
+                GET /.well-known/decionis-execution-grant-jwks.json
+              Ed25519-verify(key, header + "." + payload, signature) holds
+              payload.sub equals x-agent-safe-grant-id
+              payload.decision_id equals x-agent-safe-decision-id
+              payload.binding.intent_hash equals x-agent-safe-intent-hash
+              payload.binding.execution_payload_digest equals
+                "sha256:" + hex(sha256(canonical(body))) under
+                payload.binding.execution_payload_canonicalization_profile ("RFC8785/JCS")
+              payload.exp has not passed, and payload.sub was not seen within the lease
 ```
 
-`SignedRequestCredential.verify` in this package is that procedure, for tests and for a downstream
-written in TypeScript.
+`SignedRequestCredential.verify` in this package is the first half of that procedure, with
+`materialFrom` building the material from a received request and `require` naming what the
+signature must cover; the offline proof's strict provider double is the whole of it, attestation
+included, written against nothing but the authority's public keys.
 
 ## The attempt journal
 

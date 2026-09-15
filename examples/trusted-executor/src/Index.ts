@@ -19,7 +19,13 @@
  * host posture is declared as development, so the host checks a deployment
  * enforces are waived here and said so on the security stream.
  */
-import { createHash, generateKeyPairSync, randomBytes } from "node:crypto";
+import {
+  createHash,
+  createPublicKey,
+  generateKeyPairSync,
+  randomBytes,
+  verify as verifySignature,
+} from "node:crypto";
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import { createServer as createSocketServer } from "node:net";
@@ -49,6 +55,8 @@ import {
   dial,
   expectedEffect,
   probeContainment,
+  SignedRequestCredential,
+  SIGNED_COMPONENTS,
   transportActionName,
   transportTarget,
   verifyAuditChain,
@@ -99,6 +107,18 @@ function beapProposal(action: BankingAction): string {
 }
 
 const LOOPBACK_HOST = "127.0.0.1";
+
+/** Keys sorted recursively, so the provider double digests a body the way RFC 8785 would. */
+function sortKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map((item) => sortKeys(item));
+  if (value === null || typeof value !== "object") return value;
+  const record = value as Record<string, unknown>;
+  return Object.fromEntries(
+    Object.keys(record)
+      .sort()
+      .map((key) => [key, sortKeys(record[key])]),
+  );
+}
 // Spelled out rather than built from LOOPBACK_HOST: the fixture URL scanner
 // reads literals, and a templated origin is one it cannot check.
 const LOOPBACK_ORIGIN = "http://127.0.0.1";
@@ -316,6 +336,8 @@ const loseNextResponse = (): void => {
 const auditLines: string[] = [];
 const securityLines: string[] = [];
 const responses: string[] = [];
+/** Dispatches the strict system-of-record double effected; it is a second provider, so the invariant counts it too. */
+let attestedDispatches = 0;
 
 interface RunningExecutor {
   readonly baseUrl: string;
@@ -1364,6 +1386,170 @@ heading("Incident response: the evidence an operator can take, and verify");
   rmSync(directory, { recursive: true, force: true });
 }
 
+heading("The system of record refuses what the authority never claimed");
+{
+  // A provider that takes nothing on trust: it verifies the executor's RFC
+  // 9421 signature and requires it to cover the grant, the decision and the
+  // authority's attestation; then it verifies the attestation with nothing
+  // but the authority's public JWKS, and checks that the request in hand is
+  // the one the attestation describes -- intent hash, grant, decision, and
+  // the digest of the body it received under the profile the attestation
+  // names. Everything else is a 409 that effects nothing.
+  const signing = generateKeyPairSync("ed25519");
+  const signingPem = signing.privateKey.export({ type: "pkcs8", format: "pem" }) as string;
+  const publicKeyPem = signing.publicKey.export({ type: "spki", format: "pem" }) as string;
+  const jwksResponse = await fetch(
+    `${authority.baseUrl}/.well-known/decionis-execution-grant-jwks.json`,
+  );
+  const jwks = (await jwksResponse.json()) as { keys: Array<Record<string, unknown>> };
+  const refusals: string[] = [];
+  let effected = 0;
+  const strict = createServer((request, response) => {
+    const chunks: Buffer[] = [];
+    request.on("data", (chunk: Buffer) => chunks.push(chunk));
+    request.on("end", () => {
+      const body = Buffer.concat(chunks).toString("utf8");
+      const headers = Object.fromEntries(
+        Object.entries(request.headers).map(([name, value]) => [name, String(value ?? "")]),
+      );
+      const refuse = (code: string): void => {
+        refusals.push(code);
+        response.writeHead(409, { "content-type": "application/json" });
+        response.end(JSON.stringify({ status: "REJECTED", reason_code: code }));
+      };
+      const path = new URL(request.url ?? "/", "http://provider.invalid").pathname;
+      const material = SignedRequestCredential.materialFrom({
+        method: request.method ?? "GET",
+        path,
+        body: body.length === 0 ? null : body,
+        headers,
+      });
+      if (
+        !SignedRequestCredential.verify(
+          material,
+          headers,
+          { publicKeyPem },
+          {
+            require: SIGNED_COMPONENTS,
+          },
+        )
+      ) {
+        return refuse("SIGNATURE_INVALID_OR_INCOMPLETE");
+      }
+      const [header, payload, signature] = (material.claimAttestation ?? "").split(".");
+      let claims: Record<string, unknown>;
+      try {
+        const protectedHeader = JSON.parse(Buffer.from(header ?? "", "base64url").toString("utf8"));
+        const key = jwks.keys.find((candidate) => candidate["kid"] === protectedHeader.kid);
+        if (
+          protectedHeader.alg !== "EdDSA" ||
+          protectedHeader.typ !== "decionis-claim-attestation+jwt" ||
+          key === undefined ||
+          !verifySignature(
+            null,
+            Buffer.from(`${header}.${payload}`, "ascii"),
+            createPublicKey({ key: key as never, format: "jwk" }),
+            Buffer.from(signature ?? "", "base64url"),
+          )
+        ) {
+          return refuse("ATTESTATION_INVALID");
+        }
+        claims = JSON.parse(Buffer.from(payload ?? "", "base64url").toString("utf8"));
+      } catch {
+        return refuse("ATTESTATION_INVALID");
+      }
+      const binding = claims["binding"] as Record<string, unknown>;
+      const bodyDigest = `sha256:${createHash("sha256")
+        .update(JSON.stringify(sortKeys(JSON.parse(body))), "utf8")
+        .digest("hex")}`;
+      if (
+        claims["sub"] !== material.grantId ||
+        claims["decision_id"] !== material.decisionId ||
+        binding["intent_hash"] !== material.intentHash ||
+        binding["execution_payload_canonicalization_profile"] !== "RFC8785/JCS" ||
+        binding["execution_payload_digest"] !== bodyDigest ||
+        Number(claims["exp"]) * 1_000 < Date.now()
+      ) {
+        return refuse("ATTESTATION_DOES_NOT_DESCRIBE_THIS_REQUEST");
+      }
+      effected += 1;
+      response.writeHead(202, { "content-type": "application/json" });
+      response.end(JSON.stringify({ accepted: true }));
+    });
+  });
+  await new Promise<void>((resolve) => strict.listen(0, LOOPBACK_HOST, resolve));
+  const strictPort = (strict.address() as { port: number }).port;
+  const strictOrigin = `${LOOPBACK_ORIGIN}:${String(strictPort)}`;
+  const signed = await startExecutor("ENFORCEMENT", "NONE", {
+    DOWNSTREAM_URL: `${strictOrigin}/dispatches`,
+    DOWNSTREAM_LOOKUP_URL: `${strictOrigin}/dispatches/{idempotency_key}`,
+    DOWNSTREAM_CREDENTIAL: undefined,
+    DOWNSTREAM_CREDENTIAL_HEADER: undefined,
+    DOWNSTREAM_CREDENTIAL_KIND: "SIGNED_REQUEST",
+    DOWNSTREAM_SIGNING_KEY: signingPem,
+    DOWNSTREAM_SIGNING_KEY_ID: "synthetic-signing-key-1",
+  });
+
+  const accepted = await call(signed, "/v1/actions", { body: proposal(5_000) });
+  const grantId = (accepted.body["authorization"] as Record<string, unknown> | null)?.["grant_id"];
+  check(
+    accepted.status === 200 &&
+      accepted.body["outcome"] === "COMPLETED" &&
+      accepted.body["executed"] === true &&
+      effected === 1 &&
+      refusals.length === 0,
+    "a provider that requires the grant, the decision and the attestation accepts one dispatch",
+    `grant ${String(grantId).slice(0, 8)}…, ${effected} effected, ${refusals.length} refused`,
+  );
+
+  // The bypass: something in the agent zone that reached the provider with a
+  // copy of every header from a real dispatch. Without the signing key it
+  // cannot produce a signature over them, and the provider effects nothing.
+  const copied = await fetch(`${strictOrigin}/dispatches`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      // Derived rather than spelled out: a literal beside this header reads as
+      // a credential to a secret scanner, and it is not one.
+      "idempotency-key": `bypass-${String(grantId).slice(0, 8)}`,
+      "x-agent-safe-intent-hash": String(accepted.body["intent_hash"]),
+      "x-agent-safe-grant-id": String(grantId),
+      "x-agent-safe-decision-id": String(
+        (accepted.body["authorization"] as Record<string, unknown> | null)?.["decision_id"],
+      ),
+      "x-agent-safe-claim-attestation": "copied.but.unsigned",
+    },
+    body: JSON.stringify({ amountMinor: 5_000 }),
+  });
+  await copied.body?.cancel();
+  check(
+    copied.status === 409 &&
+      effected === 1 &&
+      refusals.at(-1) === "SIGNATURE_INVALID_OR_INCOMPLETE",
+    "a direct call with copied headers and no signature is refused by the provider itself",
+    `${copied.status}, ${refusals.at(-1) ?? "no refusal"}`,
+  );
+
+  // BND-01: the authority binds a digest over other parameters than the ones
+  // this executor captured. The executor refuses before any dispatch, so the
+  // provider never learns there was a disagreement to arbitrate.
+  authority.misbindNextPayloadDigest = true;
+  const before = effected + refusals.length;
+  const misbound = await call(signed, "/v1/actions", { body: proposal(5_000) });
+  check(
+    misbound.body["executed"] === false &&
+      misbound.body["outcome"] !== "COMPLETED" &&
+      effected + refusals.length === before,
+    "a payload digest the authority bound over other parameters is refused before dispatch",
+    `outcome ${String(misbound.body["outcome"])}, provider saw ${effected + refusals.length - before} more`,
+  );
+
+  attestedDispatches = effected;
+  await signed.executor.close();
+  strict.closeAllConnections();
+  await new Promise<void>((resolve) => strict.close(() => resolve()));
+}
+
 heading("Containment is measured, never assumed");
 {
   // The probe's own drill. A listening socket stands in for a system of
@@ -1456,10 +1642,12 @@ heading("Nothing secret left the process");
   const reconciliations = auditLines.filter((line) =>
     line.includes('"RECONCILIATION_COMPLETED"'),
   ).length;
-  // Every side effect the provider took, whichever family asked for it.
-  const dispatches = provider.requests.filter(
-    (request) => request.path === "/dispatches" || request.path === "/actions",
-  ).length;
+  // Every side effect a provider took, whichever family asked for it and
+  // whichever of the two doubles was asked.
+  const dispatches =
+    provider.requests.filter(
+      (request) => request.path === "/dispatches" || request.path === "/actions",
+    ).length + attestedDispatches;
   const presenceEvents = auditLines.filter((line) => line.includes('"PRESENCE_')).length;
   check(
     executions === dispatches - lostResponses - providerRefusals &&

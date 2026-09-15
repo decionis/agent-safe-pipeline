@@ -711,6 +711,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/pipeline/test/testing/LocalClaimAttestation.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/pipeline/test/testing/LocalEffectEvidence.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
