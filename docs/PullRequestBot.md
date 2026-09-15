@@ -37,6 +37,24 @@ from the trusted default branch before the narrowly scoped App token is minted.
 A scheduled scan covers branches that were created before the workflow existed
 or received commits after creation.
 
+## What the pull request says
+
+The title is the newest commit's subject line, bounded to 72 characters. The
+description is the newest commit's own body, with the subject and the commit
+trailers (`Signed-off-by`, `Co-Authored-By`) removed, under a **What changed**
+heading; a branch carrying several commits also gets a list of their subjects.
+The bot's own provenance note follows that, so what the change is always comes
+before who opened the pull request.
+
+This puts the burden where it belongs: a commit message that explains the
+change becomes a pull request that explains it, and a commit with only a
+subject line becomes a pull request with only the bot's note. Nothing is
+invented from the diff.
+
+Because the workflow checks its script out of the default branch, a change to
+the bot takes effect for branches created after it merges, not for the branch
+that carries the change.
+
 ## GitHub App configuration
 
 Create an organization-owned GitHub App named **Decionis Bot** with:
