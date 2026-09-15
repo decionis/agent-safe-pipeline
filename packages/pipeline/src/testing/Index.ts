@@ -31,12 +31,16 @@ export {
 } from "./LocalPresence.js";
 export {
   AUTONOMOUS_LIMIT_MINOR,
+  CLAIM_ATTESTATION_TYPE,
   HUMAN_LIMIT_MINOR,
   LocalAuthority,
   LOCAL_AUTHORITY_API_KEY,
+  LOCAL_AUTHORITY_ISSUER,
+  LOCAL_AUTHORITY_JWKS_PATH,
   hashBinding,
   stableStringify,
   type LocalAuthorityOptions,
+  type LocalClaimAttestationClaims,
   type LocalAuthorityPolicy,
   type LocalAuthorityRequestRecord,
   type LocalGrantRecord,

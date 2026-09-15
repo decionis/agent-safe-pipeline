@@ -20,7 +20,10 @@ export default {
   // describing one thing and asking for another. The containment probe is
   // here because its failure mode is false assurance: a mutant that reads a
   // reachable system of record as contained tells an operator the boundary
-  // holds when it does not.
+  // holds when it does not. The signed-request credential is here for the
+  // same reason from the other side: its `verify` is the procedure a system
+  // of record copies, and a mutant that accepts a signature it should refuse
+  // is a provider that effects what the authority never claimed.
   mutate: [
     "src/http/ExecutorHttpServer.ts",
     "src/identity/PrincipalRegistry.ts",
@@ -35,6 +38,7 @@ export default {
     "src/adapters/banking/Money.ts",
     "src/adapters/banking/BankingIntentBinder.ts",
     "src/containment/ContainmentProbe.ts",
+    "src/credential/SignedRequestCredential.ts",
   ],
   reporters: ["clear-text", "progress"],
   coverageAnalysis: "perTest",

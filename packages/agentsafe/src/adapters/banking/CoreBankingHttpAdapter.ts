@@ -1,7 +1,12 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { JsonObject } from "@decionis/agent-safe-pipeline";
-import type { DownstreamCredential } from "../../credential/DownstreamCredential.js";
+import type {
+  DownstreamCredential,
+  DownstreamRequest,
+} from "../../credential/DownstreamCredential.js";
+import { SignedRequestCredential } from "../../credential/SignedRequestCredential.js";
+import { grantOf } from "../../credential/GrantOf.js";
 import type { FetchLike } from "../../handlers/HandlerRegistration.js";
 import { jcsDigest, type Sha256 } from "../JcsDigest.js";
 import {
@@ -63,13 +68,15 @@ export class CoreBankingHttpAdapter implements BankingTransport {
 
   public async execute(execution: AdapterExecution<BankingAction>): Promise<ProviderResult> {
     const body = JSON.stringify(execution.action);
-    const headers = await this.options.credential.headersFor({
+    const request: DownstreamRequest = {
       method: "POST",
       url: this.options.url,
       body,
       idempotencyKey: execution.idempotencyKey,
       intentHash: execution.authorization.intentHash,
-    });
+      grant: grantOf(execution.authorization),
+    };
+    const headers = await this.options.credential.headersFor(request);
     let response: Response;
     try {
       response = await this.options.fetch(this.options.url, {
@@ -77,8 +84,10 @@ export class CoreBankingHttpAdapter implements BankingTransport {
         headers: {
           ...headers,
           "content-type": "application/json",
-          "idempotency-key": execution.idempotencyKey,
-          "x-agent-safe-intent-hash": execution.authorization.intentHash,
+          // Every header a signing credential covers, with the value it
+          // signed: the grant and the decision this dispatch executes under,
+          // and the authority's attestation of the claim when it gave one.
+          ...SignedRequestCredential.coveredHeaders(request),
           "x-beap-intent-digest": execution.prepared.intentDigest,
           "x-beap-expected-effect-digest": execution.prepared.expectedEffectDigest,
         },

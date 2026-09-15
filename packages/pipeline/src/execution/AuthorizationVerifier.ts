@@ -1,9 +1,11 @@
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { AuthorityBaseUrl } from "../http/AuthorityBaseUrl.js";
 import { credentialReader, type Credential } from "../http/Credential.js";
 import { BoundedResponseBody } from "../http/BoundedResponseBody.js";
 import { CanonicalIntentHasher } from "../intent/CanonicalIntentHasher.js";
 import type { CapturedIntent } from "../intent/ExecutionIntent.js";
+import type { JsonObject, JsonValue } from "../intent/JsonValue.js";
 import type { GateDecision } from "../decision/DecisionAuthority.js";
 
 export interface VerifiedAuthorization {
@@ -24,6 +26,22 @@ export interface VerifiedAuthorization {
    * field is exactly as correct as it was before the field existed.
    */
   readonly leaseExpiresAt?: string;
+  /**
+   * The digest the authority bound over the canonical action parameters, when
+   * it exposed one. It has already been checked against this package's own
+   * digest of the same parameters before this object exists: a claim whose
+   * digest disagreed was refused, not returned. It is carried so a handler
+   * can show a downstream what the authority bound, not so anyone re-checks it.
+   */
+  readonly payloadDigest?: string;
+  /**
+   * Proof of this claim a system of record can verify without trusting this
+   * process: a compact JWS the authority signed over the grant, the decision,
+   * the binding and the lease. A handler forwards it downstream, and a
+   * downstream that requires it can refuse an instruction the authority never
+   * claimed. Absent when the authority predates it.
+   */
+  readonly claimAttestation?: string;
 }
 
 /** Outcome of the downstream attempt reported to the authority after a claimed grant. */
@@ -122,6 +140,7 @@ const boundedIdentifier = z
 const sha256Digest = z.string().regex(/^sha256:[0-9a-f]{64}$/);
 const intentHash = sha256Digest;
 const CLAIM_TOKEN_PATTERN = /^[\w-]{43,128}$/;
+const COMPACT_JWS_PATTERN = /^[\w-]+\.[\w-]+\.[\w-]+$/;
 /** `boundedIdentifier` from the Decionis `EffectEvidence` contract, verbatim. */
 const effectIdentifier = z.string().trim().min(1).max(500);
 
@@ -188,6 +207,16 @@ const ClaimResponseSchema = z.looseObject({
       // unrecognised value as absent keeps that promise and stays fail-closed:
       // an intent that committed a digest still finds no match and is refused.
       expected_effect_digest: sha256Digest.nullish().catch(undefined),
+      // The same rule for the payload digest and its profile: unreadable is
+      // absent, and absent means no comparison, which is what an authority
+      // that never bound one has always meant.
+      execution_payload_digest: sha256Digest.nullish().catch(undefined),
+      execution_payload_canonicalization_profile: z
+        .string()
+        .min(1)
+        .max(200)
+        .nullish()
+        .catch(undefined),
     }),
     jti: boundedIdentifier,
     iat: z.number().int(),
@@ -196,7 +225,14 @@ const ClaimResponseSchema = z.looseObject({
   }),
   claim_token: z.string().regex(CLAIM_TOKEN_PATTERN).nullable().optional(),
   claim_lease_expires_at: z.string().datetime().nullable().optional(),
+  // A compact JWS or nothing. This package never verifies it: it is not the
+  // audience, the downstream is. An unreadable value is treated as absent
+  // rather than refused, because the grant it rides with is what authorizes.
+  claim_attestation: z.string().regex(COMPACT_JWS_PATTERN).max(8_192).nullish().catch(undefined),
 });
+
+/** The canonicalization this package can reproduce, named the way the authority names it. */
+const JCS_PROFILE = "RFC8785/JCS";
 
 /**
  * The response envelope is deliberately loose, and the two effect fields are
@@ -245,6 +281,17 @@ export class DecionisGrantVerifier implements AuthorizationVerifier {
   private readonly claims = new WeakMap<VerifiedAuthorization, ClaimRecord>();
   /** The authority's own answer about an observation, keyed by the frozen authorization. */
   private readonly reports = new WeakMap<VerifiedAuthorization, AuthorityEffectReport>();
+
+  /**
+   * The digest the authority binds over the action parameters: SHA-256 of
+   * their RFC 8785 canonical form, the same canonicalization the intent hash
+   * uses. Exposed so a test, or an authority implementation, can produce the
+   * value this verifier will accept.
+   */
+  public static parametersDigest(parameters: JsonObject): `sha256:${string}` {
+    const canonical = CanonicalIntentHasher.stringify(parameters as JsonValue);
+    return `sha256:${createHash("sha256").update(canonical, "utf8").digest("hex")}`;
+  }
 
   public constructor(options: DecionisGrantVerifierOptions) {
     this.baseUrl = AuthorityBaseUrl.normalize(
@@ -303,11 +350,22 @@ export class DecionisGrantVerifier implements AuthorizationVerifier {
         Date.parse(decision.authorization.expiresAt) / 1_000,
       );
       const audience = `${captured.intent.downstreamTarget.system}:${captured.intent.downstreamTarget.operation}`;
+      // When the authority says which digest it bound over the parameters,
+      // it must be the digest of the parameters this process captured, under
+      // a canonicalization this process can reproduce. A digest under a
+      // profile this package cannot compute is not "probably fine": it is a
+      // claim about the payload that cannot be checked, and is refused.
+      const payloadDigest = claims.binding.execution_payload_digest ?? undefined;
+      const payloadDigestDisagrees =
+        payloadDigest !== undefined &&
+        (claims.binding.execution_payload_canonicalization_profile !== JCS_PROFILE ||
+          payloadDigest !== DecionisGrantVerifier.parametersDigest(captured.intent.parameters));
       if (
         parsed.should_execute === false ||
         typeof parsed.claim_token !== "string" ||
         claims.binding.intent_hash !== captured.intentHash ||
         committedEffectDigest !== captured.intent.expectedEffectDigest ||
+        payloadDigestDisagrees ||
         claims.decision_id !== decision.decisionId ||
         claims.dossier_id !== decision.dossierId ||
         claims.org_id !== captured.intent.tenantId ||
@@ -325,6 +383,7 @@ export class DecionisGrantVerifier implements AuthorizationVerifier {
       // window is the caller's decision, and the grant's own expiry is
       // already the outer bound this verifier checked above.
       const lease = parsed.claim_lease_expires_at;
+      const attestation = parsed.claim_attestation ?? undefined;
       const authorization: VerifiedAuthorization = Object.freeze({
         decisionId: claims.decision_id,
         dossierId: claims.dossier_id,
@@ -332,6 +391,8 @@ export class DecionisGrantVerifier implements AuthorizationVerifier {
         intentHash: claims.binding.intent_hash,
         expiresAt: new Date(claims.exp * 1_000).toISOString(),
         ...(typeof lease === "string" ? { leaseExpiresAt: lease } : {}),
+        ...(payloadDigest === undefined ? {} : { payloadDigest }),
+        ...(attestation === undefined ? {} : { claimAttestation: attestation }),
       });
       this.claims.set(authorization, {
         executionToken: decision.authorization.token,

@@ -10,11 +10,11 @@ configuration promise.
 
 ## Three chokepoints
 
-| Where a bypass is stopped                                                      | What bypassing then costs                     | State in this repository                                             |
-| ------------------------------------------------------------------------------ | --------------------------------------------- | -------------------------------------------------------------------- |
-| **The system of record refuses** an instruction not provably from the executor | Forging a signature, or compromising the host | `SIGNED_REQUEST` ships; nothing here makes a provider require it     |
-| **The credential the agent never holds**                                       | Taking it out of the executor's memory        | Enforced in the process; the kind decides how much it is worth       |
-| **The network**                                                                | One hop, where the CNI does not enforce       | Declared in `deploy/`, enforced by the cluster, probed from the zone |
+| Where a bypass is stopped                                                   | What bypassing then costs                                                      | State in this repository                                                                                                     |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| **The system of record refuses** an instruction the authority never claimed | Forging the authority's signature, or the executor's, or compromising the host | `SIGNED_REQUEST` covers the grant, the decision and the authority's claim attestation; the provider verifies both signatures |
+| **The credential the agent never holds**                                    | Taking it out of the executor's memory                                         | Enforced in the process; the kind decides how much it is worth                                                               |
+| **The network**                                                             | One hop, where the CNI does not enforce                                        | Declared in `deploy/`, enforced by the cluster, probed from the zone                                                         |
 
 ### The provider is the only party that can refuse
 
@@ -22,18 +22,29 @@ A network control stops an agent _reaching_ the provider. A provider-side contro
 _effecting_ anything. Only the second is a property of the system of record, and only the second
 survives a path nobody thought to close.
 
-`SIGNED_REQUEST` is the mechanism already here: an RFC 9421 signature over `@method`, `@path`,
-`content-digest`, `idempotency-key` and `x-agent-safe-intent-hash`, made with an Ed25519 key that
-lives only in the executor's secret store and is resolved inside the dispatch. A caller with a
-perfect route and a copied header cannot produce it. `packages/agentsafe/README.md` carries
-verifier pseudocode for the downstream side.
+`SIGNED_REQUEST` is the mechanism: an RFC 9421 signature, made with an Ed25519 key that lives
+only in the executor's secret store and is resolved inside the dispatch, over `@method`, `@path`,
+`content-digest`, `idempotency-key`, `x-agent-safe-intent-hash`, and on a dispatch
+`x-agent-safe-grant-id`, `x-agent-safe-decision-id` and `x-agent-safe-claim-attestation`. A
+caller with a perfect route and a copied set of headers cannot produce it.
 
-What it does **not** establish: the grant is not in the signature base, so the signature proves
-that this process sent this request, not that the authority authorized it. A compromised executor
-signs validly. Closing that needs the grant and decision identifiers in the base and a provider
-that checks them against the authority -- a change on both sides of the wire, not a configuration,
-and not something this repository can make alone. Until then this is honestly "the executor sent
-it", not "the authority allowed it".
+The attestation is what makes this the provider's check rather than the executor's word. On a
+live claim the authority returns a compact EdDSA JWS, signed with its execution-grant key, whose
+subject is the grant and whose payload names the decision, the dossier, the intent hash, the
+digest of the canonical parameters and the profile it used, a digest of the claim token, and an
+expiry equal to the claim lease. The executor forwards it and signs over it. The provider
+verifies the executor's signature with the executor's key, then the attestation with the
+authority's published JWKS, then checks that the request in hand is the one the attestation
+describes: grant, decision, intent hash, and the digest of the body it received. Two signatures
+from two parties over one request, and a body digest the authority committed to before the
+executor ever saw the provider.
+
+What a compromised executor can still do: sign a request the authority never claimed, which the
+provider refuses for lacking a valid attestation; or replay a claimed one inside the lease, which
+the provider refuses by keeping the grant id for the length of the lease. What it cannot do is
+make the authority attest to something it did not claim, because the attestation key is not in
+the executor. `packages/agentsafe/README.md` carries the full verification procedure, and the
+offline proof's strict provider double runs it against nothing but the authority's public keys.
 
 ### The credential is the strongest thing under this repository's control
 
@@ -98,13 +109,16 @@ reach a system of record through:
 
 Network policy addresses the first only by accident and the rest not at all. The one control that
 generalizes across every path is the system of record declining to effect an instruction that
-does not carry proof of a grant. That is why the first row of the table is the first row, and why
-the unbuilt half of it -- the grant inside the signature -- is the item worth the most.
+does not carry proof of a claim. That is why the first row of the table is the first row, and why
+it is the one worth insisting on: a provider that requires the attestation is a provider no
+agent, workflow, plugin or person can instruct without the authority having claimed it first.
 
 ## What to check, in order
 
 1. Set `DOWNSTREAM_CREDENTIAL_KIND=SIGNED_REQUEST` for anything touching a system of record, and
-   have the provider reject unsigned writes. Without the second half the first is decoration.
+   have the provider require the signature to cover the grant, the decision and the attestation,
+   and verify the attestation against the authority's JWKS. Without the provider's half the
+   executor's half is decoration.
 2. Confirm no provider credential exists anywhere in the agent zone.
 3. Apply the kit in `kustomization.yaml` order and confirm the CNI enforces NetworkPolicy, once,
    from a caller pod: see "Proving the boundary before you trust it" in `deploy/Runbook.md`.

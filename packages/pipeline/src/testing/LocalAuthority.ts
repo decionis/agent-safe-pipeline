@@ -15,7 +15,14 @@
  * Grants, claims, escalations, and commit outcomes are synthetic in-memory
  * state. Nothing here is a real policy, tenant, or credential.
  */
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import {
+  createHash,
+  generateKeyPairSync,
+  randomBytes,
+  randomUUID,
+  sign,
+  type KeyObject,
+} from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { z } from "zod";
 import { readBody, type LocalPresence } from "./LocalPresence.js";
@@ -30,6 +37,13 @@ const MAX_RECORDED_BODY_CHARS = 4_096;
 const SOCKET_TIMEOUT_MS = 10_000;
 const GRANT_TTL_MS = 60_000;
 const CLAIM_LEASE_MS = 30_000;
+/** The issuer the fixture's grants and attestations name; a provider double checks it. */
+export const LOCAL_AUTHORITY_ISSUER = "synthetic-authority";
+/** Where the fixture publishes its attestation key, at the path Decionis documents. */
+export const LOCAL_AUTHORITY_JWKS_PATH = "/.well-known/decionis-execution-grant-jwks.json";
+export const CLAIM_ATTESTATION_TYPE = "decionis-claim-attestation+jwt";
+/** The profile the fixture digests parameters under; the only one the pipeline reproduces. */
+const JCS_PROFILE = "RFC8785/JCS";
 
 const boundedId = z.string().trim().min(1).max(200);
 const sha256Digest = z.string().regex(/^sha256:[0-9a-f]{64}$/);
@@ -244,6 +258,8 @@ export interface LocalGrantRecord {
   readonly expiresAt: number;
   readonly nonce: string;
   readonly bindingDigest: string;
+  /** The digest the authority bound over the canonical action parameters. */
+  readonly payloadDigest: string;
   /** The expected-effect digest committed at enforce-and-bind; null when none was bound. */
   readonly expectedEffectDigest: string | null;
   /** Present for direct grants issued on client-supplied evidence; null for managed grants. */
@@ -291,6 +307,29 @@ export interface LocalAuthorityOptions {
    */
   readonly trustedEffectObserverIds?: readonly string[];
   readonly clock?: () => number;
+}
+
+/** What one claim attestation says, as the fixture signs it and a provider double reads it. */
+export interface LocalClaimAttestationClaims {
+  readonly iss: string;
+  readonly sub: string;
+  readonly org_id: string;
+  readonly dossier_id: string;
+  readonly decision_id: string;
+  readonly binding: {
+    readonly intent_hash: string;
+    readonly execution_payload_digest: string;
+    readonly execution_payload_canonicalization_profile: string;
+    readonly expected_effect_digest?: string;
+    readonly execution_nonce: string;
+    readonly execution_correlation_id: string;
+  };
+  readonly claim_token_digest: string;
+  readonly claim_validated_at: string;
+  readonly jti: string;
+  readonly iat: number;
+  readonly nbf: number;
+  readonly exp: number;
 }
 
 /**
@@ -350,6 +389,19 @@ export class LocalAuthority {
   private readonly managedApproverId: string;
   private readonly trustedEffectObserverIds: readonly string[];
   private readonly clock: () => number;
+  private readonly attestationKey: {
+    readonly privateKey: KeyObject;
+    readonly publicJwk: JsonWebKey;
+  };
+  /** The `kid` the fixture's attestations name; a provider double looks it up in the JWKS. */
+  public readonly attestationKeyId = "synthetic-exec-grant-1";
+  /**
+   * A drill knob: when set, the next claim binds a digest over parameters
+   * other than the ones captured, which is what a tampered or mismatched
+   * authority looks like from the executor's side, and what BEAP-L3-BND-01
+   * says the executor must refuse.
+   */
+  public misbindNextPayloadDigest = false;
   private readonly overrides: Record<LocalAuthorityRoute, LocalRouteOverride[]> = {
     enforce: [],
     status: [],
@@ -371,6 +423,72 @@ export class LocalAuthority {
     this.managedApproverId = options.managedApproverId ?? "synthetic-managed-approver";
     this.trustedEffectObserverIds = options.trustedEffectObserverIds ?? [];
     this.clock = options.clock ?? Date.now;
+    const keys = generateKeyPairSync("ed25519");
+    this.attestationKey = {
+      privateKey: keys.privateKey,
+      publicJwk: keys.publicKey.export({ format: "jwk" }),
+    };
+  }
+
+  /** The fixture's JWKS, as `GET /.well-known/decionis-execution-grant-jwks.json` serves it. */
+  public get jwks(): { readonly keys: readonly Record<string, unknown>[] } {
+    return {
+      keys: [
+        { ...this.attestationKey.publicJwk, kid: this.attestationKeyId, alg: "EdDSA", use: "sig" },
+      ],
+    };
+  }
+
+  /**
+   * A compact JWS over the claim, signed the way Decionis signs one: EdDSA,
+   * the grant key, the attestation type in the protected header. Built with
+   * `node:crypto` alone so the fixture stays an independent implementation.
+   */
+  private attest(
+    grant: LocalGrantRecord,
+    claimValidatedAt: string,
+    leaseExpiresAt: string,
+  ): string {
+    const encode = (value: unknown): string =>
+      Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
+    const now = Math.floor(this.clock() / 1_000);
+    const claims: LocalClaimAttestationClaims = {
+      iss: LOCAL_AUTHORITY_ISSUER,
+      sub: grant.jti,
+      org_id: grant.tenantId,
+      dossier_id: grant.dossierId,
+      decision_id: grant.decisionId,
+      binding: {
+        intent_hash: grant.intentHash,
+        execution_payload_digest: grant.payloadDigest,
+        execution_payload_canonicalization_profile: JCS_PROFILE,
+        ...(grant.expectedEffectDigest === null
+          ? {}
+          : { expected_effect_digest: grant.expectedEffectDigest }),
+        execution_nonce: grant.nonce,
+        execution_correlation_id: grant.correlationId ?? "",
+      },
+      claim_token_digest: `sha256:${createHash("sha256")
+        .update(grant.claimToken ?? "", "utf8")
+        .digest("hex")}`,
+      claim_validated_at: claimValidatedAt,
+      jti: randomUUID(),
+      iat: now,
+      nbf: now,
+      exp: Math.floor(Date.parse(leaseExpiresAt) / 1_000),
+    };
+    const header = encode({
+      alg: "EdDSA",
+      kid: this.attestationKeyId,
+      typ: CLAIM_ATTESTATION_TYPE,
+    });
+    const payload = encode(claims);
+    const signature = sign(
+      null,
+      Buffer.from(`${header}.${payload}`, "ascii"),
+      this.attestationKey.privateKey,
+    );
+    return `${header}.${payload}.${signature.toString("base64url")}`;
   }
 
   public get baseUrl(): string {
@@ -434,6 +552,11 @@ export class LocalAuthority {
     } catch {
       record.body = truncate(raw);
       return this.send(res, record, 400, { error: "REQUEST_MALFORMED" });
+    }
+    // The verification keys are public, as Decionis's are: a provider double
+    // fetches them with no credential to the authority at all.
+    if (req.method === "GET" && url.pathname === LOCAL_AUTHORITY_JWKS_PATH) {
+      return this.send(res, record, 200, this.jwks);
     }
     if (req.headers.authorization !== `Bearer ${this.apiKey}`) {
       return this.send(res, record, 401, { error: "UNAUTHORIZED" });
@@ -595,6 +718,7 @@ export class LocalAuthority {
       expiresAt,
       nonce: randomBytes(32).toString("base64url"),
       bindingDigest,
+      payloadDigest: hashBinding(request.action.parameters),
       expectedEffectDigest: request.expected_effect_digest ?? null,
       receiptDossierId: approval?.receiptDossierId ?? null,
       claimed: false,
@@ -901,6 +1025,15 @@ export class LocalAuthority {
     grant.claimToken = randomBytes(32).toString("base64url");
     grant.correlationId = parsed.data.commit_correlation_id ?? intent.data.intent_id;
     grant.consumedBy = parsed.data.consumed_by ?? null;
+    const claimValidatedAt = new Date(this.clock()).toISOString();
+    const leaseExpiresAt = new Date(this.clock() + CLAIM_LEASE_MS).toISOString();
+    // The drill knob: an authority that bound a digest over other parameters.
+    // It is consumed by one claim, so the executor's refusal is the one
+    // observation and the next proposal sees an honest authority again.
+    const payloadDigest = this.misbindNextPayloadDigest
+      ? hashBinding({ ...(intent.data.action.parameters as object), synthetic_tamper: true })
+      : grant.payloadDigest;
+    this.misbindNextPayloadDigest = false;
     return {
       status: 200,
       body: {
@@ -910,7 +1043,7 @@ export class LocalAuthority {
         verdict: "ALLOW",
         reason_codes: [],
         claims: {
-          iss: "synthetic-authority",
+          iss: LOCAL_AUTHORITY_ISSUER,
           sub: grant.actorId,
           aud: grant.audience,
           org_id: grant.tenantId,
@@ -923,6 +1056,8 @@ export class LocalAuthority {
           binding: {
             intent_hash: grant.intentHash,
             execution_binding_digest: grant.bindingDigest,
+            execution_payload_digest: payloadDigest,
+            execution_payload_canonicalization_profile: JCS_PROFILE,
             execution_nonce: grant.nonce,
             execution_correlation_id: grant.correlationId,
             ...(grant.expectedEffectDigest === null
@@ -935,7 +1070,13 @@ export class LocalAuthority {
           exp: grant.expiresAt,
         },
         claim_token: grant.claimToken,
-        claim_lease_expires_at: new Date(this.clock() + CLAIM_LEASE_MS).toISOString(),
+        claim_validated_at: claimValidatedAt,
+        claim_lease_expires_at: leaseExpiresAt,
+        claim_attestation: this.attest(
+          { ...grant, payloadDigest },
+          claimValidatedAt,
+          leaseExpiresAt,
+        ),
         evidence: { nonce_claim_state: "CLAIMED", commit_correlation_id: grant.correlationId },
       },
     };

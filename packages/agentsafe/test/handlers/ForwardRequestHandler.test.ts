@@ -78,6 +78,9 @@ describe("forward_request handler", () => {
       "content-type": "application/json",
       "idempotency-key": "payout 1/v1",
       "x-agent-safe-intent-hash": intent.intentHash,
+      // The grant this dispatch executes under rides with it, so a downstream
+      // that signs can bind the two and one that does not can still log them.
+      "x-agent-safe-grant-id": "fixture_grant_1",
       "x-agent-safe-decision-id": "fixture_decision_1",
       "x-agent-safe-dossier-id": "fixture_dossier_1",
     });

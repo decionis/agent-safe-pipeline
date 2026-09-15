@@ -5,7 +5,12 @@ import {
   type JsonObject,
 } from "@decionis/agent-safe-pipeline";
 import type { DownstreamConfig } from "../config/ExecutorConfig.js";
-import type { DownstreamCredential } from "../credential/DownstreamCredential.js";
+import type {
+  DownstreamCredential,
+  DownstreamRequest,
+} from "../credential/DownstreamCredential.js";
+import { grantOf } from "../credential/GrantOf.js";
+import { SignedRequestCredential } from "../credential/SignedRequestCredential.js";
 import { dispatchBudgetMs, MonotonicDeadline } from "../time/MonotonicClock.js";
 import type { FetchLike, HandlerRegistration } from "./HandlerRegistration.js";
 
@@ -49,18 +54,20 @@ export function registerHandlers(
     // that cannot be obtained or a key that cannot sign is a failure before
     // dispatch, never an unknown outcome; it exists only here, on the
     // trusted side of the boundary, and only for this request.
-    const credentialHeaders = await credential.headersFor({
+    const request: DownstreamRequest = {
       method: "POST",
       url: downstream.url,
       body,
       idempotencyKey: dispatch.idempotencyKey,
       intentHash: intent.intentHash,
-    });
+      grant: grantOf(authorization),
+    };
+    const credentialHeaders = await credential.headersFor(request);
     // The provider is never given more time than the authorization has left:
     // a slow call cannot outlive the permission it was made under, and the
     // budget is monotonic, so correcting the wall clock cannot extend it.
     const deadline = MonotonicDeadline.after(dispatchBudgetMs(downstream.timeoutMs, authorization));
-    return await dispatch.run(async (idempotencyKey) => {
+    return await dispatch.run(async () => {
       // Everything after this line is the point of no return: a transport
       // failure here is an unknown outcome, never a failure to retry.
       const response = await fetchImpl(downstream.url, {
@@ -68,9 +75,11 @@ export function registerHandlers(
         headers: {
           ...credentialHeaders,
           "content-type": "application/json",
-          "idempotency-key": idempotencyKey,
-          "x-agent-safe-intent-hash": intent.intentHash,
-          "x-agent-safe-decision-id": authorization.decisionId,
+          // Every header a signing credential covers, with the value it
+          // signed: the key and intent hash, the grant and decision this
+          // dispatch executes under, and the authority's attestation of the
+          // claim when it gave one. The dossier id rides beside them.
+          ...SignedRequestCredential.coveredHeaders(request),
           "x-agent-safe-dossier-id": authorization.dossierId,
         },
         body,

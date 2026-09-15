@@ -244,6 +244,85 @@ describe("DecionisGrantVerifier", () => {
     expect(nonsense).toBeNull();
   });
 
+  it("refuses a claim whose bound payload digest is not the digest of the captured parameters", async () => {
+    const { captured, decision, claimResponse, claims } = setup();
+    const bound = (binding: Record<string, unknown>) =>
+      verifierWith(
+        vi.fn<typeof fetch>(async () =>
+          json({
+            ...claimResponse,
+            claims: { ...claims, binding: { ...claims.binding, ...binding } },
+          }),
+        ),
+      ).verifyAndConsume(captured, decision);
+    const own = DecionisGrantVerifier.parametersDigest(captured.intent.parameters);
+    // The authority bound exactly what this process captured: authorized, and
+    // the digest rides on the authorization for a handler to show downstream.
+    const agreed = await bound({
+      execution_payload_digest: own,
+      execution_payload_canonicalization_profile: "RFC8785/JCS",
+    });
+    expect(agreed?.payloadDigest).toBe(own);
+    // A different digest is a different payload, whatever the authority calls it.
+    expect(
+      await bound({
+        execution_payload_digest: `sha256:${"e".repeat(64)}`,
+        execution_payload_canonicalization_profile: "RFC8785/JCS",
+      }),
+    ).toBeNull();
+    // The right digest under a profile this package cannot reproduce is a
+    // claim it cannot check, and an unchecked claim about the payload is refused.
+    expect(
+      await bound({
+        execution_payload_digest: own,
+        execution_payload_canonicalization_profile: "DECIONIS_SORTED_JSON_V1",
+      }),
+    ).toBeNull();
+    expect(await bound({ execution_payload_digest: own })).toBeNull();
+    // No digest, a null one, or one this package cannot read: no comparison,
+    // exactly as before the field was read at all.
+    for (const absent of [
+      {},
+      { execution_payload_digest: null },
+      { execution_payload_digest: 7 },
+    ]) {
+      const authorization = await bound(absent);
+      expect(authorization).not.toBeNull();
+      expect("payloadDigest" in (authorization ?? {})).toBe(false);
+    }
+  });
+
+  it("digests the parameters in their canonical form, so key order cannot change the answer", () => {
+    const forward = DecionisGrantVerifier.parametersDigest({ a: 1, b: { c: [1, "x"], d: null } });
+    const shuffled = DecionisGrantVerifier.parametersDigest({ b: { d: null, c: [1, "x"] }, a: 1 });
+    expect(forward).toBe(shuffled);
+    expect(forward).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(DecionisGrantVerifier.parametersDigest({ a: 2 })).not.toBe(forward);
+  });
+
+  it("carries the claim attestation for the downstream, and never verifies it itself", async () => {
+    const { captured, decision, claimResponse } = setup();
+    const attestation = ["header", "payload", "signature"]
+      .map((part) => Buffer.from(part).toString("base64url"))
+      .join(".");
+    const carried = await verifierWith(
+      vi.fn<typeof fetch>(async () => json({ ...claimResponse, claim_attestation: attestation })),
+    ).verifyAndConsume(captured, decision);
+    expect(carried?.claimAttestation).toBe(attestation);
+    // Absent, null, or not a compact JWS: nothing is carried, and the grant
+    // still authorizes, because the attestation is the downstream's to
+    // require and this verifier is not its audience.
+    for (const value of [undefined, null, "not a jws", "two.parts"]) {
+      const body = { ...claimResponse, claim_attestation: value };
+      if (value === undefined) delete (body as { claim_attestation?: unknown }).claim_attestation;
+      const authorization = await verifierWith(
+        vi.fn<typeof fetch>(async () => json(body)),
+      ).verifyAndConsume(captured, decision);
+      expect(authorization).not.toBeNull();
+      expect("claimAttestation" in (authorization ?? {})).toBe(false);
+    }
+  });
+
   it("reads the credential at each request, so a rotation needs no new client", async () => {
     const { captured, decision, claimResponse } = setup();
     const seen: string[] = [];
