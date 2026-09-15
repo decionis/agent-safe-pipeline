@@ -47,6 +47,24 @@ export interface ExecutionBlockedResult {
   readonly authorization: null;
 }
 
+/**
+ * The provider refused, definitively, after the dispatch boundary. The grant
+ * was consumed and the request was sent, and nothing was effected: the
+ * outcome is a fact, not an unknown, so there is nothing to reconcile and no
+ * recovery reference to present. A caller that wants the action after all
+ * needs a fresh decision and a fresh grant, because the refusal was about
+ * this attempt.
+ */
+export interface ProviderRefusedResult {
+  readonly outcome: "DEFINITELY_NOT_EXECUTED";
+  readonly executed: false;
+  readonly recovered: false;
+  /** The provider's own reason, as the handler reported it. */
+  readonly reason: string;
+  readonly result: null;
+  readonly authorization: VerifiedAuthorization;
+}
+
 export interface ProviderOutcomeUnknownResult {
   readonly outcome: "UNKNOWN_AFTER_DISPATCH";
   readonly executed: null;
@@ -79,6 +97,7 @@ export type SafeExecutionResult<TResult = unknown> =
       readonly authorization: VerifiedAuthorization;
       readonly finalization: ExecutionFinalization;
     }
+  | (ProviderRefusedResult & { readonly finalization: ExecutionFinalization })
   | (ProviderOutcomeUnknownResult & { readonly finalization: ExecutionFinalization });
 
 export type ExecutionReconciliationResult<TResult = unknown> =
@@ -217,6 +236,32 @@ export class SafeExecutor {
         "HANDLER_FAILED_BEFORE_DISPATCH",
         startedAt,
       );
+    }
+    if (attempt.status === "REFUSED_AFTER_DISPATCH") {
+      // The provider said no. That is an outcome, so it is finalized `FAILED`
+      // rather than left indeterminate, and `executed` is false rather than
+      // null: nothing about it is unknown.
+      const finalization = await this.finalize(captured, decision, authorization, "FAILED");
+      const result: SafeExecutionResult<TResult> = {
+        outcome: "DEFINITELY_NOT_EXECUTED",
+        executed: false,
+        recovered: false,
+        reason: attempt.reason,
+        result: null,
+        authorization,
+        finalization,
+      };
+      // Stryker disable all: Audit payload mapping is covered by lifecycle event assertions.
+      await this.record({
+        eventType: "EXECUTION_REFUSED_AFTER_DISPATCH",
+        captured,
+        decision,
+        authorization,
+        reasonCodes: [attempt.reason, SafeExecutor.finalizationCode(finalization)],
+        durationMs: Date.now() - startedAt,
+      });
+      // Stryker restore all
+      return result;
     }
     if (attempt.status === "UNKNOWN_AFTER_DISPATCH") {
       const finalization = await this.finalize(captured, decision, authorization, "INDETERMINATE");

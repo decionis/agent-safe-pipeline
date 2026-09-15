@@ -3,7 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 import { AuditRecorder, type AuditEventV1 } from "../../src/audit/AuditRecorder.js";
 import type { GateDecision } from "../../src/decision/DecisionAuthority.js";
 import { createFixtureAuthorityPair } from "../../src/decision/FixtureDecisionAuthority.js";
-import { ActionRegistry, type ActionExecutionContext } from "../../src/execution/ActionRegistry.js";
+import {
+  ActionRegistry,
+  ProviderRefusal,
+  type ActionExecutionContext,
+} from "../../src/execution/ActionRegistry.js";
 import type {
   AuthorizationVerifier,
   VerifiedAuthorization,
@@ -406,10 +410,74 @@ describe("SafeExecutor", () => {
     );
   });
 
+  it("reports a provider's own refusal as a fact, with nothing left to reconcile", async () => {
+    const registry = new ActionRegistry()
+      .register("refund_order", {
+        parametersSchema: z.object({ amount: z.number(), currency: z.string() }),
+        execute: async ({ dispatch }) =>
+          await dispatch.run(async () => {
+            throw new ProviderRefusal("POLICY_STATE_CHANGED");
+          }),
+      })
+      .seal();
+    const pair = createFixtureAuthorityPair(() => "ALLOW", {
+      unsafeAllowDevelopmentFixture: true,
+    });
+    const intent = captured();
+    const result = await new SafeExecutor(registry, pair.verifier).run(
+      intent,
+      await pair.authority.evaluate(intent),
+    );
+    expect(result).toMatchObject({
+      outcome: "DEFINITELY_NOT_EXECUTED",
+      executed: false,
+      recovered: false,
+      reason: "POLICY_STATE_CHANGED",
+      result: null,
+    });
+    // Nothing to reconcile: the outcome is known, so there is no recovery
+    // reference to present and no second dispatch to be tempted by.
+    expect("recovery" in result).toBe(false);
+    expect(result.authorization).not.toBeNull();
+  });
+
+  it("will not let a refusal be claimed for a request that was never sent", async () => {
+    // Thrown before the dispatch, a refusal is a handler failure: nothing
+    // reached the provider, so nothing was refused, and calling it
+    // "definitely not executed" would be a claim about a provider that was
+    // never asked.
+    const registry = new ActionRegistry()
+      .register("refund_order", {
+        parametersSchema: z.object({ amount: z.number(), currency: z.string() }),
+        execute: () => {
+          throw new ProviderRefusal("NEVER_SENT");
+        },
+      })
+      .seal();
+    const pair = createFixtureAuthorityPair(() => "ALLOW", {
+      unsafeAllowDevelopmentFixture: true,
+    });
+    const intent = captured();
+    expect(
+      await new SafeExecutor(registry, pair.verifier).run(
+        intent,
+        await pair.authority.evaluate(intent),
+      ),
+    ).toMatchObject({
+      outcome: "FAILED_BEFORE_DISPATCH",
+      executed: false,
+      reason: "HANDLER_FAILED_BEFORE_DISPATCH",
+    });
+  });
+
   it("finalizes every consumed grant with the attempt outcome without changing the result", async () => {
     const scenarios: Array<{
       readonly execute: (context: ActionExecutionContext<{ amount: number }>) => Promise<unknown>;
-      readonly outcome: "COMPLETED" | "FAILED_BEFORE_DISPATCH" | "UNKNOWN_AFTER_DISPATCH";
+      readonly outcome:
+        | "COMPLETED"
+        | "FAILED_BEFORE_DISPATCH"
+        | "DEFINITELY_NOT_EXECUTED"
+        | "UNKNOWN_AFTER_DISPATCH";
       readonly commit: "COMMITTED" | "FAILED" | "INDETERMINATE";
       readonly eventType: string;
       readonly reasonCodes: readonly string[];
@@ -439,6 +507,18 @@ describe("SafeExecutor", () => {
         commit: "INDETERMINATE",
         eventType: "EXECUTION_OUTCOME_UNKNOWN",
         reasonCodes: ["PROVIDER_OUTCOME_UNKNOWN", "COMMIT_FINALIZATION_RECORDED"],
+      },
+      {
+        // The provider was reached and said no. That is an outcome, so the
+        // commit is `FAILED` rather than indeterminate.
+        execute: async ({ dispatch }) =>
+          await dispatch.run(async () => {
+            throw new ProviderRefusal("INSUFFICIENT_FUNDS");
+          }),
+        outcome: "DEFINITELY_NOT_EXECUTED",
+        commit: "FAILED",
+        eventType: "EXECUTION_REFUSED_AFTER_DISPATCH",
+        reasonCodes: ["INSUFFICIENT_FUNDS", "COMMIT_FINALIZATION_RECORDED"],
       },
     ];
 

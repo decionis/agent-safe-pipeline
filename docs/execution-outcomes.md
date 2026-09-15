@@ -4,23 +4,40 @@ Grant consumption and provider execution are separate boundaries. A single-use g
 before a handler runs, but a provider may accept a side effect and lose the response. Treating that
 case as an ordinary failure invites a duplicate retry.
 
-`SafeExecutor.run` therefore returns one of four outcomes:
+`SafeExecutor.run` therefore returns one of five outcomes:
 
-| Outcome                  | Meaning                                                                          | May the caller retry the side effect? |
-| ------------------------ | -------------------------------------------------------------------------------- | ------------------------------------- |
-| `BLOCKED`                | No valid execution authority reached the handler                                 | Obtain or correct authority first     |
-| `FAILED_BEFORE_DISPATCH` | A grant was consumed, but the trusted provider-dispatch boundary was not crossed | Only with a fresh decision and grant  |
-| `COMPLETED`              | The trusted handler returned a provider result                                   | No; return or persist that result     |
-| `UNKNOWN_AFTER_DISPATCH` | Dispatch began, but completion could not be proved                               | No; reconcile first                   |
+| Outcome                   | Meaning                                                                          | May the caller retry the side effect? |
+| ------------------------- | -------------------------------------------------------------------------------- | ------------------------------------- |
+| `BLOCKED`                 | No valid execution authority reached the handler                                 | Obtain or correct authority first     |
+| `FAILED_BEFORE_DISPATCH`  | A grant was consumed, but the trusted provider-dispatch boundary was not crossed | Only with a fresh decision and grant  |
+| `COMPLETED`               | The trusted handler returned a provider result                                   | No; return or persist that result     |
+| `DEFINITELY_NOT_EXECUTED` | Dispatch began and the provider refused it; nothing was effected                 | Only with a fresh decision and grant  |
+| `UNKNOWN_AFTER_DISPATCH`  | Dispatch began, but completion could not be proved                               | No; reconcile first                   |
 
-`executed` is `true`, `false`, or `null` respectively so an unknown outcome cannot be mistaken for a
-definite failure.
+`executed` is `true`, `false`, `false`, or `null` respectively so an unknown outcome cannot be
+mistaken for a definite failure, and a definite failure cannot be mistaken for an unknown one.
+
+## Telling a refusal from an unknown
+
+A handler reports a definitive refusal by throwing `ProviderRefusal` from inside `dispatch.run`.
+Without it a handler has two ways to report a refusal and neither is true: returning normally says
+the side effect happened, and throwing anything else says the outcome is unknown, which invites a
+reconciliation of something that never needed one.
+
+Only the provider's own deterministic refusal belongs in it — a 4xx with a body naming the rule
+that refused. A timeout, a 5xx, a dropped connection, or an answer that cannot be read is not a
+refusal, and throwing `ProviderRefusal` for one of those would turn "nobody knows" into
+"definitely not", which is the one direction this boundary must never move in.
+
+Thrown before the dispatch it is a handler failure like any other, because nothing was sent for
+anyone to refuse.
 
 ## Finalization
 
 Every outcome that consumed a grant also reports `finalization`. After the attempt, `SafeExecutor`
 asks the verifier to record the commit outcome with the authority: `COMMITTED` for `COMPLETED`,
-`FAILED` for `FAILED_BEFORE_DISPATCH`, and `INDETERMINATE` for `UNKNOWN_AFTER_DISPATCH`.
+`FAILED` for `FAILED_BEFORE_DISPATCH` and for `DEFINITELY_NOT_EXECUTED`, and `INDETERMINATE` for
+`UNKNOWN_AFTER_DISPATCH`.
 `DecionisGrantVerifier` claims the grant through `/v1/execution/claim-token` and finalizes it through
 `/v1/execution/finalize-token`, so commit evidence joins the Decision Dossier chain.
 
@@ -161,24 +178,25 @@ plane says the rest:
 
 `agent-safe.audit/1` lines are unchanged by any of this.
 
-## The FAILED-after-dispatch divergence
+## A refusal after dispatch
 
-One case is named rather than hidden. When the provider refused **deterministically after the
-dispatch**, the handler returns a result whose own outcome is `FAILED`, and the response reads:
+When the provider was reached and refused deterministically, the adapter registers what it
+observed and then throws `ProviderRefusal`. The response reads:
 
 ```json
-{
-  "outcome": "COMPLETED",
-  "executed": true,
-  "effect": { "outcome": "FAILED", "confirmation": "NOT_EFFECTED" }
-}
+{ "outcome": "DEFINITELY_NOT_EXECUTED", "executed": false, "result": null, "effect": null }
 ```
 
-`SafeExecutor` asked the verifier to finalize `COMMITTED` because the handler returned; the effect
-plane says nothing was effected. Both statements are true of different things, and the second is
-the one an operator acts on. The clean fix is a pipeline change — a handler signal for a definitive
-post-dispatch refusal, so `SafeExecutor` reports `executed: false` and finalizes `FAILED` itself —
-and that touches the mutation-gated file, so it is a follow-up rather than part of this boundary.
+Until the pipeline had a signal for this, an adapter could only return a result, so the same case
+read `outcome: COMPLETED, executed: true` with an effect block saying nothing was effected — two
+true statements about different things, and the second was the one an operator acted on. That
+divergence is gone.
+
+The `effect` block is `null`, because a handler that throws returns no result to read one from.
+What the caller learns instead is the provider's own reason, in `reason_codes`. The full
+observation is not lost: the adapter registers it before throwing, so the authority receives the
+effect evidence with the finalization exactly as it would for a commit, and the executor's own
+security stream carries `PROVIDER_REFUSED` with the code.
 
 ## Trusted handler contract
 

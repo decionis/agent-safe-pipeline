@@ -58,6 +58,7 @@ The binder runs on capture, and every disagreement is a `422` that costs no doss
 | §21 Credential isolation                 | Satisfied   | A handler never holds a credential value; headers are resolved at the moment of dispatch from the secret store |
 | §22.7 Expected-effect projection         | Partial     | The registry's fields are mirrored exactly; the **path** each field is read from is this executor's own rule   |
 | §22.8 Effect comparison and mismatch     | Satisfied   | Field by field over the projection; a mismatch is named, recorded, alerted, and by default halts the executor  |
+| §22 Deterministic refusal                | Satisfied   | A provider reached and refusing is reported as definitely not executed, carrying its own reason code           |
 | §22 Observation methods                  | Satisfied   | Only a method the registry marks sufficient can confirm; an acknowledgement never does                         |
 | §19 Claim before commit                  | Satisfied   | The grant is claimed before the dispatch and the claim is journaled before the side effect                     |
 | BEAP-L3-CLM-06 claim lease               | Satisfied   | The authority's `claim_lease_expires_at` reaches the executor as `leaseExpiresAt` and bounds every dispatch    |
