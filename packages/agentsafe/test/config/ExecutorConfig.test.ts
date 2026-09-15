@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CONFIG_KEYS, SECRET_KEYS } from "../../src/config/ConfigKeys.js";
 import { ExecutorConfigLoader } from "../../src/config/ExecutorConfig.js";
+import { EgressPolicy } from "../../src/egress/EgressPolicy.js";
 import { CALLER_TOKEN, DOWNSTREAM_CREDENTIAL, offlineEnvironment } from "../support/Environment.js";
 
 const direct = (): Record<string, string> => ({
@@ -636,6 +637,58 @@ describe("ExecutorConfigLoader", () => {
         DOWNSTREAM_SIGNING_KEY_ID: "k2",
       }),
     ).toBe("CONFIG_SECRET_MISSING: DOWNSTREAM_SIGNING_KEY");
+  });
+
+  it("defaults the banking family and takes the institution's exception policy", () => {
+    const defaults = ExecutorConfigLoader.load(offlineEnvironment()).banking;
+    expect(defaults).toEqual({
+      adapterId: "AGENTSAFE_CORE_BANKING",
+      adapterVersion: "0.1.0",
+      onEffectMismatch: "HALT",
+      lookupByReferenceUrl: null,
+    });
+    const configured = ExecutorConfigLoader.load({
+      ...offlineEnvironment(),
+      BANKING_ADAPTER_ID: "SYNTHETIC_CORE",
+      BANKING_ADAPTER_VERSION: "1.2.3",
+      EXECUTOR_ON_EFFECT_MISMATCH: "ALERT",
+      DOWNSTREAM_LOOKUP_BY_REFERENCE_URL:
+        "https://payouts.provider.example/v1/by/{provider_reference}",
+    }).banking;
+    expect(configured).toEqual({
+      adapterId: "SYNTHETIC_CORE",
+      adapterVersion: "1.2.3",
+      onEffectMismatch: "ALERT",
+      lookupByReferenceUrl: "https://payouts.provider.example/v1/by/{provider_reference}",
+    });
+  });
+
+  it("refuses a read-back address with no place to put the provider's reference", () => {
+    expect(
+      refusal({
+        ...offlineEnvironment(),
+        DOWNSTREAM_LOOKUP_BY_REFERENCE_URL: "https://payouts.provider.example/v1/by/latest",
+      }),
+    ).toBe(
+      "CONFIG_INVALID: DOWNSTREAM_LOOKUP_BY_REFERENCE_URL (must contain {provider_reference})",
+    );
+    expect(refusal({ ...offlineEnvironment(), EXECUTOR_ON_EFFECT_MISMATCH: "IGNORE" })).toContain(
+      "EXECUTOR_ON_EFFECT_MISMATCH",
+    );
+  });
+
+  it("admits the read-back address to the sealed egress allowlist, and nothing else", () => {
+    const config = ExecutorConfigLoader.load({
+      ...offlineEnvironment(),
+      DOWNSTREAM_LOOKUP_BY_REFERENCE_URL:
+        "https://readback.provider.example/v1/by/{provider_reference}",
+    });
+    const policy = EgressPolicy.fromConfig(config, () => "");
+    expect(
+      policy.check(new URL("https://readback.provider.example/v1/by/fixture_ref_1")).allowed,
+    ).toBe(true);
+    expect(policy.check(new URL("https://readback.provider.example/v2/other")).allowed).toBe(false);
+    expect(policy.check(new URL("https://elsewhere.provider.example/v1/by/x")).allowed).toBe(false);
   });
 
   it("lists every schema key and every secret in CONFIG_KEYS", () => {

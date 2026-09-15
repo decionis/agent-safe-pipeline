@@ -179,6 +179,7 @@ The answer, in enforcement:
   "authorization": { "decision_id": "…", "dossier_id": "…", "grant_id": "…", "expires_at": "…" },
   "finalization": "RECORDED",
   "result": { "status": 202, "accepted": true },
+  "effect": null,
   "recovery": null
 }
 ```
@@ -191,6 +192,16 @@ and the reason codes. An `ESCALATE` comes back the same way, plus an `escalation
 executor is configured to resolve one (below); with `EXECUTOR_ESCALATION=NONE` the hold is the
 answer. `authorization` is the consumed binding, kept as evidence; the grant token itself never
 leaves the process.
+
+`effect` is what the adapter observed, for a family that has an effect plane: the outcome, the
+confirmation, the comparison against what was authorised, the fields that differ, the observation
+method, both effect digests, the response digest, the provider's reference, and the digest of the
+record itself. It is `null` for an action with no adapter, and it never carries a provider body, a
+parameter, or a credential. An observed effect that is not the authorised one leaves `outcome` at
+`COMPLETED`, because the handler returned, and says the rest in this block with `EFFECT_MISMATCH`
+among the reason codes; what the executor then does about it is
+`EXECUTOR_ON_EFFECT_MISMATCH`. The states and the mismatch behaviour are in
+[execution outcomes](https://github.com/decionis/agent-safe-pipeline/blob/master/docs/execution-outcomes.md).
 
 In shadow, `mode` is `SHADOW`, `outcome` is the observation status (`OBSERVED`, `UNAVAILABLE`,
 `TIMED_OUT`, `INVALID`), `executed` is always `false`, and `authorization` is always `null`. The
@@ -294,6 +305,9 @@ network path has a default.
 | `DOWNSTREAM_SIGNING_ALGORITHM`                                | `SIGNED_REQUEST`: `ed25519` (the default) or `hmac-sha256`                                                                 |
 | `DOWNSTREAM_CA_FILE`, `DOWNSTREAM_SPKI_PINS`                  | Optional: the PEM bundle the downstream is verified against, and two or more `sha256/<base64>` SPKI pins                   |
 | `DOWNSTREAM_TIMEOUT_MS`                                       | Finite, at most fifteen seconds                                                                                            |
+| `DOWNSTREAM_LOOKUP_BY_REFERENCE_URL`                          | Optional read-back by the provider's own reference; must contain `{provider_reference}`                                    |
+| `BANKING_ADAPTER_ID`, `BANKING_ADAPTER_VERSION`               | The observer identity the effect evidence names; `AGENTSAFE_CORE_BANKING` and `0.1.0` by default                           |
+| `EXECUTOR_ON_EFFECT_MISMATCH`                                 | `HALT` (the default) or `ALERT`: what an observed effect that is not the authorised one does                               |
 
 ## Principals
 
@@ -661,13 +675,61 @@ recorded as `OPERATOR_ACTION` with the principal and the action.
 ## The seam
 
 A `HandlerRegistration` receives the registry, the downstream configuration, the credential that
-proves this process to the downstream, and the fetch it may use, registers what this process can
-run, and returns the action names in the order `/ready` reports them. The registry is sealed the
+proves this process to the downstream, the fetch it may use, the register where a handler that
+observes an effect records what it saw, and the family's own settings, registers what this process
+can run, and returns the action names in the order `/ready` reports them. The registry is sealed the
 moment it returns. Keep the shape: a strict parameter schema, the side effect inside
 `dispatch.run` so a transport failure after the point of no return is reported as unknown rather
 than retried, and a `reconcile` that only reads. The credential is resolved on this side of the
 boundary at the moment of dispatch and handed to the handler as headers; the agent never sees it
 and cannot name it.
+
+## Adapters
+
+An adapter is how a family of consequential actions reaches a provider, and it is deliberately
+four small methods, three of them pure:
+
+| Method          | What it does                                                                      |
+| --------------- | --------------------------------------------------------------------------------- |
+| `prepare`       | Works out what the action asks for and what its effect should be. Reaches nothing |
+| `execute`       | Performs the side effect, once, inside the dispatch the pipeline opened           |
+| `observeEffect` | Reads what the provider said into the family's projection. Pure                   |
+| `reconcile`     | Asks the provider what it did with an idempotency key. Read-only, always          |
+
+`adapterActionHandler` bridges any adapter to the pipeline's `ActionHandler`: prepare, then the
+side effect inside `dispatch.run` bounded by the smaller of the timeout and what is left of the
+grant, then the observation, then the comparison field by field against what was authorised, then
+the record, registered against that exact authorization for the verifier to finalize with. A
+provider that neither committed nor refused throws, so the outcome is reported as unknown rather
+than guessed. `SafeExecutor` and the pipeline's registry are untouched.
+
+A second family is a new directory beside `banking/`, not a rewrite: the handler bridge, the
+comparison, the evidence and the verifier all work off the adapter contract alone.
+
+### The banking family
+
+`bankingHandlers()` registers every action type this build mirrors from the BEAP v0.1 profile,
+each bridged to the same adapter over the configured downstream. An action arrives as the
+canonical `BankingAction` in the proposal's parameters, and the executor derives the transport's
+action name and target from it rather than trusting them; a disagreement is a refusal before the
+authority is asked. The amount is read as a `bigint` of minor units at the currency's own ISO 4217
+scale, and an `iban:` reference is check-digit validated.
+
+The reference transport maps the provider's answer without inferring anything:
+
+| The provider says                         | This boundary reports                       |
+| ----------------------------------------- | ------------------------------------------- |
+| 2xx, a status meaning it took the request | Committed, acknowledged, not yet confirmed  |
+| 2xx, a status meaning it posted           | Committed, then read back before confirming |
+| a deterministic refusal with a body       | Failed; nothing was effected                |
+| anything else: no body, a timeout, a 5xx  | Indeterminate, and reconciliation owns it   |
+
+An adopter with their own core replaces the transport and keeps everything else, because the
+profile's arithmetic, the projection, the comparison and the evidence belong to the adapter rather
+than the transport. What the executor implements of the profile, and what it does not claim, is in
+[BEAP conformance](https://github.com/decionis/agent-safe-pipeline/blob/master/docs/beap-conformance.md);
+the confirmation states and the mismatch behaviour are in
+[execution outcomes](https://github.com/decionis/agent-safe-pipeline/blob/master/docs/execution-outcomes.md).
 
 ## The image
 

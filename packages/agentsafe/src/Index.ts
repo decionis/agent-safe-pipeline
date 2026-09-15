@@ -1,4 +1,104 @@
 export {
+  adapterActionHandler,
+  effectBlock,
+  type AdapterExecutionResult,
+  type AdapterHandlerOptions,
+} from "./adapters/AdapterActionHandler.js";
+export {
+  IndeterminateOutcome,
+  type AdapterExecution,
+  type AdapterReconciliation,
+  type EffectAdapter,
+  type ObservationMethod,
+  type PreparedAction,
+  type ProjectionValue,
+  type ProviderReconciliationResult,
+  type ProviderResult,
+} from "./adapters/EffectAdapter.js";
+export {
+  EffectAwareGrantVerifier,
+  type EffectAwareGrantVerifierOptions,
+} from "./adapters/EffectAwareGrantVerifier.js";
+export {
+  compareEffect,
+  type Comparison,
+  type EffectComparisonResult,
+} from "./adapters/EffectComparison.js";
+export {
+  authorityEffectEvidence,
+  buildEffectRecord,
+  confirmationFor,
+  type ConfirmationStatus,
+  type EffectOutcome,
+  type EvidenceInput,
+} from "./adapters/EffectEvidenceBuilder.js";
+export {
+  EffectEvidenceRegister,
+  type RegisteredEffect,
+} from "./adapters/EffectEvidenceRegister.js";
+export {
+  assertIJson,
+  isWellFormedUtf16,
+  jcsCanonical,
+  jcsDigest,
+  JcsError,
+  type Sha256,
+} from "./adapters/JcsDigest.js";
+export {
+  BankingActionSchema,
+  BankingActionWireSchema,
+  BEAP_PROFILE,
+  isBankingActionName,
+  transportActionName,
+  transportTarget,
+  type BankingAction,
+} from "./adapters/banking/BankingAction.js";
+export {
+  BankingActionError,
+  BankingAdapter,
+  registeredActionNames,
+  type BankingAdapterOptions,
+  type BankingTransport,
+} from "./adapters/banking/BankingAdapter.js";
+export { bankingHandlers, type BankingHandlerOptions } from "./adapters/banking/BankingHandlers.js";
+export {
+  bindBankingAction,
+  BindingError,
+  type BindingInput,
+  type BoundBankingAction,
+} from "./adapters/banking/BankingIntentBinder.js";
+export {
+  CoreBankingHttpAdapter,
+  type CoreBankingHttpOptions,
+} from "./adapters/banking/CoreBankingHttpAdapter.js";
+export {
+  CurrencyError,
+  isSupportedCurrency,
+  minorUnitExponent,
+  supportedCurrencies,
+} from "./adapters/banking/Currency.js";
+export {
+  BASE_PROJECTION,
+  expectedEffect,
+  ProjectionError,
+  projectionValue,
+  PROJECTION_PROFILE,
+  registeredAction,
+  REGISTERED_ACTIONS as REGISTERED_BANKING_ACTIONS,
+  type RegisteredAction,
+} from "./adapters/banking/EffectProjections.js";
+export { ibanFromReference, isValidIban, referenceIsValid } from "./adapters/banking/Iban.js";
+export { Money, MoneyError } from "./adapters/banking/Money.js";
+export {
+  EFFECT_REASON_CODES,
+  EXECUTION_REASON_CODES,
+  isBankingReasonCode,
+  REASON_CODE_CATEGORIES,
+  type BankingReasonCode,
+  type EffectReasonCode,
+  type ExecutionReasonCode,
+} from "./adapters/banking/ReasonCodes.js";
+export {
   ChainJournal,
   type ChainJournalFs,
   type ChainJournalOptions,

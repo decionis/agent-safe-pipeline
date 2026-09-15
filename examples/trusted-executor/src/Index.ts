@@ -43,12 +43,55 @@ import {
   HaltSwitch,
   type ExecutionJournal,
   SecurityEvents,
+  bankingHandlers,
   createTrustedExecutor,
+  expectedEffect,
+  transportActionName,
+  transportTarget,
   verifyAuditChain,
+  type BankingAction,
   type HandlerRegistration,
   type TrustedExecutor,
 } from "@decionis/agentsafe";
 import { handlers } from "./Handlers.js";
+
+/** A canonical BEAP action, synthetic throughout, as the profile's own example shapes it. */
+function bankingAction(requestId: string): BankingAction {
+  return {
+    profile: "decionis.beap/v0.1",
+    domain: "LOAN_DISBURSEMENT",
+    action: { type: "DISBURSE_LOAN", request_id: requestId },
+    actor: {
+      type: "AGENT",
+      id: "synthetic-treasury-agent",
+      runtime: "trusted-executor-proof",
+    },
+    principal: { type: "ORGANIZATIONAL_FUNCTION", id: "synthetic-credit-operations" },
+    subject: { type: "CUSTOMER", ref: "fixture_customer_28491" },
+    target: { type: "LOAN", ref: "fixture_loan_84721" },
+    financial_context: { amount: "2500.00", currency: "CHF" },
+    requested_effect: { operation: "DISBURSE", destination_ref: "fixture_account_1921" },
+    downstream: {
+      provider: "SYNTHETIC_CORE",
+      product: "LENDING",
+      operation: "LOAN_DISBURSEMENT",
+      environment: "LOCAL",
+    },
+    evidence_refs: [],
+  };
+}
+
+/** The proposal that carries one, mapped as Appendix B.5 says. */
+function beapProposal(action: BankingAction): string {
+  return JSON.stringify({
+    proposal: {
+      action: transportActionName(action),
+      target: transportTarget(action),
+      parameters: action,
+    },
+    idempotency_key: action.action.request_id,
+  });
+}
 
 const LOOPBACK_ORIGIN = "http://127.0.0.1";
 const TENANT_ID = "00000000-0000-4000-8000-000000000007";
@@ -82,6 +125,9 @@ const heading = (text: string): void => {
  */
 class ProviderDouble {
   public readonly effects = new Set<string>();
+  /** How many banking actions were posted, and what a read-back reports. */
+  public actions = 0;
+  public effect: Record<string, unknown> | null = null;
   public readonly requests: {
     readonly path: string;
     readonly headers: IncomingMessage["headers"];
@@ -123,6 +169,16 @@ class ProviderDouble {
         if (request.method === "GET" && path.startsWith("/dispatches/")) {
           const key = decodeURIComponent(path.slice("/dispatches/".length));
           return this.effects.has(key) ? reply(200, { effected: true }) : reply(404, {});
+        }
+        // The banking endpoints: a core that posts the action and can be read
+        // back, and whose read-back a test can make disagree on purpose.
+        if (request.method === "POST" && path === "/actions") {
+          this.actions += 1;
+          return reply(200, { status: "POSTED", reference: `fixture_ref_${this.actions}` });
+        }
+        if (request.method === "GET" && path.startsWith("/actions/")) {
+          const effect = this.effect;
+          return effect === null ? reply(404, {}) : reply(200, { status: "POSTED", effect });
         }
         reply(404, {});
       });
@@ -765,6 +821,85 @@ heading("Ceilings: what this host will never run, whatever policy says");
   await bounded.executor.close();
 }
 
+heading("Banking: the effect is read back, compared, and a mismatch stops the executor");
+{
+  const banking = await startExecutor(
+    "ENFORCEMENT",
+    "NONE",
+    {
+      DOWNSTREAM_URL: `${provider.baseUrl}/actions`,
+      DOWNSTREAM_LOOKUP_URL: `${provider.baseUrl}/actions/by-key/{idempotency_key}`,
+      DOWNSTREAM_LOOKUP_BY_REFERENCE_URL: `${provider.baseUrl}/actions/by-reference/{provider_reference}`,
+      DOWNSTREAM_SYSTEM: "synthetic_core",
+      DOWNSTREAM_OPERATION: "loan_disbursement",
+      DOWNSTREAM_ENVIRONMENT: "local",
+      BANKING_ADAPTER_ID: "SYNTHETIC_CORE_BANKING",
+      EXECUTOR_ACTOR_ID: "synthetic-treasury-agent",
+    },
+    // The adapter takes its identity and its read-back address from the
+    // configuration above, so neither is named twice.
+    bankingHandlers(),
+  );
+  const matching = bankingAction("synthetic-req-proof-1");
+  provider.effect = expectedEffect(matching);
+  const confirmed = await call(banking, "/v1/actions", { body: beapProposal(matching) });
+  const effect = (confirmed.body["effect"] ?? {}) as Record<string, unknown>;
+  check(
+    confirmed.body["outcome"] === "COMPLETED" &&
+      effect["comparison"] === "MATCH" &&
+      effect["confirmation"] === "CONFIRMED" &&
+      effect["observation_method"] === "READ_AFTER_WRITE" &&
+      effect["observed_effect_digest"] === effect["expected_effect_digest"],
+    "a read-back that matches what was authorised is the only confirmation",
+    `${String(effect["comparison"])}, ${String(effect["confirmation"])}`,
+  );
+  const grantsBefore = authority.grants.size;
+  const differing = bankingAction("synthetic-req-proof-2");
+  provider.effect = { ...expectedEffect(differing), amount: "1.00" };
+  const mismatched = await call(banking, "/v1/actions", { body: beapProposal(differing) });
+  const seen = (mismatched.body["effect"] ?? {}) as Record<string, unknown>;
+  check(
+    mismatched.body["outcome"] === "COMPLETED" &&
+      seen["comparison"] === "MISMATCH" &&
+      seen["confirmation"] !== "CONFIRMED" &&
+      (mismatched.body["reason_codes"] as string[]).includes("EFFECT_MISMATCH") &&
+      JSON.stringify(seen["mismatched_fields"]) === JSON.stringify(["amount"]),
+    "a provider that did something else is never confirmed, and names the field",
+    `${String(seen["comparison"])}, ${String(seen["confirmation"])}`,
+  );
+  const grantsAfterMismatch = authority.grants.size;
+  const halted = await call(banking, "/v1/actions", {
+    body: beapProposal(bankingAction("synthetic-req-proof-3")),
+  });
+  check(
+    halted.status === 503 &&
+      (halted.body["reason_codes"] as string[])[0] === "EXECUTOR_HALTED" &&
+      authority.grants.size === grantsAfterMismatch,
+    "the mismatch halts the executor, so the next proposal asks for no grant",
+    `${halted.status} ${String((halted.body["reason_codes"] as string[])[0])}, ${authority.grants.size - grantsBefore} grants since the match`,
+  );
+  // The same action, described over the transport as a payment rather than
+  // the disbursement it is.
+  const misdescribed = bankingAction("synthetic-req-proof-4");
+  const refused = await call(banking, "/v1/actions", {
+    body: JSON.stringify({
+      proposal: {
+        action: "beap.corporate_payments.send_payment",
+        target: transportTarget(misdescribed),
+        parameters: misdescribed,
+      },
+      idempotency_key: misdescribed.action.request_id,
+    }),
+  });
+  check(
+    refused.status === 422 && refused.body["code"] === "BANKING_ACTION_NAME_MISMATCH",
+    "a transport name that disagrees with the action is refused before anything",
+    `${refused.status} ${String(refused.body["code"])}`,
+  );
+  provider.effect = null;
+  await banking.executor.close();
+}
+
 heading("Recovery: a lost dispatch is resolved from the journal, not re-sent");
 {
   const directory = mkdtempSync(join(tmpdir(), "agentsafe-journal-"));
@@ -1127,7 +1262,10 @@ heading("Nothing secret left the process");
   const reconciliations = auditLines.filter((line) =>
     line.includes('"RECONCILIATION_COMPLETED"'),
   ).length;
-  const dispatches = provider.requests.filter((request) => request.path === "/dispatches").length;
+  // Every side effect the provider took, whichever family asked for it.
+  const dispatches = provider.requests.filter(
+    (request) => request.path === "/dispatches" || request.path === "/actions",
+  ).length;
   const presenceEvents = auditLines.filter((line) => line.includes('"PRESENCE_')).length;
   check(
     executions === dispatches - lostResponses &&

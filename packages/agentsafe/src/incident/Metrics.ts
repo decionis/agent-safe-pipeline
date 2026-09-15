@@ -119,6 +119,7 @@ export interface ExecutorMetrics {
   readonly halts: Counter;
   readonly hardLimitRefusals: Counter;
   readonly journalWriteFailures: Counter;
+  readonly effectComparisons: Counter;
   readonly openAttempts: Gauge;
   readonly clockSkew: Gauge;
   observe(event: SecurityEvent): void;
@@ -188,6 +189,11 @@ export function executorMetrics(registry: Metrics = new Metrics()): ExecutorMetr
       "Journal records that could not be written, by record.",
       ["record"],
     ),
+    effectComparisons: registry.counter(
+      "agentsafe_effect_comparisons",
+      "Observed effects compared with what was authorised, by result.",
+      ["comparison"],
+    ),
     openAttempts: registry.gauge(
       "agentsafe_open_attempts",
       "Attempts whose outcome this process does not know, by state.",
@@ -224,6 +230,8 @@ export function executorMetrics(registry: Metrics = new Metrics()): ExecutorMetr
           return metrics.hardLimitRefusals.inc({ code: event.code });
         case "JOURNAL_WRITE_FAILED":
           return metrics.journalWriteFailures.inc({ record: event.record });
+        case "EFFECT_OBSERVED":
+          return metrics.effectComparisons.inc({ comparison: event.comparison });
         case "CLOCK_SKEW_EXCEEDED":
           return metrics.clockSkew.set(event.skew_ms);
         default:

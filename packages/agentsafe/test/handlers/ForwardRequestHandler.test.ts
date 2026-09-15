@@ -1,3 +1,4 @@
+import { EffectEvidenceRegister } from "../../src/adapters/EffectEvidenceRegister.js";
 import { ActionRegistry, IntentCapture, type CapturedIntent } from "@decionis/agent-safe-pipeline";
 import { describe, expect, it, vi } from "vitest";
 import type { DownstreamConfig } from "../../src/config/ExecutorConfig.js";
@@ -159,6 +160,13 @@ describe("forward_request handler", () => {
       downstream,
       credential,
       fetch: vi.fn(),
+      effects: new EffectEvidenceRegister(),
+      banking: {
+        adapterId: "SYNTHETIC_CORE_BANKING",
+        adapterVersion: "0.1.0",
+        onEffectMismatch: "HALT",
+        lookupByReferenceUrl: null,
+      },
     });
     expect(registered).toBe(REGISTERED_ACTIONS);
     expect(registry.has(FORWARD_REQUEST_ACTION)).toBe(true);

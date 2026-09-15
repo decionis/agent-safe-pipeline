@@ -93,13 +93,19 @@
       "containsCustomerData": false
     },
     {
-      "path": "examples/golden-adversarial-demo/src/Index.ts",
+      "path": "examples/crm-outreach-demo/src/Index.ts",
       "family": "Runnable example",
       "source": "synthetic",
       "containsCustomerData": false
     },
     {
       "path": "examples/github-deploy-agent/src/Index.ts",
+      "family": "Runnable example",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "examples/golden-adversarial-demo/src/Index.ts",
       "family": "Runnable example",
       "source": "synthetic",
       "containsCustomerData": false
@@ -141,18 +147,6 @@
       "containsCustomerData": false
     },
     {
-      "path": "examples/whisper-boundary-demo/src/Index.ts",
-      "family": "Runnable example",
-      "source": "synthetic",
-      "containsCustomerData": false
-    },
-    {
-      "path": "examples/crm-outreach-demo/src/Index.ts",
-      "family": "Runnable example",
-      "source": "synthetic",
-      "containsCustomerData": false
-    },
-    {
       "path": "examples/trusted-executor/src/Handlers.ts",
       "family": "Runnable example",
       "source": "synthetic",
@@ -166,6 +160,12 @@
     },
     {
       "path": "examples/trusted-executor/src/Serve.ts",
+      "family": "Runnable example",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "examples/whisper-boundary-demo/src/Index.ts",
       "family": "Runnable example",
       "source": "synthetic",
       "containsCustomerData": false
@@ -189,91 +189,85 @@
       "containsCustomerData": false
     },
     {
-      "path": "packages/agentsafe/test/audit/LineAuditSink.test.ts",
+      "path": "packages/agentsafe/test/TrustedExecutorPrincipals.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false
     },
     {
-      "path": "packages/agentsafe/test/credential/StaticHeaderCredential.test.ts",
+      "path": "packages/agentsafe/test/adapters/AdapterActionHandler.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false
     },
     {
-      "path": "packages/agentsafe/test/incident/SecurityEvents.test.ts",
+      "path": "packages/agentsafe/test/adapters/EffectAwareGrantVerifier.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false
     },
     {
-      "path": "packages/agentsafe/test/logging/LineEmitter.test.ts",
+      "path": "packages/agentsafe/test/adapters/EffectComparison.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false
     },
     {
-      "path": "packages/agentsafe/test/posture/HostPosture.test.ts",
+      "path": "packages/agentsafe/test/adapters/EffectEvidence.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false
     },
     {
-      "path": "packages/agentsafe/test/secrets/Redactor.test.ts",
+      "path": "packages/agentsafe/test/adapters/JcsDigest.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false
     },
     {
-      "path": "packages/agentsafe/test/secrets/SecretHandle.test.ts",
+      "path": "packages/agentsafe/test/adapters/banking/BankingAction.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false
     },
     {
-      "path": "packages/agentsafe/test/service/AuthorityClients.test.ts",
+      "path": "packages/agentsafe/test/adapters/banking/BankingAdapter.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false
     },
     {
-      "path": "packages/agentsafe/test/config/ExecutorConfig.test.ts",
+      "path": "packages/agentsafe/test/adapters/banking/BankingHandlers.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false
     },
     {
-      "path": "packages/agentsafe/test/handlers/ForwardRequestHandler.test.ts",
+      "path": "packages/agentsafe/test/adapters/banking/BankingIntentBinder.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false
     },
     {
-      "path": "packages/agentsafe/test/http/ExecutorHttpServer.test.ts",
+      "path": "packages/agentsafe/test/adapters/banking/CoreBankingHttpAdapter.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false
     },
     {
-      "path": "packages/agentsafe/test/secrets/SecretStore.test.ts",
+      "path": "packages/agentsafe/test/adapters/banking/EffectProjections.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false
     },
     {
-      "path": "packages/agentsafe/test/service/TrustedExecutorService.test.ts",
+      "path": "packages/agentsafe/test/adapters/banking/Iban.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false
     },
     {
-      "path": "packages/agentsafe/test/support/Environment.ts",
-      "family": "Unit-test fixture",
-      "source": "synthetic",
-      "containsCustomerData": false
-    },
-    {
-      "path": "packages/agentsafe/test/support/ProviderDouble.ts",
+      "path": "packages/agentsafe/test/adapters/banking/Money.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false
@@ -297,6 +291,36 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/audit/LineAuditSink.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/config/ExecutorConfig.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/credential/PrivateKeyJwtCredential.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/credential/SignedRequestCredential.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/credential/StaticHeaderCredential.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/egress/EgressPolicy.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
@@ -315,6 +339,18 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/handlers/ForwardRequestHandler.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/http/ExecutorHttpServer.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/http/RequestContext.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
@@ -322,42 +358,6 @@
     },
     {
       "path": "packages/agentsafe/test/http/TlsListener.test.ts",
-      "family": "Unit-test fixture",
-      "source": "synthetic",
-      "containsCustomerData": false
-    },
-    {
-      "path": "packages/agentsafe/test/incident/Metrics.test.ts",
-      "family": "Unit-test fixture",
-      "source": "synthetic",
-      "containsCustomerData": false
-    },
-    {
-      "path": "packages/agentsafe/test/support/TestCertificateAuthority.ts",
-      "family": "Unit-test fixture",
-      "source": "synthetic",
-      "containsCustomerData": false
-    },
-    {
-      "path": "packages/agentsafe/test/verify/VerifyAuditChain.test.ts",
-      "family": "Unit-test fixture",
-      "source": "synthetic",
-      "containsCustomerData": false
-    },
-    {
-      "path": "packages/agentsafe/test/TrustedExecutorPrincipals.test.ts",
-      "family": "Unit-test fixture",
-      "source": "synthetic",
-      "containsCustomerData": false
-    },
-    {
-      "path": "packages/agentsafe/test/credential/PrivateKeyJwtCredential.test.ts",
-      "family": "Unit-test fixture",
-      "source": "synthetic",
-      "containsCustomerData": false
-    },
-    {
-      "path": "packages/agentsafe/test/credential/SignedRequestCredential.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false
@@ -405,19 +405,19 @@
       "containsCustomerData": false
     },
     {
-      "path": "packages/agentsafe/test/service/Principals.test.ts",
-      "family": "Unit-test fixture",
-      "source": "synthetic",
-      "containsCustomerData": false
-    },
-    {
-      "path": "packages/agentsafe/test/support/Principals.ts",
-      "family": "Unit-test fixture",
-      "source": "synthetic",
-      "containsCustomerData": false
-    },
-    {
       "path": "packages/agentsafe/test/incident/HaltSwitch.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/incident/Metrics.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/incident/SecurityEvents.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false
@@ -447,7 +447,103 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/logging/LineEmitter.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/posture/HostPosture.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/secrets/Redactor.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/secrets/SecretHandle.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/secrets/SecretStore.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/service/Attempts.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/service/AuthorityClients.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/service/BankingFlow.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/service/Principals.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/service/TrustedExecutorService.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/support/BankingDouble.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/support/BankingFixtures.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/support/Environment.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/support/Principals.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/support/ProviderDouble.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/support/RepositoryRoot.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/support/TestCertificateAuthority.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false
@@ -460,6 +556,12 @@
     },
     {
       "path": "packages/agentsafe/test/time/MonotonicClock.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/verify/VerifyAuditChain.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false

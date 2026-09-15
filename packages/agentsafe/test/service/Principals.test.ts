@@ -146,8 +146,15 @@ describe("principals mode", () => {
   });
 
   it("refuses a caller the door did not name, an operator proposing, and an action outside the principal's list", async () => {
-    const handlers: HandlerRegistration = ({ registry, downstream, credential, fetch }) => {
-      forwardRequestHandlers()({ registry, downstream, credential, fetch });
+    const handlers: HandlerRegistration = ({
+      registry,
+      downstream,
+      credential,
+      fetch,
+      effects,
+      banking,
+    }) => {
+      forwardRequestHandlers()({ registry, downstream, credential, fetch, effects, banking });
       registry.register("other_action", { parametersSchema: JsonObjectSchema, execute: () => 1 });
       return ["forward_request", "other_action"];
     };
