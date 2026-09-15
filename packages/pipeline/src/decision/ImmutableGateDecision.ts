@@ -24,5 +24,13 @@ export function immutableGateDecision(decision: GateDecision): GateDecision {
             reasonCodes: Object.freeze([...decision.managedEscalation.reasonCodes]),
           }),
         }),
+    ...(decision.hosted === undefined
+      ? {}
+      : {
+          hosted: Object.freeze({
+            ...decision.hosted,
+            reasonCodes: Object.freeze([...decision.hosted.reasonCodes]),
+          }),
+        }),
   });
 }
