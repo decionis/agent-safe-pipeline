@@ -1,0 +1,26 @@
+{
+  "profile": "decionis.beap/v0.1",
+  "registry": "source-file-formats",
+  "description": "Source-file formats a parser produces a Batch Manifest from (specification section 17.1). An identifier names the format, never the body that publishes it. Institutions MAY register additional formats that follow the same pattern and publish them in their policy pack.",
+  "identifier_pattern": "^[A-Z][A-Z0-9_]{1,63}$",
+  "entries": [
+    {
+      "id": "CSV_PAYMENT_LIST",
+      "description": "A delimited list of payment lines with a fixed header, one payment per line, as the corporate payments example renders it.",
+      "media_types": ["text/csv"],
+      "accepted_by": ["CORPORATE_PAYMENTS"]
+    },
+    {
+      "id": "PAIN_001",
+      "description": "An ISO 20022 customer credit transfer initiation message (pain.001): one group header, one or more payment information blocks, each carrying credit transfer transactions.",
+      "media_types": ["application/xml"],
+      "accepted_by": ["CORPORATE_PAYMENTS"]
+    },
+    {
+      "id": "MT103",
+      "description": "One or more MT 103 single customer credit transfer messages in their text form, each carrying one payment; the layout is supplied by the institution from the documentation it holds.",
+      "media_types": ["text/plain"],
+      "accepted_by": ["CORPORATE_PAYMENTS", "PAYMENT_PROCESSING"]
+    }
+  ]
+}
