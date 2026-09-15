@@ -29,6 +29,8 @@ const production = (): Record<string, string> => {
   const env = offlineEnvironment();
   delete env["EXECUTOR_POSTURE"];
   delete env["EXECUTOR_ALLOW_PLAINTEXT_LISTENER"];
+  delete env["EXECUTOR_JOURNAL_REQUIRED"];
+  env["EXECUTOR_JOURNAL_DIR"] = "/var/lib/agent-safe/journal";
   for (const name of ["EXECUTOR_CALLER_TOKEN", "DECIONIS_API_KEY", "DOWNSTREAM_CREDENTIAL"]) {
     delete env[name];
     env[`${name}_FILE`] = `/var/run/agent-safe/secrets/${name.toLowerCase()}`;
@@ -349,7 +351,13 @@ describe("ExecutorConfigLoader", () => {
         downstream: { caFile: null, pins: [] },
       },
     });
-    expect(plain.evidence).toEqual({ journalDir: null, checkpointLines: 100 });
+    expect(plain.evidence).toEqual({
+      journalDir: null,
+      checkpointLines: 100,
+      journalRequired: false,
+      journalRetainDays: 7,
+      readyRequiresNoUnknownAttempts: false,
+    });
     const pinned = ExecutorConfigLoader.load({
       ...direct(),
       DECIONIS_CA_FILE: "/etc/agent-safe/authority-ca.pem",
@@ -378,6 +386,9 @@ describe("ExecutorConfigLoader", () => {
     expect(pinned.evidence).toEqual({
       journalDir: "/var/lib/agent-safe/journal",
       checkpointLines: 10,
+      journalRequired: false,
+      journalRetainDays: 7,
+      readyRequiresNoUnknownAttempts: false,
     });
     expect(
       refusal({ ...offlineEnvironment(), DECIONIS_SPKI_PINS: `sha256/${"A".repeat(43)}=` }),

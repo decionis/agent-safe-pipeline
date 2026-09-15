@@ -98,15 +98,14 @@ export class ExecutorHttpServer {
       const route = ROUTES.find((candidate) => candidate.path === pathname);
       if (route === undefined) throw new GuardError(404, "NOT_FOUND");
       if (route.method !== request.method) throw new GuardError(405, "METHOD_NOT_ALLOWED");
+      // Liveness stays 200 while halted: a halt is a decision to stop taking
+      // work, not a reason for the orchestrator to restart the process and
+      // lose what it knows.
       if (route.path === "/health")
         return ExecutorHttpServer.reply(response, 200, { status: "ok" });
       if (route.path === "/ready") {
-        return ExecutorHttpServer.reply(response, 200, {
-          status: "ready",
-          mode: this.service.mode,
-          escalation: this.service.escalationMode,
-          actions: this.service.actions,
-        });
+        const readiness = this.service.readiness();
+        return ExecutorHttpServer.reply(response, readiness.ready ? 200 : 503, readiness.body);
       }
       const caller = await this.authenticator.authenticate({
         authorization: request.headers.authorization,
@@ -122,7 +121,16 @@ export class ExecutorHttpServer {
         error instanceof ServiceError ||
         error instanceof AuthError
       ) {
-        ExecutorHttpServer.reply(response, error.status, { code: error.code });
+        ExecutorHttpServer.reply(
+          response,
+          error.status,
+          error instanceof ServiceError && error.body !== undefined
+            ? error.body
+            : { code: error.code },
+          error instanceof ServiceError && error.retryAfterSeconds !== undefined
+            ? { "retry-after": String(error.retryAfterSeconds) }
+            : {},
+        );
       } else {
         ExecutorHttpServer.reply(response, 500, { code: "INTERNAL_ERROR" });
       }
@@ -159,6 +167,20 @@ export class ExecutorHttpServer {
         );
       case "/v1/control/status":
         return ExecutorHttpServer.reply(response, 200, this.service.status(caller.principal));
+      case "/v1/control/halt":
+        return ExecutorHttpServer.reply(
+          response,
+          200,
+          this.service.halt(await ExecutorHttpServer.readJson(request), caller.principal),
+        );
+      case "/v1/control/resume":
+        return ExecutorHttpServer.reply(
+          response,
+          200,
+          this.service.resumeWork(await ExecutorHttpServer.readJson(request), caller.principal),
+        );
+      case "/v1/control/open-attempts":
+        return ExecutorHttpServer.reply(response, 200, this.service.openAttempts(caller.principal));
       case "/v1/control/secrets/reload":
         return ExecutorHttpServer.reply(
           response,
@@ -194,10 +216,15 @@ export class ExecutorHttpServer {
     }
   }
 
-  private static reply(response: ServerResponse, status: number, body: unknown): void {
+  private static reply(
+    response: ServerResponse,
+    status: number,
+    body: unknown,
+    headers: Readonly<Record<string, string>> = {},
+  ): void {
     // Stryker disable next-line ConditionalExpression: a reply is written once per request; the guard is defensive.
     if (response.headersSent) return;
-    response.writeHead(status, RESPONSE_HEADERS);
+    response.writeHead(status, { ...RESPONSE_HEADERS, ...headers });
     response.end(JSON.stringify(body));
   }
 

@@ -7,7 +7,11 @@ const name = z.string().min(1).max(64);
 const origin = z.string().min(1).max(256);
 const sequence = z.number().int().nonnegative();
 const principal = z.string().min(1).max(200);
+const identifier = z.string().min(1).max(200);
 const count = z.number().int().nonnegative();
+const currency = z.string().regex(/^[A-Z]{3}$/);
+/** An operator's words or a trigger's own description; never anything from a request. */
+const reason = z.string().min(1).max(200);
 
 /**
  * What the security stream may say. Every field is an identifier, a code, an
@@ -50,11 +54,26 @@ export const SecurityEventSchema = z.discriminatedUnion("event", [
   z.strictObject({
     event: z.literal("OPERATOR_ACTION"),
     principal,
-    action: z.enum(["status", "secrets.reload", "metrics"]),
+    action: z.enum(["status", "secrets.reload", "metrics", "halt", "resume"]),
   }),
   z.strictObject({ event: z.literal("TLS_CONTEXT_ROTATED") }),
   z.strictObject({ event: z.literal("CHAIN_RESUMED"), chain: name, head: sequence }),
   z.strictObject({ event: z.literal("CHAIN_CHECKPOINT"), chain: name, head: sequence }),
+  z.strictObject({ event: z.literal("HALTED"), trigger: code, reason: reason }),
+  z.strictObject({ event: z.literal("RESUMED"), trigger: code, reason: reason }),
+  z.strictObject({ event: z.literal("HARD_LIMIT_REFUSED"), code, currency: currency.nullable() }),
+  z.strictObject({ event: z.literal("CLOCK_SKEW_EXCEEDED"), skew_ms: z.number().int() }),
+  z.strictObject({ event: z.literal("JOURNAL_WRITE_FAILED"), record: code }),
+  z.strictObject({
+    event: z.literal("OPEN_ATTEMPT_FOUND_AT_STARTUP"),
+    intent_id: identifier,
+    state: z.enum(["OPENED", "CLAIMED"]),
+  }),
+  z.strictObject({
+    event: z.literal("OPEN_ATTEMPT_RESOLVED"),
+    intent_id: identifier,
+    resolution: code,
+  }),
 ]);
 
 export type SecurityEvent = z.infer<typeof SecurityEventSchema>;

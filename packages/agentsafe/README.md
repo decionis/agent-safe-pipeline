@@ -99,16 +99,19 @@ where those controls are written down.
 
 ## The wire contract
 
-| Method | Path                         | Who                                 | What it does                                                                        |
-| ------ | ---------------------------- | ----------------------------------- | ----------------------------------------------------------------------------------- |
-| `GET`  | `/health`                    | anyone                              | The process is up                                                                   |
-| `GET`  | `/ready`                     | anyone                              | Configuration loaded and the registry sealed; reports the mode and the actions      |
-| `POST` | `/v1/actions`                | a `PROPOSER`                        | Capture, evaluate, and in enforcement execute once on an `ALLOW`                    |
-| `POST` | `/v1/reconciliations`        | the `PROPOSER` that proposed        | Read-only: what the provider did with an attempt whose answer was lost              |
-| `POST` | `/v1/escalations`            | the `PROPOSER` that proposed        | Resume an open escalation: one lookup, then a fresh decision if the person answered |
-| `GET`  | `/v1/control/status`         | an `OPERATOR` with `status`         | Mode, actions, posture, principals, the evidence chain's head, the secrets' names   |
-| `POST` | `/v1/control/secrets/reload` | an `OPERATOR` with `secrets.reload` | Re-read every secret file now; the report names files, never values                 |
-| `GET`  | `/metrics`                   | an `OPERATOR` with `metrics`        | The OpenMetrics exposition                                                          |
+| Method | Path                         | Who                                 | What it does                                                                               |
+| ------ | ---------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------ |
+| `GET`  | `/health`                    | anyone                              | The process is up                                                                          |
+| `GET`  | `/ready`                     | anyone                              | Ready, or 503 while halted or still resolving an attempt; reports the mode and the actions |
+| `POST` | `/v1/actions`                | a `PROPOSER`                        | Capture, evaluate, and in enforcement execute once on an `ALLOW`                           |
+| `POST` | `/v1/reconciliations`        | the `PROPOSER` that proposed        | Read-only: what the provider did with an attempt whose answer was lost                     |
+| `POST` | `/v1/escalations`            | the `PROPOSER` that proposed        | Resume an open escalation: one lookup, then a fresh decision if the person answered        |
+| `GET`  | `/v1/control/status`         | an `OPERATOR` with `status`         | Mode, actions, posture, principals, the chain's head, the halt, the open attempts          |
+| `POST` | `/v1/control/halt`           | an `OPERATOR` with `halt`           | Stop taking new work, with a reason                                                        |
+| `POST` | `/v1/control/resume`         | an `OPERATOR` with `resume`         | Take work again, with a reason; refused while the cause of the halt stands                 |
+| `GET`  | `/v1/control/open-attempts`  | an `OPERATOR` with `status`         | The attempts whose outcome this process does not know                                      |
+| `POST` | `/v1/control/secrets/reload` | an `OPERATOR` with `secrets.reload` | Re-read every secret file now; the report names files, never values                        |
+| `GET`  | `/metrics`                   | an `OPERATOR` with `metrics`        | The OpenMetrics exposition                                                                 |
 
 Who may call is the principals file, described below; without one, the one legacy caller presents
 the caller token as `Authorization: Bearer <token>`. Every request that is not public passes the
@@ -254,7 +257,18 @@ network path has a default.
 | `EXECUTOR_TLS_MIN_VERSION`                                    | `1.3` (the default) or `1.2`, which admits TLS 1.2 with AEAD ciphers only                                                  |
 | `EXECUTOR_ALLOW_PLAINTEXT_LISTENER`                           | `true` runs the listener without TLS, for a developer's machine; refused under `NODE_ENV=production`                       |
 | `EXECUTOR_EGRESS_MAX_RESPONSE_BYTES`                          | The most any outbound response may carry, 1 KiB to 16 MiB, 1 MiB by default                                                |
-| `EXECUTOR_JOURNAL_DIR`                                        | Optional: where the evidence chains' heads persist across a restart; absolute, writable by the process                     |
+| `EXECUTOR_JOURNAL_DIR`                                        | Where the evidence chains' heads and the attempt journal live; absolute, writable, required in enforcement                 |
+| `EXECUTOR_JOURNAL_REQUIRED`                                   | `false` lets enforcement run without a journal, for a developer's machine; refused under `NODE_ENV=production`             |
+| `EXECUTOR_JOURNAL_RETAIN_DAYS`                                | How many days of attempt files a restart reads back, one to a year, seven by default                                       |
+| `EXECUTOR_READY_REQUIRES_NO_UNKNOWN_ATTEMPTS`                 | `true` keeps `/ready` at 503 while any attempt's outcome is unknown                                                        |
+| `EXECUTOR_HALT_FILE`                                          | Optional: a file whose presence halts the executor, watched and polled                                                     |
+| `EXECUTOR_HALT_ON_AUTH_FAILURES`                              | `<count>/<seconds>` of door refusals that halt the executor; `50/60` by default                                            |
+| `EXECUTOR_HALT_ON_EGRESS_REFUSALS`                            | `<count>/<seconds>` of refused outbound requests that halt it; `5/60` by default                                           |
+| `EXECUTOR_HARD_LIMIT_SINGLE_MINOR`                            | `CHF:2500000000,EUR:1000000`: the most one action may move, per currency, in minor units                                   |
+| `EXECUTOR_HARD_LIMIT_WINDOW_SECONDS`                          | The window the count and sum below are measured over; required with either                                                 |
+| `EXECUTOR_HARD_LIMIT_WINDOW_COUNT`                            | Optional: the most actions that may execute inside the window                                                              |
+| `EXECUTOR_HARD_LIMIT_WINDOW_SUM_MINOR`                        | Optional: the most value that may move inside the window, in minor units                                                   |
+| `EXECUTOR_MAX_CLOCK_SKEW_MS`                                  | How far the authority's clock may differ before the executor halts; two seconds by default                                 |
 | `EXECUTOR_AUDIT_CHECKPOINT_LINES`                             | How many chained lines between persisted heads, one hundred by default                                                     |
 | `DECIONIS_API_URL`                                            | The authority, HTTPS                                                                                                       |
 | `DECIONIS_API_KEY`                                            | The server-side Decionis credential; secret                                                                                |
@@ -436,6 +450,128 @@ accept only if the content-digest matches the body you received,
 
 `SignedRequestCredential.verify` in this package is that procedure, for tests and for a downstream
 written in TypeScript.
+
+## The attempt journal
+
+An execution nobody could reconcile afterwards is worse than a refusal. So
+before the executor may run an action, the attempt is on disk:
+
+| Record           | When                                                        | What it carries                                                       |
+| ---------------- | ----------------------------------------------------------- | --------------------------------------------------------------------- |
+| `ATTEMPT_OPENED` | After the authority allows, before the executor runs        | The identifiers, the caller, and the captured intent verbatim         |
+| `GRANT_CLAIMED`  | After the grant is consumed, before the provider is touched | The grant, its expiry, and the digest of what is about to be sent     |
+| `ATTEMPT_CLOSED` | Once the outcome is known                                   | The outcome, whether it executed, and how the authority was finalized |
+| `RECONCILED`     | When a lost outcome is resolved                             | The status, and whether a restart or the caller resolved it           |
+
+The claim is the record that must never be lost: it is written by a decorator
+inside the handler, after `SafeExecutor` consumed the grant and before the
+handler's own body. A journal that cannot take it throws there, which is
+still _before_ dispatch, so the registry reports `FAILED_BEFORE_DISPATCH`,
+`SafeExecutor` finalizes the attempt as `FAILED`, and the authority learns
+the attempt failed rather than waiting for a lease to lapse. The decorator is
+applied by the registry the adopter's registration fills, so an ordinary
+handler gets the durable claim without knowing about it.
+
+An outcome that is **unknown** is the one thing that must not be closed: the
+attempt stays open, and the next process resolves it. `EXECUTOR_JOURNAL_DIR`
+names the directory; under it, `attempts/` holds append-only JSONL, one file
+per UTC day, each record flushed to the device before the append returns, the
+directory private to the process, a record over 256 KiB refused rather than
+truncated. In enforcement a directory is required unless
+`EXECUTOR_JOURNAL_REQUIRED=false` says otherwise, which production refuses.
+
+What the journal holds is the request's own parameters, which the evidence
+streams never carry, so it is as sensitive as the traffic itself and belongs
+on a volume with the same protection. It is per process: a pod that loses its
+volume loses its open attempts, which is why the manifest gives each replica
+its own claim and why the authority's lease recovery remains the backstop.
+
+## Startup reconciliation
+
+`listen()` resolves what the last process left behind before this one accepts
+a connection. Each open attempt's stored intent is re-hashed rather than
+trusted, and the provider is asked what it did with that idempotency key
+through the handler's read-only `reconcile`. Nothing is ever re-executed:
+the reconciler calls the registry's read path, never its execute path.
+
+| Resolution                | What it means                                                                           |
+| ------------------------- | --------------------------------------------------------------------------------------- |
+| `RECONCILED_COMPLETED`    | The provider says it acted; the attempt is closed                                       |
+| `RECONCILED_NOT_EXECUTED` | The provider says it did not; the attempt is closed                                     |
+| `STILL_UNKNOWN`           | The provider cannot say; the attempt stays open and the next start asks again           |
+| `UNCLAIMED`               | No grant was consumed, so the provider was never reached; the authority's lease owns it |
+| `BINDING_MISMATCH`        | The stored intent no longer hashes to its record: a tampered journal, asked nothing     |
+
+`GET /v1/control/open-attempts` lists them, `/ready` reports how many are
+unknown, and `EXECUTOR_READY_REQUIRES_NO_UNKNOWN_ATTEMPTS=true` keeps the
+process out of a load balancer until none are.
+
+## The halt
+
+The stop is deliberately easy to reach and deliberately hard to leave. An
+operator halts with a reason; a file halts by existing; and a posture drift,
+a spike of refusals at the door, a spike of refused outbound requests, or a
+clock that cannot be trusted halt on their own.
+
+While halted, a proposal or a resumption is refused with `503` in the same
+shape the caller already parses (`verdict: BLOCK`, `outcome: BLOCKED`,
+`fail_closed: true`, `reason_codes: ["EXECUTOR_HALTED"]`) and a `Retry-After`
+of thirty seconds. The refusal is recorded through the audit recorder as
+`EXECUTION_BLOCKED`, so a halt is evidence and not just an absence. Nothing
+is asked of the authority, so a halted executor costs no dossier and no
+grant. What is already in flight finishes and is journaled, because
+abandoning a dispatch is how an outcome becomes unknown. `/ready` answers
+`503`; `/health` stays `200`, so a halt never becomes a restart loop.
+
+Resuming is an operator's act with a reason, refused with
+`409 HALT_CAUSE_PERSISTS` while the halt file is still there or a posture
+drift still stands. A process that starts with the halt file present starts
+halted. A spike threshold is reachable from the agent zone by design: a
+compromised caller that floods the door stops the executor rather than being
+ignored, which is the fail-closed choice, and the thresholds are
+configurable for institutions that would rather not.
+
+## Host ceilings
+
+`EXECUTOR_HARD_LIMIT_SINGLE_MINOR` is the most one action may move, per ISO
+4217 code, in minor units, and the window settings bound how many actions and
+how much value pass in a period. They only ever refuse: a policy that would
+allow more is still bounded here, and a ceiling can never widen what the
+authority narrowed.
+
+The check runs before the authority is asked, so nothing this host would
+refuse costs a dossier or a grant, and the commit runs after an `ALLOW` and
+before the executor runs, so a refusal consumes no grant and two requests
+cannot cross the window by racing. A refusal is `422` with its own code
+(`HARD_LIMIT_EXCEEDED`, `HARD_LIMIT_CURRENCY_UNKNOWN`,
+`HARD_LIMIT_AMOUNT_INVALID`, `HARD_LIMIT_WINDOW_COUNT_EXCEEDED`,
+`HARD_LIMIT_WINDOW_SUM_EXCEEDED`), recorded as evidence and counted.
+
+The amount is read from the intent's own parameters: an integer
+`amountMinor` and a three-letter `currency`. An action carrying neither is
+not a payment and is bounded by the count window alone; one carrying half of
+a value is refused rather than guessed at; a currency the configuration never
+named is refused. A banking adapter family will carry its own projection
+later; this is the generic one.
+
+The window is process memory. A restart forgets it and two replicas each keep
+their own, which is stated plainly because it is why these are a backstop
+against a policy mistake, not a treasury control.
+
+## Clocks
+
+A boundary that binds short-lived grants cannot afford to disagree with the
+party issuing them: a host running behind would accept a grant the authority
+considers expired, and one running ahead would refuse grants that are still
+good. So every answer from the authority is measured against this host's
+clock, the skew is recorded, and past `EXECUTOR_MAX_CLOCK_SKEW_MS` the
+executor halts rather than guess which clock is right. The skew is measured,
+never corrected, and the round trip's own latency is inside the measurement,
+which is why the bound is seconds rather than milliseconds.
+
+Dispatch deadlines are monotonic and bounded by the authorization: a provider
+is never given more time than the grant has left, and correcting the wall
+clock cannot extend a call already in flight.
 
 ## Egress
 

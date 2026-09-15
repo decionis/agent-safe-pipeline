@@ -6,6 +6,7 @@ import {
 } from "@decionis/agent-safe-pipeline";
 import type { DownstreamConfig } from "../config/ExecutorConfig.js";
 import type { DownstreamCredential } from "../credential/DownstreamCredential.js";
+import { dispatchBudgetMs, MonotonicDeadline } from "../time/MonotonicClock.js";
 import type { FetchLike, HandlerRegistration } from "./HandlerRegistration.js";
 
 /**
@@ -55,6 +56,12 @@ export function registerHandlers(
       idempotencyKey: dispatch.idempotencyKey,
       intentHash: intent.intentHash,
     });
+    // The provider is never given more time than the authorization has left:
+    // a slow call cannot outlive the permission it was made under, and the
+    // budget is monotonic, so correcting the wall clock cannot extend it.
+    const deadline = MonotonicDeadline.after(
+      dispatchBudgetMs(downstream.timeoutMs, authorization.expiresAt),
+    );
     return await dispatch.run(async (idempotencyKey) => {
       // Everything after this line is the point of no return: a transport
       // failure here is an unknown outcome, never a failure to retry.
@@ -69,7 +76,7 @@ export function registerHandlers(
           "x-agent-safe-dossier-id": authorization.dossierId,
         },
         body,
-        signal: AbortSignal.timeout(downstream.timeoutMs),
+        signal: deadline.signal(),
       });
       await response.body?.cancel();
       return { status: response.status, accepted: response.ok };

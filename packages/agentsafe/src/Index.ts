@@ -19,9 +19,12 @@ export {
   type DownstreamCredentialConfig,
   type EgressConfig,
   type IdentityConfig,
+  type DownstreamCredentialConfig as DownstreamCredentialSettings,
   type EscalationConfig,
   type EscalationMode,
   type EvidenceConfig,
+  type HaltConfig,
+  type LimitsConfig,
   type ExecutorConfig,
   type ExecutorMode,
   type ListenerConfig,
@@ -67,6 +70,12 @@ export {
   registerHandlers,
   type DownstreamResult,
 } from "./handlers/ForwardRequestHandler.js";
+export {
+  JournaledRegistry,
+  callerPrincipal,
+  journaledActionHandler,
+  requestDigest,
+} from "./handlers/JournaledActionHandler.js";
 export type {
   FetchLike,
   HandlerRegistration,
@@ -153,6 +162,44 @@ export {
   type LabelValues,
 } from "./incident/Metrics.js";
 export {
+  HaltSwitch,
+  type HaltState,
+  type HaltSwitchOptions,
+  type HaltTrigger,
+} from "./incident/HaltSwitch.js";
+export {
+  JOURNAL_VERSION,
+  JournalError,
+  JournalRecordSchema,
+  openAttemptsFrom,
+  type ExecutionJournal,
+  type JournalRecord,
+  type JournalRecordKind,
+  type OpenAttempt,
+} from "./journal/ExecutionJournal.js";
+export {
+  FileExecutionJournal,
+  MAX_RECORD_BYTES,
+  type FileExecutionJournalOptions,
+} from "./journal/FileExecutionJournal.js";
+export { InMemoryExecutionJournal } from "./journal/InMemoryExecutionJournal.js";
+export {
+  StartupReconciler,
+  type AttemptResolution,
+  type RecoveryReport,
+  type ResolvedAttempt,
+  type StartupReconcilerOptions,
+} from "./journal/StartupReconciler.js";
+export {
+  HardLimits,
+  type HardLimitCode,
+  type HardLimitSettings,
+  type LimitCheck,
+  type MonetaryValue,
+} from "./limits/HardLimits.js";
+export { MonotonicDeadline, dispatchBudgetMs } from "./time/MonotonicClock.js";
+export { clockSkewGuard, type ClockSkewGuardOptions } from "./time/ClockSkewGuard.js";
+export {
   SECURITY_STREAM,
   SecurityEventSchema,
   SecurityEvents,
@@ -217,9 +264,12 @@ export {
   type EscalationState,
 } from "./service/EscalationResolver.js";
 export {
+  HaltRequestSchema,
   ProposalRequestSchema,
   ReconciliationRequestSchema,
+  ResumeRequestSchema,
   type ActionResponse,
+  type HaltRequest,
   type AuthorizationBinding,
   type ProposalRequest,
   type ReconciliationRequest,
@@ -229,6 +279,7 @@ export { ServiceError } from "./service/ServiceError.js";
 export {
   TrustedExecutorService,
   type ExecutorStatus,
+  type Readiness,
   type ServiceDependencies,
 } from "./service/TrustedExecutorService.js";
 export { nodeProcess, serve, type ServeProcess } from "./Serve.js";

@@ -68,6 +68,42 @@ the request again. A new side effect needs a new decision.
 The action is reachable only through the executor: the agent runtime has no path to the provider,
 and the provider credential exists only behind the executor. Then the next action.
 
+## Stopping, and starting again
+
+The executor stops taking new work in four ways, and one of them is yours to reach for:
+
+1. **An operator asks it to.** `POST /v1/control/halt` with `{"reason":"..."}` from a principal
+   holding the `halt` scope. The reason is written to the security stream verbatim, so write the
+   one a colleague will need at 3 a.m.
+2. **The halt file appears.** Create the ConfigMap the manifest mounts and every replica halts
+   within seconds, whether or not anyone can reach its control route. This is the one that works
+   when the control plane is the thing you distrust.
+3. **The executor halts itself**: a posture drift, a spike of refused credentials at the door, a
+   spike of refused outbound requests, or a clock too far from the authority's.
+4. **It starts halted**, if the halt file is there when the process starts.
+
+While halted, a proposal is refused with `503`, `reason_codes: ["EXECUTOR_HALTED"]` and a
+`Retry-After`; nothing is asked of the authority; `/ready` answers `503` so the load balancer
+takes the replica out; `/health` stays `200` so nothing restarts it. Work already in flight
+finishes and is journaled, because abandoning a dispatch is how an outcome becomes unknown.
+
+To start again:
+
+1. Read `GET /v1/control/status` and `GET /v1/control/open-attempts`. Every attempt whose outcome
+   is `STILL_UNKNOWN` is a provider you have not yet asked; resolve those first, with the
+   provider's own records, before anything else executes.
+2. Remove the cause. Delete the halt ConfigMap, fix the posture drift, rotate the credential that
+   was flooding the door, correct the clock. `POST /v1/control/resume` is refused with
+   `409 HALT_CAUSE_PERSISTS` while the halt file is present or a drift still stands, which is the
+   check telling you the cause is still there.
+3. `POST /v1/control/resume` with `{"reason":"..."}` from a principal holding the `resume` scope.
+   The reason lands on the security stream beside the halt it answers.
+4. Watch `agentsafe_open_attempts` and the `HALTED` events. A halt that returns immediately is a
+   cause you have not actually removed.
+
+Never resume by restarting the process with the halt file deleted and the journal discarded: the
+open attempts are the only record of what may already have happened.
+
 ## What to keep
 
 The audit lines and the Decision Dossier identifiers returned with each attempt. Together with the

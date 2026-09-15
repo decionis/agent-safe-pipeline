@@ -39,6 +39,9 @@ import {
   FORWARD_REQUEST_ACTION,
   MAX_BODY_BYTES,
   RESPONSE_HEADERS,
+  FileExecutionJournal,
+  HaltSwitch,
+  type ExecutionJournal,
   SecurityEvents,
   createTrustedExecutor,
   verifyAuditChain,
@@ -178,6 +181,9 @@ function environment(
     // and said so, and the listener is plaintext on loopback.
     EXECUTOR_POSTURE: "DEVELOPMENT",
     EXECUTOR_ALLOW_PLAINTEXT_LISTENER: "true",
+    // No volume here: the attempt journal is in memory and said so. The
+    // production shape below mounts one, because production requires it.
+    EXECUTOR_JOURNAL_REQUIRED: "false",
     ...presenceShape,
     EXECUTOR_BIND_ADDRESS: "127.0.0.1",
     PORT: "1",
@@ -206,9 +212,11 @@ function productionEnvironment(): Record<string, string> {
   delete env["EXECUTOR_POSTURE"];
   delete env["DECIONIS_ALLOW_INSECURE_LOOPBACK"];
   delete env["EXECUTOR_ALLOW_PLAINTEXT_LISTENER"];
+  delete env["EXECUTOR_JOURNAL_REQUIRED"];
   return {
     ...env,
     NODE_ENV: "production",
+    EXECUTOR_JOURNAL_DIR: "/var/lib/agent-safe/journal",
     // This shape has no principals file, which production allows only when
     // asked for by name; the principals section proves the refusal without it.
     EXECUTOR_ALLOW_LEGACY_CALLER: "true",
@@ -221,8 +229,9 @@ function productionEnvironment(): Record<string, string> {
   };
 }
 
-/** How many provider responses were lost on purpose; each is one reconciliation. */
+/** How many provider responses were lost on purpose, and how many a restart resolved. */
 let lostResponses = 0;
+let startupRecoveries = 0;
 const loseNextResponse = (): void => {
   lostResponses += 1;
   provider.loseNext();
@@ -245,6 +254,7 @@ async function startExecutor(
   escalation: Escalation = "NONE",
   overrides: Record<string, string | undefined> = {},
   registration: HandlerRegistration = handlers,
+  attempts?: ExecutionJournal,
 ): Promise<RunningExecutor> {
   const env: Record<string, string> = { ...environment(mode, escalation) };
   for (const [key, value] of Object.entries(overrides)) {
@@ -265,6 +275,7 @@ async function startExecutor(
     secrets,
     handlers: registration,
     dependencies: {
+      ...(attempts === undefined ? {} : { attempts }),
       emit: (line) => {
         auditLines.push(line);
         evidence.push(line);
@@ -653,6 +664,162 @@ heading("Rotation: a replaced caller token file retires the old one");
   rmSync(directory, { recursive: true, force: true });
 }
 
+heading("The stop: a halted executor asks the authority for nothing");
+{
+  const stopped = await startExecutor("ENFORCEMENT");
+  const grantsBefore = authority.grants.size;
+  const effectsBefore = provider.effects.size;
+  const auditBefore = stopped.evidence.length;
+  stopped.executor.halt.halt("OPERATOR", "the treasury team asked us to stop");
+  const refused = await call(stopped, "/v1/actions", { body: proposal(9_000) });
+  check(
+    refused.status === 503 &&
+      refused.headers.get("retry-after") === "30" &&
+      refused.body["verdict"] === "BLOCK" &&
+      refused.body["outcome"] === "BLOCKED" &&
+      refused.body["fail_closed"] === true &&
+      (refused.body["reason_codes"] as string[])[0] === "EXECUTOR_HALTED" &&
+      authority.grants.size === grantsBefore &&
+      provider.effects.size === effectsBefore,
+    "a halted executor refuses in the caller's own shape, and asks nothing",
+    `${refused.status} ${String((refused.body["reason_codes"] as string[])[0])}, ${authority.grants.size - grantsBefore} grants, ${provider.effects.size - effectsBefore} effects`,
+  );
+  const blocked = stopped.evidence
+    .slice(auditBefore)
+    .map((line) => JSON.parse(line) as Record<string, unknown>)
+    .filter((line) => line["event"] === "EXECUTION_BLOCKED");
+  check(
+    blocked.length === 1 && (blocked[0]?.["reason_codes"] as string[])[0] === "EXECUTOR_HALTED",
+    "the refusal itself is evidence, on the chained stream",
+    `${blocked.length} blocked line, reason ${String((blocked[0]?.["reason_codes"] as string[])[0])}`,
+  );
+  const ready = await call(stopped, "/ready", { method: "GET", token: null });
+  const health = await call(stopped, "/health", { method: "GET", token: null });
+  check(
+    ready.status === 503 &&
+      ready.body["status"] === "halted" &&
+      health.status === 200 &&
+      health.body["status"] === "ok",
+    "readiness says halted while liveness stays up, so nothing restarts it",
+    `ready ${ready.status}, health ${health.status}`,
+  );
+  // The halt file is the cause the operator has to remove first.
+  const directory = mkdtempSync(join(tmpdir(), "agentsafe-halt-"));
+  const flag = join(directory, "halted");
+  writeFileSync(flag, "stopped by the on-call operator\n");
+  const filed = new HaltSwitch({
+    events: new SecurityEvents((line) => securityLines.push(line)),
+    haltFile: flag,
+  });
+  const startedHalted = filed.assertAtStartup().halted;
+  const refusedResume = filed.resume("I would like it back");
+  rmSync(flag);
+  const allowedResume = filed.resume("the flag is gone");
+  rmSync(directory, { recursive: true, force: true });
+  check(
+    startedHalted &&
+      !refusedResume.resumed &&
+      refusedResume.code === "HALT_CAUSE_PERSISTS" &&
+      allowedResume.resumed,
+    "a process starts halted while the flag is there, and resumes only once it is gone",
+    `${refusedResume.code ?? "resumed"} then ${allowedResume.resumed ? "resumed" : "refused"}`,
+  );
+  const resumed = stopped.executor.halt.resume("we looked; it was nothing");
+  const after = await call(stopped, "/v1/actions", { body: proposal(9_000) });
+  check(
+    resumed.resumed &&
+      after.status === 200 &&
+      after.body["outcome"] === "COMPLETED" &&
+      provider.effects.size === effectsBefore + 1,
+    "work goes through again once an operator resumes with a reason",
+    `${String(after.body["outcome"])}, ${provider.effects.size - effectsBefore} effect`,
+  );
+  await stopped.executor.close();
+}
+
+heading("Ceilings: what this host will never run, whatever policy says");
+{
+  const bounded = await startExecutor("ENFORCEMENT", "NONE", {
+    EXECUTOR_HARD_LIMIT_SINGLE_MINOR: "USD:500000",
+    EXECUTOR_HARD_LIMIT_WINDOW_SECONDS: "60",
+    EXECUTOR_HARD_LIMIT_WINDOW_COUNT: "1",
+  });
+  const grantsBefore = authority.grants.size;
+  const over = await call(bounded, "/v1/actions", { body: proposal(500_001) });
+  check(
+    over.status === 422 &&
+      over.body["code"] === "HARD_LIMIT_EXCEEDED" &&
+      authority.grants.size === grantsBefore,
+    "an amount above the ceiling is refused before the authority is asked",
+    `${over.status} ${String(over.body["code"])}, ${authority.grants.size - grantsBefore} grants`,
+  );
+  const first = await call(bounded, "/v1/actions", { body: proposal(1_000) });
+  const second = await call(bounded, "/v1/actions", { body: proposal(1_000) });
+  check(
+    first.body["outcome"] === "COMPLETED" &&
+      second.status === 422 &&
+      second.body["code"] === "HARD_LIMIT_WINDOW_COUNT_EXCEEDED",
+    "the window counts what it let through, and refuses the next one",
+    `${String(first.body["outcome"])} then ${String(second.body["code"])}`,
+  );
+  await bounded.executor.close();
+}
+
+heading("Recovery: a lost dispatch is resolved from the journal, not re-sent");
+{
+  const directory = mkdtempSync(join(tmpdir(), "agentsafe-journal-"));
+  const attempts = new FileExecutionJournal(join(directory, "attempts"));
+  const crashing = await startExecutor("ENFORCEMENT", "NONE", {}, handlers, attempts);
+  loseNextResponse();
+  const lost = await call(crashing, "/v1/actions", { body: proposal(4_000) });
+  const dispatchesBefore = provider.requests.filter(
+    (request) => request.path === "/dispatches",
+  ).length;
+  check(
+    lost.body["outcome"] === "UNKNOWN_AFTER_DISPATCH" &&
+      (await attempts.openAttempts()).length === 1 &&
+      (await attempts.openAttempts())[0]?.state === "CLAIMED",
+    "an outcome nobody knows stays open in the journal, with its claim recorded",
+    `${String(lost.body["outcome"])}, ${(await attempts.openAttempts()).length} open`,
+  );
+  // The process is gone. A new one reads the same journal and resolves what
+  // it finds by asking the provider, read-only, as part of starting up.
+  await crashing.executor.close();
+  const recovering = new FileExecutionJournal(join(directory, "attempts"));
+  const eventsBefore = securityLines.length;
+  const restarted = await startExecutor("ENFORCEMENT", "NONE", {}, handlers, recovering);
+  startupRecoveries += 1;
+  const resolutions = securityLines
+    .slice(eventsBefore)
+    .map((line) => JSON.parse(line) as Record<string, unknown>)
+    .filter((event) => event["event"] === "OPEN_ATTEMPT_RESOLVED");
+  const dispatchesAfter = provider.requests.filter(
+    (request) => request.path === "/dispatches",
+  ).length;
+  const stillOpen = (await recovering.openAttempts()).length;
+  check(
+    resolutions.length === 1 &&
+      resolutions[0]?.["resolution"] === "RECONCILED_COMPLETED" &&
+      dispatchesAfter === dispatchesBefore &&
+      stillOpen === 0,
+    "the next process resolves it by reading the provider, and never sends again",
+    `${String(resolutions[0]?.["resolution"])}, ${dispatchesAfter - dispatchesBefore} new dispatches, ${stillOpen} still open`,
+  );
+  const again = await startExecutor("ENFORCEMENT", "NONE", {}, handlers, recovering);
+  const askedAgain = securityLines
+    .slice(eventsBefore)
+    .filter((line) => line.includes('"OPEN_ATTEMPT_FOUND_AT_STARTUP"')).length;
+  check(
+    askedAgain === 1,
+    "the resolved attempt is closed, so a later start does not ask about it again",
+    `${askedAgain} attempt found across two starts`,
+  );
+  await again.executor.close();
+  await restarted.executor.close();
+  recovering.close();
+  rmSync(directory, { recursive: true, force: true });
+}
+
 heading("Principals: who may call, as what, and for which actions");
 {
   const directory = mkdtempSync(join(tmpdir(), "agentsafe-principals-"));
@@ -964,11 +1131,12 @@ heading("Nothing secret left the process");
   const presenceEvents = auditLines.filter((line) => line.includes('"PRESENCE_')).length;
   check(
     executions === dispatches - lostResponses &&
-      reconciliations === lostResponses &&
+      reconciliations === lostResponses - startupRecoveries &&
       lostResponses > 0 &&
+      startupRecoveries > 0 &&
       presenceEvents >= 4,
     "the audit stream counts every execution, reconciliation and ceremony",
-    `${executions} executions for ${dispatches} dispatches, ${lostResponses} lost, ${reconciliations} reconciliations, ${presenceEvents} Presence events`,
+    `${executions} executions for ${dispatches} dispatches, ${lostResponses} lost (${startupRecoveries} recovered at start), ${reconciliations} reconciliations, ${presenceEvents} Presence events`,
   );
 }
 

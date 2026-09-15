@@ -34,10 +34,33 @@ data:
   # EXECUTOR_TLS_CLIENT_CA_FILE pointing at a mounted CA bundle.
   EXECUTOR_TLS_CERT_FILE: "/var/run/agent-safe/tls/tls.crt"
   EXECUTOR_TLS_KEY_FILE: "/var/run/agent-safe/tls/tls.key"
-  # The evidence chains' heads persist here across a container restart; the
-  # volume below is an emptyDir, which a pod eviction does not keep. The log
-  # pipeline is the durable store; this keeps the sequence honest.
+  # Two things live here. Under chain/ are the evidence chains' heads, so a
+  # restart continues the sequence. Under attempts/ is the attempt journal:
+  # every execution is written there before the provider is touched, and a
+  # restart reconciles what it finds read-only. The volume is a per-replica
+  # claim below, because an attempt has to outlive the container that made
+  # it. The journal carries the request's own parameters, so protect it as
+  # you protect the traffic.
   EXECUTOR_JOURNAL_DIR: "/var/lib/agent-safe/journal"
+  # Stay out of the load balancer while any attempt's outcome is unknown, so
+  # a replica that cannot say what it did takes no new work.
+  EXECUTOR_READY_REQUIRES_NO_UNKNOWN_ATTEMPTS: "true"
+  # The stop. Create the file in the ConfigMap below and every replica halts
+  # within seconds; remove it and an operator may resume with a reason.
+  EXECUTOR_HALT_FILE: "/var/run/agent-safe/halt/halted"
+  # A flood of refused credentials, or of refused outbound requests, halts the
+  # executor. Both are reachable from the agent zone on purpose: stopping is
+  # the fail-closed answer to a caller behaving like a compromised one.
+  EXECUTOR_HALT_ON_AUTH_FAILURES: "50/60"
+  EXECUTOR_HALT_ON_EGRESS_REFUSALS: "5/60"
+  # The host's own ceilings, above whatever policy decides. They only ever
+  # refuse, the window is per replica and per process, and an unlisted
+  # currency is refused outright.
+  EXECUTOR_HARD_LIMIT_SINGLE_MINOR: "CHF:2500000000,EUR:1000000000"
+  EXECUTOR_HARD_LIMIT_WINDOW_SECONDS: "60"
+  EXECUTOR_HARD_LIMIT_WINDOW_COUNT: "120"
+  # How far this host's clock may be from the authority's before it halts.
+  EXECUTOR_MAX_CLOCK_SKEW_MS: "2000"
   # NONE returns the hold. MANAGED has the authority orchestrate Presence and
   # needs PRESENCE_APPROVER_ID, PRESENCE_VERIFICATION_LEVEL and
   # PRESENCE_VERIFICATION_METHODS (PRESENCE_APPROVER_ROLE optional). DIRECT
@@ -139,18 +162,23 @@ data:
   jwks.json: |
     { "keys": [] }
 ---
+# A StatefulSet, not a Deployment, because the attempt journal is per
+# replica: a pod that restarts must come back to its own journal and
+# reconcile what it left open. Each replica gets its own claim below.
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: agent-safe-executor
   namespace: agent-safe
   labels:
     app: agent-safe-executor
 spec:
-  # The process keeps no authority state: grants are consumed at the
-  # authority, and a reconciliation presents its own reference. Raise the
-  # count as the workflow needs; nothing here is per replica.
-  replicas: 1
+  serviceName: agent-safe-executor
+  # Two replicas so a rolling restart leaves one taking work; each keeps its
+  # own journal and its own limit windows, which is why the ceilings are a
+  # backstop against a policy mistake and not a treasury control.
+  replicas: 2
+  podManagementPolicy: Parallel
   selector:
     matchLabels:
       app: agent-safe-executor
@@ -191,6 +219,9 @@ spec:
               readOnly: true
             - name: jwks
               mountPath: /var/run/agent-safe/jwks
+              readOnly: true
+            - name: halt
+              mountPath: /var/run/agent-safe/halt
               readOnly: true
             - name: journal
               mountPath: /var/lib/agent-safe
@@ -249,9 +280,39 @@ spec:
           configMap:
             name: agent-safe-executor-jwks
             defaultMode: 288
-        - name: journal
-          emptyDir:
-            sizeLimit: 64Mi
+        - name: halt
+          configMap:
+            name: agent-safe-executor-halt
+            defaultMode: 288
+            optional: true
+  # One claim per replica. ReadWriteOnce is right: the journal belongs to the
+  # pod that wrote it, and no other replica may read or write it.
+  volumeClaimTemplates:
+    - metadata:
+        name: journal
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi
+---
+# The stop, as data. Create this ConfigMap with any content at all and every
+# replica halts within seconds; delete it and an operator may resume with a
+# reason. The executor refuses to resume while the file is still there.
+#
+#   kubectl -n agent-safe create configmap agent-safe-executor-halt \
+#     --from-literal=halted="payment rail incident, on-call stopped it"
+#
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: agent-safe-executor
+  namespace: agent-safe
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: agent-safe-executor
 #
 # The proposing workflow, in the agent zone, presents a projected
 # service-account token whose audience is the executor's. Nothing here needs a

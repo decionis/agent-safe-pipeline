@@ -33,6 +33,9 @@ export function offlineEnvironment(): Record<string, string> {
     // and the listener is plaintext on loopback.
     EXECUTOR_POSTURE: "DEVELOPMENT",
     EXECUTOR_ALLOW_PLAINTEXT_LISTENER: "true",
+    // No volume on a developer's machine: the attempt journal is in memory
+    // and said so. Production refuses this.
+    EXECUTOR_JOURNAL_REQUIRED: "false",
     DECIONIS_API_URL: "https://authority.decionis.example",
     DECIONIS_API_KEY: "synthetic-authority-key",
     DOWNSTREAM_URL: "https://payouts.provider.example/v1/payouts",
