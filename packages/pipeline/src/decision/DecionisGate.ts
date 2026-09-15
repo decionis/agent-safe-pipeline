@@ -285,6 +285,12 @@ export class DecionisGate implements DecisionAuthority {
     evidence?: DecisionEvidence,
     options: DecisionEvaluationOptions = {},
   ): Promise<GateDecision> {
+    // An intent past its expiry is refused before the authority is asked: no
+    // grant could outlive it, and a decision about it would only record a
+    // dead intent.
+    if (!(Date.parse(captured.intent.expiresAt) > Date.now())) {
+      return FailClosedDecision.create(captured.intentHash, "INTENT_EXPIRED");
+    }
     const escalation = this.validEscalationRequest(options.escalation);
     if (escalation === null) {
       return FailClosedDecision.create(captured.intentHash, "MANAGED_ESCALATION_REQUEST_INVALID");
