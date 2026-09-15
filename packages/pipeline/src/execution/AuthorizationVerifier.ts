@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AuthorityBaseUrl } from "../http/AuthorityBaseUrl.js";
+import { credentialReader, type Credential } from "../http/Credential.js";
 import { BoundedResponseBody } from "../http/BoundedResponseBody.js";
 import { CanonicalIntentHasher } from "../intent/CanonicalIntentHasher.js";
 import type { CapturedIntent } from "../intent/ExecutionIntent.js";
@@ -11,6 +12,18 @@ export interface VerifiedAuthorization {
   readonly grantId: string;
   readonly intentHash: string;
   readonly expiresAt: string;
+  /**
+   * When the authority stops accepting a commit for this claim, if it said.
+   * A lease is shorter than the grant's own expiry and is the real window a
+   * side effect has to finish inside: a commit the authority will no longer
+   * record leaves an outcome nobody can reconcile from the record, however
+   * successful the dispatch was.
+   *
+   * Absent when the authority did not return one, which is how a deployment
+   * whose issuer predates the field behaves. A consumer that ignores this
+   * field is exactly as correct as it was before the field existed.
+   */
+  readonly leaseExpiresAt?: string;
 }
 
 /** Outcome of the downstream attempt reported to the authority after a claimed grant. */
@@ -210,7 +223,8 @@ interface ClaimRecord {
 
 export interface DecionisGrantVerifierOptions {
   readonly baseUrl: string;
-  readonly apiKey: string;
+  /** The Decionis credential, as a value or as a function read at each request. */
+  readonly apiKey: Credential;
   readonly timeoutMs?: number;
   readonly fetch?: typeof fetch;
   readonly allowInsecureLoopback?: boolean;
@@ -224,7 +238,7 @@ export interface DecionisGrantVerifierOptions {
  */
 export class DecionisGrantVerifier implements AuthorizationVerifier {
   private readonly baseUrl: string;
-  private readonly apiKey: string;
+  private readonly apiKey: () => string;
   private readonly timeoutMs: number;
   private readonly fetchImpl: typeof fetch;
   /** Claim material is keyed by the frozen authorization it belongs to and never exposed. */
@@ -237,7 +251,7 @@ export class DecionisGrantVerifier implements AuthorizationVerifier {
       options.baseUrl,
       options.allowInsecureLoopback === true,
     );
-    this.apiKey = options.apiKey;
+    this.apiKey = credentialReader(options.apiKey);
     this.timeoutMs = Math.min(Math.max(options.timeoutMs ?? 4_000, 1), 15_000);
     this.fetchImpl = options.fetch ?? fetch;
   }
@@ -262,7 +276,7 @@ export class DecionisGrantVerifier implements AuthorizationVerifier {
       const response = await this.fetchImpl(`${this.baseUrl}/v1/execution/claim-token`, {
         method: "POST",
         headers: {
-          authorization: `Bearer ${this.apiKey}`,
+          authorization: `Bearer ${this.apiKey()}`,
           "content-type": "application/json",
         },
         body: JSON.stringify({
@@ -306,12 +320,18 @@ export class DecionisGrantVerifier implements AuthorizationVerifier {
       ) {
         return null;
       }
+      // The lease the authority named for this claim, when it named one. It
+      // is reported rather than enforced here: what a caller does with a
+      // window is the caller's decision, and the grant's own expiry is
+      // already the outer bound this verifier checked above.
+      const lease = parsed.claim_lease_expires_at;
       const authorization: VerifiedAuthorization = Object.freeze({
         decisionId: claims.decision_id,
         dossierId: claims.dossier_id,
         grantId: claims.jti,
         intentHash: claims.binding.intent_hash,
         expiresAt: new Date(claims.exp * 1_000).toISOString(),
+        ...(typeof lease === "string" ? { leaseExpiresAt: lease } : {}),
       });
       this.claims.set(authorization, {
         executionToken: decision.authorization.token,
@@ -371,7 +391,7 @@ export class DecionisGrantVerifier implements AuthorizationVerifier {
       const response = await this.fetchImpl(`${this.baseUrl}/v1/execution/finalize-token`, {
         method: "POST",
         headers: {
-          authorization: `Bearer ${this.apiKey}`,
+          authorization: `Bearer ${this.apiKey()}`,
           "content-type": "application/json",
         },
         body: JSON.stringify({

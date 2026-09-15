@@ -29,12 +29,51 @@ describe("MonotonicDeadline", () => {
 describe("dispatchBudgetMs", () => {
   it("is the smaller of the configured timeout and what is left of the grant", () => {
     const now = (): number => Date.parse("2026-09-15T10:00:00.000Z");
-    expect(dispatchBudgetMs(5_000, "2026-09-15T10:00:10.000Z", now)).toBe(5_000);
-    expect(dispatchBudgetMs(5_000, "2026-09-15T10:00:02.000Z", now)).toBe(2_000);
-    expect(dispatchBudgetMs(5_000, "2026-09-15T10:00:00.000Z", now)).toBe(0);
-    expect(dispatchBudgetMs(5_000, "2026-09-15T09:59:59.000Z", now)).toBe(0);
+    expect(dispatchBudgetMs(5_000, { expiresAt: "2026-09-15T10:00:10.000Z" }, now)).toBe(5_000);
+    expect(dispatchBudgetMs(5_000, { expiresAt: "2026-09-15T10:00:02.000Z" }, now)).toBe(2_000);
+    expect(dispatchBudgetMs(5_000, { expiresAt: "2026-09-15T10:00:00.000Z" }, now)).toBe(0);
+    expect(dispatchBudgetMs(5_000, { expiresAt: "2026-09-15T09:59:59.000Z" }, now)).toBe(0);
     // An expiry that is not a time leaves the configured timeout alone rather
     // than silently becoming zero.
-    expect(dispatchBudgetMs(5_000, "whenever", now)).toBe(5_000);
+    expect(dispatchBudgetMs(5_000, { expiresAt: "whenever" }, now)).toBe(5_000);
+  });
+
+  it("takes the claim lease when the authority named one, because it is the tighter bound", () => {
+    const now = (): number => Date.parse("2026-09-15T10:00:00.000Z");
+    const grant = "2026-09-15T10:00:10.000Z";
+    // The lease closes first, so the dispatch gets the lease.
+    expect(
+      dispatchBudgetMs(
+        5_000,
+        { expiresAt: grant, leaseExpiresAt: "2026-09-15T10:00:01.000Z" },
+        now,
+      ),
+    ).toBe(1_000);
+    // The grant closes first, so the dispatch gets the grant.
+    expect(
+      dispatchBudgetMs(
+        5_000,
+        { expiresAt: "2026-09-15T10:00:02.000Z", leaseExpiresAt: "2026-09-15T10:00:30.000Z" },
+        now,
+      ),
+    ).toBe(2_000);
+    // The configured timeout still wins when it is the smallest of the three.
+    expect(
+      dispatchBudgetMs(500, { expiresAt: grant, leaseExpiresAt: "2026-09-15T10:00:09.000Z" }, now),
+    ).toBe(500);
+    // A lease that has already closed is a budget of zero: the commit could
+    // not be recorded, so the dispatch must not start.
+    expect(
+      dispatchBudgetMs(
+        5_000,
+        { expiresAt: grant, leaseExpiresAt: "2026-09-15T09:59:59.000Z" },
+        now,
+      ),
+    ).toBe(0);
+    // A lease that is not a time is not a bound, and does not become zero.
+    expect(dispatchBudgetMs(5_000, { expiresAt: grant, leaseExpiresAt: "soon" }, now)).toBe(5_000);
+    // No lease at all is what a deployment whose issuer predates the field
+    // reports, and it behaves exactly as it did before the field existed.
+    expect(dispatchBudgetMs(5_000, { expiresAt: grant }, now)).toBe(5_000);
   });
 });

@@ -514,7 +514,10 @@ describe("credential rotation", () => {
     expect((await secrets.reload("OPERATOR")).rotated).toEqual(["DECIONIS_API_KEY"]);
     const refused = await service.propose(proposal(5_000).body);
     expect(refused).toMatchObject({ verdict: "BLOCK", fail_closed: true, executed: false });
-    expect(securityLines.some((line) => line.includes('"AUTHORITY_CLIENTS_REBUILT"'))).toBe(true);
+    // Nothing was rebuilt to make that happen: the gate and the verifier read
+    // the credential at each request, so the changed file reached the next
+    // one on its own.
+    expect(securityLines.some((line) => line.includes('"AUTHORITY_CLIENTS_REBUILT"'))).toBe(false);
 
     writeFileSync(path, `${LOCAL_AUTHORITY_API_KEY}\n`);
     await secrets.reload("OPERATOR");

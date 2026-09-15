@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AuthorityBaseUrl } from "../http/AuthorityBaseUrl.js";
+import { credentialReader, type Credential } from "../http/Credential.js";
 import { BoundedResponseBody } from "../http/BoundedResponseBody.js";
 import { CanonicalIntentHasher } from "../intent/CanonicalIntentHasher.js";
 import type { CapturedIntent } from "../intent/ExecutionIntent.js";
@@ -237,7 +238,14 @@ const MAX_MANAGED_ATTEMPTS = 1_000;
 
 export interface DecionisGateOptions {
   readonly baseUrl: string;
-  readonly apiKey: string;
+  /**
+   * The server-side Decionis credential, as a value or as a function read at
+   * the moment of use. A deployment whose credential rotates gives the
+   * function: the next request carries the new value, and a request already
+   * in flight keeps the one it started with, without anyone rebuilding this
+   * client and the executor around it.
+   */
+  readonly apiKey: Credential;
   readonly timeoutMs?: number;
   readonly fetch?: typeof fetch;
   readonly allowInsecureLoopback?: boolean;
@@ -253,7 +261,7 @@ export interface DecionisGateOptions {
 export class DecionisGate implements DecisionAuthority {
   public readonly evaluationMode: DecisionEvaluationMode;
   private readonly baseUrl: string;
-  private readonly apiKey: string;
+  private readonly apiKey: () => string;
   private readonly timeoutMs: number;
   private readonly fetchImpl: typeof fetch;
   private readonly pendingAuthorizationWaits = new Map<string, Promise<GateDecision>>();
@@ -262,7 +270,7 @@ export class DecionisGate implements DecisionAuthority {
       options.baseUrl,
       options.allowInsecureLoopback === true,
     );
-    this.apiKey = options.apiKey;
+    this.apiKey = credentialReader(options.apiKey);
     this.timeoutMs = Math.min(Math.max(options.timeoutMs ?? 4_000, 1), 15_000);
     this.fetchImpl = options.fetch ?? fetch;
     const mode = options.mode ?? "ENFORCEMENT";
@@ -297,7 +305,7 @@ export class DecionisGate implements DecisionAuthority {
       const response = await this.fetchImpl(`${this.baseUrl}/v1/authority/enforce-and-bind`, {
         method: "POST",
         headers: {
-          authorization: `Bearer ${this.apiKey}`,
+          authorization: `Bearer ${this.apiKey()}`,
           "content-type": "application/json",
           // The contract requires the header to equal the signed intent_id;
           // intent_id is the authority's grant-issuance boundary.
@@ -373,7 +381,7 @@ export class DecionisGate implements DecisionAuthority {
         `${this.baseUrl}/v1/authority/escalations/${encodeURIComponent(escalation.escalationId)}`,
         {
           method: "GET",
-          headers: { authorization: `Bearer ${this.apiKey}` },
+          headers: { authorization: `Bearer ${this.apiKey()}` },
           signal: controller.signal,
         },
       );

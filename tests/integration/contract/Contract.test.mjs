@@ -228,13 +228,38 @@ test(
     assert.equal(claim.body.consumed_by, ACTOR_ID);
     assert.equal(claim.body.commit_correlation_id, captured.intent.intentId);
     assert.equal(claim.response.status, 200);
-    assert.deepEqual(result.authorization, {
-      decisionId: decision.decisionId,
-      dossierId: decision.dossierId,
-      grantId: grant.jti,
-      intentHash: captured.intentHash,
-      expiresAt: decision.authorization.expiresAt,
-    });
+    // The authority's double returns a claim lease, and the verifier reports
+    // it: it is the window this attempt has to commit inside, shorter than
+    // the grant's own expiry and the one a dispatch is actually bounded by.
+    assert.deepEqual(Object.keys(result.authorization).sort(), [
+      "decisionId",
+      "dossierId",
+      "expiresAt",
+      "grantId",
+      "intentHash",
+      "leaseExpiresAt",
+    ]);
+    assert.deepEqual(
+      {
+        decisionId: result.authorization.decisionId,
+        dossierId: result.authorization.dossierId,
+        grantId: result.authorization.grantId,
+        intentHash: result.authorization.intentHash,
+        expiresAt: result.authorization.expiresAt,
+      },
+      {
+        decisionId: decision.decisionId,
+        dossierId: decision.dossierId,
+        grantId: grant.jti,
+        intentHash: captured.intentHash,
+        expiresAt: decision.authorization.expiresAt,
+      },
+    );
+    assert.ok(
+      Date.parse(result.authorization.leaseExpiresAt) <=
+        Date.parse(decision.authorization.expiresAt),
+      "a lease never outlives the grant it belongs to",
+    );
 
     assert.deepEqual(finalize.body, {
       execution_token: decision.authorization.token,

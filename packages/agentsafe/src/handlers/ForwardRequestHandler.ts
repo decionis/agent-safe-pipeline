@@ -59,9 +59,7 @@ export function registerHandlers(
     // The provider is never given more time than the authorization has left:
     // a slow call cannot outlive the permission it was made under, and the
     // budget is monotonic, so correcting the wall clock cannot extend it.
-    const deadline = MonotonicDeadline.after(
-      dispatchBudgetMs(downstream.timeoutMs, authorization.expiresAt),
-    );
+    const deadline = MonotonicDeadline.after(dispatchBudgetMs(downstream.timeoutMs, authorization));
     return await dispatch.run(async (idempotencyKey) => {
       // Everything after this line is the point of no return: a transport
       // failure here is an unknown outcome, never a failure to retry.
