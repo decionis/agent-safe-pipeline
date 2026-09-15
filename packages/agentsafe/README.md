@@ -458,6 +458,21 @@ the credential for headers before the point of no return and never holds a value
   `idempotency-key` and `x-agent-safe-intent-hash` with the values it asked the credential to
   sign; the reference handler does.
 
+The three are not equally strong, and the choice decides what an agent that reaches the provider
+anyway can do with the path:
+
+| Kind              | What the downstream is shown                 | What a captured value is worth                                                   |
+| ----------------- | -------------------------------------------- | -------------------------------------------------------------------------------- |
+| `STATIC_HEADER`   | A bearer                                     | Everything, until it is rotated: whoever holds it is the executor                |
+| `PRIVATE_KEY_JWT` | A bearer minted from a key                   | The access token until `exp`; the key itself stays in the process                |
+| `SIGNED_REQUEST`  | A per-request signature over five components | Nothing. It is bound to this method, path, body, idempotency key and intent hash |
+
+For anything reaching a system of record, `SIGNED_REQUEST` is the one that keeps the boundary when
+the network does not: a caller with a perfect route and a copied header still cannot produce a
+signature, so the provider can refuse it. It proves that this process sent this request, not that
+the authority allowed it -- the grant is not in the signature base -- so a compromised executor
+still signs validly. See [bypass resistance](../../docs/bypass-resistance.md).
+
 The keys of the kinds not selected must be absent, and each kind names the one secret it needs. A
 downstream verifies a signed request like this:
 

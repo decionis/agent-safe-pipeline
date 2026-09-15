@@ -303,6 +303,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/containment/ContainmentProbe.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/credential/PrivateKeyJwtCredential.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",

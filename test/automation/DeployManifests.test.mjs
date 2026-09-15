@@ -67,6 +67,7 @@ describe("the deployment kit's manifests", () => {
     assert.deepEqual(files, [
       "alerts/TrustedExecutor.yaml",
       "kubernetes/AgentZone.yaml",
+      "kubernetes/ContainmentProbe.yaml",
       "kubernetes/DefaultDeny.yaml",
       "kubernetes/ExecutorEgress.yaml",
       "kubernetes/Namespaces.yaml",
@@ -189,6 +190,39 @@ describe("the deployment kit's manifests", () => {
       rule.ports.map((port) => port.port),
     );
     assert.deepEqual([...new Set(destinations)].sort(), [53, PORT]);
+  });
+
+  it("keep the containment probe inside the caller policy and empty of credentials", () => {
+    const probe = byKind("CronJob").find(
+      ({ object }) => object.metadata.name === "agent-safe-containment-probe",
+    );
+    assert.ok(probe, "the kit needs the containment probe");
+    assert.equal(probe.object.metadata.namespace, "agent-safe-agents");
+    const template = probe.object.spec.jobTemplate.spec.template;
+    // The probe proves something about the callers only while the agent-zone
+    // policy selects it too. Relabelled, it measures its own network.
+    assert.equal(
+      template.metadata.labels["agent-safe-caller"],
+      "true",
+      "the probe must sit in the caller policy's scope",
+    );
+    const [container] = template.spec.containers;
+    // A probe that authenticated would have to hold the credential whose
+    // absence it is checking, so it mounts nothing and reads no environment.
+    assert.equal(template.spec.volumes, undefined, "the probe mounts nothing");
+    assert.equal(container.volumeMounts, undefined, "the probe mounts nothing");
+    assert.equal(container.env, undefined, "the probe reads no environment");
+    assert.equal(container.envFrom, undefined, "the probe reads no environment");
+    assert.equal(template.spec.automountServiceAccountToken, false);
+    assert.equal(container.args[0], "probe-containment");
+    for (const target of container.args.slice(1)) {
+      const host = target.slice(target.indexOf("=") + 1).split(":")[0];
+      assert.ok(host.endsWith(".example"), `${host} must be a .example host`);
+    }
+    // Exiting non-zero on a reachable target is the whole signal; a retry
+    // would turn one finding into several.
+    assert.equal(probe.object.spec.jobTemplate.spec.backoffLimit, 0);
+    assert.equal(probe.object.spec.concurrencyPolicy, "Forbid");
   });
 
   it("let only a labelled caller in the agent zone reach the executor", () => {

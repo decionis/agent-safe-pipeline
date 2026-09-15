@@ -17,7 +17,10 @@ export default {
   // comparison decides whether an observed effect is the authorised one.
   // Money is arithmetic that must not round. The banking binder is the gate
   // between the transport and the profile: a mutant there is a caller
-  // describing one thing and asking for another.
+  // describing one thing and asking for another. The containment probe is
+  // here because its failure mode is false assurance: a mutant that reads a
+  // reachable system of record as contained tells an operator the boundary
+  // holds when it does not.
   mutate: [
     "src/http/ExecutorHttpServer.ts",
     "src/identity/PrincipalRegistry.ts",
@@ -31,6 +34,7 @@ export default {
     "src/adapters/EffectComparison.ts",
     "src/adapters/banking/Money.ts",
     "src/adapters/banking/BankingIntentBinder.ts",
+    "src/containment/ContainmentProbe.ts",
   ],
   reporters: ["clear-text", "progress"],
   coverageAnalysis: "perTest",

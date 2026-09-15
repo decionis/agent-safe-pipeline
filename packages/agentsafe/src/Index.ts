@@ -287,6 +287,18 @@ export {
 } from "./incident/HaltSwitch.js";
 export { regularFileExists, watchDirectory } from "./incident/FileProbe.js";
 export {
+  CONTAINMENT_STREAM,
+  parseTarget,
+  probeContainment,
+  verdictFor,
+  type ContainmentFinding,
+  type ContainmentProbeOptions,
+  type ContainmentReport,
+  type ContainmentTarget,
+  type ContainmentVerdict,
+} from "./containment/ContainmentProbe.js";
+export { dial, dialOutcomeFor, type DialOutcome } from "./egress/TcpProbe.js";
+export {
   JOURNAL_VERSION,
   JournalError,
   JournalRecordSchema,

@@ -1,0 +1,89 @@
+# The containment probe: a CronJob in the agent zone that tries to reach the
+# systems of record directly and reports what happened.
+#
+# Why this exists. Every NetworkPolicy in this kit is a request to the
+# cluster, not a control this repository enforces. A cluster with no
+# NetworkPolicy-enforcing CNI accepts `AgentZone.yaml` and ignores it, and
+# the agent zone then has whatever network the node has. No process can see
+# that from inside itself, so this probe looks from where it matters: the
+# same policy scope as the callers.
+#
+# Read the verdicts asymmetrically. `REACHABLE` is proof of a hole and the
+# job exits 1 so the failure is visible to anything watching jobs.
+# `CONTAINED` is NOT proof that the policy is enforced -- a drop looks
+# exactly like a provider that is down -- and a clean run exits 0 without
+# claiming anything. `INCONCLUSIVE` is a name that did not resolve.
+#
+# The probe holds no credential, by design. Authenticating would mean putting
+# the downstream credential in the agent zone, which is the hole it is
+# looking for. So it reports that a path exists, never that it is usable.
+#
+# It is labelled `agent-safe-caller: "true"` on purpose: that is the selector
+# `AgentZone.yaml` uses, so the probe is subject to exactly the egress rules
+# the callers are. Relabel it and it stops proving anything about them.
+#
+# Replace the target list with your own systems of record. Both names here
+# are `.example` and resolve to nothing.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: agent-safe-containment-probe
+  namespace: agent-safe-agents
+automountServiceAccountToken: false
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: agent-safe-containment-probe
+  namespace: agent-safe-agents
+spec:
+  schedule: "17 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  # A reachable system of record is the finding worth keeping: hold more
+  # failures than successes, because the failures are the evidence.
+  failedJobsHistoryLimit: 10
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            app: agent-safe-containment-probe
+            agent-safe-caller: "true"
+        spec:
+          serviceAccountName: agent-safe-containment-probe
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          hostNetwork: false
+          hostPID: false
+          hostIPC: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: probe
+              image: IMAGE_PLACEHOLDER
+              args:
+                - "probe-containment"
+                - "core=core.bank.example:443"
+                - "hub=hub.bank.example:443"
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  cpu: 100m
+                  memory: 64Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                runAsUser: 65532
+                capabilities:
+                  drop: ["ALL"]
+                seccompProfile:
+                  type: RuntimeDefault
