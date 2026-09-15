@@ -2,7 +2,7 @@ import type { JsonObject, JsonValue } from "@decionis/agent-safe-pipeline";
 import type { BankingAction } from "./BankingAction.js";
 
 /** The registry this file mirrors, and the version of it. */
-export const PROJECTION_PROFILE = "decionis.beap/v0.1";
+export const PROJECTION_PROFILE = "decionis.beap/v1.0";
 
 /** Every projection begins with these, per the registry's `base_projection`. */
 export const BASE_PROJECTION = ["effect_type", "domain", "action", "target"] as const;

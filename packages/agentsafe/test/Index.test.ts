@@ -138,6 +138,7 @@ describe("public surface", () => {
       "BindingError",
       "CoreBankingHttpAdapter",
       "CurrencyError",
+      "EFFECT_EVIDENCE_PROFILE",
       "EFFECT_REASON_CODES",
       "EXECUTION_REASON_CODES",
       "EffectAwareGrantVerifier",

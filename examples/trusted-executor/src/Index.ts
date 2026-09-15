@@ -71,7 +71,7 @@ import { handlers } from "./Handlers.js";
 /** A canonical BEAP action, synthetic throughout, as the profile's own example shapes it. */
 function bankingAction(requestId: string): BankingAction {
   return {
-    profile: "decionis.beap/v0.1",
+    profile: "decionis.beap/v1.0",
     domain: "LOAN_DISBURSEMENT",
     action: { type: "DISBURSE_LOAN", request_id: requestId },
     actor: {

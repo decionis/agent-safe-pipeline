@@ -66,7 +66,7 @@ describe("bindBankingAction", () => {
   it("computes the trusted context from the action, not from the caller", () => {
     const bound = bindBankingAction(input(), digests);
     expect(bound.context).toEqual({
-      beap_profile: "decionis.beap/v0.1",
+      beap_profile: "decionis.beap/v1.0",
       beap_intent_digest: bound.intentDigest,
       beap_expected_effect_digest: bound.expectedEffectDigest,
     });
@@ -149,7 +149,7 @@ describe("bindBankingAction", () => {
   });
 
   it("refuses parameters that are not a canonical action at all", () => {
-    for (const parameters of [{ amountMinor: 1 }, {}, { profile: "decionis.beap/v0.1" }]) {
+    for (const parameters of [{ amountMinor: 1 }, {}, { profile: "decionis.beap/v1.0" }]) {
       expect(code(() => bindBankingAction(input({ parameters }), digests))).toBe(
         "BANKING_ACTION_INVALID",
       );

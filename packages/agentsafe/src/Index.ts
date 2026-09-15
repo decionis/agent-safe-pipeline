@@ -43,6 +43,7 @@ export {
   type EffectComparisonResult,
 } from "./adapters/EffectComparison.js";
 export {
+  EFFECT_EVIDENCE_PROFILE,
   authorityEffectEvidence,
   buildEffectRecord,
   confirmationFor,

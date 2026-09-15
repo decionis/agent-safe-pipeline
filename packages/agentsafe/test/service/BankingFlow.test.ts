@@ -163,7 +163,7 @@ describe("a BEAP action through the whole boundary", () => {
     );
     const binding = evaluated?.body as Record<string, unknown> | undefined;
     expect(binding?.["context"]).toMatchObject({
-      beap_profile: "decionis.beap/v0.1",
+      beap_profile: "decionis.beap/v1.0",
       beap_intent_digest: prepared.intentDigest,
       beap_expected_effect_digest: prepared.expectedEffectDigest,
       caller_principal: "legacy-caller",

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const BEAP_PROFILE = "decionis.beap/v0.1";
+export const BEAP_PROFILE = "decionis.beap/v1.0";
 
 /** The identifier shape the profile uses for every registered name. */
 const identifier = z.string().regex(/^[A-Z][A-Z0-9_]{1,63}$/);
