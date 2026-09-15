@@ -29,8 +29,10 @@ export function offlineEnvironment(): Record<string, string> {
     EXECUTOR_INTENT_TTL_SECONDS: "300",
     EXECUTOR_CALLER_TOKEN: CALLER_TOKEN,
     EXECUTOR_ESCALATION: "NONE",
-    // Tests run on a developer's machine: the host checks are waived and said so.
+    // Tests run on a developer's machine: the host checks are waived and said so,
+    // and the listener is plaintext on loopback.
     EXECUTOR_POSTURE: "DEVELOPMENT",
+    EXECUTOR_ALLOW_PLAINTEXT_LISTENER: "true",
     DECIONIS_API_URL: "https://authority.decionis.example",
     DECIONIS_API_KEY: "synthetic-authority-key",
     DOWNSTREAM_URL: "https://payouts.provider.example/v1/payouts",
@@ -46,10 +48,10 @@ export function offlineEnvironment(): Record<string, string> {
 
 /** The executor's environment against the loopback doubles, as a deployment would mount it. */
 export function loopbackEnvironment(
-  doubles: { authority: LocalAuthority; presence: LocalPresence; providerBaseUrl: string },
+  doubles: { authority: LocalAuthority; presence?: LocalPresence; providerBaseUrl: string },
   mode: "SHADOW" | "ENFORCEMENT",
   escalation: Escalation = "NONE",
-  presenceBaseUrl: string = doubles.presence.baseUrl,
+  presenceBaseUrl: string = doubles.presence?.baseUrl ?? "",
 ): Record<string, string> {
   const presenceShape =
     escalation === "NONE"

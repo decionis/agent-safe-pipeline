@@ -23,6 +23,7 @@ interface FixtureOptions {
   readonly realpaths?: Readonly<Record<string, string>>;
   readonly inspector?: boolean;
   readonly permission?: { active: boolean; granted?: readonly string[] };
+  readonly fetchLocked?: boolean;
 }
 
 /** A host as the checks would see it; nothing here touches the real filesystem. */
@@ -39,6 +40,7 @@ function facts(options: FixtureOptions = {}): PostureFacts {
     },
     realpath: (path) => options.realpaths?.[path] ?? path,
     inspectorActive: () => options.inspector ?? false,
+    globalFetchLocked: () => options.fetchLocked ?? true,
     permission: () => ({
       active: options.permission?.active ?? true,
       has: (scope) => granted.has(scope),
@@ -68,9 +70,16 @@ function posture(
   fixture: FixtureOptions,
   settings: Partial<PostureConfig> = {},
   lines: string[] = [],
+  fetchLocked?: () => boolean,
 ): HostPosture {
+  const host = facts(fixture);
   return new HostPosture(
-    { mode, intervalSeconds: 60, config: config(settings), facts: facts(fixture) },
+    {
+      mode,
+      intervalSeconds: 60,
+      config: config(settings),
+      facts: fetchLocked === undefined ? host : { ...host, globalFetchLocked: fetchLocked },
+    },
     collectedEvents(lines),
   );
 }
@@ -144,6 +153,7 @@ describe("HostPosture", () => {
     expect(refusal({ ...green(), permission: { active: true, granted: ["worker"] } })).toBe(
       "PERMISSION_WORKER",
     );
+    expect(refusal({ ...green(), fetchLocked: false })).toBe("GLOBAL_FETCH_UNLOCKED");
   });
 
   it("checks every secret file's place, mode, and owner", () => {
@@ -168,6 +178,7 @@ describe("HostPosture", () => {
       writable: ["/", "/app"],
       inspector: true,
       permission: { active: false },
+      fetchLocked: false,
     };
     const report = posture(
       "DEVELOPMENT",
@@ -179,6 +190,7 @@ describe("HostPosture", () => {
     expect(report.waived.map((finding) => finding.id).sort()).toEqual(
       [
         "CWD_WRITABLE",
+        "GLOBAL_FETCH_UNLOCKED",
         "INSPECTOR_ACTIVE",
         "NODE_ENV",
         "NODE_OPTIONS",
@@ -189,7 +201,7 @@ describe("HostPosture", () => {
         "ROOT_WRITABLE",
       ].sort(),
     );
-    expect(lines.filter((line) => line.includes('"POSTURE_WAIVED"'))).toHaveLength(9);
+    expect(lines.filter((line) => line.includes('"POSTURE_WAIVED"'))).toHaveLength(10);
     expect(refusal({ ...developer, euid: 0 }, { production: false }, "DEVELOPMENT")).toBe(
       "ROOT_UID",
     );
@@ -242,6 +254,18 @@ describe("HostPosture", () => {
     for (const check of ["ROOT_UID", "ROOT_WRITABLE", "CWD_WRITABLE", "NODE_ENV"]) {
       expect(DRIFT_CHECKS.has(check as PostureCheckId)).toBe(false);
     }
+    expect(DRIFT_CHECKS.has("GLOBAL_FETCH_UNLOCKED")).toBe(true);
+  });
+
+  it("treats an unlocked global fetch while running as drift", () => {
+    const lines: string[] = [];
+    let locked = true;
+    const host = posture("ENFORCED", green(), {}, lines, () => locked);
+    host.assertAtStartup();
+    locked = false;
+    host.tick();
+    expect(host.degraded).toBe(true);
+    expect(lines.filter((line) => line.includes('"GLOBAL_FETCH_UNLOCKED"'))).toHaveLength(1);
   });
 });
 
@@ -261,6 +285,7 @@ describe("processFacts", () => {
     expect(real.realpath(file)).toContain("a-file");
     expect(real.realpath(join(directory, "absent"))).toBeNull();
     expect(real.inspectorActive()).toBeTypeOf("boolean");
+    expect(real.globalFetchLocked()).toBe(false);
     expect(real.permission().active).toBe(false);
     expect(real.permission().has("fs.write", "/")).toBe(true);
   });

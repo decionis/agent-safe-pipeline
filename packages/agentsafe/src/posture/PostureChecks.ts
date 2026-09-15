@@ -1,6 +1,7 @@
 import { accessSync, constants, realpathSync, statSync } from "node:fs";
 import { url as inspectorUrl } from "node:inspector";
 import { resolve, sep } from "node:path";
+import { isGlobalFetchLocked } from "../egress/GlobalFetchLock.js";
 import { FileSecretStore } from "../secrets/FileSecretStore.js";
 import type { SecretName } from "../secrets/SecretStore.js";
 
@@ -23,7 +24,8 @@ export type PostureCheckId =
   | "PERMISSION_MODEL_ABSENT"
   | "PERMISSION_FS_WRITE"
   | "PERMISSION_CHILD_PROCESS"
-  | "PERMISSION_WORKER";
+  | "PERMISSION_WORKER"
+  | "GLOBAL_FETCH_UNLOCKED";
 
 /** The checks a deployment may waive by declaring development posture; the rest never are. */
 export const WAIVABLE_CHECKS: ReadonlySet<PostureCheckId> = new Set<PostureCheckId>([
@@ -42,6 +44,7 @@ export const WAIVABLE_CHECKS: ReadonlySet<PostureCheckId> = new Set<PostureCheck
   "PERMISSION_FS_WRITE",
   "PERMISSION_CHILD_PROCESS",
   "PERMISSION_WORKER",
+  "GLOBAL_FETCH_UNLOCKED",
 ]);
 
 /** The checks cheap enough to repeat while running, whose regression is drift. */
@@ -60,6 +63,7 @@ export const DRIFT_CHECKS: ReadonlySet<PostureCheckId> = new Set<PostureCheckId>
   "PERMISSION_FS_WRITE",
   "PERMISSION_CHILD_PROCESS",
   "PERMISSION_WORKER",
+  "GLOBAL_FETCH_UNLOCKED",
 ]);
 
 /** The environment keys the posture inspects. Their values are never reported. */
@@ -104,6 +108,8 @@ export interface PostureFacts {
   realpath(path: string): string | null;
   inspectorActive(): boolean;
   permission(): { readonly active: boolean; has(scope: string, reference?: string): boolean };
+  /** Whether the global `fetch` is the refusing stub the process installs at start. */
+  globalFetchLocked(): boolean;
 }
 
 /** What the checks need to know about the configuration. */
@@ -155,6 +161,7 @@ export function processFacts(): PostureFacts {
         ? { active: false, has: () => true }
         : { active: true, has: (scope, reference) => permission.has(scope, reference) };
     },
+    globalFetchLocked: () => isGlobalFetchLocked(),
   };
 }
 
@@ -215,5 +222,6 @@ export function evaluate(config: PostureConfig, facts: PostureFacts): PostureFin
     ok: permission.active && !permission.has("child"),
   });
   findings.push({ id: "PERMISSION_WORKER", ok: permission.active && !permission.has("worker") });
+  findings.push({ id: "GLOBAL_FETCH_UNLOCKED", ok: facts.globalFetchLocked() });
   return findings;
 }

@@ -67,6 +67,12 @@ observation whose reason codes begin with `SHADOW_<status>`; see [shadow mode](.
 recorded even if the caller never reaches `SafeExecutor`; avoid using both automatic paths if the
 sink treats two capture observations as duplicates.
 
+The trusted executor, `@decionis/agentsafe`, writes these same events as its evidence stream inside
+its own envelope, `agent-safe.executor-evidence/1`: every line adds the authenticated caller and a
+hash chain over the stream, with a second chained stream for the process's security events. The
+contract here is unchanged by it; the envelope is described in
+[executor evidence](./executor-evidence.md).
+
 ## Metadata and redaction
 
 Consumer metadata is dropped unless its top-level key is explicitly allowlisted. Keys suggesting

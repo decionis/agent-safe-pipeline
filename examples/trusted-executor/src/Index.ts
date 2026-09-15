@@ -39,6 +39,7 @@ import {
   RESPONSE_HEADERS,
   SecurityEvents,
   createTrustedExecutor,
+  verifyAuditChain,
   type TrustedExecutor,
 } from "@decionis/agentsafe";
 import { handlers } from "./Handlers.js";
@@ -164,8 +165,10 @@ function environment(
     EXECUTOR_MODE: mode,
     EXECUTOR_ESCALATION: escalation,
     EXECUTOR_INTENT_TTL_SECONDS: "300",
-    // This proof runs on whatever machine runs it: the host checks are waived and said so.
+    // This proof runs on whatever machine runs it: the host checks are waived
+    // and said so, and the listener is plaintext on loopback.
     EXECUTOR_POSTURE: "DEVELOPMENT",
+    EXECUTOR_ALLOW_PLAINTEXT_LISTENER: "true",
     ...presenceShape,
     EXECUTOR_BIND_ADDRESS: "127.0.0.1",
     PORT: "1",
@@ -193,13 +196,16 @@ function productionEnvironment(): Record<string, string> {
   const env = environment("ENFORCEMENT");
   delete env["EXECUTOR_POSTURE"];
   delete env["DECIONIS_ALLOW_INSECURE_LOOPBACK"];
+  delete env["EXECUTOR_ALLOW_PLAINTEXT_LISTENER"];
   return {
     ...env,
     NODE_ENV: "production",
     DECIONIS_API_URL: "https://authority.decionis.example",
     DOWNSTREAM_URL: "https://payouts.provider.example/v1/payouts",
     DOWNSTREAM_LOOKUP_URL: "https://payouts.provider.example/v1/payouts/{idempotency_key}",
-    EXECUTOR_SECRETS_DIR: "/var/run/agent-safe/secrets",
+    EXECUTOR_SECRETS_DIR: "/var/run/agent-safe",
+    EXECUTOR_TLS_CERT_FILE: "/var/run/agent-safe/tls/tls.crt",
+    EXECUTOR_TLS_KEY_FILE: "/var/run/agent-safe/tls/tls.key",
   };
 }
 
@@ -211,6 +217,8 @@ interface RunningExecutor {
   readonly baseUrl: string;
   readonly executor: TrustedExecutor;
   readonly secrets: CompositeSecretStore;
+  /** This executor's own evidence lines, for the chain to be verified over. */
+  readonly evidence: string[];
 }
 
 async function startExecutor(
@@ -231,14 +239,21 @@ async function startExecutor(
     enforcePermissions: false,
     watch: false,
   });
+  const evidence: string[] = [];
   const executor = await createTrustedExecutor({
     config,
     secrets,
     handlers,
-    dependencies: { emit: (line) => auditLines.push(line), security },
+    dependencies: {
+      emit: (line) => {
+        auditLines.push(line);
+        evidence.push(line);
+      },
+      security,
+    },
   });
   const address = await executor.listen(0, "127.0.0.1");
-  return { baseUrl: `${LOOPBACK_ORIGIN}:${address.port}`, executor, secrets };
+  return { baseUrl: `${LOOPBACK_ORIGIN}:${address.port}`, executor, secrets, evidence };
 }
 
 interface Reply {
@@ -332,6 +347,22 @@ heading("Refusals to start");
     development.includes("EXECUTOR_POSTURE"),
     "development posture is refused in production",
     development,
+  );
+  const plaintext = refusal({
+    ...productionEnvironment(),
+    EXECUTOR_ALLOW_PLAINTEXT_LISTENER: "true",
+  });
+  check(
+    plaintext.includes("EXECUTOR_ALLOW_PLAINTEXT_LISTENER"),
+    "a plaintext listener is refused in production",
+    plaintext,
+  );
+  const unlistened = { ...environment("ENFORCEMENT") };
+  delete unlistened["EXECUTOR_ALLOW_PLAINTEXT_LISTENER"];
+  check(
+    refusal(unlistened).includes("EXECUTOR_TLS_CERT_FILE"),
+    "TLS material is required unless plaintext is asked for",
+    refusal(unlistened),
   );
   const listed = Object.keys(environment("ENFORCEMENT", "DIRECT")).every((key) =>
     (CONFIG_KEYS as readonly string[]).includes(key),
@@ -738,6 +769,22 @@ heading("Nothing secret left the process");
     leaked.length === 0 && tokens.length > 0,
     "no credential, token, or key in any response, audit line, or security line",
     `${responses.length} responses, ${auditLines.length} audit lines, ${securityLines.length} security lines, ${tokens.length} grants`,
+  );
+  const chain = verifyAuditChain(executor.evidence);
+  const tampered = executor.evidence.map((line, index) =>
+    index === 2 ? line.replace('"verdict"', '"verdiсt"') : line,
+  );
+  const broken = verifyAuditChain(tampered);
+  check(
+    chain.ok && executor.evidence.length > 3 && !broken.ok && broken.findings[0]?.seq === 3,
+    "the evidence stream is a verifiable chain that reports one altered line",
+    `${executor.evidence.length} lines verify; altered line 3 reports ${broken.findings[0]?.code ?? "nothing"} at seq ${String(broken.findings[0]?.seq)}`,
+  );
+  const refusals = securityLines.filter((line) => line.includes('"EGRESS_REFUSED"')).length;
+  check(
+    refusals === 0 && executor.executor.metrics.proposals.get({ verdict: "ALLOW" }) > 0,
+    "every outbound request stayed inside the sealed policy and was counted",
+    `${refusals} egress refusals, ${executor.executor.metrics.proposals.get({ verdict: "ALLOW" })} ALLOW proposals counted`,
   );
   const executions = auditLines.filter((line) => line.includes('"EXECUTION_COMPLETED"')).length;
   const reconciliations = auditLines.filter((line) =>

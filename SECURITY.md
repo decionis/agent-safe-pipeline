@@ -38,7 +38,13 @@ defined in the [maintenance and version-support policy](./MAINTENANCE.md).
 ## Integration requirements
 
 - Never expose Decionis, Presence, or downstream provider credentials to the agent runtime.
-- Require TLS and authenticated service-to-service requests in production.
+- Require TLS and authenticated service-to-service requests in production. The trusted executor's
+  listener is TLS 1.3 with an optional client CA; its plaintext listener is a development setting
+  the process refuses under `NODE_ENV=production`.
+- Keep the trusted executor's egress to the origins its configuration names, with the CA bundles
+  or pins your peers warrant, and let the cluster deny everything else.
+- Ship both of the executor's evidence streams to a store the process cannot write, and verify the
+  chains (`agentsafe verify-chain`) when you review them.
 - Treat fixture authority classes, synthetic policies, and examples as development-only.
 - Store no secrets in intent parameters, dossiers, logs, source, fixtures, or support bundles.
 - Apply provider-side least privilege and idempotency in addition to grant consumption.

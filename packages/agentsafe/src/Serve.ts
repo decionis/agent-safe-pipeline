@@ -1,8 +1,11 @@
 import process from "node:process";
+import { ChainJournal } from "./audit/ChainJournal.js";
+import { HashChain } from "./audit/HashChain.js";
 import { ExecutorConfigLoader, type ExecutorConfig } from "./config/ExecutorConfig.js";
+import { lockGlobalFetch, type FetchHolder } from "./egress/GlobalFetchLock.js";
 import { forwardRequestHandlers } from "./handlers/ForwardRequestHandler.js";
 import type { HandlerRegistration } from "./handlers/HandlerRegistration.js";
-import { SecurityEvents } from "./incident/SecurityEvents.js";
+import { SECURITY_STREAM, SecurityEvents } from "./incident/SecurityEvents.js";
 import { LineEmitter } from "./logging/LineEmitter.js";
 import { HostPosture, PostureError } from "./posture/HostPosture.js";
 import { CompositeSecretStore } from "./secrets/CompositeSecretStore.js";
@@ -17,10 +20,12 @@ export interface ServeProcess {
   readonly stderr: (line: string) => void;
   readonly exit: (code: number) => void;
   readonly onSignal: (signal: "SIGTERM" | "SIGINT" | "SIGHUP", handler: () => void) => void;
+  /** Seals the global `fetch` so only the guarded one can reach the network. */
+  readonly lockFetch: () => void;
 }
 
-/** The real process. */
-export function nodeProcess(): ServeProcess {
+/** The real process; the holder of `fetch` is the global object unless a test hands in another. */
+export function nodeProcess(fetchHolder: FetchHolder = globalThis as FetchHolder): ServeProcess {
   return {
     env: process.env,
     stdout: (line) => {
@@ -33,17 +38,21 @@ export function nodeProcess(): ServeProcess {
     onSignal: (signal, handler) => {
       process.once(signal, handler);
     },
+    lockFetch: () => {
+      lockGlobalFetch(fetchHolder);
+    },
   };
 }
 
 /**
  * The process entry the container runs, in the order that keeps secrets
  * unread until the host is known to be fit to hold them: configuration from
- * the environment; the host posture, verified or refused; the secrets, from
- * mounted files (or, outside production, variables); the executor; the
- * listener. Every refusal to start names a variable or a check, never a
- * value. `SIGHUP` re-reads the secret files; `SIGTERM` and `SIGINT` close
- * the listener and exit.
+ * the environment; the global fetch sealed; the host posture, verified or
+ * refused; the secrets, from mounted files (or, outside production,
+ * variables); the executor with its evidence chains restored from the
+ * journal; the listener. Every refusal to start names a variable or a
+ * check, never a value. `SIGHUP` re-reads the secret files; `SIGTERM` and
+ * `SIGINT` close the listener, persist the chain heads, and exit.
  */
 export async function serve(
   handlers: HandlerRegistration = forwardRequestHandlers(),
@@ -60,6 +69,7 @@ export async function serve(
     refuse(error instanceof Error ? error.message : "CONFIG_INVALID");
     return;
   }
+  io.lockFetch();
   // The redactor learns the secrets' digests once the store exists; until
   // then every line is still shape-checked.
   let store: CompositeSecretStore | null = null;
@@ -70,7 +80,28 @@ export async function serve(
       () => [config.downstream.credentialHeader],
     ),
   );
-  const security = new SecurityEvents(emitter.security);
+  // A journal that cannot be opened is a refusal to start, but not the first
+  // one: a host that does not hold its posture is wrong about something more
+  // fundamental than a directory, and its refusal must name the check. So the
+  // failure is remembered here and reported after the posture is verified.
+  let journal: ChainJournal | null = null;
+  let journalUnavailable = false;
+  if (config.evidence.journalDir !== null) {
+    try {
+      journal = new ChainJournal(config.evidence.journalDir, {
+        checkpointLines: config.evidence.checkpointLines,
+      });
+    } catch {
+      journalUnavailable = true;
+    }
+  }
+  const securityHead = journal?.restore(SECURITY_STREAM) ?? null;
+  const security = new SecurityEvents(emitter.security, {
+    chain: new HashChain(SECURITY_STREAM, securityHead),
+  });
+  if (securityHead !== null) {
+    security.emit({ event: "CHAIN_RESUMED", chain: SECURITY_STREAM, head: securityHead.seq });
+  }
   emitter.reportRedactions((patterns) =>
     security.emit({ event: "LEAK_SUSPECTED", patterns: [...patterns] }),
   );
@@ -88,6 +119,10 @@ export async function serve(
     refuse(error instanceof PostureError ? error.message : "POSTURE_UNVERIFIABLE");
     return;
   }
+  if (journalUnavailable) {
+    refuse("JOURNAL_UNAVAILABLE: EXECUTOR_JOURNAL_DIR");
+    return;
+  }
   try {
     store = CompositeSecretStore.fromEnvironment(io.env, config.secrets.required, {
       events: security,
@@ -103,7 +138,7 @@ export async function serve(
     config,
     secrets,
     handlers,
-    dependencies: { emit: emitter.audit, security, posture },
+    dependencies: { emit: emitter.audit, security, posture, journal },
   });
   const address = await executor.listen();
   emitter.process(
@@ -118,6 +153,7 @@ export async function serve(
     JSON.stringify({
       event: "LISTENING",
       mode: config.mode,
+      tls: config.listener.tls !== null,
       address: address.address,
       port: address.port,
       actions: executor.service.actions,
