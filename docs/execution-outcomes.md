@@ -34,6 +34,25 @@ Finalization is evidence, never authority. It runs after the dispatch boundary, 
 effect, never throws, and never changes `outcome` or `executed`. The terminal audit event carries
 `COMMIT_FINALIZATION_<status>` in its reason codes.
 
+### The claim lease
+
+A claim response may name `claim_lease_expires_at`: the moment the authority stops accepting a
+commit for that claim. `DecionisGrantVerifier` reports it as `leaseExpiresAt` on the
+`VerifiedAuthorization`, and it is the window a side effect actually has to finish inside. It is
+shorter than the grant's own expiry, and it is the one that matters more: a commit the authority
+will no longer record leaves an outcome nobody can reconcile from the record, however successful
+the dispatch was.
+
+The verifier reports the lease and does not enforce it, because what to do with a window is the
+caller's decision. `@decionis/agentsafe` bounds every dispatch by the smallest of the configured
+timeout, what is left of the grant, and what is left of the lease, so a window that has already
+closed is a budget of zero and the provider is never called at all. An authority that returns no
+lease behaves exactly as it did before the field existed, and a consumer that never reads it is
+exactly as correct.
+
+`agent-safe.recovery/1` deliberately does not carry the lease. It is the window one attempt had,
+and it has certainly closed by the time anyone presents a recovery reference back.
+
 ## Effect evidence
 
 `AuthorizationFinalizationInput` takes an optional `effectEvidence`: a Protocol 1.1

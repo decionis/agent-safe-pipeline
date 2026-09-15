@@ -73,6 +73,18 @@ DECIONIS_API_URL=https://api.decionis.com
 DECIONIS_API_KEY=server-side-secret
 ```
 
+`DecionisGate` and `DecionisGrantVerifier` accept `apiKey` as a string or as a function read at
+each request. A deployment whose credential rotates inside a process's life gives the function: the
+next request carries the new value, a request already in flight keeps the one it sent, and nothing
+has to be rebuilt to make that true. A credential that does not rotate stays a string.
+
+```ts
+const gate = new DecionisGate({
+  baseUrl: process.env.DECIONIS_API_URL!,
+  apiKey: () => secrets.current("DECIONIS_API_KEY"),
+});
+```
+
 ## Quick start: enforcement
 
 The complete production path in one file. The proposal comes from the agent; everything else comes

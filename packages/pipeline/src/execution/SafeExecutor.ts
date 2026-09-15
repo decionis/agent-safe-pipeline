@@ -23,8 +23,19 @@ export type ExecutionBlockReason =
 export type ExecutionPreDispatchFailureReason =
   "HANDLER_FAILED_BEFORE_DISPATCH" | "AUDIT_UNAVAILABLE";
 
-export interface ExecutionRecoveryReference extends VerifiedAuthorization {
+/**
+ * What a caller presents back to reconcile an attempt whose outcome was
+ * lost. The fields are listed rather than inherited, because this is a
+ * versioned wire object: a field that appears on `VerifiedAuthorization`
+ * later must be added here deliberately or not at all.
+ */
+export interface ExecutionRecoveryReference {
   readonly version: "agent-safe.recovery/1";
+  readonly decisionId: string;
+  readonly dossierId: string;
+  readonly grantId: string;
+  readonly intentHash: string;
+  readonly expiresAt: string;
   readonly idempotencyKey: string;
 }
 
@@ -441,9 +452,18 @@ export class SafeExecutor {
     captured: CapturedIntent,
     authorization: VerifiedAuthorization,
   ): ExecutionRecoveryReference {
+    // Named field by field rather than spread: `agent-safe.recovery/1` is a
+    // wire object a caller presents back, so a field added to the
+    // authorization must not appear here by accident. The claim lease in
+    // particular has no business being here — it is the window this attempt
+    // had, and it has certainly closed by the time anyone reconciles.
     return Object.freeze({
       version: "agent-safe.recovery/1",
-      ...authorization,
+      decisionId: authorization.decisionId,
+      dossierId: authorization.dossierId,
+      grantId: authorization.grantId,
+      intentHash: authorization.intentHash,
+      expiresAt: authorization.expiresAt,
       idempotencyKey: captured.intent.idempotencyKey,
     });
   }

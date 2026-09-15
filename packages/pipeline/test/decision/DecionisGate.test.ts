@@ -53,6 +53,36 @@ function json(body: unknown, status = 200) {
 }
 
 describe("DecionisGate", () => {
+  it("reads the credential at each request, so a rotation needs no new gate", async () => {
+    const intent = captured();
+    const seen: string[] = [];
+    let current = "first-key";
+    const fetchMock = vi.fn<typeof fetch>(async (_url, request) => {
+      seen.push(String((request?.headers as Record<string, string>)["authorization"]));
+      return json(decisionBody(intent));
+    });
+    const gate = new DecionisGate({
+      baseUrl: "http://127.0.0.1:3001",
+      apiKey: () => current,
+      allowInsecureLoopback: true,
+      fetch: fetchMock,
+    });
+    await gate.evaluate(intent);
+    current = "second-key";
+    await gate.evaluate(intent);
+    expect(seen).toEqual(["Bearer first-key", "Bearer second-key"]);
+    // A credential that does not rotate stays a value, and is read the same
+    // way: the gate holds a reader either way and no string of its own.
+    const constant: string[] = [];
+    await gateWith(
+      vi.fn<typeof fetch>(async (_url, request) => {
+        constant.push(String((request?.headers as Record<string, string>)["authorization"]));
+        return json(decisionBody(intent));
+      }),
+    ).evaluate(intent);
+    expect(constant).toEqual(["Bearer test-key"]);
+  });
+
   it("sends the contract binding and maps a bound authority response to ALLOW", async () => {
     const intent = captured();
     const fetchMock = vi.fn<typeof fetch>(async () => json(decisionBody(intent)));

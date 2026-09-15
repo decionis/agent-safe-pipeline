@@ -60,7 +60,7 @@ The binder runs on capture, and every disagreement is a `422` that costs no doss
 | §22.8 Effect comparison and mismatch     | Satisfied   | Field by field over the projection; a mismatch is named, recorded, alerted, and by default halts the executor  |
 | §22 Observation methods                  | Satisfied   | Only a method the registry marks sufficient can confirm; an acknowledgement never does                         |
 | §19 Claim before commit                  | Satisfied   | The grant is claimed before the dispatch and the claim is journaled before the side effect                     |
-| BEAP-L3-CLM-06 claim lease               | Not claimed | `claim_lease_expires_at` is parsed and discarded by the pipeline; the executor cannot honour it exactly        |
+| BEAP-L3-CLM-06 claim lease               | Satisfied   | The authority's `claim_lease_expires_at` reaches the executor as `leaseExpiresAt` and bounds every dispatch    |
 | BEAP-L3-BND-01 payload digest comparison | Not exposed | The claim binding does not carry `execution_payload_digest`, so there is nothing to compare against            |
 | §17 Batch manifests                      | Not built   | The manifest digest rides in the trusted context; the manifest route and the outcome ledger are not here yet   |
 | L1 and L2                                | Not this    | The authority's half of the runtime: policy, grants, dossiers. Not in this repository and not asserted by it   |

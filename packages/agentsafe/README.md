@@ -411,10 +411,13 @@ readable by the process's group alone, which is how a Kubernetes Secret volume m
 
 Secrets are read into handles that hand the value out only for the duration of a request and zero
 it on disposal; a handle never becomes a string by `toString`, `toJSON`, or `util.inspect`. The
-mount directory is watched and polled: a changed file becomes current atomically, the clients that
-took a credential at construction (the gate, the verifier, the Presence client) are rebuilt as one
-set, the old handle is zeroed after a grace, and the security stream records `SECRET_ROTATED` with
-the name. A file that fails its checks on reload is refused with `SECRET_RELOAD_REFUSED` and the
+mount directory is watched and polled: a changed file becomes current atomically, the old handle is
+zeroed after a grace, and the security stream records `SECRET_ROTATED` with the name. The gate and
+the verifier read the authority's credential from the handle at each request, so a rotated file
+reaches the next request with nothing rebuilt and a request already in flight keeps the value it
+sent. The Presence client is the exception: it takes a string once, from a package this repository
+does not own, so a rotated Presence key rebuilds the credential-holding clients as one set and says
+so as `AUTHORITY_CLIENTS_REBUILT`. A file that fails its checks on reload is refused with `SECRET_RELOAD_REFUSED` and the
 previous value stays current. A rotated caller token admits the new value from the next request
 and refuses the old one.
 

@@ -64,7 +64,7 @@ export function adapterActionHandler<TAction>(
   ): Promise<AdapterExecutionResult> => {
     const prepared = options.adapter.prepare(context.parameters);
     const deadline = MonotonicDeadline.after(
-      dispatchBudgetMs(options.timeoutMs, context.authorization.expiresAt),
+      dispatchBudgetMs(options.timeoutMs, context.authorization),
     );
     let result: ProviderResult | null = null;
     let indeterminate: { readonly reason: string; readonly providerStatus: string | null } | null =

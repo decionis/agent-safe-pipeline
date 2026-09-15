@@ -163,6 +163,10 @@ describe("DecionisGrantVerifier", () => {
       grantId: "grant-1",
       intentHash: captured.intentHash,
       expiresAt: decision.authorization?.expiresAt,
+      // The window the authority named for committing this claim, reported
+      // rather than discarded: it is the real bound a side effect has to
+      // finish inside, and it is shorter than the grant's own expiry.
+      leaseExpiresAt: captured.intent.expiresAt,
     });
     expect(Object.isFrozen(authorization)).toBe(true);
     expect(JSON.stringify(authorization)).not.toContain(CLAIM_TOKEN);
@@ -205,6 +209,72 @@ describe("DecionisGrantVerifier", () => {
       (withoutEvidence.mock.calls[0]?.[1] as RequestInit).body as string,
     ) as Record<string, unknown>;
     expect("evidence" in plainBody).toBe(false);
+  });
+
+  it("omits the lease when the authority named none, and takes it verbatim when it did", async () => {
+    const { captured, decision, claimResponse } = setup();
+    // A deployment whose issuer predates the field returns no lease, and a
+    // consumer that never reads one is as correct as before it existed.
+    const without = { ...claimResponse };
+    delete (without as { claim_lease_expires_at?: unknown }).claim_lease_expires_at;
+    const silent = await verifierWith(
+      vi.fn<typeof fetch>(async () => json(without)),
+    ).verifyAndConsume(captured, decision);
+    expect(silent).not.toBeNull();
+    expect("leaseExpiresAt" in (silent ?? {})).toBe(false);
+    // Explicitly null is the same statement as absent.
+    const nulled = await verifierWith(
+      vi.fn<typeof fetch>(async () => json({ ...claimResponse, claim_lease_expires_at: null })),
+    ).verifyAndConsume(captured, decision);
+    expect("leaseExpiresAt" in (nulled ?? {})).toBe(false);
+    // A lease already in the past is reported as it was given: this verifier
+    // does not decide what a caller should do with a window.
+    const past = new Date(Date.now() - 60_000).toISOString();
+    const stale = await verifierWith(
+      vi.fn<typeof fetch>(async () => json({ ...claimResponse, claim_lease_expires_at: past })),
+    ).verifyAndConsume(captured, decision);
+    expect(stale?.leaseExpiresAt).toBe(past);
+    // Something that is not a timestamp is not a lease, and is not a reason
+    // to refuse the claim either.
+    const nonsense = await verifierWith(
+      vi.fn<typeof fetch>(async () =>
+        json({ ...claimResponse, claim_lease_expires_at: "whenever" }),
+      ),
+    ).verifyAndConsume(captured, decision);
+    expect(nonsense).toBeNull();
+  });
+
+  it("reads the credential at each request, so a rotation needs no new client", async () => {
+    const { captured, decision, claimResponse } = setup();
+    const seen: string[] = [];
+    let current = "first-key";
+    const fetchMock = vi.fn<typeof fetch>(async (_url, request) => {
+      seen.push(String((request?.headers as Record<string, string>)["authorization"]));
+      return json(claimResponse);
+    });
+    const verifier = new DecionisGrantVerifier({
+      baseUrl: "http://127.0.0.1:3001",
+      apiKey: () => current,
+      allowInsecureLoopback: true,
+      fetch: fetchMock,
+    });
+    await verifier.verifyAndConsume(captured, decision);
+    current = "second-key";
+    await verifier.verifyAndConsume(captured, decision);
+    expect(seen).toEqual(["Bearer first-key", "Bearer second-key"]);
+    // A value is still a value: a credential that does not rotate needs no
+    // function, and the client holds the one it was given.
+    const constant: string[] = [];
+    await new DecionisGrantVerifier({
+      baseUrl: "http://127.0.0.1:3001",
+      apiKey: "only-key",
+      allowInsecureLoopback: true,
+      fetch: vi.fn<typeof fetch>(async (_url, request) => {
+        constant.push(String((request?.headers as Record<string, string>)["authorization"]));
+        return json(claimResponse);
+      }),
+    }).verifyAndConsume(captured, decision);
+    expect(constant).toEqual(["Bearer only-key"]);
   });
 
   it("rejects missing tokens, failed claims, and every grant-binding mismatch", async () => {
