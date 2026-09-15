@@ -22,6 +22,7 @@
 import { createHash, generateKeyPairSync, randomBytes } from "node:crypto";
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server } from "node:http";
+import { createServer as createSocketServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
@@ -45,7 +46,9 @@ import {
   SecurityEvents,
   bankingHandlers,
   createTrustedExecutor,
+  dial,
   expectedEffect,
+  probeContainment,
   transportActionName,
   transportTarget,
   verifyAuditChain,
@@ -95,6 +98,9 @@ function beapProposal(action: BankingAction): string {
   });
 }
 
+const LOOPBACK_HOST = "127.0.0.1";
+// Spelled out rather than built from LOOPBACK_HOST: the fixture URL scanner
+// reads literals, and a templated origin is one it cannot check.
 const LOOPBACK_ORIGIN = "http://127.0.0.1";
 const TENANT_ID = "00000000-0000-4000-8000-000000000007";
 const APPROVER_ID = "synthetic-approver";
@@ -1356,6 +1362,59 @@ heading("Incident response: the evidence an operator can take, and verify");
   );
   await running.executor.close();
   rmSync(directory, { recursive: true, force: true });
+}
+
+heading("Containment is measured, never assumed");
+{
+  // The probe's own drill. A listening socket stands in for a system of
+  // record that the agent zone can still reach; a port nothing listens on
+  // stands in for one it cannot. The point of the leg is the asymmetry: the
+  // reachable case is proof of a hole, and the other case proves nothing.
+  const reachable = createSocketServer((socket) => socket.end());
+  await new Promise<void>((resolve) => reachable.listen(0, LOOPBACK_HOST, resolve));
+  const openPort = (reachable.address() as { port: number }).port;
+  const closed = createSocketServer();
+  await new Promise<void>((resolve) => closed.listen(0, LOOPBACK_HOST, resolve));
+  const closedPort = (closed.address() as { port: number }).port;
+  await new Promise<void>((resolve) => closed.close(() => resolve()));
+
+  const found = await probeContainment({
+    targets: [{ name: "core", host: LOOPBACK_HOST, port: openPort }],
+    dial,
+  });
+  check(
+    found.reachable === 1 &&
+      !found.noneReachable &&
+      found.findings[0]?.verdict === "REACHABLE" &&
+      found.findings[0]?.detail === "CONNECTED",
+    "a system of record the zone can still reach is reported as a hole",
+    `${found.findings[0]?.verdict ?? "none"}, ${found.findings[0]?.detail ?? "none"}`,
+  );
+
+  const refused = await probeContainment({
+    targets: [{ name: "core", host: LOOPBACK_HOST, port: closedPort }],
+    dial,
+  });
+  check(
+    refused.reachable === 1 && refused.findings[0]?.detail === "REFUSED_NOT_DROPPED",
+    "a refusal is a hole too, because an enforced policy drops instead",
+    `${refused.findings[0]?.verdict ?? "none"}, ${refused.findings[0]?.detail ?? "none"}`,
+  );
+
+  const silent = await probeContainment({
+    targets: [{ name: "core", host: "core.bank.example", port: 443 }],
+    dial: async () => ({ state: "TIMED_OUT" }),
+  });
+  check(
+    silent.noneReachable &&
+      silent.findings[0]?.verdict === "CONTAINED" &&
+      !JSON.stringify(silent).includes("/443") &&
+      silent.findings.every((finding) => !finding.address.includes("/")),
+    "silence is reported as contained, carrying a host and a port and no path",
+    `${silent.findings[0]?.verdict ?? "none"}, ${silent.findings[0]?.address ?? "none"}`,
+  );
+
+  await new Promise<void>((resolve) => reachable.close(() => resolve()));
 }
 
 heading("Nothing secret left the process");
