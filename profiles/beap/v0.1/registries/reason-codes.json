@@ -179,6 +179,12 @@
       "description": "Intent capture refused an action whose presented AuthoritySet has not collected every required approval."
     },
     {
+      "id": "AUTHORITY_SET_PROJECTION_MISMATCH",
+      "category": "authority-set",
+      "verdict": null,
+      "description": "The AuthoritySet projection carried in the transport context is not the set the context's digest names, or is not bound to this intent; the binding is refused before any evaluation."
+    },
+    {
       "id": "AUTHORITY_SET_CLOSED",
       "category": "authority-set",
       "verdict": null,
@@ -189,6 +195,12 @@
       "category": "execution",
       "verdict": null,
       "description": "The intent digest recomputed at the execution boundary differs from the bound digest."
+    },
+    {
+      "id": "SIGNAL_ENVELOPE_INVALID",
+      "category": "evaluation",
+      "verdict": null,
+      "description": "A policy input carried in the transport context is not a signal envelope: it names no producer or time of observation, or carries a digest its value does not reproduce; the binding is refused before any evaluation."
     },
     {
       "id": "GRANT_EXPIRED",
@@ -339,6 +351,24 @@
       "category": "batch",
       "verdict": null,
       "description": "The manifest does not satisfy the Batch Manifest structure, so no binding can be derived from it."
+    },
+    {
+      "id": "BATCH_FILE_FORMAT_UNSUPPORTED",
+      "category": "batch",
+      "verdict": null,
+      "description": "The source file names a format no parser in this implementation produces a manifest from."
+    },
+    {
+      "id": "BATCH_FILE_UNPARSEABLE",
+      "category": "batch",
+      "verdict": null,
+      "description": "The source file is not a well-formed document of its declared format; nothing in it was read as a payment."
+    },
+    {
+      "id": "BATCH_FILE_ITEM_INVALID",
+      "category": "batch",
+      "verdict": null,
+      "description": "A payment in the source file lacks a field the manifest requires or carries one the profile cannot represent."
     }
   ]
 }

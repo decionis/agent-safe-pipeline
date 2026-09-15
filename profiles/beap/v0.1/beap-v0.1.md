@@ -445,6 +445,8 @@ The transport-level binding with the execution authority SHOULD be created only 
 
 The verified AuthoritySet MUST be presented to the execution authority as evidence bound by its digest, never as an asserted verdict; the authority re-evaluates policy with the evidence present. [BEAP-L2-MPA-09]
 
+An implementation that evaluates through a hosted authority carries a projection of the verified set (its identifier, digest, policy, state, requirements, and the counted approvals with the digest of each attestation, never the attestation itself) and the policy inputs it resolved, each as a signal envelope naming its producer and time of observation, inside the transport context (Appendix B.5). The transport hash then binds both, the authority re-evaluates with the sign-offs and the inputs present, and a claim under a different context fails. A projection that is not the set the context's digest names is refused with `AUTHORITY_SET_PROJECTION_MISMATCH`; a policy input that is not an envelope is refused with `SIGNAL_ENVELOPE_INVALID` (section 26).
+
 Rejections are reported with the reason codes `APPROVAL_INTENT_MISMATCH`, `APPROVAL_DUPLICATE_APPROVER`, `SEPARATION_OF_DUTIES_VIOLATED`, `APPROVAL_EXPIRED`, `APPROVAL_ROLE_NOT_REQUIRED`, `APPROVAL_EVIDENCE_INVALID`, and `AUTHORITY_SET_INVALIDATED` (section 26).
 
 ## 17. Batch Execution Binding
@@ -474,6 +476,8 @@ The Batch Intent Digest is the SHA-256 digest of the RFC 8785 canonical form of 
 The manifest MUST record the digest of the source file as received, so that a re-ordered or edited file is detectable even where the canonical items are unchanged. [BEAP-L2-BAT-06]
 
 Beneficiary account numbers MUST appear in the manifest only as digests, never as raw values. [BEAP-L2-BAT-07]
+
+The manifest's `source_file.format` MUST be an identifier from the source-file-formats registry (section 26) or one the institution registers in its policy pack, so that a verifier can tell which parser produced the items from the file whose digest the manifest records. [BEAP-L2-BAT-14] A parser that cannot read a file of its format refuses it with `BATCH_FILE_UNPARSEABLE`, a payment it cannot represent with `BATCH_FILE_ITEM_INVALID`, and an implementation that holds no parser for a format refuses the file with `BATCH_FILE_FORMAT_UNSUPPORTED`; none of these is a manifest, and no item digest exists until every item was read.
 
 ### 17.2 The batch action
 
@@ -1084,14 +1088,15 @@ This section is informative. Each consideration names the normative sections tha
 
 BEAP publishes machine-readable registries beside this document:
 
-| Registry            | File                                  | Contents                                                                   |
-| ------------------- | ------------------------------------- | -------------------------------------------------------------------------- |
-| Execution domains   | `registries/execution-domains.json`   | Registered ExecutionDomain identifiers (section 11)                        |
-| Action types        | `registries/action-types.json`        | Action types per domain, their effect types, and effect projections (22.7) |
-| Reason codes        | `registries/reason-codes.json`        | Stable reason codes with category and accompanying verdict (section 13)    |
-| Confirmation states | `registries/confirmation-states.json` | Confirmation states and their protocol projection (section 22.5)           |
-| Evidence sources    | `registries/evidence-sources.json`    | Vendor-neutral provenance classes (section 22.14)                          |
-| Observation methods | `registries/observation-methods.json` | Observation methods and whether each can support `CONFIRMED` (22.17)       |
+| Registry            | File                                  | Contents                                                                    |
+| ------------------- | ------------------------------------- | --------------------------------------------------------------------------- |
+| Execution domains   | `registries/execution-domains.json`   | Registered ExecutionDomain identifiers (section 11)                         |
+| Action types        | `registries/action-types.json`        | Action types per domain, their effect types, and effect projections (22.7)  |
+| Reason codes        | `registries/reason-codes.json`        | Stable reason codes with category and accompanying verdict (section 13)     |
+| Confirmation states | `registries/confirmation-states.json` | Confirmation states and their protocol projection (section 22.5)            |
+| Evidence sources    | `registries/evidence-sources.json`    | Vendor-neutral provenance classes (section 22.14)                           |
+| Observation methods | `registries/observation-methods.json` | Observation methods and whether each can support `CONFIRMED` (22.17)        |
+| Source-file formats | `registries/source-file-formats.json` | Payment-file formats a parser produces a Batch Manifest from (section 17.1) |
 
 Registered identifiers are upper snake case matching `^[A-Z][A-Z0-9_]{1,63}$` (reason codes allow up to 120 characters). An institution MAY register additional domains, action types, reason codes, and evidence sources for its own deployment; an institution-registered identifier MUST NOT collide with an identifier in the published registries, and MUST be published in the institution's policy pack so that a verifier can resolve it. [BEAP-L1-DOM-03]
 
@@ -1158,18 +1163,20 @@ The two digests are always labelled distinctly: `intent_digest` is the BEAP dige
 
 ### B.5 Transport mapping
 
-| BEAP field                                                | Envelope field                                                           |
-| --------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `domain`, `action.type`                                   | action name `beap.<domain>.<type>` in lower case                         |
-| `target`                                                  | `<target.type>:<target.ref>`                                             |
-| the canonical BankingAction                               | action parameters, unchanged                                             |
-| `action.request_id`                                       | idempotency key                                                          |
-| `profile`                                                 | context field `beap_profile`                                             |
-| Intent Digest, expected-effect digest                     | context fields `beap_intent_digest`, `beap_expected_effect_digest`       |
-| AuthoritySet digest and Batch Intent Digest, when present | context fields `beap_authority_set_digest`, `beap_batch_manifest_digest` |
-| `downstream`                                              | downstream target system, operation, environment                         |
+| BEAP field                                                | Envelope field                                                                     |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `domain`, `action.type`                                   | action name `beap.<domain>.<type>` in lower case                                   |
+| `target`                                                  | `<target.type>:<target.ref>`                                                       |
+| the canonical BankingAction                               | action parameters, unchanged                                                       |
+| `action.request_id`                                       | idempotency key                                                                    |
+| `profile`                                                 | context field `beap_profile`                                                       |
+| Intent Digest, expected-effect digest                     | context fields `beap_intent_digest`, `beap_expected_effect_digest`                 |
+| AuthoritySet digest and Batch Intent Digest, when present | context fields `beap_authority_set_digest`, `beap_batch_manifest_digest`           |
+| The verified AuthoritySet, projected, when present        | context field `beap_authority_set` (section 16.2)                                  |
+| The policy inputs the executor resolved, as envelopes     | context field `signals`, the protocol's reserved namespace, one envelope per input |
+| `downstream`                                              | downstream target system, operation, environment                                   |
 
-The transport intent has a maximum lifetime of five minutes and bounded size; this is why the transport intent is captured late, only once an AuthoritySet is satisfied (section 16.2), and why batch items never ride in the envelope (section 17.2).
+The transport intent has a maximum lifetime of five minutes and bounded size; this is why the transport intent is captured late, only once an AuthoritySet is satisfied (section 16.2), and why batch items never ride in the envelope (section 17.2). The context is bounded at 48 KiB in canonical form, a projection carries at most sixteen approvals, and a signal's value at most 1 KiB, so the envelope stays under the protocol's own limit with the action inside it.
 
 ## Appendix C. Worked Examples
 

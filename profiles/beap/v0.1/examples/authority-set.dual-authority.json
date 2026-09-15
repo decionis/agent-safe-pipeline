@@ -5,7 +5,7 @@
   "intent_digest": "sha256:c451a41fe2e105babbf856b63c5c94a32977dded03ee90ac7c2fada731d00761",
   "policy": {
     "identifier": "synthetic-loan-origination",
-    "version": "loan-origination-v0.1.0",
+    "version": "loans-origination-v0.1.0",
     "digest": "sha256:45d7bc43ee0bf7976bb8af561f1b91f2b799c2eb192ae9ffeaadf2695309dca7"
   },
   "requirements": [

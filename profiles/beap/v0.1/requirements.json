@@ -2,7 +2,7 @@
   "profile": "decionis.beap/v0.1",
   "document": "spec/v0.1/beap-v0.1.md",
   "levels": ["L1", "L2", "L3"],
-  "count": 194,
+  "count": 195,
   "requirements": [
     {
       "id": "BEAP-L1-ACT-01",
@@ -550,7 +550,7 @@
       "area": "BAT",
       "ordinal": 1,
       "section": "17. Batch Execution Binding",
-      "line": 454,
+      "line": 456,
       "text": "An implementation MUST NOT treat possession of, approval of, or reference to a file name as sufficient binding for batch execution."
     },
     {
@@ -559,7 +559,7 @@
       "area": "BAT",
       "ordinal": 2,
       "section": "17.1 Batch Manifest",
-      "line": 458,
+      "line": 460,
       "text": "A batch MUST be transformed into a canonical Batch Manifest with the structure defined by `batch-manifest.schema.json` (Appendix A)."
     },
     {
@@ -568,7 +568,7 @@
       "area": "BAT",
       "ordinal": 3,
       "section": "17.1 Batch Manifest",
-      "line": 466,
+      "line": 468,
       "text": "Items MUST be sorted by `item_ref` in ascending byte order, and `item_ref` MUST be unique within the manifest."
     },
     {
@@ -577,7 +577,7 @@
       "area": "BAT",
       "ordinal": 11,
       "section": "17.1 Batch Manifest",
-      "line": 468,
+      "line": 470,
       "text": "Per-currency totals MUST be sorted by `currency` in ascending byte order, and each currency MUST appear at most once, so that the canonical form of a manifest does not depend on the order in which currencies were encountered in the source file."
     },
     {
@@ -586,7 +586,7 @@
       "area": "BAT",
       "ordinal": 4,
       "section": "17.1 Batch Manifest",
-      "line": 470,
+      "line": 472,
       "text": "Each item MUST carry `item_digest`, the SHA-256 digest of the RFC 8785 canonical form of the item with `item_digest` removed."
     },
     {
@@ -595,7 +595,7 @@
       "area": "BAT",
       "ordinal": 5,
       "section": "17.1 Batch Manifest",
-      "line": 472,
+      "line": 474,
       "text": "The Batch Intent Digest is the SHA-256 digest of the RFC 8785 canonical form of the complete manifest, and MUST be computed over the manifest with items inline."
     },
     {
@@ -604,7 +604,7 @@
       "area": "BAT",
       "ordinal": 6,
       "section": "17.1 Batch Manifest",
-      "line": 474,
+      "line": 476,
       "text": "The manifest MUST record the digest of the source file as received, so that a re-ordered or edited file is detectable even where the canonical items are unchanged."
     },
     {
@@ -613,8 +613,17 @@
       "area": "BAT",
       "ordinal": 7,
       "section": "17.1 Batch Manifest",
-      "line": 476,
+      "line": 478,
       "text": "Beneficiary account numbers MUST appear in the manifest only as digests, never as raw values."
+    },
+    {
+      "id": "BEAP-L2-BAT-14",
+      "level": "L2",
+      "area": "BAT",
+      "ordinal": 14,
+      "section": "17.1 Batch Manifest",
+      "line": 480,
+      "text": "The manifest's `source_file.format` MUST be an identifier from the source-file-formats registry (section 26) or one the institution registers in its policy pack, so that a verifier can tell which parser produced the items from the file whose digest the manifest records. A parser that cannot read a file of its format refuses it with `BATCH_FILE_UNPARSEABLE`, a payment it cannot represent with `BATCH_FILE_ITEM_INVALID`, and an implementation that holds no parser for a format refuses the file with `BATCH_FILE_FORMAT_UNSUPPORTED`; none of these is a manifest, and no item digest exists until every item was read."
     },
     {
       "id": "BEAP-L2-BAT-08",
@@ -622,7 +631,7 @@
       "area": "BAT",
       "ordinal": 8,
       "section": "17.2 The batch action",
-      "line": 480,
+      "line": 484,
       "text": "The BankingAction that releases a batch (for example `RELEASE_PAYMENT_BATCH` in `CORPORATE_PAYMENTS`) MUST carry the `batch` object with the manifest digest, item count, and source-file digest, together with the aggregate amount and currency in `financial_context`, and MUST NOT embed the items themselves. The full manifest is retained in the evidence plane and is attributable through its digest."
     },
     {
@@ -631,7 +640,7 @@
       "area": "BAT",
       "ordinal": 12,
       "section": "17.2 The batch action",
-      "line": 482,
+      "line": 486,
       "text": "A batch-releasing action that carries no `financial_context` names no aggregate, and an implementation MUST refuse to bind it (`BATCH_AGGREGATE_REQUIRED`) rather than bind it with no amount; otherwise every amount-banded policy rule evaluates against an absent amount and no value threshold applies."
     },
     {
@@ -640,7 +649,7 @@
       "area": "BAT",
       "ordinal": 13,
       "section": "17.2 The batch action",
-      "line": 484,
+      "line": 488,
       "text": "The aggregate is a single amount in a single currency and can therefore cover a manifest carrying totals in only one currency. A manifest carrying totals in more than one currency has no single aggregate the action could name, so an implementation MUST refuse to bind such a batch in this version of the profile (`BATCH_TOTALS_MISMATCH`); every currency leg the action does not name would otherwise move unaggregated and unthresholded. A multi-currency payment run is released in this version as one batch per currency."
     },
     {
@@ -649,7 +658,7 @@
       "area": "BAT",
       "ordinal": 9,
       "section": "17.2 The batch action",
-      "line": 486,
+      "line": 490,
       "text": "Approval of a batch MUST bind the Intent Digest of the batch action, which commits to the Batch Intent Digest."
     },
     {
@@ -658,7 +667,7 @@
       "area": "BAT",
       "ordinal": 10,
       "section": "17.2 The batch action",
-      "line": 488,
+      "line": 492,
       "text": "Any material modification to a transaction within the batch MUST invalidate the previous batch binding: the item digest, the manifest digest, the batch action, and therefore the Intent Digest all change, and collected approvals are invalidated under section 16."
     },
     {
@@ -667,7 +676,7 @@
       "area": "BAT",
       "ordinal": 1,
       "section": "17.2 The batch action",
-      "line": 490,
+      "line": 494,
       "text": "The consequential commit authorized by a batch grant is the submission of the batch as a whole; per-item outcomes MUST be recorded as batch effect evidence (section 22.11) as they become known, and an implementation MUST NOT execute items individually under one claim."
     },
     {
@@ -676,7 +685,7 @@
       "area": "GRT",
       "ordinal": 2,
       "section": "18. Execution Grant",
-      "line": 496,
+      "line": 500,
       "text": "A BEAP Execution Grant MUST be intent-bound, target-bound, operation-bound, time-bounded, non-transferable between unrelated execution contexts, and single-use where the downstream operation is consequential."
     },
     {
@@ -685,7 +694,7 @@
       "area": "GRT",
       "ordinal": 3,
       "section": "18. Execution Grant",
-      "line": 498,
+      "line": 502,
       "text": "The grant SHOULD include or cryptographically bind the claims defined by `execution-grant-claims.schema.json` (Appendix A): grant identifier, organization, execution binding identifier, Intent Digest, domain, action, downstream target, permitted operation, issuance and expiry times, and, where computed, the expected-effect digest."
     },
     {
@@ -694,7 +703,7 @@
       "area": "GRT",
       "ordinal": 4,
       "section": "18. Execution Grant",
-      "line": 500,
+      "line": 504,
       "text": "An Execution Grant MUST NOT contain downstream banking credentials."
     },
     {
@@ -703,7 +712,7 @@
       "area": "GRT",
       "ordinal": 5,
       "section": "18. Execution Grant",
-      "line": 502,
+      "line": 506,
       "text": "The validity window of a grant SHOULD be short, measured in minutes, because the grant expresses that a specific policy, signal, and approval state was current when it was issued."
     },
     {
@@ -712,7 +721,7 @@
       "area": "GRT",
       "ordinal": 6,
       "section": "18. Execution Grant",
-      "line": 504,
+      "line": 508,
       "text": "A grant MUST NOT be issued for an `ESCALATE` or `BLOCK` verdict, and an evaluation performed in an observational or shadow mode MUST NOT yield an executable grant."
     },
     {
@@ -721,7 +730,7 @@
       "area": "CLM",
       "ordinal": 1,
       "section": "19. Claim-Before-Commit",
-      "line": 510,
+      "line": 514,
       "text": "Before a consequential downstream operation is committed, the Trusted Executor MUST successfully claim the corresponding Execution Grant with the execution authority."
     },
     {
@@ -730,7 +739,7 @@
       "area": "CLM",
       "ordinal": 2,
       "section": "19. Claim-Before-Commit",
-      "line": 525,
+      "line": 529,
       "text": "A claim MUST be atomic and single-use: a grant that has already been successfully claimed MUST NOT authorize a second execution."
     },
     {
@@ -739,7 +748,7 @@
       "area": "CLM",
       "ordinal": 3,
       "section": "19. Claim-Before-Commit",
-      "line": 527,
+      "line": 531,
       "text": "Duplicate, replayed, expired, mismatched, and previously consumed grants MUST be deterministically rejected at the claim."
     },
     {
@@ -748,7 +757,7 @@
       "area": "CLM",
       "ordinal": 4,
       "section": "19. Claim-Before-Commit",
-      "line": 529,
+      "line": 533,
       "text": "The claim MUST revalidate the Intent Digest, target, and operation being committed against the bound values, and, where the execution authority supports it, the current policy version, material signals, and approval state."
     },
     {
@@ -757,7 +766,7 @@
       "area": "CLM",
       "ordinal": 5,
       "section": "19. Claim-Before-Commit",
-      "line": 531,
+      "line": 535,
       "text": "The Trusted Executor MUST execute only when the claim response affirmatively authorizes execution, and MUST NOT execute on the absence of a refusal, a transport error, or a diagnostic verification that does not consume the grant."
     },
     {
@@ -766,7 +775,7 @@
       "area": "CLM",
       "ordinal": 6,
       "section": "19. Claim-Before-Commit",
-      "line": 533,
+      "line": 537,
       "text": "A claim carries a lease. The downstream commit MUST complete within the lease; where the lease expires before the outcome is known, the outcome MUST be finalized as `INDETERMINATE`."
     },
     {
@@ -775,7 +784,7 @@
       "area": "CLM",
       "ordinal": 7,
       "section": "19. Claim-Before-Commit",
-      "line": 535,
+      "line": 539,
       "text": "After every successful claim the executor MUST finalize the attempt with the execution authority as `COMMITTED`, `FAILED`, or `INDETERMINATE`. Finalization is evidence and MUST NOT alter the outcome, revive the consumed grant, or authorize a further attempt."
     },
     {
@@ -784,7 +793,7 @@
       "area": "CLM",
       "ordinal": 8,
       "section": "19. Claim-Before-Commit",
-      "line": 535,
+      "line": 539,
       "text": "After every successful claim the executor MUST finalize the attempt with the execution authority as `COMMITTED`, `FAILED`, or `INDETERMINATE`. Finalization is evidence and MUST NOT alter the outcome, revive the consumed grant, or authorize a further attempt."
     },
     {
@@ -793,7 +802,7 @@
       "area": "CLM",
       "ordinal": 9,
       "section": "19. Claim-Before-Commit",
-      "line": 537,
+      "line": 541,
       "text": "Where two claims race for the same grant, exactly one MUST succeed."
     },
     {
@@ -802,7 +811,7 @@
       "area": "ADP",
       "ordinal": 2,
       "section": "20. Banking Adapter Contract",
-      "line": 550,
+      "line": 554,
       "text": "A BEAP-L3 Banking Adapter MUST NOT execute a consequential downstream operation unless invoked through a valid Trusted Executor context."
     },
     {
@@ -811,7 +820,7 @@
       "area": "ADP",
       "ordinal": 3,
       "section": "20. Banking Adapter Contract",
-      "line": 552,
+      "line": 556,
       "text": "A conformant adapter MUST verify, or receive verified assurance of, grant validity, intent binding, target binding, operation binding, expiration, and claim status before it executes."
     },
     {
@@ -820,7 +829,7 @@
       "area": "ADP",
       "ordinal": 4,
       "section": "20. Banking Adapter Contract",
-      "line": 554,
+      "line": 558,
       "text": "The adapter MUST NOT broaden the requested action. An adapter receiving authority to"
     },
     {
@@ -829,7 +838,7 @@
       "area": "ADP",
       "ordinal": 5,
       "section": "20. Banking Adapter Contract",
-      "line": 562,
+      "line": 566,
       "text": "The adapter MUST keep the provider side effect inside a single dispatch boundary that records the point after which a transport failure has an unknown outcome, and MUST use the intent-bound idempotency key for that side effect."
     },
     {
@@ -838,7 +847,7 @@
       "area": "ADP",
       "ordinal": 6,
       "section": "20. Banking Adapter Contract",
-      "line": 564,
+      "line": 568,
       "text": "The adapter MUST propagate a correlation or idempotency identifier to the downstream system where the system supports one."
     },
     {
@@ -847,7 +856,7 @@
       "area": "ADP",
       "ordinal": 7,
       "section": "20. Banking Adapter Contract",
-      "line": 566,
+      "line": 570,
       "text": "The adapter MUST capture the downstream execution outcome, compute a digest over the material response evidence, and distinguish `COMMITTED`, `FAILED`, and `INDETERMINATE`."
     },
     {
@@ -856,7 +865,7 @@
       "area": "ADP",
       "ordinal": 8,
       "section": "20. Banking Adapter Contract",
-      "line": 568,
+      "line": 572,
       "text": "The adapter MUST preserve evidence provenance, distinguishing provider-generated evidence from its own observations."
     },
     {
@@ -865,7 +874,7 @@
       "area": "ADP",
       "ordinal": 9,
       "section": "20. Banking Adapter Contract",
-      "line": 570,
+      "line": 574,
       "text": "The adapter MUST submit Effect Evidence to the decision chain for every claimed attempt."
     },
     {
@@ -874,7 +883,7 @@
       "area": "ADP",
       "ordinal": 10,
       "section": "20. Banking Adapter Contract",
-      "line": 572,
+      "line": 576,
       "text": "The adapter SHOULD support reconciliation where the downstream system permits authoritative status retrieval."
     },
     {
@@ -883,7 +892,7 @@
       "area": "ADP",
       "ordinal": 11,
       "section": "20. Banking Adapter Contract",
-      "line": 574,
+      "line": 578,
       "text": "The adapter MUST NOT represent an unverified business effect as `CONFIRMED`."
     },
     {
@@ -892,7 +901,7 @@
       "area": "ADP",
       "ordinal": 12,
       "section": "20. Banking Adapter Contract",
-      "line": 576,
+      "line": 580,
       "text": "The adapter's reconciliation operation MUST be read-only and MUST NOT initiate or retry a side effect."
     },
     {
@@ -901,7 +910,7 @@
       "area": "ADP",
       "ordinal": 13,
       "section": "20. Banking Adapter Contract",
-      "line": 578,
+      "line": 582,
       "text": "The adapter SHOULD compare the observed effect against the authorized effect and surface material mismatches (section 22.8)."
     },
     {
@@ -910,7 +919,7 @@
       "area": "ADP",
       "ordinal": 14,
       "section": "20. Banking Adapter Contract",
-      "line": 580,
+      "line": 584,
       "text": "The adapter MUST NOT receive the execution token or the proposing Actor's identity as an execution credential; it receives the verified authorization identifiers and the idempotency key."
     },
     {
@@ -919,7 +928,7 @@
       "area": "CRD",
       "ordinal": 1,
       "section": "21. Credential Isolation",
-      "line": 584,
+      "line": 588,
       "text": "Downstream banking credentials SHOULD reside within the Trusted Executor or another isolated execution environment, not with the proposing Actor."
     },
     {
@@ -928,7 +937,7 @@
       "area": "CRD",
       "ordinal": 2,
       "section": "21. Credential Isolation",
-      "line": 586,
+      "line": 590,
       "text": "An autonomous Actor SHOULD be capable of proposing `CREATE_CUSTOMER`, `CREATE_ACCOUNT`, `APPROVE_LOAN`, `DISBURSE_LOAN`, `SEND_PAYMENT`, and every other registered action without possessing credentials sufficient to perform those operations directly against the banking system."
     },
     {
@@ -937,7 +946,7 @@
       "area": "CRD",
       "ordinal": 3,
       "section": "21. Credential Isolation",
-      "line": 601,
+      "line": 605,
       "text": "The component that supplies downstream credentials to an adapter MUST NOT be reachable from the proposing side of the boundary."
     },
     {
@@ -946,7 +955,7 @@
       "area": "CRD",
       "ordinal": 4,
       "section": "21. Credential Isolation",
-      "line": 603,
+      "line": 607,
       "text": "Downstream credentials MUST NOT enter a BankingAction, an AuthoritySet, an Execution Grant, Effect Evidence, a Decision Dossier, or operational logs."
     },
     {
@@ -955,7 +964,7 @@
       "area": "EFF",
       "ordinal": 1,
       "section": "22.1 Purpose",
-      "line": 613,
+      "line": 617,
       "text": "A successful authorization MUST NOT, by itself, be interpreted as evidence that the authorized banking effect occurred. Successful delivery of a request to a banking system MUST NOT, by itself, be interpreted as evidence that the intended business effect was completed."
     },
     {
@@ -964,7 +973,7 @@
       "area": "EFF",
       "ordinal": 2,
       "section": "22.1 Purpose",
-      "line": 613,
+      "line": 617,
       "text": "A successful authorization MUST NOT, by itself, be interpreted as evidence that the authorized banking effect occurred. Successful delivery of a request to a banking system MUST NOT, by itself, be interpreted as evidence that the intended business effect was completed."
     },
     {
@@ -973,7 +982,7 @@
       "area": "EFF",
       "ordinal": 3,
       "section": "22.2 EffectEvidence",
-      "line": 634,
+      "line": 638,
       "text": "Effect evidence MUST be associated with exactly one execution-authority claim."
     },
     {
@@ -982,7 +991,7 @@
       "area": "EFF",
       "ordinal": 4,
       "section": "22.2 EffectEvidence",
-      "line": 636,
+      "line": 640,
       "text": "An EffectEvidence object MUST identify the Decision Dossier, the Intent Digest, the execution binding, the claimed execution authority, the execution domain and action, the downstream adapter and target, the execution correlation identifier and idempotency key, the attempt number, the observed outcome, the observation time, and cryptographic evidence sufficient to detect alteration of material downstream response data."
     },
     {
@@ -991,7 +1000,7 @@
       "area": "EFF",
       "ordinal": 5,
       "section": "22.2 EffectEvidence",
-      "line": 638,
+      "line": 642,
       "text": "A conforming implementation MUST NOT construct EffectEvidence in a manner that permits evidence from one execution attempt to be attached to another execution binding."
     },
     {
@@ -1000,7 +1009,7 @@
       "area": "EFF",
       "ordinal": 6,
       "section": "22.3 Canonical structure",
-      "line": 642,
+      "line": 646,
       "text": "A conforming EffectEvidence object MUST have the structure defined by `effect-evidence.schema.json` (Appendix A). A representative instance:"
     },
     {
@@ -1009,7 +1018,7 @@
       "area": "EFF",
       "ordinal": 7,
       "section": "22.3 Canonical structure",
-      "line": 692,
+      "line": 696,
       "text": "Implementations MAY retain additional provider-specific fields outside the signed object, provided such fields cannot modify the meaning of signed BEAP fields."
     },
     {
@@ -1018,7 +1027,7 @@
       "area": "EFF",
       "ordinal": 8,
       "section": "22.3 Canonical structure",
-      "line": 694,
+      "line": 698,
       "text": "Sensitive downstream data SHOULD be represented by references or cryptographic digests where disclosure of raw values is unnecessary."
     },
     {
@@ -1027,7 +1036,7 @@
       "area": "EFF",
       "ordinal": 9,
       "section": "22.4.1 COMMITTED",
-      "line": 704,
+      "line": 708,
       "text": "`COMMITTED` MUST NOT automatically mean that the ultimate business effect has been completed."
     },
     {
@@ -1036,7 +1045,7 @@
       "area": "EFF",
       "ordinal": 10,
       "section": "22.4.2 FAILED",
-      "line": 718,
+      "line": 722,
       "text": "The failure reason SHOULD be recorded as a stable reason code. A `FAILED` execution does not restore or recreate the consumed execution authority; a new execution attempt MUST obtain authority according to the applicable retry and re-evaluation policy."
     },
     {
@@ -1045,7 +1054,7 @@
       "area": "EFF",
       "ordinal": 11,
       "section": "22.4.3 INDETERMINATE",
-      "line": 724,
+      "line": 728,
       "text": "An `INDETERMINATE` outcome MUST be treated as potentially committed. It MUST NOT cause the original execution grant to become reusable. It MUST NOT trigger an automatic repeat of the consequential operation unless downstream idempotency semantics make such repetition provably safe and the applicable policy explicitly permits it. An `INDETERMINATE` execution SHOULD enter reconciliation."
     },
     {
@@ -1054,7 +1063,7 @@
       "area": "EFF",
       "ordinal": 12,
       "section": "22.4.3 INDETERMINATE",
-      "line": 724,
+      "line": 728,
       "text": "An `INDETERMINATE` outcome MUST be treated as potentially committed. It MUST NOT cause the original execution grant to become reusable. It MUST NOT trigger an automatic repeat of the consequential operation unless downstream idempotency semantics make such repetition provably safe and the applicable policy explicitly permits it. An `INDETERMINATE` execution SHOULD enter reconciliation."
     },
     {
@@ -1063,7 +1072,7 @@
       "area": "EFF",
       "ordinal": 13,
       "section": "22.4.3 INDETERMINATE",
-      "line": 724,
+      "line": 728,
       "text": "An `INDETERMINATE` outcome MUST be treated as potentially committed. It MUST NOT cause the original execution grant to become reusable. It MUST NOT trigger an automatic repeat of the consequential operation unless downstream idempotency semantics make such repetition provably safe and the applicable policy explicitly permits it. An `INDETERMINATE` execution SHOULD enter reconciliation."
     },
     {
@@ -1072,7 +1081,7 @@
       "area": "EFF",
       "ordinal": 14,
       "section": "22.4.3 INDETERMINATE",
-      "line": 724,
+      "line": 728,
       "text": "An `INDETERMINATE` outcome MUST be treated as potentially committed. It MUST NOT cause the original execution grant to become reusable. It MUST NOT trigger an automatic repeat of the consequential operation unless downstream idempotency semantics make such repetition provably safe and the applicable policy explicitly permits it. An `INDETERMINATE` execution SHOULD enter reconciliation."
     },
     {
@@ -1081,7 +1090,7 @@
       "area": "EFF",
       "ordinal": 15,
       "section": "22.5 Confirmation",
-      "line": 740,
+      "line": 744,
       "text": "A reversal MUST NOT rewrite the original effect evidence. Where the reversal itself requires execution authority, it SHOULD produce a new BankingAction and a corresponding Decision Dossier."
     },
     {
@@ -1090,7 +1099,7 @@
       "area": "EFF",
       "ordinal": 16,
       "section": "22.5 Confirmation",
-      "line": 740,
+      "line": 744,
       "text": "A reversal MUST NOT rewrite the original effect evidence. Where the reversal itself requires execution authority, it SHOULD produce a new BankingAction and a corresponding Decision Dossier."
     },
     {
@@ -1099,7 +1108,7 @@
       "area": "EFF",
       "ordinal": 17,
       "section": "22.6 Response digest",
-      "line": 746,
+      "line": 750,
       "text": "The adapter MUST compute a cryptographic digest over the material downstream response evidence used to determine the execution outcome, and SHA-256 MUST be supported. Where the response is structured JSON, RFC 8785 canonicalization SHOULD be applied before hashing."
     },
     {
@@ -1108,7 +1117,7 @@
       "area": "EFF",
       "ordinal": 18,
       "section": "22.6 Response digest",
-      "line": 746,
+      "line": 750,
       "text": "The adapter MUST compute a cryptographic digest over the material downstream response evidence used to determine the execution outcome, and SHA-256 MUST be supported. Where the response is structured JSON, RFC 8785 canonicalization SHOULD be applied before hashing."
     },
     {
@@ -1117,7 +1126,7 @@
       "area": "EFF",
       "ordinal": 19,
       "section": "22.7 Expected-effect projection",
-      "line": 762,
+      "line": 766,
       "text": "The implementation MUST derive the expected effect from the canonical BankingAction according to the registered projection, and the expected-effect digest is the SHA-256 digest of its RFC 8785 canonical form."
     },
     {
@@ -1126,7 +1135,7 @@
       "area": "EFF",
       "ordinal": 20,
       "section": "22.7 Expected-effect projection",
-      "line": 764,
+      "line": 768,
       "text": "The adapter SHOULD map the observed downstream result to the same projection and compare the two field by field."
     },
     {
@@ -1135,7 +1144,7 @@
       "area": "EFF",
       "ordinal": 21,
       "section": "22.7 Expected-effect projection",
-      "line": 766,
+      "line": 770,
       "text": "A materially different effect MUST NOT be reported as successful confirmation of the authorized action; such a condition MUST generate an effect mismatch."
     },
     {
@@ -1144,7 +1153,7 @@
       "area": "EFF",
       "ordinal": 22,
       "section": "22.8 Effect mismatch",
-      "line": 779,
+      "line": 783,
       "text": "An effect mismatch MUST be recorded in the decision chain, preserve the original authorization evidence, preserve the observed effect evidence, identify the mismatched material fields, prevent the execution from being represented as correctly confirmed, and invoke the institution's configured exception, incident, or reconciliation policy."
     },
     {
@@ -1153,7 +1162,7 @@
       "area": "EFF",
       "ordinal": 23,
       "section": "22.8 Effect mismatch",
-      "line": 781,
+      "line": 785,
       "text": "The original Decision Dossier MUST NOT be mutated to make the authorization appear consistent with the observed effect."
     },
     {
@@ -1162,7 +1171,7 @@
       "area": "EFF",
       "ordinal": 24,
       "section": "22.9 Reconciliation",
-      "line": 787,
+      "line": 791,
       "text": "Reconciliation MUST use authoritative downstream identifiers where available. The reconciler MUST NOT infer successful execution solely from the absence of an error."
     },
     {
@@ -1171,7 +1180,7 @@
       "area": "EFF",
       "ordinal": 25,
       "section": "22.9 Reconciliation",
-      "line": 787,
+      "line": 791,
       "text": "Reconciliation MUST use authoritative downstream identifiers where available. The reconciler MUST NOT infer successful execution solely from the absence of an error."
     },
     {
@@ -1180,7 +1189,7 @@
       "area": "EFF",
       "ordinal": 26,
       "section": "22.9 Reconciliation",
-      "line": 797,
+      "line": 801,
       "text": "Reconciliation evidence MUST be appended to the decision chain rather than replacing earlier observations, preserving the temporal record of what was known at execution time and what became known later."
     },
     {
@@ -1189,7 +1198,7 @@
       "area": "EFF",
       "ordinal": 27,
       "section": "22.10 Asynchronous banking effects",
-      "line": 810,
+      "line": 814,
       "text": "Many banking operations are asynchronous: payment clearing, cross-border payments, disbursement processing, account activation, sanctions or manual review, batch processing, downstream posting, settlement. An implementation MUST support an execution being `COMMITTED` while its ultimate effect remains `PENDING`."
     },
     {
@@ -1198,7 +1207,7 @@
       "area": "EFF",
       "ordinal": 28,
       "section": "22.10 Asynchronous banking effects",
-      "line": 812,
+      "line": 816,
       "text": "The adapter SHOULD capture the strongest available acknowledgement at the initial boundary and subsequently attach authoritative status evidence as it becomes available. A provider status such as `ACCEPTED`, `QUEUED`, `PROCESSING`, or an equivalent MUST NOT be normalized to `CONFIRMED` unless the status semantically proves the protected business effect."
     },
     {
@@ -1207,7 +1216,7 @@
       "area": "EFF",
       "ordinal": 29,
       "section": "22.11 Batch effect evidence",
-      "line": 816,
+      "line": 820,
       "text": "For batch-authorized operations, effect evidence MUST preserve the relationship between the authorized batch and its individual downstream effects, with the structure defined by `batch-effect-evidence.schema.json` (Appendix A). A batch effect record carries the batch binding digest, correlation identifier, append sequence, authorized item count and totals, and the accepted, rejected, pending, indeterminate, and confirmed item counts, together with a digest of and reference to the per-item outcomes."
     },
     {
@@ -1216,7 +1225,7 @@
       "area": "EFF",
       "ordinal": 30,
       "section": "22.11 Batch effect evidence",
-      "line": 818,
+      "line": 822,
       "text": "The batch MUST NOT be represented as wholly confirmed merely because the downstream platform accepted the uploaded file."
     },
     {
@@ -1225,7 +1234,7 @@
       "area": "EFF",
       "ordinal": 31,
       "section": "22.11 Batch effect evidence",
-      "line": 820,
+      "line": 824,
       "text": "Where individual items can have independent outcomes, each item outcome SHOULD be attributable to its canonical item digest."
     },
     {
@@ -1234,7 +1243,7 @@
       "area": "EFF",
       "ordinal": 45,
       "section": "22.11 Batch effect evidence",
-      "line": 822,
+      "line": 826,
       "text": "Each item outcome MUST have the structure defined by `batch-item-outcome.schema.json` (Appendix A), and the `item_outcomes_digest` a batch effect record carries MUST be the SHA-256 digest of the RFC 8785 canonical form of the array of the outcomes known at that point, holding at most one outcome per item and ordered by `item_digest` in ascending byte order, so that an auditor recomputes the same digest from the same outcomes whatever order they were observed in. An outcome whose provider reference is not known MUST omit `provider_reference` rather than carry it as null, so that one set of outcomes has one canonical form and one digest."
     },
     {
@@ -1243,7 +1252,7 @@
       "area": "EFF",
       "ordinal": 46,
       "section": "22.11 Batch effect evidence",
-      "line": 824,
+      "line": 828,
       "text": "An outcome naming an item digest the authorized manifest does not contain MUST be refused rather than recorded, and an item whose outcome is already `CONFIRMED` or `REJECTED` MUST NOT be rewritten. A status endpoint re-reports a settled item on every poll, so a repeat reporting the same status and the same `provider_reference` is the same fact observed again: it MUST be admitted and MUST leave the outcome on record, its `observed_at` included, exactly as it was. A repeat reporting a different status or a different `provider_reference` is a rewrite, not a repeat, and MUST be refused (`BATCH_ITEM_OUTCOME_CONFLICT`). Reconciliation appends; it never mutates what an earlier record attested."
     },
     {
@@ -1252,7 +1261,7 @@
       "area": "EFF",
       "ordinal": 47,
       "section": "22.11 Batch effect evidence",
-      "line": 826,
+      "line": 830,
       "text": "An observation MUST be admitted as a whole or not at all: where any outcome in a reported observation is inadmissible, the whole observation MUST be refused, no outcome it carries may be recorded, and no effect record may be appended for it, so that an implementation cannot refuse a report as a record while absorbing it as state. An observation carrying no outcomes MUST NOT produce a record."
     },
     {
@@ -1261,7 +1270,7 @@
       "area": "EFF",
       "ordinal": 32,
       "section": "22.12 Partial effects",
-      "line": 838,
+      "line": 842,
       "text": "Where a banking operation can produce partial consequences, the adapter MUST NOT collapse a partial outcome into a binary success result; the evidence MUST preserve the distribution of completed, failed, pending, and indeterminate components. Institution policy MAY define whether a partial effect requires escalation, compensating action, reconciliation, or incident handling."
     },
     {
@@ -1270,7 +1279,7 @@
       "area": "EFF",
       "ordinal": 33,
       "section": "22.13 Effect evidence and retries",
-      "line": 842,
+      "line": 846,
       "text": "A retry is a new execution attempt. The existence of a prior `FAILED` or `INDETERMINATE` result MUST NOT be interpreted as authorization to retry."
     },
     {
@@ -1279,7 +1288,7 @@
       "area": "EFF",
       "ordinal": 34,
       "section": "22.13 Effect evidence and retries",
-      "line": 844,
+      "line": 848,
       "text": "Before a consequential retry, the implementation MUST determine whether the original effect occurred, whether the downstream operation supports idempotent replay, whether the original authorization remains valid under policy, whether material signals remain current, whether approval evidence remains valid, and whether a new binding is required."
     },
     {
@@ -1288,7 +1297,7 @@
       "area": "EFF",
       "ordinal": 35,
       "section": "22.13 Effect evidence and retries",
-      "line": 846,
+      "line": 850,
       "text": "For `INDETERMINATE` financial effects, reconciliation SHOULD take precedence over retry."
     },
     {
@@ -1297,7 +1306,7 @@
       "area": "EFF",
       "ordinal": 36,
       "section": "22.14 Evidence provenance",
-      "line": 850,
+      "line": 854,
       "text": "Effect evidence SHOULD identify the source from which each material observation originated, using the evidence-source registry (section 26). Where downstream evidence is cryptographically signed or otherwise independently verifiable, the adapter SHOULD retain or reference that verification material."
     },
     {
@@ -1306,7 +1315,7 @@
       "area": "EFF",
       "ordinal": 37,
       "section": "22.14 Evidence provenance",
-      "line": 852,
+      "line": 856,
       "text": "Adapter-generated observations MUST be distinguishable from provider-generated evidence."
     },
     {
@@ -1315,7 +1324,7 @@
       "area": "EFF",
       "ordinal": 38,
       "section": "22.15 Decision chain integration",
-      "line": 858,
+      "line": 862,
       "text": "Each new evidence event MUST preserve linkage to the preceding relevant chain state. Later evidence MUST NOT overwrite earlier evidence."
     },
     {
@@ -1324,7 +1333,7 @@
       "area": "EFF",
       "ordinal": 39,
       "section": "22.15 Decision chain integration",
-      "line": 858,
+      "line": 862,
       "text": "Each new evidence event MUST preserve linkage to the preceding relevant chain state. Later evidence MUST NOT overwrite earlier evidence."
     },
     {
@@ -1333,7 +1342,7 @@
       "area": "DOS",
       "ordinal": 2,
       "section": "22.16 Decision Dossier representation",
-      "line": 864,
+      "line": 868,
       "text": "For an execution-bound Decision Dossier, the dossier SHOULD expose a compact effect summary identifying the claim, the execution status, the adapter, the correlation identifier, the provider reference, the response digest, the confirmation state, the effect type, and the evidence digest."
     },
     {
@@ -1342,7 +1351,7 @@
       "area": "DOS",
       "ordinal": 3,
       "section": "22.16 Decision Dossier representation",
-      "line": 866,
+      "line": 870,
       "text": "The dossier MAY reference externally retained evidence rather than embedding sensitive banking records. A verifier MUST be able to determine whether the evidence included in or referenced by the dossier corresponds to the same execution binding and execution claim."
     },
     {
@@ -1351,7 +1360,7 @@
       "area": "EFF",
       "ordinal": 40,
       "section": "22.17 Observation methods and confirmation",
-      "line": 870,
+      "line": 874,
       "text": "The observation-method registry (section 26) names how an observed effect was established. A downstream acknowledgement (`DOWNSTREAM_ACK`) MAY support `COMMITTED` but MUST NOT by itself support `CONFIRMED`."
     },
     {
@@ -1360,7 +1369,7 @@
       "area": "EFF",
       "ordinal": 41,
       "section": "22.17 Observation methods and confirmation",
-      "line": 872,
+      "line": 876,
       "text": "`CONFIRMED` MUST be recorded only when an expected-effect digest was bound before dispatch, the observed-effect digest equals it, and the observation method is one the registry marks as sufficient for confirmation."
     },
     {
@@ -1369,7 +1378,7 @@
       "area": "EFF",
       "ordinal": 42,
       "section": "22.18 Failure to record effect evidence",
-      "line": 876,
+      "line": 880,
       "text": "Failure of the evidence-recording path does not retroactively invalidate an execution that has already occurred; however, the execution MUST NOT be represented as fully evidenced."
     },
     {
@@ -1378,7 +1387,7 @@
       "area": "EFF",
       "ordinal": 43,
       "section": "22.18 Failure to record effect evidence",
-      "line": 878,
+      "line": 882,
       "text": "Where an external effect may have occurred but effect evidence cannot be durably recorded, the system SHOULD record or recover the state as `INDETERMINATE` with `evidence_status: INCOMPLETE` and initiate reconciliation according to institution policy."
     },
     {
@@ -1387,7 +1396,7 @@
       "area": "EFF",
       "ordinal": 44,
       "section": "22.18 Failure to record effect evidence",
-      "line": 889,
+      "line": 893,
       "text": "The applicable behavior MUST be explicit policy rather than an undocumented adapter default."
     },
     {
@@ -1396,7 +1405,7 @@
       "area": "PRV",
       "ordinal": 1,
       "section": "23. Privacy and Data Minimization",
-      "line": 893,
+      "line": 897,
       "text": "Effect evidence and Decision Dossiers SHOULD contain only the information necessary to establish execution integrity and subsequent verification."
     },
     {
@@ -1405,7 +1414,7 @@
       "area": "PRV",
       "ordinal": 2,
       "section": "23. Privacy and Data Minimization",
-      "line": 895,
+      "line": 899,
       "text": "Raw personally identifiable information, account numbers, uploaded customer documents, credentials, authentication secrets, biometric material, payment-card data, and other unnecessary banking data SHOULD NOT be copied into a Decision Dossier."
     },
     {
@@ -1414,7 +1423,7 @@
       "area": "PRV",
       "ordinal": 3,
       "section": "23.1 Reference rather than replicate",
-      "line": 901,
+      "line": 905,
       "text": "Where authoritative information already exists in a system of record, BEAP evidence SHOULD reference that information rather than reproduce it."
     },
     {
@@ -1423,7 +1432,7 @@
       "area": "PRV",
       "ordinal": 4,
       "section": "23.1 Reference rather than replicate",
-      "line": 925,
+      "line": 929,
       "text": "An implementation MUST NOT require replication of raw source data where a stable reference, cryptographic commitment, or purpose-limited claim provides sufficient execution-authority evidence."
     },
     {
@@ -1432,7 +1441,7 @@
       "area": "PRV",
       "ordinal": 5,
       "section": "23.2 Evidence digests",
-      "line": 929,
+      "line": 933,
       "text": "Where policy requires proof that particular evidence was considered, the implementation MAY bind a cryptographic digest of that evidence rather than embed the evidence itself."
     },
     {
@@ -1441,7 +1450,7 @@
       "area": "PRV",
       "ordinal": 6,
       "section": "23.2 Evidence digests",
-      "line": 937,
+      "line": 941,
       "text": "The digest establishes integrity linkage; it MUST NOT be interpreted as proof of the semantic correctness of the source evidence."
     },
     {
@@ -1450,7 +1459,7 @@
       "area": "PRV",
       "ordinal": 7,
       "section": "23.3 Purpose-limited claims",
-      "line": 941,
+      "line": 945,
       "text": "Where a policy requires only a derived fact, the evidence supplied to BEAP SHOULD contain that fact rather than the underlying sensitive value: `age_requirement_satisfied: true` rather than a date of birth, `affordability_requirement_satisfied: true` rather than income records, `sanctions_status: CLEAR` rather than the complete screening response."
     },
     {
@@ -1459,7 +1468,7 @@
       "area": "PRV",
       "ordinal": 8,
       "section": "23.3 Purpose-limited claims",
-      "line": 943,
+      "line": 947,
       "text": "A derived claim SHOULD identify its authoritative issuer, observation time, validity or freshness information, and an evidence reference where required for verification."
     },
     {
@@ -1468,7 +1477,7 @@
       "area": "PRV",
       "ordinal": 1,
       "section": "23.4 Sensitive values required for binding",
-      "line": 947,
+      "line": 951,
       "text": "Data minimization MUST NOT weaken execution binding."
     },
     {
@@ -1477,7 +1486,7 @@
       "area": "PRV",
       "ordinal": 2,
       "section": "23.4 Sensitive values required for binding",
-      "line": 949,
+      "line": 953,
       "text": "Where a sensitive value materially determines the authorized effect, the implementation MUST retain sufficient cryptographic commitment to detect substitution. The actual beneficiary account number need not appear in a portable Decision Dossier, but execution authority is still bound to the intended beneficiary:"
     },
     {
@@ -1486,7 +1495,7 @@
       "area": "PRV",
       "ordinal": 3,
       "section": "23.4 Sensitive values required for binding",
-      "line": 955,
+      "line": 959,
       "text": "The Trusted Executor MUST be capable of demonstrating that the actual downstream beneficiary corresponds to the value bound at authorization. The same principle applies to customer identifiers, account identifiers, beneficiary accounts, loan identifiers, payment instructions, corporate batch entries, document evidence, and counterparty identifiers."
     },
     {
@@ -1495,7 +1504,7 @@
       "area": "PRV",
       "ordinal": 4,
       "section": "23.4 Sensitive values required for binding",
-      "line": 957,
+      "line": 961,
       "text": "Data minimization MUST NOT permit a material execution field to become unbound."
     },
     {
@@ -1504,7 +1513,7 @@
       "area": "PRV",
       "ordinal": 9,
       "section": "23.5 Credentials and secrets",
-      "line": 961,
+      "line": 965,
       "text": "API secrets, private cryptographic keys, banking passwords, session credentials, bearer tokens, refresh tokens, core-banking service credentials, PINs, card verification values, authentication secrets, and recovery secrets MUST NOT be included in a Decision Dossier, a BankingAction, an AuthoritySet, an Execution Grant, an EffectEvidence object, or a portable verification package."
     },
     {
@@ -1513,7 +1522,7 @@
       "area": "PRV",
       "ordinal": 10,
       "section": "23.5 Credentials and secrets",
-      "line": 963,
+      "line": 967,
       "text": "Where authentication context is material to policy, the dossier SHOULD record non-secret evidence describing the authenticated context, for example an assurance level, a method, an identity reference, and a verification time."
     },
     {
@@ -1522,7 +1531,7 @@
       "area": "PRV",
       "ordinal": 11,
       "section": "23.6 Presence and biometric evidence",
-      "line": 967,
+      "line": 971,
       "text": "Where Presence or another human-verification mechanism participates in authorization, the Decision Dossier SHOULD contain evidence that the required ceremony was completed, such as a receipt identifier, approver reference and role, approved-action digest, ceremony type, assurance level, verification time, expiry, and signed evidence digest, without embedding raw biometric material."
     },
     {
@@ -1531,7 +1540,7 @@
       "area": "PRV",
       "ordinal": 12,
       "section": "23.6 Presence and biometric evidence",
-      "line": 969,
+      "line": 973,
       "text": "A dossier SHOULD NOT contain face images, fingerprint templates, raw liveness captures, device biometric templates, or biometric feature vectors, unless an institution explicitly requires such retention outside the portable dossier and has an independent lawful basis and retention policy for doing so."
     },
     {
@@ -1540,7 +1549,7 @@
       "area": "PRV",
       "ordinal": 13,
       "section": "23.7 Separation of evidence planes",
-      "line": 973,
+      "line": 977,
       "text": "A BEAP implementation SHOULD support separation between an authority plane (policy, binding, verdict, approvals, grant), an evidence plane (signed references, digests, effect evidence), and a source data plane (customer documents, account records, transaction data, loan files, raw provider responses)."
     },
     {
@@ -1549,7 +1558,7 @@
       "area": "PRV",
       "ordinal": 14,
       "section": "23.8 Portable dossiers and projections",
-      "line": 979,
+      "line": 983,
       "text": "A portable Decision Dossier SHOULD be safe to disclose to an appropriately authorized verifier without automatically disclosing the complete underlying banking transaction or customer record."
     },
     {
@@ -1558,7 +1567,7 @@
       "area": "PRV",
       "ordinal": 15,
       "section": "23.8 Portable dossiers and projections",
-      "line": 983,
+      "line": 987,
       "text": "A projected or redacted dossier MUST NOT be represented as the canonical dossier itself."
     },
     {
@@ -1567,7 +1576,7 @@
       "area": "PRV",
       "ordinal": 16,
       "section": "23.8 Portable dossiers and projections",
-      "line": 985,
+      "line": 989,
       "text": "A projection SHOULD have the structure defined by `dossier-projection.schema.json` (Appendix A), identifying the canonical dossier digest, the projection profile, the included claims, the omitted claim classes, the projection issuer, the projection time, and the projection signature."
     },
     {
@@ -1576,7 +1585,7 @@
       "area": "PRV",
       "ordinal": 17,
       "section": "23.9 Retention",
-      "line": 989,
+      "line": 993,
       "text": "BEAP does not prescribe a universal retention period. Retention MUST be determined by the institution according to applicable law, regulatory requirements, contractual obligations, recordkeeping requirements, institutional policy, execution domain, evidence classification, and investigation requirements."
     },
     {
@@ -1585,7 +1594,7 @@
       "area": "PRV",
       "ordinal": 18,
       "section": "23.9 Retention",
-      "line": 991,
+      "line": 995,
       "text": "Implementations SHOULD permit different retention policies for canonical Decision Dossiers, effect evidence, raw downstream responses, Presence evidence, source banking records, and derived evidence projections."
     },
     {
@@ -1594,7 +1603,7 @@
       "area": "PRV",
       "ordinal": 19,
       "section": "23.9 Retention",
-      "line": 993,
+      "line": 997,
       "text": "A requirement to retain cryptographic evidence MUST NOT automatically imply a requirement to retain every underlying raw data element within the execution authority."
     },
     {
@@ -1603,7 +1612,7 @@
       "area": "PRV",
       "ordinal": 20,
       "section": "23.10 Deletion and cryptographic references",
-      "line": 997,
+      "line": 1001,
       "text": "Deletion of source data MAY leave a cryptographic digest in an existing Decision Dossier. Such a digest demonstrates commitment to the previously observed data but may no longer permit recovery or semantic inspection of that data. Implementations MUST NOT claim that a retained digest permits reconstruction of deleted source information."
     },
     {
@@ -1612,7 +1621,7 @@
       "area": "PRV",
       "ordinal": 21,
       "section": "23.10 Deletion and cryptographic references",
-      "line": 999,
+      "line": 1003,
       "text": "Canonical Decision Dossiers SHOULD remain immutable; privacy lifecycle operations SHOULD therefore be applied through source-data management, access controls, evidence projection, cryptographic references, or explicitly defined superseding records rather than silent mutation of signed historical evidence. Where deletion, anonymization, legal hold, or retention requirements conflict, the institution's governance policy determines the treatment of the underlying source data."
     },
     {
@@ -1621,7 +1630,7 @@
       "area": "PRV",
       "ordinal": 22,
       "section": "23.11 Access control",
-      "line": 1003,
+      "line": 1007,
       "text": "Possession of a Decision Dossier MUST NOT automatically imply permission to resolve every reference contained within it."
     },
     {
@@ -1630,7 +1639,7 @@
       "area": "PRV",
       "ordinal": 23,
       "section": "23.11 Access control",
-      "line": 1005,
+      "line": 1009,
       "text": "Authorization to access customer records, account details, identity evidence, loan documents, transaction details, raw provider responses, and Presence evidence SHOULD remain independently controlled by the system responsible for that information. A verifier may therefore cryptographically verify a dossier while lacking permission to dereference particular sensitive evidence; this is a valid BEAP deployment model."
     },
     {
@@ -1639,7 +1648,7 @@
       "area": "PRV",
       "ordinal": 24,
       "section": "23.12 Logging",
-      "line": 1009,
+      "line": 1013,
       "text": "Operational logs produced by BEAP components MUST follow the same minimization principles as Decision Dossiers. Implementations MUST NOT rely on log redaction as the primary protection against unnecessary secret collection; secrets and unnecessary sensitive values are kept out of logs in the first place."
     },
     {
@@ -1648,7 +1657,7 @@
       "area": "PRV",
       "ordinal": 25,
       "section": "23.12 Logging",
-      "line": 1009,
+      "line": 1013,
       "text": "Operational logs produced by BEAP components MUST follow the same minimization principles as Decision Dossiers. Implementations MUST NOT rely on log redaction as the primary protection against unnecessary secret collection; secrets and unnecessary sensitive values are kept out of logs in the first place."
     },
     {
@@ -1657,7 +1666,7 @@
       "area": "PRV",
       "ordinal": 26,
       "section": "23.12 Logging",
-      "line": 1011,
+      "line": 1015,
       "text": "Logging SHOULD prefer dossier, evaluation, binding, claim, and correlation identifiers, opaque customer and account references, the Intent Digest, the policy identifier and version, the verdict, the execution status, and an error classification over raw BankingAction payloads."
     },
     {
@@ -1666,7 +1675,7 @@
       "area": "PRV",
       "ordinal": 27,
       "section": "23.12 Logging",
-      "line": 1013,
+      "line": 1017,
       "text": "Debug or diagnostic modes MUST NOT silently weaken these requirements in production environments."
     },
     {
@@ -1675,7 +1684,7 @@
       "area": "PRV",
       "ordinal": 28,
       "section": "23.13 Data residency and deployment boundary",
-      "line": 1019,
+      "line": 1023,
       "text": "Adapters SHOULD permit sensitive source data to remain close to the downstream banking system while transmitting only the minimum policy inputs, bindings, digests, references, and evidence required by the execution-authority layer."
     },
     {
@@ -1684,7 +1693,7 @@
       "area": "PRV",
       "ordinal": 29,
       "section": "23.13 Data residency and deployment boundary",
-      "line": 1021,
+      "line": 1025,
       "text": "The deployment topology MUST NOT alter the meaning of a binding or weaken verification requirements."
     },
     {
@@ -1693,7 +1702,7 @@
       "area": "PRV",
       "ordinal": 30,
       "section": "23.14 Minimization invariant",
-      "line": 1025,
+      "line": 1029,
       "text": "A BEAP implementation SHOULD apply the following invariant: retain enough information to prove what was authorized and what occurred, but no more sensitive source data than is necessary to establish that proof."
     },
     {
@@ -1702,7 +1711,7 @@
       "area": "PRV",
       "ordinal": 31,
       "section": "23.14 Minimization invariant",
-      "line": 1027,
+      "line": 1031,
       "text": "Privacy minimization MUST NOT weaken intent integrity, policy reproducibility, authority verification, approval binding, target binding, effect verification, replay resistance, or auditability. Conversely, execution verifiability MUST NOT be used as justification for indiscriminate replication of banking data."
     },
     {
@@ -1711,7 +1720,7 @@
       "area": "PRV",
       "ordinal": 32,
       "section": "23.14 Minimization invariant",
-      "line": 1027,
+      "line": 1031,
       "text": "Privacy minimization MUST NOT weaken intent integrity, policy reproducibility, authority verification, approval binding, target binding, effect verification, replay resistance, or auditability. Conversely, execution verifiability MUST NOT be used as justification for indiscriminate replication of banking data."
     },
     {
@@ -1720,7 +1729,7 @@
       "area": "ACT",
       "ordinal": 13,
       "section": "24.4 Conformance claims",
-      "line": 1063,
+      "line": 1067,
       "text": "A conformance claim MUST name the profile version and the level claimed. An implementation MUST NOT claim a level whose requirements it does not fully satisfy, including the requirements of every lower level. A deployment operating in shadow or observational mode MUST state that no execution authority is exercised."
     },
     {
@@ -1729,7 +1738,7 @@
       "area": "ACT",
       "ordinal": 14,
       "section": "24.4 Conformance claims",
-      "line": 1063,
+      "line": 1067,
       "text": "A conformance claim MUST name the profile version and the level claimed. An implementation MUST NOT claim a level whose requirements it does not fully satisfy, including the requirements of every lower level. A deployment operating in shadow or observational mode MUST state that no execution authority is exercised."
     },
     {
@@ -1738,7 +1747,7 @@
       "area": "ACT",
       "ordinal": 15,
       "section": "24.4 Conformance claims",
-      "line": 1063,
+      "line": 1067,
       "text": "A conformance claim MUST name the profile version and the level claimed. An implementation MUST NOT claim a level whose requirements it does not fully satisfy, including the requirements of every lower level. A deployment operating in shadow or observational mode MUST state that no execution authority is exercised."
     },
     {
@@ -1747,7 +1756,7 @@
       "area": "DOM",
       "ordinal": 3,
       "section": "26. Identifier Registries",
-      "line": 1096,
+      "line": 1101,
       "text": "Registered identifiers are upper snake case matching `^[A-Z][A-Z0-9_]{1,63}$` (reason codes allow up to 120 characters). An institution MAY register additional domains, action types, reason codes, and evidence sources for its own deployment; an institution-registered identifier MUST NOT collide with an identifier in the published registries, and MUST be published in the institution's policy pack so that a verifier can resolve it."
     }
   ]
