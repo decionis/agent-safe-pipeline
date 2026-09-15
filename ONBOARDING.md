@@ -31,7 +31,7 @@ When the executor should run as its own service rather than inside the host, `pa
 start from, and [deploy/](./deploy/README.md) is its image, manifest and runbook. The journey is the
 same; the listener sits in front of step 2. For a consequential action in a regulated domain, the
 executor speaks that domain through an adapter: the banking family implements the executor-side
-subset of the BEAP v0.1 profile listed in
+subset of the BEAP profile listed in
 [docs/beap-conformance.md](./docs/beap-conformance.md), which also says what is not claimed.
 
 ## Five families

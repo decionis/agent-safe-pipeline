@@ -1,10 +1,20 @@
-# BEAP v0.1: what the executor implements
+# BEAP: what the executor implements
 
-`@decionis/agentsafe` implements the **executor-side subset** of BEAP-L3 v0.1 listed in this
-document, using the transport mapping the profile itself defines in Appendix B.5. It is not the
-BEAP reference runtime, and **no conformance level is claimed**: BEAP-L1-ACT-14 forbids claiming
-one while L1 and L2 are the authority's, and the authority's own conformance is not this
+`@decionis/agentsafe` implements the **executor-side subset** of BEAP-L3 listed in this document,
+using the transport mapping the profile itself defines in Appendix B.5. BEAP v1.0, published on
+2026-09-15, names it in section 24.5 as the reference **Trusted Executor**: the process a bank
+deploys at the execution boundary. That is a designation of one layer, and the profile says so
+itself; it is not the authority, whose half of the runtime (policy, grants, dossiers, the L1 and L2
+requirements) lives elsewhere, and **no conformance level is claimed**: BEAP-L1-ACT-14 forbids
+claiming one while L1 and L2 are the authority's, and the authority's own conformance is not this
 repository's to assert.
+
+The identifiers this build emits are still the frozen 0.1 draft's (`decionis.beap/v0.1`, mirrored
+under `profiles/beap/v0.1`), which 1.0 carries forward unchanged apart from the version it names:
+no canonicalization rule, field, verdict, outcome token or registry entry changed between them.
+The one thing 1.0 adds, the claim attestation of its section 19.1, this executor already
+implements (below). The move to the 1.0 identifiers changes every intent digest and is made
+together with the profile's other runtimes.
 
 The profile mirror under `profiles/beap/v0.1` is the source this build was written against. The
 runtime never reads it. `EffectProjections.ts` and `ReasonCodes.ts` are typed constants tagged
