@@ -285,6 +285,7 @@ export {
   type HaltSwitchOptions,
   type HaltTrigger,
 } from "./incident/HaltSwitch.js";
+export { regularFileExists, watchDirectory } from "./incident/FileProbe.js";
 export {
   JOURNAL_VERSION,
   JournalError,

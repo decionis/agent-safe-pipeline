@@ -16,7 +16,10 @@ export type OperatorScope = (typeof OPERATOR_SCOPES)[number];
 
 const identifier = z.string().trim().min(1).max(200);
 const hex64 = z.string().regex(/^[0-9a-f]{64}$/);
-const rateLimit = z.string().regex(/^[1-9]\d{0,5}\/[1-9]\d{0,4}$/);
+// Bounded here, and read as a rule by the registry: `RateLimiter.parseRule`
+// is what a rate rule means, and its refusal names the principal by id
+// rather than by its position in the file.
+const rateLimit = z.string().trim().min(1).max(20);
 const claimValue = z.union([z.string().max(500), z.number(), z.boolean()]);
 
 /**

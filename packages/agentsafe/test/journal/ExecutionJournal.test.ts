@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   JOURNAL_VERSION,
+  JournalError,
   JournalRecordSchema,
   openAttemptsFrom,
   type JournalRecord,
@@ -81,6 +82,162 @@ describe("the journal's record contract", () => {
     expect(JournalRecordSchema.safeParse({ ...opened(), caller_principal: null }).success).toBe(
       true,
     );
+  });
+
+  it("is four records discriminated on one field, each with exactly its own fields", () => {
+    // A reader in another language implements against this shape, so the
+    // discriminator and each record's field list are the contract and not
+    // an implementation detail of the schema.
+    const definition = JournalRecordSchema.def as unknown as {
+      readonly discriminator: string;
+      readonly options: readonly { readonly def: { readonly shape: Record<string, unknown> } }[];
+    };
+    expect(definition.discriminator).toBe("record");
+    expect(definition.options).toHaveLength(4);
+    expect(definition.options.map((option) => Object.keys(option.def.shape))).toEqual([
+      [
+        "record",
+        "at",
+        "intent_id",
+        "intent_hash",
+        "idempotency_key",
+        "decision_id",
+        "dossier_id",
+        "caller_principal",
+        "intent",
+      ],
+      [
+        "record",
+        "at",
+        "intent_id",
+        "intent_hash",
+        "idempotency_key",
+        "grant_id",
+        "expires_at",
+        "request_digest",
+      ],
+      ["record", "at", "intent_id", "intent_hash", "outcome", "executed", "finalization"],
+      ["record", "at", "intent_id", "intent_hash", "status", "source"],
+    ]);
+  });
+
+  it("names its own refusal", () => {
+    const error = new JournalError("JOURNAL_RECORD_INVALID");
+    expect(error.name).toBe("JournalError");
+    expect(error.message).toBe("JOURNAL_RECORD_INVALID");
+  });
+
+  it("anchors the digest it stores, at both ends", () => {
+    // A stored hash is what a restart re-hashes an intent against, so a
+    // substring match would let a longer string stand in for the digest.
+    for (const value of [
+      `x${HASH}`,
+      `${HASH}x`,
+      `sha256:${"A".repeat(64)}`,
+      `sha256:${"a".repeat(63)}`,
+      `sha256:${"a".repeat(65)}`,
+      `sha1:${"a".repeat(64)}`,
+    ]) {
+      expect(
+        JournalRecordSchema.safeParse({ ...opened(), intent_hash: value }).success,
+        value,
+      ).toBe(false);
+    }
+    expect(
+      JournalRecordSchema.safeParse({ ...claimed(), request_digest: `${OTHER} ` }).success,
+    ).toBe(false);
+  });
+
+  it("stores an identifier trimmed, and refuses one that is only whitespace", () => {
+    // Journal records are matched by identifier across a restart, so " x "
+    // and "x" must not be two different attempts.
+    const parsed = JournalRecordSchema.parse({ ...opened(), intent_id: "  intent-1  " });
+    expect(parsed.intent_id).toBe("intent-1");
+    const key = JournalRecordSchema.parse({ ...claimed(), idempotency_key: " payout-1-v1 " });
+    expect(key.record === "GRANT_CLAIMED" && key.idempotency_key).toBe("payout-1-v1");
+    // The opened record carries the same key and trims it the same way: a
+    // claim and the attempt it claims have to match on this string.
+    const openedKey = JournalRecordSchema.parse({ ...opened(), idempotency_key: " payout-1-v1 " });
+    expect(openedKey.record === "ATTEMPT_OPENED" && openedKey.idempotency_key).toBe("payout-1-v1");
+    const outcome = JournalRecordSchema.parse({ ...closed(), outcome: " COMPLETED " });
+    expect(outcome.record === "ATTEMPT_CLOSED" && outcome.outcome).toBe("COMPLETED");
+    for (const blank of ["", "   ", "\t"]) {
+      expect(JournalRecordSchema.safeParse({ ...opened(), intent_id: blank }).success, blank).toBe(
+        false,
+      );
+      expect(
+        JournalRecordSchema.safeParse({ ...claimed(), idempotency_key: blank }).success,
+        blank,
+      ).toBe(false);
+      expect(JournalRecordSchema.safeParse({ ...closed(), outcome: blank }).success, blank).toBe(
+        false,
+      );
+    }
+  });
+
+  it("holds each record to its own shape, and to no other record's", () => {
+    // The discriminator is `record`: a claim's fields do not make an opened
+    // attempt, and neither does a record naming itself something else.
+    const withoutIntent: Record<string, unknown> = { ...opened() };
+    delete withoutIntent["intent"];
+    expect(JournalRecordSchema.safeParse(withoutIntent).success).toBe(false);
+    expect(JournalRecordSchema.safeParse({ ...opened(), record: "GRANT_CLAIMED" }).success).toBe(
+      false,
+    );
+    expect(JournalRecordSchema.safeParse({ ...claimed(), record: "ATTEMPT_OPENED" }).success).toBe(
+      false,
+    );
+    for (const extra of [{ grant_id: "grant-1" }, { status: "COMPLETED" }, { source: "STARTUP" }]) {
+      expect(JournalRecordSchema.safeParse({ ...opened(), ...extra }).success).toBe(false);
+    }
+    expect(JournalRecordSchema.safeParse({ ...closed(), request_digest: OTHER }).success).toBe(
+      false,
+    );
+    // And a record with no discriminator at all is not the first of the four.
+    const withoutKind: Record<string, unknown> = { ...opened() };
+    delete withoutKind["record"];
+    expect(JournalRecordSchema.safeParse(withoutKind).success).toBe(false);
+  });
+
+  it("names every finalization, status and source it will ever store, and no other", () => {
+    for (const finalization of ["RECORDED", "PENDING", "UNSUPPORTED", null]) {
+      expect(
+        JournalRecordSchema.safeParse({ ...closed(), finalization }).success,
+        `${finalization}`,
+      ).toBe(true);
+    }
+    for (const finalization of ["RECORD", "QUEUED", "", "recorded"]) {
+      expect(
+        JournalRecordSchema.safeParse({ ...closed(), finalization }).success,
+        finalization,
+      ).toBe(false);
+    }
+    const reconciled = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
+      record: "RECONCILED",
+      at: AT,
+      intent_id: "intent-1",
+      intent_hash: HASH,
+      status: "COMPLETED",
+      source: "STARTUP",
+      ...overrides,
+    });
+    for (const status of [
+      "COMPLETED",
+      "DEFINITELY_NOT_EXECUTED",
+      "UNKNOWN_AFTER_DISPATCH",
+      "BLOCKED",
+    ]) {
+      expect(JournalRecordSchema.safeParse(reconciled({ status })).success, status).toBe(true);
+    }
+    for (const status of ["FAILED", "", "completed", "NOT_EXECUTED"]) {
+      expect(JournalRecordSchema.safeParse(reconciled({ status })).success, status).toBe(false);
+    }
+    for (const source of ["STARTUP", "CALLER"]) {
+      expect(JournalRecordSchema.safeParse(reconciled({ source })).success, source).toBe(true);
+    }
+    for (const source of ["OPERATOR", "", "startup"]) {
+      expect(JournalRecordSchema.safeParse(reconciled({ source })).success, source).toBe(false);
+    }
   });
 
   it("folds the stream into the attempts still open, remembering which ones claimed a grant", () => {

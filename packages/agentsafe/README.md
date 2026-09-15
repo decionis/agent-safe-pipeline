@@ -390,7 +390,9 @@ Failed attempts that never became a principal share one window,
 `EXECUTOR_RATE_LIMIT_UNAUTHENTICATED`; a principal whose proven identity keeps failing (a workload
 token with the wrong audience or claim, a pinned certificate that does not match) is locked after
 `EXECUTOR_AUTH_LOCKOUT` failures, unlocked only by expiry or a restart, and the lock is recorded
-as `PRINCIPAL_LOCKED`; a principal's own `rate_limit` bounds what it may send.
+as `PRINCIPAL_LOCKED`; a principal's own `rate_limit` bounds what it may send, and a rule that is
+not `<count>/<seconds>` is refused at start-up naming the principal by id rather than by its
+position in the file.
 
 Without a principals file the executor runs in legacy mode: one `PROPOSER` named `legacy-caller`
 is synthesised from `EXECUTOR_TENANT_ID`, `EXECUTOR_ACTOR_*` and the caller token, allowed every

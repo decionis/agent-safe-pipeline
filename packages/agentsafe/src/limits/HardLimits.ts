@@ -39,13 +39,23 @@ const ALLOWED = { allowed: true } as const;
  * keep their own. That is stated rather than hidden, and it is why these are
  * a backstop against a policy mistake, not a treasury control.
  */
+/** One committed action's place in the window: when, and what it moved. */
+interface WindowEntry {
+  readonly at: number;
+  readonly minor: bigint | null;
+}
+
 export class HardLimits {
-  private readonly counts: number[] = [];
-  private readonly sums: { readonly at: number; readonly minor: bigint }[] = [];
+  /**
+   * One window, in the order the actions happened: when each was committed,
+   * and what it moved when it moved anything. The count and the sum are both
+   * derived from it, so there is no second list to keep in step.
+   */
+  private readonly window: WindowEntry[] = [];
 
   public constructor(
     public readonly settings: HardLimitSettings,
-    private readonly clock: () => number = () => Date.now(),
+    private readonly clock: () => number,
   ) {}
 
   /** `CHF:2500000000,EUR:1000000`: the ceiling per currency, in minor units. */
@@ -62,7 +72,8 @@ export class HardLimits {
       if (minor <= 0n) throw new Error(`CONFIG_INVALID: ${key} (${currency} must be positive)`);
       ceilings.set(currency, minor);
     }
-    if (ceilings.size === 0) throw new Error(`CONFIG_INVALID: ${key}`);
+    // No `size === 0` case: splitting any string yields at least one entry,
+    // and an entry either parses into the map or throws above.
     return ceilings;
   }
 
@@ -77,22 +88,45 @@ export class HardLimits {
     const currency = parameters["currency"];
     const amount = parameters["amountMinor"];
     if (currency === undefined && amount === undefined) return null;
+    // The `typeof` on the currency is not redundant with the pattern: a
+    // regular expression coerces, so `["CHF"]` would match a pattern the
+    // string never saw, and a caller sends whatever JSON allows. The amount
+    // needs no such guard, because `Number.isSafeInteger` coerces nothing.
     if (typeof currency !== "string" || !/^[A-Z]{3}$/.test(currency)) return "INVALID";
-    if (typeof amount !== "number" || !Number.isSafeInteger(amount) || amount < 0) return "INVALID";
-    return { currency, amountMinor: BigInt(amount) };
+    if (!Number.isSafeInteger(amount) || (amount as number) < 0) return "INVALID";
+    return { currency, amountMinor: BigInt(amount as number) };
   }
 
   /** Whether this action is inside every ceiling right now; it takes nothing. */
   public check(parameters: JsonObject): LimitCheck {
+    return this.evaluate(parameters).decision;
+  }
+
+  /**
+   * The decision and the value it was made about, together, so `commit` does
+   * not read the parameters a second time and an invalid amount never
+   * escapes this method: it is a refusal here, and what leaves is either a
+   * value or nothing.
+   */
+  private evaluate(parameters: JsonObject): {
+    readonly decision: LimitCheck;
+    readonly value: MonetaryValue | null;
+  } {
     const value = HardLimits.monetaryValue(parameters);
-    if (value === "INVALID") return { allowed: false, code: "HARD_LIMIT_AMOUNT_INVALID" };
+    if (value === "INVALID") {
+      return { decision: { allowed: false, code: "HARD_LIMIT_AMOUNT_INVALID" }, value: null };
+    }
+    return { decision: this.within(value), value };
+  }
+
+  private within(value: MonetaryValue | null): LimitCheck {
     if (value !== null) {
       const ceiling = this.settings.singleMinor.get(value.currency);
       if (ceiling === undefined) return { allowed: false, code: "HARD_LIMIT_CURRENCY_UNKNOWN" };
       if (value.amountMinor > ceiling) return { allowed: false, code: "HARD_LIMIT_EXCEEDED" };
     }
     const count = this.settings.windowCount;
-    if (count !== null && this.recentCounts().length >= count) {
+    if (count !== null && this.recent().length >= count) {
       return { allowed: false, code: "HARD_LIMIT_WINDOW_COUNT_EXCEEDED" };
     }
     const sum = this.settings.windowSumMinor;
@@ -104,29 +138,30 @@ export class HardLimits {
 
   /** Takes this action's place in the windows, after the check and before it runs. */
   public commit(parameters: JsonObject): LimitCheck {
-    const decision = this.check(parameters);
+    const { decision, value } = this.evaluate(parameters);
     if (!decision.allowed) return decision;
-    const now = this.clock();
-    this.recentCounts().push(now);
-    const value = HardLimits.monetaryValue(parameters);
-    if (value !== null && value !== "INVALID")
-      this.sums.push({ at: now, minor: value.amountMinor });
+    this.recent().push({ at: this.clock(), minor: value === null ? null : value.amountMinor });
     return ALLOWED;
   }
 
-  private recentCounts(): number[] {
+  /**
+   * The window, pruned. Entries are pushed in the order the clock gave them,
+   * so the old ones are at the front and dropping them is a walk from there
+   * rather than a pass over the whole list. A clock that went backwards
+   * stops the walk early and keeps an entry a moment longer, which refuses
+   * more rather than less.
+   */
+  private recent(): WindowEntry[] {
     const floor = this.clock() - this.settings.windowSeconds * 1_000;
-    const kept = this.counts.filter((at) => at > floor);
-    this.counts.length = 0;
-    this.counts.push(...kept);
-    return this.counts;
+    let oldest = this.window[0];
+    while (oldest !== undefined && oldest.at <= floor) {
+      this.window.shift();
+      oldest = this.window[0];
+    }
+    return this.window;
   }
 
   private recentSum(): bigint {
-    const floor = this.clock() - this.settings.windowSeconds * 1_000;
-    const kept = this.sums.filter((entry) => entry.at > floor);
-    this.sums.length = 0;
-    this.sums.push(...kept);
-    return kept.reduce((total, entry) => total + entry.minor, 0n);
+    return this.recent().reduce((total, entry) => total + (entry.minor ?? 0n), 0n);
   }
 }

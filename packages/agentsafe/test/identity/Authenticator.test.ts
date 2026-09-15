@@ -405,11 +405,78 @@ describe("Authenticator", () => {
     }
     expect(none.locked("batch-runner")).toBe(false);
     expect(limits.locked("batch-runner")).toBe(false);
-    const { door: unaudienced } = door({ audience: null });
+    // A deployment that named no audience accepts no token, and says which
+    // of the two problems it is: nothing configured, not a wrong value.
+    const { door: unaudienced, lines: unaudiencedLines } = door({ audience: null });
     expect(await refused(unaudienced.authenticate(bearer(await jwt())))).toEqual([
+      401,
+      "JWT_AUDIENCE_UNCONFIGURED",
+    ]);
+    // And the refusal is filed under the method it came in on, so a rota
+    // watching the door can tell a token problem from a bearer one.
+    expect(JSON.parse(unaudiencedLines.at(-1) ?? "{}")).toMatchObject({
+      event: "AUTH_FAILED",
+      method: "jwt",
+      code: "JWT_AUDIENCE_UNCONFIGURED",
+    });
+  });
+
+  it("treats a verifier that fails for its own reasons as a signature it cannot trust", async () => {
+    // The verifier's own codes pass through; anything else it throws is not
+    // interpreted, because a failure nobody classified is not a reason to
+    // admit a caller.
+    const { door: d, lines } = door({
+      jwt: {
+        verify: () => Promise.reject(new Error("the JWKS file was replaced mid-flight")),
+      } as unknown as WorkloadJwtVerifier,
+    });
+    expect(await refused(d.authenticate(bearer(await jwt())))).toEqual([
+      401,
+      "JWT_SIGNATURE_INVALID",
+    ]);
+    expect(JSON.parse(lines.at(-1) ?? "{}")).toMatchObject({
+      event: "AUTH_FAILED",
+      method: "jwt",
+      code: "JWT_SIGNATURE_INVALID",
+    });
+    // Nothing from the thrown error reaches the stream.
+    expect(lines.join("\n")).not.toContain("mid-flight");
+  });
+
+  it("treats a bearer that merely contains a token shape as a bearer", async () => {
+    // The pattern is anchored at both ends on purpose: a bearer value that
+    // happens to hold three dotted segments is not a workload token, and
+    // routing it to the verifier would answer a caller's bad credential
+    // with a signature error.
+    const { door: d } = door();
+    for (const presented of [
+      `prefix ${await jwt()}`,
+      `${await jwt()} suffix`,
+      "a.b.c.d",
+      "a.b",
+      "synthetic-token-with.three.parts-and-more stuff",
+    ]) {
+      expect(await refused(d.authenticate(bearer(presented))), presented).toEqual([
+        401,
+        "CALLER_NOT_AUTHENTICATED",
+      ]);
+    }
+    // And one that is exactly the shape does reach the verifier.
+    expect(await refused(d.authenticate(bearer(await jwt({ aud: "elsewhere" }))))).toEqual([
       401,
       "JWT_AUDIENCE_MISMATCH",
     ]);
+  });
+
+  it("names its own refusals, and keys the unauthenticated window where no principal can", () => {
+    const error = new AuthError(401, "CALLER_NOT_AUTHENTICATED");
+    expect(error.name).toBe("AuthError");
+    expect(error.message).toBe("CALLER_NOT_AUTHENTICATED");
+    expect([error.status, error.code]).toEqual([401, "CALLER_NOT_AUTHENTICATED"]);
+    // The shared window's key is not a name any principal can be given, so
+    // a caller cannot land in, or empty, someone else's bucket.
+    expect(UNAUTHENTICATED_KEY).toBe("*");
+    expect(registry().principal(UNAUTHENTICATED_KEY)).toBeNull();
   });
 
   it("requires the certificate and the token together in legacy mode with a client CA", async () => {
