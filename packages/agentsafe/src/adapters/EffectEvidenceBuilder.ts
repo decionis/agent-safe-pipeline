@@ -4,6 +4,14 @@ import { compareEffect, type Comparison } from "./EffectComparison.js";
 import type { PreparedAction, ProviderResult } from "./EffectAdapter.js";
 import type { RegisteredEffect } from "./EffectEvidenceRegister.js";
 
+/**
+ * The profile whose effect-evidence record this builder writes. It is named
+ * here rather than imported from the banking family, because this layer is
+ * family-agnostic and the family imports it, not the reverse; the family's
+ * own `BEAP_PROFILE` is held equal to it by test.
+ */
+export const EFFECT_EVIDENCE_PROFILE = "decionis.beap/v1.0";
+
 export type ConfirmationStatus = "PENDING" | "CONFIRMED" | "NOT_EFFECTED" | "REVERSED" | "UNKNOWN";
 export type EffectOutcome = "COMMITTED" | "FAILED" | "INDETERMINATE";
 
@@ -63,7 +71,7 @@ export function buildEffectRecord(input: EvidenceInput): RegisteredEffect {
       : [result.failureReason]),
   ];
   const evidence: JsonObject = {
-    profile: "decionis.beap/v0.1",
+    profile: EFFECT_EVIDENCE_PROFILE,
     type: "EFFECT_EVIDENCE",
     domain: prepared.domain,
     action: prepared.actionType,

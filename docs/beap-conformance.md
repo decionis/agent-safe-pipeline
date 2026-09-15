@@ -9,16 +9,17 @@ requirements) lives elsewhere, and **no conformance level is claimed**: BEAP-L1-
 claiming one while L1 and L2 are the authority's, and the authority's own conformance is not this
 repository's to assert.
 
-The identifiers this build emits are still the frozen 0.1 draft's (`decionis.beap/v0.1`, mirrored
-under `profiles/beap/v0.1`), which 1.0 carries forward unchanged apart from the version it names:
-no canonicalization rule, field, verdict, outcome token or registry entry changed between them.
-The one thing 1.0 adds, the claim attestation of its section 19.1, this executor already
-implements (below). The move to the 1.0 identifiers changes every intent digest and is made
-together with the profile's other runtimes.
+This build emits and requires `decionis.beap/v1.0`. The move from the frozen 0.1 draft's
+identifiers was made together with the profile's other runtimes: 1.0 carries 0.1 forward
+unchanged apart from the version it names -- no canonicalization rule, field, verdict, outcome
+token or registry entry changed between them -- and adds the claim attestation of its section
+19.1, which this executor implements (below). An action that still names `decionis.beap/v0.1` is
+refused at capture, as BEAP-L1-ACT-05 requires of a version an implementation does not implement.
 
-The profile mirror under `profiles/beap/v0.1` is the source this build was written against. The
-runtime never reads it. `EffectProjections.ts` and `ReasonCodes.ts` are typed constants tagged
-`decionis.beap/v0.1`, and a test hashes every registry file against the profile's own
+The profile mirror under `profiles/beap/v1.0` is the source this build was written against; the
+frozen 0.1 draft stays mirrored beside it under `profiles/beap/v0.1` and is never edited. The
+runtime never reads either. `EffectProjections.ts` and `ReasonCodes.ts` are typed constants
+tagged `decionis.beap/v1.0`, and a test hashes every registry file against the profile's own
 `registries/MANIFEST.sha256` and asserts each typed entry equals the mirror, so a drift in the
 profile is a failing test rather than a silent disagreement.
 

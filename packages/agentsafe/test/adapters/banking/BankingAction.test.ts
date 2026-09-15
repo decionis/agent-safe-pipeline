@@ -12,7 +12,7 @@ import { bankingAction, paymentAction } from "../../support/BankingFixtures.js";
 import { repositoryPath } from "../../support/RepositoryRoot.js";
 
 const example = (name: string): unknown =>
-  JSON.parse(readFileSync(repositoryPath("profiles", "beap", "v0.1", "examples", name), "utf8"));
+  JSON.parse(readFileSync(repositoryPath("profiles", "beap", "v1.0", "examples", name), "utf8"));
 
 describe("BankingActionSchema", () => {
   it("parses the profile's own action examples unchanged", () => {

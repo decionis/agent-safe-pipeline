@@ -1,0 +1,668 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://decionis.io/protocol/schemas/v1/policy-bundle.schema.json",
+  "title": "Policy Bundle",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "protocol_version": {
+      "type": "string",
+      "pattern": "^1\\.[0-9]+(\\.[0-9]+)?$"
+    },
+    "bundle_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "org_id": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "effective_from": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "effective_to": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "rules": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "rule_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "decision_domain": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "when": {
+            "$ref": "#/$defs/condition_group"
+          },
+          "then": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": [
+                  "REQUIRE_REVIEW",
+                  "AUTO_APPROVE",
+                  "AUTO_REJECT",
+                  "ESCALATE",
+                  "REQUEST_INFO"
+                ]
+              },
+              "severity": {
+                "type": "string",
+                "enum": ["routine", "elevated", "urgent"]
+              },
+              "assignee_role": {
+                "type": "string",
+                "maxLength": 120
+              },
+              "sla_minutes": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10080
+              },
+              "authority": {
+                "$ref": "#/$defs/authority_escalation_policy",
+                "description": "Policy-owned Presence authority settings. Used only when the selected rule action is ESCALATE."
+              }
+            },
+            "required": ["action"]
+          },
+          "priority": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "rationale": {
+            "type": "string",
+            "maxLength": 4000
+          }
+        },
+        "required": ["rule_id", "name", "decision_domain", "when", "then", "priority", "enabled"]
+      }
+    },
+    "required_signals": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200
+      },
+      "description": "Fact paths that must be present (non-null) in the evaluation facts before any rule is matched. A bare name resolves under `signals.`. When any listed path is missing, the evaluation resolves as `missing_required_signals` and the outcome fails safe to ESCALATE instead of matching rules against absent facts."
+    },
+    "agentExecution": {
+      "$ref": "#/$defs/agent_execution_policy"
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "author": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "source": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "change_ticket": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "approved_by": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Maker-checker approver. When approval is required, must be present and differ from `author` for the bundle to activate."
+        },
+        "requires_approval": {
+          "type": "boolean",
+          "description": "When true, the bundle only activates once `approved_by` is set by someone other than `author` (maker-checker)."
+        },
+        "agentExecution": {
+          "$ref": "#/$defs/agent_execution_policy"
+        },
+        "signal_admission": {
+          "$ref": "#/$defs/signal_admission_policy"
+        }
+      }
+    },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "algo": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "digest": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "signed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "signed_by": {
+          "type": "string",
+          "maxLength": 200
+        }
+      }
+    }
+  },
+  "$defs": {
+    "signal_admission_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Deterministic admission policy for typed semantic signals. Detector output remains evidence and cannot itself mint a verdict.",
+      "properties": {
+        "allowed_producers": {
+          "type": "array",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+        },
+        "allowed_detector_versions": {
+          "type": "array",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+        },
+        "require_evidence_digest": { "type": "boolean" },
+        "minimum_confidence_basis_points": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "required_signal_paths": {
+          "type": "array",
+          "maxItems": 50,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+        },
+        "on_failure": {
+          "type": "string",
+          "enum": ["ESCALATE", "AUTO_REJECT"]
+        }
+      }
+    },
+    "authority_selector": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "ROLE" },
+            "role_id": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{1,63}$" }
+          },
+          "required": ["kind", "role_id"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "PRINCIPAL" },
+            "principal_id": { "type": "string", "minLength": 1, "maxLength": 200 }
+          },
+          "required": ["kind", "principal_id"]
+        }
+      ]
+    },
+    "authority_verification_requirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "level": { "type": "string", "enum": ["STANDARD", "HIGH_CONFIDENCE"] },
+        "methods": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": ["WEBAUTHN", "MOBILE_DEVICE", "ACTIVE_LIVENESS"]
+          }
+        },
+        "hardware_pki_required": { "type": "boolean" },
+        "disallow_virtual_cameras": { "type": "boolean" },
+        "mobile_device_policy": {
+          "type": "string",
+          "enum": ["WEB_OR_JIT_DEVICE", "MANAGED_DEVICE_REQUIRED"]
+        },
+        "trusted_ip_regions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 64 }
+        }
+      },
+      "required": ["level", "methods", "hardware_pki_required", "disallow_virtual_cameras"]
+    },
+    "authority_resolution": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "quorum": { "const": 1 },
+        "delegation": {
+          "type": "string",
+          "enum": ["DISALLOWED", "REQUIREMENT_REFRESH"]
+        },
+        "fallback_role_ids": {
+          "type": "array",
+          "maxItems": 10,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{1,63}$" }
+        }
+      },
+      "required": ["quorum", "delegation", "fallback_role_ids"]
+    },
+    "authority_escalation_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "reason_codes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{1,119}$" }
+        },
+        "selector": { "$ref": "#/$defs/authority_selector" },
+        "verification_requirements": {
+          "$ref": "#/$defs/authority_verification_requirements"
+        },
+        "resolution": { "$ref": "#/$defs/authority_resolution" },
+        "expires_in_seconds": {
+          "type": "integer",
+          "minimum": 60,
+          "maximum": 3600
+        }
+      },
+      "required": [
+        "reason_codes",
+        "selector",
+        "verification_requirements",
+        "resolution",
+        "expires_in_seconds"
+      ]
+    },
+    "agent_execution_user_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dailyCapUsd": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "perRequestCapUsd": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "agent_execution_defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "userDailyCapUsd": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "perRequestCapUsd": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      },
+      "required": ["userDailyCapUsd", "perRequestCapUsd"]
+    },
+    "agent_model_rate_card": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "provider": {
+          "type": "string",
+          "enum": ["openai", "anthropic", "github_copilot", "custom"]
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "pricingBasis": {
+          "type": "string",
+          "enum": ["OFFICIAL_LIST_PRICE", "NEGOTIATED_CONTRACT"]
+        },
+        "sourceUrl": {
+          "type": ["string", "null"],
+          "format": "uri",
+          "maxLength": 2000
+        },
+        "contractId": {
+          "type": ["string", "null"],
+          "maxLength": 200
+        },
+        "contractVersion": {
+          "type": ["string", "null"],
+          "maxLength": 100
+        },
+        "contractReference": {
+          "type": ["string", "null"],
+          "maxLength": 1000
+        },
+        "effectiveFrom": {
+          "type": ["string", "null"],
+          "format": "date-time"
+        },
+        "expiresAt": {
+          "type": ["string", "null"],
+          "format": "date-time"
+        },
+        "inputUsdPerMillionTokens": {
+          "type": "number",
+          "minimum": 0
+        },
+        "outputUsdPerMillionTokens": {
+          "type": "number",
+          "minimum": 0
+        },
+        "cachedInputUsdPerMillionTokens": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "cacheCreationUsdPerMillionTokens": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "cacheCreationOneHourUsdPerMillionTokens": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "longContextThresholdTokens": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "longContextInputUsdPerMillionTokens": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "longContextOutputUsdPerMillionTokens": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "longContextCachedInputUsdPerMillionTokens": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "longContextCacheCreationUsdPerMillionTokens": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "toolCallUsd": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "provider",
+        "model",
+        "inputUsdPerMillionTokens",
+        "outputUsdPerMillionTokens",
+        "cachedInputUsdPerMillionTokens",
+        "cacheCreationUsdPerMillionTokens",
+        "toolCallUsd"
+      ]
+    },
+    "agent_provider_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "contractId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "provider": {
+          "type": "string",
+          "enum": ["openai", "anthropic", "github_copilot", "custom"]
+        },
+        "contractReference": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "status": {
+          "type": "string",
+          "enum": ["DRAFT", "APPROVED", "REVOKED"]
+        },
+        "authoredBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "approvedBy": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "approvedAt": {
+          "type": ["string", "null"],
+          "format": "date-time"
+        },
+        "effectiveFrom": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "expiresAt": {
+          "type": ["string", "null"],
+          "format": "date-time"
+        },
+        "rateCards": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/agent_model_rate_card"
+          }
+        }
+      },
+      "required": [
+        "contractId",
+        "version",
+        "provider",
+        "contractReference",
+        "status",
+        "authoredBy",
+        "approvedBy",
+        "approvedAt",
+        "effectiveFrom",
+        "expiresAt",
+        "rateCards"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "APPROVED"
+              }
+            },
+            "required": ["status"]
+          },
+          "then": {
+            "properties": {
+              "approvedBy": {
+                "type": "string",
+                "minLength": 1
+              },
+              "approvedAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "agent_execution_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["SHADOW", "ENFORCEMENT"]
+        },
+        "orgMonthlyCapUsd": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "allowedProviders": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": ["openai", "anthropic", "github_copilot", "custom"]
+          }
+        },
+        "allowedModels": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "reservationTtlSeconds": {
+          "type": "integer",
+          "minimum": 30,
+          "maximum": 3600
+        },
+        "defaults": {
+          "$ref": "#/$defs/agent_execution_defaults"
+        },
+        "users": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/agent_execution_user_policy"
+          }
+        },
+        "rateCards": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/agent_model_rate_card"
+          }
+        },
+        "providerContracts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/agent_provider_contract"
+          },
+          "description": "Organization-owned negotiated provider contracts. An entry overrides official rate cards only while approved, maker-checker valid, and effective."
+        }
+      },
+      "required": [
+        "mode",
+        "orgMonthlyCapUsd",
+        "allowedProviders",
+        "allowedModels",
+        "reservationTtlSeconds",
+        "defaults",
+        "rateCards"
+      ]
+    },
+    "predicate": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "field": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "operator": {
+          "type": "string",
+          "enum": [
+            "EQ",
+            "NEQ",
+            "GT",
+            "GTE",
+            "LT",
+            "LTE",
+            "IN",
+            "NOT_IN",
+            "EXISTS",
+            "CONTAINS",
+            "MATCHES"
+          ]
+        },
+        "value": {},
+        "values": {
+          "type": "array"
+        }
+      },
+      "required": ["field", "operator"]
+    },
+    "condition_group": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "all": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/predicate"
+              },
+              {
+                "$ref": "#/$defs/condition_group"
+              }
+            ]
+          }
+        },
+        "any": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/predicate"
+              },
+              {
+                "$ref": "#/$defs/condition_group"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "required": ["protocol_version", "bundle_id", "org_id", "version", "effective_from", "rules"]
+}

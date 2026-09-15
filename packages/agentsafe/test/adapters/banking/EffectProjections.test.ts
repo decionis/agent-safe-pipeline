@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { jcsDigest } from "../../../src/adapters/JcsDigest.js";
 import {
@@ -17,7 +17,11 @@ import {
   isBankingReasonCode,
   REASON_CODE_CATEGORIES,
 } from "../../../src/adapters/banking/ReasonCodes.js";
-import { confirmationFor } from "../../../src/adapters/EffectEvidenceBuilder.js";
+import {
+  confirmationFor,
+  EFFECT_EVIDENCE_PROFILE,
+} from "../../../src/adapters/EffectEvidenceBuilder.js";
+import { BEAP_PROFILE } from "../../../src/adapters/banking/BankingAction.js";
 import { bankingAction, paymentAction } from "../../support/BankingFixtures.js";
 import { repositoryPath } from "../../support/RepositoryRoot.js";
 
@@ -33,7 +37,7 @@ function reverseKeys(value: unknown): unknown {
 }
 
 const registryPath = (name: string): string =>
-  repositoryPath("profiles", "beap", "v0.1", "registries", name);
+  repositoryPath("profiles", "beap", "v1.0", "registries", name);
 
 const code = (work: () => unknown): string => {
   try {
@@ -47,6 +51,15 @@ const code = (work: () => unknown): string => {
 function registry(name: string): Record<string, unknown> {
   return JSON.parse(readFileSync(registryPath(name), "utf8")) as Record<string, unknown>;
 }
+
+describe("the profile identifier this build emits", () => {
+  it("is one value, named by the family and by the generic evidence builder alike, and is the mirrored version", () => {
+    expect(BEAP_PROFILE).toBe("decionis.beap/v1.0");
+    expect(EFFECT_EVIDENCE_PROFILE).toBe(BEAP_PROFILE);
+    expect(PROJECTION_PROFILE).toBe(BEAP_PROFILE);
+    expect(existsSync(repositoryPath("profiles", "beap", "v1.0", "beap-v1.0.md"))).toBe(true);
+  });
+});
 
 describe("the profile registries this build mirrors", () => {
   it("are the files the profile's own manifest attests", () => {
