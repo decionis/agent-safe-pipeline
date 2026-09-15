@@ -744,8 +744,8 @@ allowed to read the application and the mounts under `/var/run/agent-safe`, to r
 restart), and to spawn nothing. The image holds no configuration and starts
 `agentsafe serve` with the reference forwarding handler. The
 [deployment kit](https://github.com/decionis/agent-safe-pipeline/blob/master/deploy/README.md) has
-the manifest that supplies the configuration and the posture, the runbook from shadow to
-enforcement, and how to take the image the release workflow publishes and verify it instead of
+the manifests that supply the configuration, the posture and the two zones' network policies, the
+runbook from shadow to enforcement, and how to take the image the release workflow publishes and verify it instead of
 building your own.
 
 ## What a green run is not

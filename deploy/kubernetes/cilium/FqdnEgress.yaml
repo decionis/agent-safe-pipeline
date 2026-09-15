@@ -1,0 +1,85 @@
+# The same egress, by name instead of by range, where Cilium is the CNI.
+#
+# A CIDR placeholder is the honest form of a rule in a kit that cannot know
+# your network, but it is a poor control: provider ranges change, and a range
+# wide enough to keep working is wide enough to reach things the executor
+# should not. Cilium can match the DNS name the executor actually resolves, so
+# where it is available these policies replace the two `ipBlock` rules in
+# `../ExecutorEgress.yaml` with the names from the ConfigMap.
+#
+# Apply this only on a Cilium cluster, and then delete the `ipBlock` rules
+# rather than keeping both: two policies allowing different things is a union,
+# not an intersection, and the wider one wins.
+#
+# The names are `.example` because they are placeholders. Replace each with
+# the host in your own `DECIONIS_API_URL` and `DOWNSTREAM_URL`; they must
+# match exactly, because the in-process egress policy pins the origin and a
+# name the policy admits but the process does not is still a refusal.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: agent-safe-executor-fqdn
+  namespace: agent-safe-executor
+spec:
+  endpointSelector:
+    matchLabels:
+      app: agent-safe-executor
+  egress:
+    # DNS has to be visible to Cilium for `toFQDNs` to work at all: the proxy
+    # learns the answer from the query it sees.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"
+    - toFQDNs:
+        - matchName: authority.decionis.example
+        - matchName: payouts.provider.example
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+---
+# The agent zone, by name: nothing at all. This says the same thing as the
+# Kubernetes policy in `../AgentZone.yaml` and says it in Cilium's own terms,
+# so a cluster reading only Cilium policies still sees that the agent zone has
+# no path off the cluster. The executor's Service is the one destination.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: agent-zone-fqdn
+  namespace: agent-safe-agents
+spec:
+  endpointSelector:
+    matchLabels:
+      agent-safe-caller: "true"
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*.agent-safe-executor.svc.cluster.example"
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: agent-safe-executor
+            app: agent-safe-executor
+      toPorts:
+        - ports:
+            - port: "8443"
+              protocol: TCP

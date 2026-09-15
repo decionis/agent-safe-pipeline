@@ -5,8 +5,15 @@ first.
 
 ## Before shadow
 
+- The two namespaces and the default deny in both, applied first:
+  `kubectl apply -k deploy/kubernetes`. Everything below assumes a pod with no network until a
+  policy in this kit gives it one, and applying the kit in a different order leaves a window in
+  which that is not true.
 - A Decionis tenant and its server-side API key, mounted as `DECIONIS_API_KEY_FILE`, or your own
   authority behind the same two interfaces.
+- The two ranges the executor may reach, in `ExecutorEgress.yaml`, or the Cilium policy that names
+  them instead. Until one of the two is in place the executor can resolve the authority and not
+  reach it, which shows up as a refusal to enforce rather than as a silent pass.
 - A principals file, mounted as `EXECUTOR_PRINCIPALS_FILE`, naming every caller: the workflows that
   may propose, what each may propose, and the operators who may read the status and the metrics. A
   first deployment without one runs on a single caller token, mounted as
@@ -67,6 +74,31 @@ the request again. A new side effect needs a new decision.
 
 The action is reachable only through the executor: the agent runtime has no path to the provider,
 and the provider credential exists only behind the executor. Then the next action.
+
+Two changes go in the same commit as `EXECUTOR_MODE=ENFORCEMENT`, because the executor refuses to
+start with either half of them:
+
+- `EXECUTOR_ESCALATION`, from `NONE` to `MANAGED` or `DIRECT`, with the Presence keys the
+  manifest's comment lists. Shadow never escalates, so the shipped ConfigMap says `NONE` and a
+  deployment that changes only the mode starts with no path for a verdict that needs a person.
+- `DOWNSTREAM_LOOKUP_BY_REFERENCE_URL`, if the provider can be read back by its own reference.
+  Without it a banking effect can be acknowledged and never confirmed, which is not wrong but is
+  weaker than what the provider would have supported.
+
+## Proving the boundary before you trust it
+
+Three things are worth doing once, in the cluster, before the first enforced action:
+
+1. **From the agent zone, reach the provider.** Exec into a labelled caller pod and try the
+   provider's address directly. It must fail to connect, not fail to authenticate: a credential
+   error means the path exists and only the secret is missing.
+2. **From the executor, reach something it was not given.** Register a handler that calls an
+   unlisted origin, propose through it, and read the refusal. `EGRESS_ORIGIN_NOT_ALLOWED` on the
+   security stream is the in-process layer holding where the CNI may not be.
+3. **Take the stop.** Create the halt ConfigMap, watch a proposal come back `503` with
+   `EXECUTOR_HALTED` and the authority's grant count unchanged, then delete it and resume with a
+   reason. Doing this on a quiet afternoon is how you find out whether your on-call has the RBAC
+   for it, rather than finding out during an incident.
 
 ## Stopping, and starting again
 

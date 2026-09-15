@@ -23,7 +23,7 @@ Agent-Safe Pipeline is a reference architecture in which AI agents propose actio
 - Concepts: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/concepts.md
 - Shadow mode: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/shadow-mode.md
 - Local testing: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/local-testing.md
-- Deployment kit (the trusted executor as a process, its image, Kubernetes manifest and shadow-to-enforcement runbook): https://github.com/decionis/agent-safe-pipeline/blob/master/deploy/README.md
+- Deployment kit (the trusted executor as a process, its image, conformance-tested Kubernetes manifests for the agent zone and the executor zone, and the shadow-to-enforcement runbook): https://github.com/decionis/agent-safe-pipeline/blob/master/deploy/README.md
 - Decision Dossiers: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/decision-dossiers.md
 - Open-core boundary: https://github.com/decionis/agent-safe-pipeline/blob/master/OPEN-CORE.md
 - Intent hash conformance vector: https://github.com/decionis/agent-safe-pipeline/blob/master/conformance/agent-safe-intent-v1.json

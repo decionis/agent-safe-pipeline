@@ -1,0 +1,21 @@
+# The apply order, and the reason for it.
+#
+# `kubectl apply -k deploy/kubernetes` applies these in the order listed, and
+# the order is a control rather than a convenience: the namespaces exist with
+# their Pod Security labels before anything can be admitted into them, and
+# both zones are default-deny before any pod exists to have a network. A kit
+# applied in the other order has a window in which a pod is admitted with no
+# policy, and that window is exactly what an attacker would want.
+#
+# `cilium/FqdnEgress.yaml` is deliberately not listed: it applies only where
+# Cilium is the CNI, and applying it alongside the `ipBlock` rules it replaces
+# would widen the policy rather than narrow it. See the file's own header.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - Namespaces.yaml
+  - DefaultDeny.yaml
+  - TrustedExecutor.yaml
+  - ExecutorEgress.yaml
+  - AgentZone.yaml
+  - OperatorRbac.yaml

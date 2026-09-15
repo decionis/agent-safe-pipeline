@@ -1,0 +1,32 @@
+# Default deny, in both zones, in both directions.
+#
+# This is applied before anything that grants a path, so a pod admitted
+# between two `kubectl apply` calls has no network rather than all of it. Both
+# policies select every pod and list no rules at all: in Kubernetes an empty
+# `ingress`/`egress` with the matching `policyTypes` denies everything, and
+# every later policy in this kit only ever adds back one named path.
+#
+# A cluster without a NetworkPolicy-enforcing CNI silently ignores all of
+# this. That is the one thing in the kit a process cannot verify about itself,
+# and `deploy/README.md` says so.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: agent-safe-agents
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress", "Egress"]
+  ingress: []
+  egress: []
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: agent-safe-executor
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress", "Egress"]
+  ingress: []
+  egress: []

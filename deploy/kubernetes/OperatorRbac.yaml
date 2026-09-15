@@ -1,0 +1,55 @@
+# What an operator may do through the API server, which is deliberately less
+# than what they may do through the executor.
+#
+# The control routes are the executor's own: halting, resuming, reloading
+# secrets, reading status and metrics. They authenticate with a principal from
+# the principals file and are scoped there, not here. This RBAC covers the
+# separate question of what an on-call human may do to the *deployment*: read
+# pods and logs, and create or delete the halt ConfigMap, which is the one
+# stop that works even when the listener does not answer.
+#
+# Notably absent: any verb on Secrets, and any write to the ConfigMap that
+# holds the configuration or the principals. Changing who may propose, or
+# where the downstream is, is a reviewed change to this manifest and not
+# something on-call can do at three in the morning.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: agent-safe-executor-operator
+  namespace: agent-safe-executor
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "services", "persistentvolumeclaims"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["statefulsets"]
+    verbs: ["get", "list", "watch"]
+  # The stop, as data. `resourceNames` keeps this to the halt flag alone, so
+  # the same binding cannot touch the configuration or the principals.
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["agent-safe-executor-halt"]
+    verbs: ["get", "create", "delete", "patch", "update"]
+  # Creating a ConfigMap needs the collection-level verb, which cannot be
+  # restricted by name. Nothing else in this Role can read or change one.
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create"]
+---
+# Bind this to the group your identity provider puts on-call in. The subject
+# below is a placeholder: a cluster that binds a real group here is making a
+# statement about who may stop payments, and that belongs in your own change
+# review rather than in a file this repository ships.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: agent-safe-executor-operator
+  namespace: agent-safe-executor
+subjects:
+  - kind: Group
+    name: OPERATOR_GROUP_PLACEHOLDER
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: Role
+  name: agent-safe-executor-operator
+  apiGroup: rbac.authorization.k8s.io

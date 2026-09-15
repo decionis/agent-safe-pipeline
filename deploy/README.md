@@ -3,13 +3,78 @@
 What an adopter runs to put the execution boundary in front of one workflow, and how it gets from
 a shadow deployment to an enforced one. One image, one manifest, one runbook.
 
-| Piece                                                                  | What it is                                                                                       |
-| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| [`packages/agentsafe`](../packages/agentsafe)                          | The executor as a process, `@decionis/agentsafe`: the wire contract, the configuration, the seam |
-| [`examples/trusted-executor`](../examples/trusted-executor)            | The proof over real HTTP against the loopback doubles, and the template an adopter starts from   |
-| [`packages/agentsafe/Dockerfile`](../packages/agentsafe/Dockerfile)    | The image, built from the repository root                                                        |
-| [`kubernetes/TrustedExecutor.yaml`](./kubernetes/TrustedExecutor.yaml) | ConfigMap, Deployment, Service and NetworkPolicy; Secrets referenced, never written              |
-| [`Runbook.md`](./Runbook.md)                                           | Shadow, controlled enforcement, enforcement: what to compare and what changes between them       |
+| Piece                                                               | What it is                                                                                       |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| [`packages/agentsafe`](../packages/agentsafe)                       | The executor as a process, `@decionis/agentsafe`: the wire contract, the configuration, the seam |
+| [`examples/trusted-executor`](../examples/trusted-executor)         | The proof over real HTTP against the loopback doubles, and the template an adopter starts from   |
+| [`packages/agentsafe/Dockerfile`](../packages/agentsafe/Dockerfile) | The image, built from the repository root                                                        |
+| [`kubernetes/`](./kubernetes)                                       | Two namespaces, a default deny in both, the executor, its egress, the agent zone, operator RBAC  |
+| [`Runbook.md`](./Runbook.md)                                        | Shadow, controlled enforcement, enforcement: what to compare and what changes between them       |
+
+## Two zones
+
+The kit puts the proposing workflows and the executor in separate namespaces, and the separation
+is the point: the policies that keep an agent away from the provider are namespace-scoped, so a
+single namespace would turn "the agent cannot reach the provider" into a claim about labels rather
+than a claim about the network.
+
+| File                                                            | What it establishes                                                                                  |
+| --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| [`Namespaces.yaml`](./kubernetes/Namespaces.yaml)               | `agent-safe-agents` and `agent-safe-executor`, both enforcing Pod Security's `restricted` profile    |
+| [`DefaultDeny.yaml`](./kubernetes/DefaultDeny.yaml)             | No ingress and no egress for any pod in either namespace, applied before any pod exists              |
+| [`TrustedExecutor.yaml`](./kubernetes/TrustedExecutor.yaml)     | The configuration, the principals, the JWKS, the StatefulSet, its claim, its Service and its budget  |
+| [`ExecutorEgress.yaml`](./kubernetes/ExecutorEgress.yaml)       | The one way in (a labelled caller on 8443) and the three ways out (DNS, the authority, the provider) |
+| [`AgentZone.yaml`](./kubernetes/AgentZone.yaml)                 | A caller's only path is the executor's listener, and it names no CIDR at all                         |
+| [`OperatorRbac.yaml`](./kubernetes/OperatorRbac.yaml)           | What on-call may do to the deployment: read it, and create or delete the halt flag                   |
+| [`cilium/FqdnEgress.yaml`](./kubernetes/cilium/FqdnEgress.yaml) | The same egress by DNS name instead of by range, where Cilium is the CNI                             |
+
+Apply them in the order [`kustomization.yaml`](./kubernetes/kustomization.yaml) lists, which is
+what `kubectl apply -k deploy/kubernetes` does:
+
+```bash
+kubectl apply -k deploy/kubernetes
+```
+
+The order is a control rather than a convenience. The namespaces carry their Pod Security labels
+before anything can be admitted into them, and both zones are default-deny before any pod exists
+to have a network. Applied the other way round there is a window in which a pod runs with no
+policy at all.
+
+The Cilium file is deliberately not in that list. It replaces the two `ipBlock` rules with DNS
+names, and applying both would widen the policy rather than narrow it: two policies allowing
+different things is a union. On a Cilium cluster, apply it and delete those two rules.
+
+## What the agent zone cannot do
+
+With the default deny beneath it and no `ipBlock` above it, a pod in `agent-safe-agents` has no
+route off the cluster: not to the provider, not to the authority, not to the internet. Its only
+path is the executor's listener on 8443, and it is admitted there only if it carries the
+`agent-safe-caller: "true"` label and presents a projected service-account token whose audience is
+the executor's. No shared secret exists between the two zones; the cluster signs the token and the
+executor verifies it against the JWKS the platform team populates.
+
+This is what narrows the threat model's first residual risk. It does not remove it: the
+NetworkPolicies here are declarations, and a cluster whose CNI does not enforce them ignores every
+one of them silently. That is the one control in this kit a process cannot verify about itself.
+
+## Conformance
+
+The manifests are held to their own shape by
+[`test/automation/DeployManifests.test.mjs`](../test/automation/DeployManifests.test.mjs), which
+runs in `pnpm verify`. It parses every YAML file under `deploy/` and asserts, among other things:
+every hardening key on the pod and the container; a default deny per namespace; explicit
+`policyTypes` on every other policy; no `0.0.0.0/0` or `::/0` anywhere; a port on every rule; no
+`ipBlock` in the agent zone; no egress from the executor back into the agents' namespace; one port
+agreed across the configuration, the container, the Service and the probes; a resolvable service
+account for every pod that names one; every `*_FILE` value inside a mounted directory; no
+development-only flag; no `kind: Secret`; and `.example` hosts only.
+
+`packages/agentsafe/test/deploy/ManifestConfigKeys.test.ts` goes the other way, from the manifest
+to the code: every variable the ConfigMap names has to be one the loader knows, every secret has
+to be given as a file, and the whole ConfigMap has to be a configuration the loader actually
+accepts — both as shipped, in shadow, and after the runbook's last step turns it into an enforcing
+deployment with a managed ceremony. Writing that test found two ways the earlier single-file
+manifest could not have started at all, which is the case for having it.
 
 ## What is deployed
 
@@ -51,21 +116,24 @@ builds their own image on the package: a process of a few lines that calls `serv
 
 ## Who supplies what
 
-| Piece                                                         | Who                                                                                                                                           |
-| ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| The executor, its image, the manifest, the proof              | This repository                                                                                                                               |
-| The authority behind `DecionisGate`                           | The Decionis service, or your implementation of the two interfaces                                                                            |
-| Policy                                                        | You, in the authority                                                                                                                         |
-| The handlers, the parameter schemas, the downstream addresses | You, in your handler registration (the example's `src/Handlers.ts`) and the ConfigMap                                                         |
-| The escalation shape: who approves, through which ceremony    | You, in the ConfigMap (`DIRECT` or `MANAGED`; `NONE` returns the hold)                                                                        |
-| The caller token, the API key, the downstream credential      | You, as Secrets the manifest references                                                                                                       |
-| The listener's certificate and key; the client CA, if any     | You, as a TLS Secret the manifest references, and a ConfigMap for the CA your callers' certificates chain to                                  |
-| Who may call: the principals file                             | You, as the ConfigMap the manifest mounts; digests and identities only, one principal per workload, roles and scopes named                    |
-| The JWKS workload tokens are verified against                 | You, as a ConfigMap populated from the cluster's `/openid/v1/jwks`, or the address the executor refreshes it from                             |
-| A volume per replica for the journal                          | Your cluster, as the claim the StatefulSet requests; the attempt journal lives there and an attempt has to outlive the container that made it |
-| The halt flag, when you want one                              | You, as a ConfigMap created and deleted by the on-call operator; its presence halts every replica                                             |
-| CA bundles or SPKI pins for the authority and the downstream  | You, in the ConfigMap, when the platform's trust store is not the anchor you want; the executor reaches nothing else                          |
-| Executor isolation, agent egress denial, credential scoping   | Your cluster, starting from the NetworkPolicy in the manifest; the executor verifies the posture it can see and refuses to run without it     |
+| Piece                                                                  | Who                                                                                                                                                                    |
+| ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The executor, its image, the manifest, the proof                       | This repository                                                                                                                                                        |
+| The authority behind `DecionisGate`                                    | The Decionis service, or your implementation of the two interfaces                                                                                                     |
+| Policy                                                                 | You, in the authority                                                                                                                                                  |
+| The handlers, the parameter schemas, the downstream addresses          | You, in your handler registration (the example's `src/Handlers.ts`) and the ConfigMap                                                                                  |
+| The escalation shape: who approves, through which ceremony             | You, in the ConfigMap (`DIRECT` or `MANAGED`; `NONE` returns the hold)                                                                                                 |
+| The caller token, the API key, the downstream credential               | You, as Secrets the manifest references                                                                                                                                |
+| The listener's certificate and key; the client CA, if any              | You, as a TLS Secret the manifest references, and a ConfigMap for the CA your callers' certificates chain to                                                           |
+| Who may call: the principals file                                      | You, as the ConfigMap the manifest mounts; digests and identities only, one principal per workload, roles and scopes named                                             |
+| The JWKS workload tokens are verified against                          | You, as a ConfigMap populated from the cluster's `/openid/v1/jwks`, or the address the executor refreshes it from                                                      |
+| A volume per replica for the journal                                   | Your cluster, as the claim the StatefulSet requests; the attempt journal lives there and an attempt has to outlive the container that made it                          |
+| The halt flag, when you want one                                       | You, as a ConfigMap created and deleted by the on-call operator; its presence halts every replica                                                                      |
+| CA bundles or SPKI pins for the authority and the downstream           | You, in the ConfigMap, when the platform's trust store is not the anchor you want; the executor reaches nothing else                                                   |
+| Executor isolation, agent egress denial, credential scoping            | Your cluster, starting from the policies in `kubernetes/`; the executor verifies the posture it can see and refuses to run without it                                  |
+| The two CIDR ranges, or the Cilium policy that replaces them           | You: `AUTHORITY_CIDR_PLACEHOLDER` and `DOWNSTREAM_CIDR_PLACEHOLDER` are facts about your network, and a range wide enough to keep working is wide enough to reach more |
+| The group on-call belongs to                                           | You, in `OPERATOR_GROUP_PLACEHOLDER`; binding a real group is a statement about who may stop payments and belongs in your own change review                            |
+| A NetworkPolicy-enforcing CNI, and a sandboxed runtime if you want one | Your cluster; `runtimeClassName` is commented in the StatefulSet for gVisor or Kata                                                                                    |
 
 The seam between the library and the authority is written down in [OPEN-CORE.md](../OPEN-CORE.md).
 This kit deploys the library's side of it.
