@@ -411,8 +411,8 @@ Decionis Research defines the architecture, this package demonstrates it as test
 Decionis platform operates it as a hosted authority.
 
 The banking profile of the protocol, whose reference runtime builds on this package, is published at
-[banking.decionis.com](https://banking.decionis.com) (BEAP v0.1, Draft / Design Partner Review, not a
-finished standard). The Commerce Gate this repository's MCP server fronts is at
+[banking.decionis.com](https://banking.decionis.com) (BEAP v1.0, published 2026-09-15; the profile
+Decionis publishes and implements, not a standard approved by any body). The Commerce Gate this repository's MCP server fronts is at
 [commerce.decionis.com](https://commerce.decionis.com).
 The proof-of-human infrastructure this package's `PresenceApprovalCoordinator` coordinates with is
 described at [decionis.com/proof-of-human-infrastructure](https://decionis.com/proof-of-human-infrastructure)
