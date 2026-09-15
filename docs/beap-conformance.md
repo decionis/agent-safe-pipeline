@@ -63,7 +63,7 @@ The binder runs on capture, and every disagreement is a `422` that costs no doss
 | BEAP-L3-CLM-06 claim lease               | Not claimed | `claim_lease_expires_at` is parsed and discarded by the pipeline; the executor cannot honour it exactly        |
 | BEAP-L3-BND-01 payload digest comparison | Not exposed | The claim binding does not carry `execution_payload_digest`, so there is nothing to compare against            |
 | §17 Batch manifests                      | Not built   | The manifest digest rides in the trusted context; the manifest route and the outcome ledger are not here yet   |
-| L1 and L2                                | Not this    | The authority's, and not asserted by this repository                                                           |
+| L1 and L2                                | Not this    | The authority's half of the runtime: policy, grants, dossiers. Not in this repository and not asserted by it   |
 
 ### The projection path rule
 
