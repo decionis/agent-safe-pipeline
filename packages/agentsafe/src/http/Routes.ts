@@ -23,6 +23,15 @@ export const ROUTES = [
   { method: "POST", path: "/v1/reconciliations", public: false, role: "PROPOSER" },
   { method: "POST", path: "/v1/escalations", public: false, role: "PROPOSER" },
   { method: "GET", path: "/v1/control/status", public: false, role: "OPERATOR", scope: "status" },
+  { method: "POST", path: "/v1/control/halt", public: false, role: "OPERATOR", scope: "halt" },
+  { method: "POST", path: "/v1/control/resume", public: false, role: "OPERATOR", scope: "resume" },
+  {
+    method: "GET",
+    path: "/v1/control/open-attempts",
+    public: false,
+    role: "OPERATOR",
+    scope: "status",
+  },
   {
     method: "POST",
     path: "/v1/control/secrets/reload",

@@ -51,19 +51,21 @@ builds their own image on the package: a process of a few lines that calls `serv
 
 ## Who supplies what
 
-| Piece                                                         | Who                                                                                                                                       |
-| ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| The executor, its image, the manifest, the proof              | This repository                                                                                                                           |
-| The authority behind `DecionisGate`                           | The Decionis service, or your implementation of the two interfaces                                                                        |
-| Policy                                                        | You, in the authority                                                                                                                     |
-| The handlers, the parameter schemas, the downstream addresses | You, in your handler registration (the example's `src/Handlers.ts`) and the ConfigMap                                                     |
-| The escalation shape: who approves, through which ceremony    | You, in the ConfigMap (`DIRECT` or `MANAGED`; `NONE` returns the hold)                                                                    |
-| The caller token, the API key, the downstream credential      | You, as Secrets the manifest references                                                                                                   |
-| The listener's certificate and key; the client CA, if any     | You, as a TLS Secret the manifest references, and a ConfigMap for the CA your callers' certificates chain to                              |
-| Who may call: the principals file                             | You, as the ConfigMap the manifest mounts; digests and identities only, one principal per workload, roles and scopes named                |
-| The JWKS workload tokens are verified against                 | You, as a ConfigMap populated from the cluster's `/openid/v1/jwks`, or the address the executor refreshes it from                         |
-| CA bundles or SPKI pins for the authority and the downstream  | You, in the ConfigMap, when the platform's trust store is not the anchor you want; the executor reaches nothing else                      |
-| Executor isolation, agent egress denial, credential scoping   | Your cluster, starting from the NetworkPolicy in the manifest; the executor verifies the posture it can see and refuses to run without it |
+| Piece                                                         | Who                                                                                                                                           |
+| ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| The executor, its image, the manifest, the proof              | This repository                                                                                                                               |
+| The authority behind `DecionisGate`                           | The Decionis service, or your implementation of the two interfaces                                                                            |
+| Policy                                                        | You, in the authority                                                                                                                         |
+| The handlers, the parameter schemas, the downstream addresses | You, in your handler registration (the example's `src/Handlers.ts`) and the ConfigMap                                                         |
+| The escalation shape: who approves, through which ceremony    | You, in the ConfigMap (`DIRECT` or `MANAGED`; `NONE` returns the hold)                                                                        |
+| The caller token, the API key, the downstream credential      | You, as Secrets the manifest references                                                                                                       |
+| The listener's certificate and key; the client CA, if any     | You, as a TLS Secret the manifest references, and a ConfigMap for the CA your callers' certificates chain to                                  |
+| Who may call: the principals file                             | You, as the ConfigMap the manifest mounts; digests and identities only, one principal per workload, roles and scopes named                    |
+| The JWKS workload tokens are verified against                 | You, as a ConfigMap populated from the cluster's `/openid/v1/jwks`, or the address the executor refreshes it from                             |
+| A volume per replica for the journal                          | Your cluster, as the claim the StatefulSet requests; the attempt journal lives there and an attempt has to outlive the container that made it |
+| The halt flag, when you want one                              | You, as a ConfigMap created and deleted by the on-call operator; its presence halts every replica                                             |
+| CA bundles or SPKI pins for the authority and the downstream  | You, in the ConfigMap, when the platform's trust store is not the anchor you want; the executor reaches nothing else                          |
+| Executor isolation, agent egress denial, credential scoping   | Your cluster, starting from the NetworkPolicy in the manifest; the executor verifies the posture it can see and refuses to run without it     |
 
 The seam between the library and the authority is written down in [OPEN-CORE.md](../OPEN-CORE.md).
 This kit deploys the library's side of it.
@@ -96,9 +98,12 @@ injection, secret files it alone can read, and no ability to read or write outsi
 the mounts and the journal directory, or to spawn a process. Remove one of those from the manifest and the pod does not start; the
 refusal names the check. The [package README](../packages/agentsafe/README.md) lists every check.
 
-What the process adds to that on its own: it admits only the principals the file names, each by
-its own credential and for its own role; it seals the global `fetch` at start and opens
-connections only to the origins the ConfigMap names, over TLS verified against the anchors and
+What the process adds to that on its own: it writes every attempt to its journal before the
+provider is touched and reconciles what it finds there at start, read-only; it stops taking work
+on an operator's word, on a halt file, or on a spike it was told to watch for; it refuses above
+the ceilings the ConfigMap names, before the authority is asked; it admits only the principals the
+file names, each by its own credential and for its own role; it seals the global `fetch` at start
+and opens connections only to the origins the ConfigMap names, over TLS verified against the anchors and
 pins the ConfigMap declares; it listens over TLS 1.3 with the certificate the TLS Secret holds;
 and it chains every evidence line, persisting the chain heads under the journal volume so a
 restart continues the sequence. The NetworkPolicy still decides what the pod can reach at all;

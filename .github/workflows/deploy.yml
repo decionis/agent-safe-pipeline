@@ -160,6 +160,7 @@ jobs:
           EXECUTOR_TLS_CERT_FILE=/var/run/agent-safe/secrets/tls.crt
           EXECUTOR_TLS_KEY_FILE=/var/run/agent-safe/secrets/tls.key
           EXECUTOR_JOURNAL_DIR=/var/lib/agent-safe/journal
+          EXECUTOR_HALT_FILE=/var/run/agent-safe/secrets/halted
           EXECUTOR_INTENT_TTL_SECONDS=300
           EXECUTOR_ESCALATION=NONE
           EXECUTOR_SECRETS_DIR=/var/run/agent-safe/secrets
@@ -234,6 +235,26 @@ jobs:
           refuses POSTURE_ROOT_UID docker run --rm "${hardened[@]:1}" --user 0:0 agentsafe:ci
           refuses POSTURE_PROXY_ENV docker run --rm "${hardened[@]}" \
             -e HTTPS_PROXY=http://proxy.corp.example:3128 agentsafe:ci
+
+          # The halt file stops the executor by existing: the process starts,
+          # listens, and takes no work, saying which cause stopped it.
+          printf 'stopped by the on-call operator\n' > "$secrets/halted"
+          sudo chown root:65532 "$secrets/halted"
+          sudo chmod 0440 "$secrets/halted"
+          container="$(docker run -d "${hardened[@]}" agentsafe:ci)"
+          for _ in $(seq 1 30); do
+            if docker logs "$container" 2>&1 | grep -q '"LISTENING"'; then break; fi
+            sleep 1
+          done
+          docker stop -t 10 "$container" >/dev/null
+          docker wait "$container" >/dev/null
+          logs="$(docker logs "$container" 2>&1)"
+          docker rm "$container" >/dev/null
+          echo "$logs"
+          grep -q '"HALTED"' <<<"$logs"
+          grep -q '"trigger":"HALT_FILE"' <<<"$logs"
+          grep -q '"LISTENING"' <<<"$logs"
+          rm "$secrets/halted"
 
           # The evidence chains continue across a restart: the same journal
           # directory, twice, and the second process resumes the head the

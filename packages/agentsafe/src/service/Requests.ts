@@ -44,6 +44,19 @@ export const ReconciliationRequestSchema = z.strictObject({
 
 export type ReconciliationRequest = z.infer<typeof ReconciliationRequestSchema>;
 
+/**
+ * An operator's reason for stopping or resuming the executor. It is written
+ * to the security stream verbatim, so it is bounded and it is the
+ * operator's own words: nothing from a proposal ever reaches it.
+ */
+export const HaltRequestSchema = z.strictObject({
+  reason: z.string().trim().min(1).max(200),
+});
+
+export const ResumeRequestSchema = HaltRequestSchema;
+
+export type HaltRequest = z.infer<typeof HaltRequestSchema>;
+
 /** The consumed binding, as evidence. The token itself never leaves the process. */
 export interface AuthorizationBinding {
   readonly decision_id: string;

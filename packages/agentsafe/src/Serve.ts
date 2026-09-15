@@ -138,7 +138,7 @@ export async function serve(
     config,
     secrets,
     handlers,
-    dependencies: { emit: emitter.audit, security, posture, journal },
+    dependencies: { emit: emitter.audit, security, posture, chainJournal: journal },
   });
   const address = await executor.listen();
   emitter.process(

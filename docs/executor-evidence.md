@@ -62,8 +62,12 @@ failures (`PRINCIPAL_LOCKED`); the principals loaded at start, or the legacy cal
 (`PRINCIPALS_LOADED`, `LEGACY_PRINCIPAL_MODE`, `BEARER_PRINCIPAL_CONFIGURED`); the JWKS refreshed
 or not (`JWKS_REFRESHED`, `JWKS_REFRESH_FAILED`); an operator's action (`OPERATOR_ACTION` with the
 principal and the action); an outbound request the egress policy refused (`EGRESS_REFUSED` with
-the origin and the code); the listener's TLS context replaced; and the chain's own bookkeeping
-(`CHAIN_RESUMED`, `CHAIN_CHECKPOINT`). Every field is an identifier, a code, an origin, or a
+the origin and the code); the listener's TLS context replaced; the executor stopped or started
+taking work (`HALTED`, `RESUMED`, each with the trigger and the reason); a ceiling that refused a
+proposal (`HARD_LIMIT_REFUSED`); a clock too far from the authority's (`CLOCK_SKEW_EXCEEDED`); a
+journal record that could not be written (`JOURNAL_WRITE_FAILED`); an attempt the last process
+left open and how it was resolved (`OPEN_ATTEMPT_FOUND_AT_STARTUP`, `OPEN_ATTEMPT_RESOLVED`); and
+the chain's own bookkeeping (`CHAIN_RESUMED`, `CHAIN_CHECKPOINT`). Every field is an identifier, a code, an origin, or a
 count, checked against a schema before the line is written; an event that does not fit is dropped
 and counted rather than written incomplete.
 
@@ -86,6 +90,19 @@ The report also says how many lines belong to no chain, and for each stream how 
 saw, the head it ended on, and how many times the stream started from genesis. The command exits
 0 only when there is no finding. The same walk is available as `verifyAuditChain(lines)` from the
 package.
+
+## The attempt journal is not an evidence stream
+
+`EXECUTOR_JOURNAL_DIR` holds two different things, and the difference matters. Under `chain/` are
+the evidence chains' heads: sequence numbers and hashes, nothing else. Under `attempts/` is the
+attempt journal, which carries the captured intent verbatim, because reconciling a lost outcome
+needs the exact intent it was and nothing less will re-hash to the same value.
+
+That makes the journal as sensitive as the request traffic itself, and it is why nothing from it
+reaches either evidence stream, an evidence export, or a support bundle: the streams carry
+identifiers, digests, verdicts and codes, and `agentsafe verify-chain` never reads the journal.
+Protect that volume as you would the requests, and the executor's own contract is unchanged:
+identifiers in, identifiers out.
 
 ## Restarts and checkpoints
 

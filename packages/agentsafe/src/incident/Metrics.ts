@@ -116,6 +116,11 @@ export interface ExecutorMetrics {
   readonly auditLines: Counter;
   readonly principalsLocked: Counter;
   readonly operatorActions: Counter;
+  readonly halts: Counter;
+  readonly hardLimitRefusals: Counter;
+  readonly journalWriteFailures: Counter;
+  readonly openAttempts: Gauge;
+  readonly clockSkew: Gauge;
   observe(event: SecurityEvent): void;
 }
 
@@ -170,6 +175,28 @@ export function executorMetrics(registry: Metrics = new Metrics()): ExecutorMetr
       "Control routes an operator exercised, by action.",
       ["action"],
     ),
+    halts: registry.counter("agentsafe_halts", "Times the executor halted, by trigger.", [
+      "trigger",
+    ]),
+    hardLimitRefusals: registry.counter(
+      "agentsafe_hard_limit_refusals",
+      "Proposals the host's own ceilings refused, by code.",
+      ["code"],
+    ),
+    journalWriteFailures: registry.counter(
+      "agentsafe_journal_write_failures",
+      "Journal records that could not be written, by record.",
+      ["record"],
+    ),
+    openAttempts: registry.gauge(
+      "agentsafe_open_attempts",
+      "Attempts whose outcome this process does not know, by state.",
+      ["state"],
+    ),
+    clockSkew: registry.gauge(
+      "agentsafe_clock_skew_ms",
+      "The authority's clock minus this host's, in milliseconds, as last observed.",
+    ),
   };
   return {
     ...metrics,
@@ -191,6 +218,14 @@ export function executorMetrics(registry: Metrics = new Metrics()): ExecutorMetr
           return metrics.principalsLocked.inc();
         case "OPERATOR_ACTION":
           return metrics.operatorActions.inc({ action: event.action });
+        case "HALTED":
+          return metrics.halts.inc({ trigger: event.trigger });
+        case "HARD_LIMIT_REFUSED":
+          return metrics.hardLimitRefusals.inc({ code: event.code });
+        case "JOURNAL_WRITE_FAILED":
+          return metrics.journalWriteFailures.inc({ record: event.record });
+        case "CLOCK_SKEW_EXCEEDED":
+          return metrics.clockSkew.set(event.skew_ms);
         default:
           return undefined;
       }

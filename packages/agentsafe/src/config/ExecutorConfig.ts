@@ -5,6 +5,7 @@ import type { PrivateKeyJwtAlgorithm } from "../credential/PrivateKeyJwtCredenti
 import type { SignedRequestAlgorithm } from "../credential/SignedRequestCredential.js";
 import type { TlsMinVersion } from "../http/TlsListener.js";
 import { RateLimiter, type LockoutRule, type RateLimitRule } from "../identity/RateLimiter.js";
+import { HardLimits, type HardLimitSettings } from "../limits/HardLimits.js";
 import type { PostureMode } from "../posture/HostPosture.js";
 import { SecretError, type SecretName } from "../secrets/SecretStore.js";
 
@@ -130,11 +131,30 @@ export interface EgressConfig {
   };
 }
 
-/** Where the chain heads are kept across a restart, and how often. */
+/** Where the chain heads and the attempt journal are kept, and how much is kept. */
 export interface EvidenceConfig {
   readonly journalDir: string | null;
   readonly checkpointLines: number;
+  /**
+   * Whether an attempt must be journaled before it may execute. True by
+   * default: an execution nobody could reconcile afterwards is worse than a
+   * refusal. `SHADOW` never executes, so it never needs one.
+   */
+  readonly journalRequired: boolean;
+  readonly journalRetainDays: number;
+  /** Whether `/ready` waits while an attempt's outcome is still unknown. */
+  readonly readyRequiresNoUnknownAttempts: boolean;
 }
+
+/** When the executor stops taking work, and what it takes to let it through again. */
+export interface HaltConfig {
+  readonly file: string | null;
+  readonly authFailures: RateLimitRule | null;
+  readonly egressRefusals: RateLimitRule | null;
+}
+
+/** The host's own ceilings, above whatever the authority decides; none when null. */
+export type LimitsConfig = HardLimitSettings | null;
 
 /**
  * The executor's configuration: every setting, and the names of the secrets
@@ -159,6 +179,10 @@ export interface ExecutorConfig {
   readonly listener: ListenerConfig;
   readonly egress: EgressConfig;
   readonly evidence: EvidenceConfig;
+  readonly halt: HaltConfig;
+  readonly limits: LimitsConfig;
+  /** The most the authority's clock may differ from this host's before the executor halts. */
+  readonly maxClockSkewMs: number;
   readonly posture: PostureSettings;
   readonly secrets: {
     /** The secrets this configuration needs; each is given as a file or, outside production, a variable. */
@@ -254,7 +278,22 @@ const EnvironmentSchema = z.object({
     .max(MAX_RESPONSE_BYTES)
     .optional(),
   EXECUTOR_JOURNAL_DIR: absolutePath.optional(),
+  EXECUTOR_JOURNAL_REQUIRED: booleanFlag.optional(),
+  EXECUTOR_JOURNAL_RETAIN_DAYS: z.coerce.number().int().min(1).max(365).optional(),
+  EXECUTOR_READY_REQUIRES_NO_UNKNOWN_ATTEMPTS: booleanFlag.optional(),
   EXECUTOR_AUDIT_CHECKPOINT_LINES: z.coerce.number().int().min(1).max(10_000).optional(),
+  EXECUTOR_HALT_FILE: absolutePath.optional(),
+  EXECUTOR_HALT_ON_AUTH_FAILURES: z.string().trim().min(1).max(20).optional(),
+  EXECUTOR_HALT_ON_EGRESS_REFUSALS: z.string().trim().min(1).max(20).optional(),
+  EXECUTOR_HARD_LIMIT_SINGLE_MINOR: z.string().trim().min(5).max(500).optional(),
+  EXECUTOR_HARD_LIMIT_WINDOW_COUNT: z.coerce.number().int().min(1).max(1_000_000).optional(),
+  EXECUTOR_HARD_LIMIT_WINDOW_SECONDS: z.coerce.number().int().min(1).max(86_400).optional(),
+  EXECUTOR_HARD_LIMIT_WINDOW_SUM_MINOR: z
+    .string()
+    .trim()
+    .regex(/^\d{1,30}$/)
+    .optional(),
+  EXECUTOR_MAX_CLOCK_SKEW_MS: z.coerce.number().int().min(100).max(300_000).optional(),
   DECIONIS_API_URL: z.string().trim().min(1).max(500),
   DECIONIS_ALLOW_INSECURE_LOOPBACK: booleanFlag.optional(),
   DECIONIS_CA_FILE: absolutePath.optional(),
@@ -399,6 +438,19 @@ export class ExecutorConfigLoader {
     if (production && secretsDir === null && Object.keys(located.files).length > 0) {
       throw new Error("CONFIG_INVALID: EXECUTOR_SECRETS_DIR (required in production)");
     }
+    const journalRequired = values.EXECUTOR_JOURNAL_REQUIRED !== "false";
+    if (
+      values.EXECUTOR_MODE === "ENFORCEMENT" &&
+      journalRequired &&
+      values.EXECUTOR_JOURNAL_DIR === undefined
+    ) {
+      throw new Error(
+        "CONFIG_INVALID: EXECUTOR_JOURNAL_DIR (required in enforcement unless EXECUTOR_JOURNAL_REQUIRED=false)",
+      );
+    }
+    if (!journalRequired && production) {
+      throw new Error("CONFIG_INVALID: EXECUTOR_JOURNAL_REQUIRED (forbidden in production)");
+    }
     const environment: Record<string, string> = {};
     for (const key of INSPECTED_ENVIRONMENT) {
       const value = env[key];
@@ -433,7 +485,24 @@ export class ExecutorConfigLoader {
       evidence: {
         journalDir: values.EXECUTOR_JOURNAL_DIR ?? null,
         checkpointLines: values.EXECUTOR_AUDIT_CHECKPOINT_LINES ?? 100,
+        journalRequired: values.EXECUTOR_JOURNAL_REQUIRED !== "false",
+        journalRetainDays: values.EXECUTOR_JOURNAL_RETAIN_DAYS ?? 7,
+        readyRequiresNoUnknownAttempts:
+          values.EXECUTOR_READY_REQUIRES_NO_UNKNOWN_ATTEMPTS === "true",
       },
+      halt: {
+        file: values.EXECUTOR_HALT_FILE ?? null,
+        authFailures: RateLimiter.parseRule(
+          values.EXECUTOR_HALT_ON_AUTH_FAILURES ?? "50/60",
+          "EXECUTOR_HALT_ON_AUTH_FAILURES",
+        ),
+        egressRefusals: RateLimiter.parseRule(
+          values.EXECUTOR_HALT_ON_EGRESS_REFUSALS ?? "5/60",
+          "EXECUTOR_HALT_ON_EGRESS_REFUSALS",
+        ),
+      },
+      limits: ExecutorConfigLoader.limits(values),
+      maxClockSkewMs: values.EXECUTOR_MAX_CLOCK_SKEW_MS ?? 2_000,
       posture: {
         mode: postureMode,
         intervalSeconds: values.EXECUTOR_POSTURE_INTERVAL_SECONDS ?? 60,
@@ -534,6 +603,44 @@ export class ExecutorConfigLoader {
         values.EXECUTOR_AUTH_LOCKOUT ?? "10/60/300",
         "EXECUTOR_AUTH_LOCKOUT",
       ),
+    };
+  }
+
+  /**
+   * The host's own ceilings. A window needs a length, and a sum without a
+   * per-currency ceiling would be a ceiling on nothing, so the parts are
+   * refused apart rather than silently ignored.
+   */
+  private static limits(values: Environment): LimitsConfig {
+    const ceilings = values.EXECUTOR_HARD_LIMIT_SINGLE_MINOR;
+    const count = values.EXECUTOR_HARD_LIMIT_WINDOW_COUNT ?? null;
+    const sum = values.EXECUTOR_HARD_LIMIT_WINDOW_SUM_MINOR ?? null;
+    const seconds = values.EXECUTOR_HARD_LIMIT_WINDOW_SECONDS ?? null;
+    if (ceilings === undefined) {
+      const given = (
+        [
+          "EXECUTOR_HARD_LIMIT_WINDOW_COUNT",
+          "EXECUTOR_HARD_LIMIT_WINDOW_SECONDS",
+          "EXECUTOR_HARD_LIMIT_WINDOW_SUM_MINOR",
+        ] as const
+      ).filter((key) => values[key] !== undefined);
+      if (given.length > 0) {
+        throw new Error(
+          `CONFIG_INVALID: EXECUTOR_HARD_LIMIT_SINGLE_MINOR (required with ${given.join(", ")})`,
+        );
+      }
+      return null;
+    }
+    if ((count !== null || sum !== null) && seconds === null) {
+      throw new Error(
+        "CONFIG_INVALID: EXECUTOR_HARD_LIMIT_WINDOW_SECONDS (required with a window)",
+      );
+    }
+    return {
+      singleMinor: HardLimits.parseCeilings(ceilings, "EXECUTOR_HARD_LIMIT_SINGLE_MINOR"),
+      windowSeconds: seconds ?? 60,
+      windowCount: count,
+      windowSumMinor: sum === null ? null : BigInt(sum),
     };
   }
 

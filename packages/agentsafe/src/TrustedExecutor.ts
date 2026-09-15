@@ -1,7 +1,12 @@
 import { readFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
+import { join } from "node:path";
 import process from "node:process";
 import { ChainJournal } from "./audit/ChainJournal.js";
+import { FileExecutionJournal } from "./journal/FileExecutionJournal.js";
+import { InMemoryExecutionJournal } from "./journal/InMemoryExecutionJournal.js";
+import type { ExecutionJournal } from "./journal/ExecutionJournal.js";
+import type { HaltSwitch } from "./incident/HaltSwitch.js";
 import { HashChain } from "./audit/HashChain.js";
 import { EVIDENCE_STREAM } from "./audit/HashChainedAuditSink.js";
 import type { LineWriter } from "./audit/LineAuditSink.js";
@@ -31,7 +36,11 @@ export interface TrustedExecutorDependencies extends Omit<
   /** The posture to verify and follow; the real host unless a fixture is given. */
   readonly posture?: HostPosture;
   /** Where chain heads persist; built from the configuration when absent, none when null. */
-  readonly journal?: ChainJournal | null;
+  readonly chainJournal?: ChainJournal | null;
+  /** Where attempts are journaled; the configured directory unless one is given. */
+  readonly attempts?: ExecutionJournal;
+  /** The stop; built from the configuration unless a test hands in its own. */
+  readonly halt?: HaltSwitch;
   readonly metrics?: ExecutorMetrics;
   /** The windows and locks the door keeps; a fresh one unless a test injects a clock through its own. */
   readonly limits?: RateLimiter;
@@ -49,6 +58,10 @@ export interface TrustedExecutorOptions {
 
 export interface TrustedExecutor {
   readonly service: TrustedExecutorService;
+  /** The attempt journal this process writes to; the file journal unless one was given. */
+  readonly attempts: ExecutionJournal;
+  /** The stop, for a test or an embedding process that halts without HTTP. */
+  readonly halt: HaltSwitch;
   /** What was verified at start, and what development posture waived. */
   readonly posture: PostureReport;
   readonly metrics: ExecutorMetrics;
@@ -79,13 +92,23 @@ export async function createTrustedExecutor(
   const config = options.config;
   const readFile = dependencies.readFile ?? ((path: string): string => readFileSync(path, "utf8"));
   const journal =
-    dependencies.journal === undefined
+    dependencies.chainJournal === undefined
       ? config.evidence.journalDir === null
         ? null
         : new ChainJournal(config.evidence.journalDir, {
             checkpointLines: config.evidence.checkpointLines,
           })
-      : dependencies.journal;
+      : dependencies.chainJournal;
+  // The attempt journal is the durable one: an execution nobody could
+  // reconcile afterwards is worse than a refusal, so in enforcement the
+  // configuration requires a directory for it.
+  const attempts =
+    dependencies.attempts ??
+    (config.evidence.journalDir === null
+      ? new InMemoryExecutionJournal()
+      : new FileExecutionJournal(join(config.evidence.journalDir, "attempts"), {
+          retainDays: config.evidence.journalRetainDays,
+        }));
   const { emit, security } = lines(options, dependencies, journal);
   const posture =
     dependencies.posture ??
@@ -110,7 +133,17 @@ export async function createTrustedExecutor(
     config,
     options.secrets,
     options.handlers ?? forwardRequestHandlers(),
-    { ...dependencies, emit, security, posture, chain: evidence, metrics, readFile },
+    {
+      ...dependencies,
+      emit,
+      security,
+      posture,
+      chain: evidence,
+      metrics,
+      readFile,
+      journal: attempts,
+      ...(dependencies.halt === undefined ? {} : { halt: dependencies.halt }),
+    },
   );
   const tls =
     config.listener.tls === null
@@ -148,24 +181,36 @@ export async function createTrustedExecutor(
       ? []
       : [journal.follow(evidence, security), journal.follow(security.chain, security)];
   let stopPosture: (() => void) | null = null;
+  const haltSwitch = service.haltSwitch;
+  haltSwitch.assertAtStartup();
+  let stopHalt: (() => void) | null = null;
   return {
     service,
+    attempts,
+    halt: haltSwitch,
     posture: report,
     metrics,
     principals: service.principals,
     authenticator,
     evidence,
     listen: async (port = config.port, address = config.bindAddress) => {
+      // What the last process left open is resolved before this one can be
+      // asked to do anything new, and read-only: the provider is asked what
+      // it did, never told to do it again.
+      await service.recover();
       const bound = await server.listen(port, address);
       stopPosture = posture.start();
+      stopHalt = haltSwitch.start();
       return bound;
     },
     close: async () => {
       stopPosture?.();
+      stopHalt?.();
       stopRotation();
       await server.close();
       service.close();
       for (const stop of following) stop();
+      attempts.close();
       options.secrets.close();
     },
   };

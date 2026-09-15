@@ -70,11 +70,13 @@ describe("createTrustedExecutor", () => {
     expect(executor.evidence.head.seq).toBe(0);
     const address = await executor.listen(0, "127.0.0.1");
     const ready = await fetch(`${LOOPBACK_ORIGIN}:${address.port}/ready`);
+    expect(ready.status).toBe(200);
     expect(await ready.json()).toEqual({
       status: "ready",
       mode: "ENFORCEMENT",
       escalation: "NONE",
       actions: ["custom_action"],
+      open_attempts: 0,
     });
     await executor.close();
     expect(secrets.get("EXECUTOR_CALLER_TOKEN").disposed).toBe(true);

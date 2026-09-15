@@ -1,9 +1,9 @@
 import {
-  ActionRegistry,
   AuditRecorder,
   CanonicalIntentHasher,
   ExecutionIntentSchema,
   IntentCapture,
+  type ActionRegistry,
   type CapturedIntent,
   type GateDecision,
   type JsonObject,
@@ -15,6 +15,14 @@ import { HashChain } from "../audit/HashChain.js";
 import { EVIDENCE_STREAM, HashChainedAuditSink } from "../audit/HashChainedAuditSink.js";
 import type { LineWriter } from "../audit/LineAuditSink.js";
 import type { EscalationMode, ExecutorConfig, ExecutorMode } from "../config/ExecutorConfig.js";
+import { HaltSwitch, type HaltState } from "../incident/HaltSwitch.js";
+import { InMemoryExecutionJournal } from "../journal/InMemoryExecutionJournal.js";
+import type { ExecutionJournal } from "../journal/ExecutionJournal.js";
+import { StartupReconciler, type RecoveryReport } from "../journal/StartupReconciler.js";
+import { HardLimits } from "../limits/HardLimits.js";
+import { callerPrincipal, JournaledRegistry } from "../handlers/JournaledActionHandler.js";
+import type { OperatorScope } from "../identity/PrincipalsFile.js";
+import { clockSkewGuard } from "../time/ClockSkewGuard.js";
 import type { DownstreamCredential } from "../credential/DownstreamCredential.js";
 import { PrivateKeyJwtCredential } from "../credential/PrivateKeyJwtCredential.js";
 import { SignedRequestCredential } from "../credential/SignedRequestCredential.js";
@@ -46,6 +54,7 @@ import {
   type ProposalRequest,
   type ReconciliationResponse,
 } from "./Requests.js";
+import { HaltRequestSchema, ResumeRequestSchema } from "./Requests.js";
 import { ServiceError } from "./ServiceError.js";
 
 export interface ServiceDependencies extends Omit<EscalationDependencies, "fetch"> {
@@ -66,6 +75,11 @@ export interface ServiceDependencies extends Omit<EscalationDependencies, "fetch
   readonly metrics?: ExecutorMetrics;
   /** The principals, when trusted startup code built them; the file or the legacy caller otherwise. */
   readonly principals?: PrincipalRegistry;
+  /** Where attempts are journaled; the configured directory unless one is given. */
+  readonly journal?: ExecutionJournal;
+  /** The stop; one is built from the configuration unless a test hands in its own. */
+  readonly halt?: HaltSwitch;
+  readonly clock?: () => number;
 }
 
 /** What `/v1/control/status` reports: identifiers, counts, and heads, never a value. */
@@ -78,6 +92,18 @@ export interface ExecutorStatus {
   readonly principals: { readonly mode: "PRINCIPALS" | "LEGACY"; readonly count: number };
   readonly evidence: { readonly seq: number; readonly hash: string };
   readonly secrets: readonly string[];
+  readonly halt: HaltState;
+  readonly attempts: { readonly open: number; readonly unknown: number };
+  readonly limits: {
+    readonly currencies: readonly string[];
+    readonly windowSeconds: number | null;
+  } | null;
+}
+
+/** What `/ready` answers, and whether it is ready at all. */
+export interface Readiness {
+  readonly ready: boolean;
+  readonly body: Readonly<Record<string, unknown>>;
 }
 
 /**
@@ -93,6 +119,7 @@ export interface ExecutorStatus {
  */
 export class TrustedExecutorService {
   private readonly hasher = new CanonicalIntentHasher();
+  private recovery: RecoveryReport | null = null;
 
   private constructor(
     private readonly config: ExecutorConfig,
@@ -103,13 +130,18 @@ export class TrustedExecutorService {
     private readonly clients: AuthorityClients,
     private readonly posture: PostureState,
     private readonly egress: GuardedFetch,
-    private readonly events: SecurityEvents,
+    /** The security stream this service writes to; a test drives the halt through it. */
+    public readonly events: SecurityEvents,
     private readonly chain: HashChain,
     public readonly metrics: ExecutorMetrics,
     public readonly principals: PrincipalRegistry,
     /** The workload token verifier, when the configuration names a JWKS; the door uses it. */
     public readonly jwt: WorkloadJwtVerifier | null,
     private readonly credential: DownstreamCredential,
+    private readonly audit: AuditRecorder,
+    private readonly journal: ExecutionJournal,
+    public readonly haltSwitch: HaltSwitch,
+    private readonly limits: HardLimits | null,
     private readonly unsubscribeMetrics: () => void,
   ) {}
 
@@ -151,7 +183,20 @@ export class TrustedExecutorService {
       ...(dependencies.resolve === undefined ? {} : { resolve: dependencies.resolve }),
     });
     const credential = TrustedExecutorService.credential(config, secrets, egress.fetch);
-    const registry = new ActionRegistry();
+    const metrics = dependencies.metrics ?? executorMetrics();
+    const journal = dependencies.journal ?? new InMemoryExecutionJournal();
+    const halt =
+      dependencies.halt ??
+      new HaltSwitch({
+        events,
+        haltFile: config.halt.file,
+        authFailures: config.halt.authFailures,
+        egressRefusals: config.halt.egressRefusals,
+        posture: dependencies.posture ?? { degraded: false },
+      });
+    // Every handler the registration accepts is wrapped, so the durable
+    // claim is not something an adopter can forget to write.
+    const registry = new JournaledRegistry(() => journal);
     const registered = handlers({
       registry,
       downstream: config.downstream,
@@ -195,16 +240,23 @@ export class TrustedExecutorService {
         }
       }
     }
+    // The authority's own answers carry the clock this boundary is bound to,
+    // so its fetch, and only its fetch, is measured.
+    const authorityFetch = clockSkewGuard(egress.fetch, {
+      maxSkewMs: config.maxClockSkewMs,
+      events,
+      observe: (skew) => metrics.clockSkew.set(skew),
+      onExceeded: (skew) => halt.halt("CLOCK_SKEW", `${skew}ms from the authority`),
+    });
     const clients = new AuthorityClients({
       config,
       secrets,
       registry,
       audit,
       events,
-      fetch: egress.fetch,
+      fetch: authorityFetch,
       ...(dependencies.presence === undefined ? {} : { presence: dependencies.presence }),
     });
-    const metrics = dependencies.metrics ?? executorMetrics();
     return new TrustedExecutorService(
       config,
       secrets,
@@ -220,7 +272,16 @@ export class TrustedExecutorService {
       principals,
       jwt,
       credential,
-      events.subscribe(metrics.observe),
+      audit,
+      journal,
+      halt,
+      config.limits === null ? null : new HardLimits(config.limits, dependencies.clock),
+      events.subscribe((event) => {
+        metrics.observe(event);
+        if (event.event === "AUTH_FAILED") halt.recordAuthFailure();
+        if (event.event === "EGRESS_REFUSED") halt.recordEgressRefusal();
+        if (event.event === "POSTURE_DRIFT") halt.halt("POSTURE_DRIFT", `check ${event.check}`);
+      }),
     );
   }
 
@@ -345,7 +406,91 @@ export class TrustedExecutorService {
       },
       evidence: this.chain.head,
       secrets: [...this.config.secrets.required],
+      halt: this.haltSwitch.current,
+      attempts: {
+        open: this.recovery?.attempts.length ?? 0,
+        unknown: this.recovery?.unknown ?? 0,
+      },
+      limits:
+        this.limits === null
+          ? null
+          : {
+              currencies: [...this.limits.settings.singleMinor.keys()],
+              windowSeconds:
+                this.limits.settings.windowCount === null &&
+                this.limits.settings.windowSumMinor === null
+                  ? null
+                  : this.limits.settings.windowSeconds,
+            },
     };
+  }
+
+  /**
+   * What the last process left open, resolved before this one takes a
+   * request. Read-only: the provider is asked what it did, never told to do
+   * it again.
+   */
+  public async recover(): Promise<RecoveryReport> {
+    const report = await new StartupReconciler({
+      journal: this.journal,
+      registry: this.registry,
+      events: this.events,
+    }).recover();
+    this.recovery = report;
+    this.metrics.openAttempts.set(report.unknown, { state: "UNKNOWN" });
+    return report;
+  }
+
+  /**
+   * Readiness, which is not liveness: a halted executor is alive and
+   * deliberately not ready, and so is one that still does not know how an
+   * attempt ended when the deployment asked to wait for that.
+   */
+  public readiness(): Readiness {
+    const halt = this.haltSwitch.current;
+    const unknown = this.recovery?.unknown ?? 0;
+    const waiting = this.config.evidence.readyRequiresNoUnknownAttempts && unknown > 0;
+    return {
+      ready: !halt.halted && !waiting,
+      body: {
+        status: halt.halted ? "halted" : waiting ? "recovering" : "ready",
+        mode: this.config.mode,
+        escalation: this.config.escalation.mode,
+        actions: this.actions,
+        open_attempts: unknown,
+        ...(halt.halted ? { halt: { trigger: halt.trigger, since: halt.since } } : {}),
+      },
+    };
+  }
+
+  /** Stops the executor taking new work, on an operator's word and with a reason. */
+  public halt(input: unknown, caller?: Principal): HaltState {
+    const operator = this.operator(caller, "halt");
+    const parsed = HaltRequestSchema.safeParse(input);
+    if (!parsed.success) throw new ServiceError(400, "REQUEST_INVALID");
+    this.events.emit({ event: "OPERATOR_ACTION", principal: operator.id, action: "halt" });
+    return this.haltSwitch.halt("OPERATOR", parsed.data.reason);
+  }
+
+  /** Lets work through again; refused while the cause of the halt still stands. */
+  public resumeWork(input: unknown, caller?: Principal): HaltState {
+    const operator = this.operator(caller, "resume");
+    const parsed = ResumeRequestSchema.safeParse(input);
+    if (!parsed.success) throw new ServiceError(400, "REQUEST_INVALID");
+    this.events.emit({ event: "OPERATOR_ACTION", principal: operator.id, action: "resume" });
+    const resumed = this.haltSwitch.resume(parsed.data.reason);
+    if (!resumed.resumed) throw new ServiceError(409, resumed.code ?? "NOT_HALTED");
+    return this.haltSwitch.current;
+  }
+
+  /** The attempts this process does not know the outcome of: identifiers and states only. */
+  public openAttempts(caller?: Principal): {
+    readonly attempts: RecoveryReport["attempts"];
+    readonly unknown: number;
+  } {
+    const operator = this.operator(caller, "status");
+    this.events.emit({ event: "OPERATOR_ACTION", principal: operator.id, action: "status" });
+    return { attempts: this.recovery?.attempts ?? [], unknown: this.recovery?.unknown ?? 0 };
   }
 
   /** Re-reads every secret file now, on an operator's word; the report names files, never values. */
@@ -392,10 +537,22 @@ export class TrustedExecutorService {
     // Every line this proposal causes names the proposer, whichever
     // transport asked; the door's own scope, when there is one, agrees.
     return await RequestContext.run({ principal: proposer.id }, async () => {
-      const answer =
-        this.config.mode === "SHADOW"
-          ? await this.observe(captured)
-          : await this.enforceAfterPosture(captured);
+      if (this.config.mode === "SHADOW") {
+        const observed = await this.observe(captured);
+        this.metrics.proposals.inc({ verdict: observed.verdict ?? "NONE" });
+        return observed;
+      }
+      // A halt and a ceiling are refusals this host makes on its own. Both
+      // are recorded as evidence and both happen before the authority is
+      // asked, so a refusal costs no dossier and no grant.
+      try {
+        this.assertNotHalted(captured);
+        this.assertWithinLimits(captured, "CHECK");
+      } catch (error) {
+        if (error instanceof ServiceError) await this.recordRefusal(captured, error.code);
+        throw error;
+      }
+      const answer = await this.enforceAfterPosture(captured);
       this.metrics.proposals.inc({ verdict: answer.verdict ?? "NONE" });
       return answer;
     });
@@ -404,6 +561,59 @@ export class TrustedExecutorService {
   private async enforceAfterPosture(captured: CapturedIntent): Promise<ActionResponse> {
     this.assertPosture();
     return await this.enforce(captured);
+  }
+
+  /** The stop, checked after the intent is captured and before any authority is asked. */
+  private assertNotHalted(captured: CapturedIntent): void {
+    const halt = this.haltSwitch.current;
+    if (!halt.halted) return;
+    throw new ServiceError(
+      503,
+      "EXECUTOR_HALTED",
+      {
+        mode: this.config.mode,
+        intent_id: captured.intent.intentId,
+        intent_hash: captured.intentHash,
+        verdict: "BLOCK",
+        decision_id: null,
+        dossier_id: null,
+        reason_codes: ["EXECUTOR_HALTED"],
+        fail_closed: true,
+        outcome: "BLOCKED",
+        executed: false,
+        authorization: null,
+        finalization: null,
+        result: null,
+        recovery: null,
+        escalation: null,
+      } satisfies ActionResponse,
+      30,
+    );
+  }
+
+  /** The refusal itself is evidence: the same shape the executor uses for a blocked run. */
+  private async recordRefusal(captured: CapturedIntent, reason: string): Promise<void> {
+    await this.audit.record({
+      eventType: "EXECUTION_BLOCKED",
+      captured,
+      reasonCodes: [reason],
+    });
+  }
+
+  /** The host's own ceilings, before the authority is asked and again before the run. */
+  private assertWithinLimits(captured: CapturedIntent, stage: "CHECK" | "COMMIT"): void {
+    if (this.limits === null) return;
+    const parameters = captured.intent.parameters;
+    const decision =
+      stage === "CHECK" ? this.limits.check(parameters) : this.limits.commit(parameters);
+    if (decision.allowed) return;
+    const value = HardLimits.monetaryValue(parameters);
+    this.events.emit({
+      event: "HARD_LIMIT_REFUSED",
+      code: decision.code,
+      currency: value === null || value === "INVALID" ? null : value.currency,
+    });
+    throw new ServiceError(422, decision.code);
   }
 
   public async reconcile(input: unknown, caller?: Principal): Promise<ReconciliationResponse> {
@@ -418,6 +628,22 @@ export class TrustedExecutorService {
     const outcome = await RequestContext.run({ principal: proposer.id }, () =>
       this.clients.current().executor.reconcile(captured, parsed.data.reference),
     );
+    // A resolved attempt is closed in the journal, so the next start does not
+    // ask the provider about it again.
+    if (outcome.outcome !== "UNKNOWN_AFTER_DISPATCH") {
+      try {
+        await this.journal.append({
+          record: "RECONCILED",
+          at: new Date().toISOString(),
+          intent_id: captured.intent.intentId,
+          intent_hash: captured.intentHash,
+          status: outcome.outcome,
+          source: "CALLER",
+        });
+      } catch {
+        this.events.emit({ event: "JOURNAL_WRITE_FAILED", record: "RECONCILED" });
+      }
+    }
     return {
       intent_id: captured.intent.intentId,
       intent_hash: captured.intentHash,
@@ -453,10 +679,21 @@ export class TrustedExecutorService {
     }
     this.assertPosture();
     return await RequestContext.run({ principal: proposer.id }, async () => {
+      try {
+        this.assertNotHalted(captured);
+      } catch (error) {
+        if (error instanceof ServiceError) await this.recordRefusal(captured, error.code);
+        throw error;
+      }
       const { escalation, executor } = this.clients.current();
       const resolution = await escalation.resume(captured, parsed.data);
       if (resolution.kind === "DECISION") {
+        if (resolution.decision.verdict === "ALLOW" && !resolution.decision.failClosed) {
+          this.assertWithinLimits(captured, "COMMIT");
+          await this.openAttempt(captured, resolution.decision);
+        }
         const outcome = await executor.run(captured, resolution.decision);
+        await this.closeAttempt(captured, resolution.decision, outcome);
         this.metrics.executions.inc({ outcome: outcome.outcome });
         return this.response(captured, resolution.decision, outcome, null);
       }
@@ -468,6 +705,62 @@ export class TrustedExecutorService {
       }
       return this.held(captured, "BLOCK", resolution.reasonCodes, resolution.failClosed, null);
     });
+  }
+
+  /**
+   * The attempt, on disk, before the executor may run it. A journal that
+   * cannot take the record refuses the proposal rather than executing
+   * something no one could reconcile afterwards; with
+   * `EXECUTOR_JOURNAL_REQUIRED=false`, outside production, the refusal is
+   * downgraded to an event so a developer can run without a volume.
+   */
+  private async openAttempt(captured: CapturedIntent, decision: GateDecision): Promise<void> {
+    try {
+      await this.journal.append({
+        record: "ATTEMPT_OPENED",
+        at: new Date().toISOString(),
+        intent_id: captured.intent.intentId,
+        intent_hash: captured.intentHash,
+        idempotency_key: captured.intent.idempotencyKey,
+        decision_id: decision.decisionId ?? "",
+        dossier_id: decision.dossierId ?? "",
+        caller_principal: callerPrincipal(),
+        intent: captured.intent as unknown as Record<string, unknown>,
+      });
+    } catch {
+      this.events.emit({ event: "JOURNAL_WRITE_FAILED", record: "ATTEMPT_OPENED" });
+      if (this.config.evidence.journalRequired) {
+        throw new ServiceError(503, "JOURNAL_UNAVAILABLE");
+      }
+    }
+  }
+
+  /**
+   * How the attempt ended, so the next start does not have to ask the
+   * provider. An outcome that is unknown is exactly what must not be closed:
+   * the attempt stays open, and the next start, or a caller's own
+   * reconciliation, resolves it by reading the provider.
+   */
+  private async closeAttempt(
+    captured: CapturedIntent,
+    decision: GateDecision,
+    outcome: SafeExecutionResult,
+  ): Promise<void> {
+    if (decision.verdict !== "ALLOW" || decision.failClosed) return;
+    if (outcome.outcome === "UNKNOWN_AFTER_DISPATCH") return;
+    try {
+      await this.journal.append({
+        record: "ATTEMPT_CLOSED",
+        at: new Date().toISOString(),
+        intent_id: captured.intent.intentId,
+        intent_hash: captured.intentHash,
+        outcome: outcome.outcome,
+        executed: outcome.executed,
+        finalization: "finalization" in outcome ? outcome.finalization : null,
+      });
+    } catch {
+      this.events.emit({ event: "JOURNAL_WRITE_FAILED", record: "ATTEMPT_CLOSED" });
+    }
   }
 
   /** A standing posture drift refuses new enforcement work; nothing that has started is touched. */
@@ -490,10 +783,7 @@ export class TrustedExecutorService {
     return principal as Principal & { tenantId: string; actor: NonNullable<Principal["actor"]> };
   }
 
-  private operator(
-    caller: Principal | undefined,
-    scope: "status" | "secrets.reload" | "metrics",
-  ): Principal {
+  private operator(caller: Principal | undefined, scope: OperatorScope): Principal {
     if (caller === undefined || caller.role !== "OPERATOR")
       throw new ServiceError(403, "ROLE_FORBIDDEN");
     if (!caller.scopes.has(scope)) throw new ServiceError(403, "SCOPE_FORBIDDEN");
@@ -588,7 +878,12 @@ export class TrustedExecutorService {
     const decision = await escalation.evaluate(captured);
     // Every decision goes through the executor, an ESCALATE or BLOCK included,
     // so the audit stream carries the refusal as well as the execution.
+    if (decision.verdict === "ALLOW" && !decision.failClosed) {
+      this.assertWithinLimits(captured, "COMMIT");
+      await this.openAttempt(captured, decision);
+    }
     const outcome = await executor.run(captured, decision);
+    await this.closeAttempt(captured, decision, outcome);
     this.metrics.executions.inc({ outcome: outcome.outcome });
     let handoff: EscalationHandoff | null = null;
     let unavailable = false;

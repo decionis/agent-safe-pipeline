@@ -7,11 +7,29 @@ import { SecretHandle } from "../../src/secrets/SecretHandle.js";
 import { ServiceError } from "../../src/service/ServiceError.js";
 import type { TrustedExecutorService } from "../../src/service/TrustedExecutorService.js";
 import { CALLER_TOKEN, LOOPBACK_ORIGIN, collectedEvents } from "../support/Environment.js";
-import { legacyAuthenticator } from "../support/Principals.js";
+import { legacyAuthenticator, mixedAuthenticator, OPERATOR_TOKEN } from "../support/Principals.js";
 
 const propose = vi.fn();
 const reconcile = vi.fn();
 const resume = vi.fn();
+const halt = vi.fn(() => ({
+  halted: true,
+  trigger: "OPERATOR",
+  reason: "stopping",
+  since: "1970-01-01T00:00:00.000Z",
+}));
+const resumeWork = vi.fn(() => ({ halted: false, trigger: null, reason: null, since: null }));
+const openAttempts = vi.fn(() => ({ attempts: [], unknown: 0 }));
+const readiness = vi.fn(() => ({
+  ready: true,
+  body: {
+    status: "ready",
+    mode: "ENFORCEMENT",
+    escalation: "NONE",
+    actions: ["forward_request"],
+    open_attempts: 0,
+  } as Record<string, unknown>,
+}));
 const service = {
   mode: "ENFORCEMENT",
   escalationMode: "NONE",
@@ -19,6 +37,10 @@ const service = {
   propose,
   reconcile,
   resume,
+  readiness,
+  halt,
+  resumeWork,
+  openAttempts,
 } as unknown as TrustedExecutorService;
 
 let callerToken = SecretHandle.fromString("EXECUTOR_CALLER_TOKEN", CALLER_TOKEN);
@@ -127,6 +149,9 @@ describe("ExecutorHttpServer", () => {
       "POST /v1/reconciliations",
       "POST /v1/escalations",
       "GET /v1/control/status",
+      "POST /v1/control/halt",
+      "POST /v1/control/resume",
+      "GET /v1/control/open-attempts",
       "POST /v1/control/secrets/reload",
       "GET /metrics",
     ]);
@@ -145,6 +170,9 @@ describe("ExecutorHttpServer", () => {
       ),
     ).toEqual([
       "/v1/control/status:status",
+      "/v1/control/halt:halt",
+      "/v1/control/resume:resume",
+      "/v1/control/open-attempts:status",
       "/v1/control/secrets/reload:secrets.reload",
       "/metrics:metrics",
     ]);
@@ -154,6 +182,9 @@ describe("ExecutorHttpServer", () => {
     for (const [path, method] of [
       ["/metrics", "GET"],
       ["/v1/control/status", "GET"],
+      ["/v1/control/halt", "POST"],
+      ["/v1/control/resume", "POST"],
+      ["/v1/control/open-attempts", "GET"],
       ["/v1/control/secrets/reload", "POST"],
     ] as const) {
       const reply = await call(path, method === "POST" ? { method, body: "{}" } : { method });
@@ -214,7 +245,7 @@ describe("ExecutorHttpServer", () => {
     }
   });
 
-  it("reports readiness, the mode, the escalation shape, and the actions", async () => {
+  it("reports readiness, the mode, the escalation shape, the actions, and what it does not know", async () => {
     const reply = await call("/ready", { method: "GET", token: null });
     expect(reply.status).toBe(200);
     expect(reply.body).toEqual({
@@ -222,7 +253,95 @@ describe("ExecutorHttpServer", () => {
       mode: "ENFORCEMENT",
       escalation: "NONE",
       actions: ["forward_request"],
+      open_attempts: 0,
     });
+  });
+
+  it("hands the operator routes their bodies, and the operator alone", async () => {
+    const operated = new ExecutorHttpServer(service, mixedAuthenticator());
+    const bound = await operated.listen(0, "127.0.0.1");
+    const origin = `${LOOPBACK_ORIGIN}:${bound.port}`;
+    const send = async (
+      path: string,
+      token: string,
+      body?: string,
+    ): Promise<{ status: number; body: Record<string, unknown> }> => {
+      const response = await fetch(`${origin}${path}`, {
+        method: body === undefined ? "GET" : "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        ...(body === undefined ? {} : { body }),
+      });
+      return { status: response.status, body: (await response.json()) as Record<string, unknown> };
+    };
+    const stopped = await send(
+      "/v1/control/halt",
+      OPERATOR_TOKEN,
+      JSON.stringify({ reason: "stopping" }),
+    );
+    expect(stopped.status).toBe(200);
+    expect(stopped.body).toMatchObject({ halted: true, trigger: "OPERATOR" });
+    expect(halt).toHaveBeenCalledWith(
+      { reason: "stopping" },
+      expect.objectContaining({ id: "synthetic-ops-oncall" }),
+    );
+    const resumed = await send(
+      "/v1/control/resume",
+      OPERATOR_TOKEN,
+      JSON.stringify({ reason: "cause cleared" }),
+    );
+    expect(resumed.body).toMatchObject({ halted: false });
+    expect(resumeWork).toHaveBeenCalledWith(
+      { reason: "cause cleared" },
+      expect.objectContaining({ id: "synthetic-ops-oncall" }),
+    );
+    expect((await send("/v1/control/open-attempts", OPERATOR_TOKEN)).body).toEqual({
+      attempts: [],
+      unknown: 0,
+    });
+    // The proposer holds no operator scope, and its own route still works.
+    expect((await send("/v1/control/halt", CALLER_TOKEN, "{}")).body).toEqual({
+      code: "ROLE_FORBIDDEN",
+    });
+    propose.mockResolvedValueOnce({ outcome: "COMPLETED" });
+    expect((await send("/v1/actions", CALLER_TOKEN, "{}")).status).toBe(200);
+    await operated.close();
+  });
+
+  it("answers a halted refusal in the shape the caller parses, with the seconds to wait", async () => {
+    propose.mockRejectedValueOnce(
+      new ServiceError(
+        503,
+        "EXECUTOR_HALTED",
+        { verdict: "BLOCK", outcome: "BLOCKED", reason_codes: ["EXECUTOR_HALTED"] },
+        30,
+      ),
+    );
+    const refused = await call("/v1/actions", { body: "{}" });
+    expect(refused.status).toBe(503);
+    expect(refused.headers.get("retry-after")).toBe("30");
+    expect(refused.body).toEqual({
+      verdict: "BLOCK",
+      outcome: "BLOCKED",
+      reason_codes: ["EXECUTOR_HALTED"],
+    });
+    // A refusal with no body of its own is still just a code, and no
+    // Retry-After is invented for it.
+    propose.mockRejectedValueOnce(new ServiceError(422, "HARD_LIMIT_EXCEEDED"));
+    const limited = await call("/v1/actions", { body: "{}" });
+    expect(limited.status).toBe(422);
+    expect(limited.body).toEqual({ code: "HARD_LIMIT_EXCEEDED" });
+    expect(limited.headers.get("retry-after")).toBeNull();
+  });
+
+  it("answers readiness with 503 while halted, and liveness with 200 all the same", async () => {
+    readiness.mockReturnValueOnce({
+      ready: false,
+      body: { status: "halted", halt: { trigger: "OPERATOR", since: "1970-01-01T00:00:00.000Z" } },
+    });
+    const halted = await call("/ready", { method: "GET", token: null });
+    expect(halted.status).toBe(503);
+    expect(halted.body).toMatchObject({ status: "halted" });
+    expect((await call("/health", { method: "GET", token: null })).status).toBe(200);
   });
 
   it("refuses an unknown route and a wrong method with the same headers", async () => {
