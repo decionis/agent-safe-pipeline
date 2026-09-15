@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   compareMaxJsonResponseBytes,
+  describeCommits,
+  descriptionFromMessage,
   GitHubApiClient,
   GitHubApiError,
   PullRequestBot,
@@ -43,13 +45,17 @@ function createBot(handler) {
   };
 }
 
-function comparison(authors = [expectedAuthorLogin]) {
+function comparison(authors = [expectedAuthorLogin], messages) {
   return {
     ahead_by: authors.length,
     total_commits: authors.length,
     commits: authors.map((login, index) => ({
       author: login === null ? null : { login },
-      commit: { message: index === authors.length - 1 ? "Add governed change" : "Earlier change" },
+      commit: {
+        message:
+          messages?.[index] ??
+          (index === authors.length - 1 ? "Add governed change" : "Earlier change"),
+      },
     })),
   };
 }
@@ -82,6 +88,38 @@ describe("PullRequestBot", () => {
     const createCall = api.calls.find(({ method }) => method === "POST");
     assert.equal(createCall.options.body.head, "feature/owned");
     assert.match(createCall.options.body.body, /branch creation was attributed to @ocularminds/);
+  });
+
+  it("describes the change from the commit itself, above its own provenance note", async () => {
+    const message = [
+      "feat(agentsafe): journal every attempt",
+      "",
+      "Nothing executes without a durable record of the attempt.",
+      "",
+      "The halt is deliberately easy to reach.",
+      "",
+      "Signed-off-by: Festus B. Jejelowo <mail.festus@gmail.com>",
+    ].join("\n");
+    const { api, bot } = createBot(({ method, path }) => {
+      if (path.endsWith("/pulls") && method === "GET") return [];
+      if (path.includes("/compare/")) return comparison([expectedAuthorLogin], [message]);
+      if (path.endsWith("/actions/runs")) return { workflow_runs: [] };
+      if (path.endsWith("/pulls") && method === "POST") {
+        return { html_url: "https://github.com/decionis/agent-safe-pipeline/pull/102" };
+      }
+      throw new Error("Unexpected request: " + method + " " + path);
+    });
+
+    await bot.run("create", { ref: "feat/described", ref_type: "branch" });
+
+    const { title, body } = api.calls.find(({ method }) => method === "POST").options.body;
+    assert.equal(title, "feat(agentsafe): journal every attempt");
+    assert.match(body, /^## What changed\n\nNothing executes without a durable record/);
+    assert.match(body, /The halt is deliberately easy to reach\./);
+    // The description comes first; the bot's note follows it.
+    assert.ok(body.indexOf("## What changed") < body.indexOf("## Automated pull request"));
+    // A trailer is part of the commit, not of a description a person reads.
+    assert.doesNotMatch(body, /Signed-off-by/);
   });
 
   it("opens a PR when every compared commit belongs to the expected author", async () => {
@@ -228,6 +266,73 @@ describe("titleFromMessage", () => {
     const title = titleFromMessage("x".repeat(80) + "\nbody", "feature/long");
     assert.equal(title.length, 72);
     assert.equal(title.endsWith("..."), true);
+    assert.equal(titleFromMessage("x".repeat(72) + "\nbody", "b"), "x".repeat(72));
+    assert.equal(titleFromMessage(undefined, "feature/named"), "Changes from feature/named");
+    assert.equal(titleFromMessage("   ", "feature/blank"), "Changes from feature/blank");
+  });
+});
+
+describe("descriptionFromMessage", () => {
+  it("is the commit body without its subject or its trailers", () => {
+    const message = [
+      "feat(scope): the subject",
+      "",
+      "The first paragraph a reviewer should read.",
+      "",
+      "The second one.",
+      "",
+      "Co-Authored-By: Someone <someone@example.com>",
+      "Signed-off-by: Someone Else <else@example.com>",
+    ].join("\n");
+    assert.equal(
+      descriptionFromMessage(message),
+      "The first paragraph a reviewer should read.\n\nThe second one.",
+    );
+    // A commit with nothing but a subject, or nothing but trailers after it,
+    // has no description, and none is invented.
+    assert.equal(descriptionFromMessage("feat: subject only"), "");
+    assert.equal(
+      descriptionFromMessage("feat: subject\n\nSigned-off-by: Someone <a@example.com>"),
+      "",
+    );
+    assert.equal(descriptionFromMessage(undefined), "");
+    // A body that would not fit is cut and says so, rather than being refused.
+    const long = descriptionFromMessage("subject\n\n" + "x".repeat(60 * 1024));
+    assert.equal(long.endsWith("[truncated]"), true);
+    assert.ok(long.length < 50 * 1024);
+  });
+});
+
+describe("describeCommits", () => {
+  it("puts one commit's description in front of the bot's own note", () => {
+    const sections = describeCommits(["feat: one\n\nWhat it does."]);
+    assert.deepEqual(sections, ["## What changed", "", "What it does.", "", "---", ""]);
+  });
+
+  it("lists every subject when a branch carries several commits", () => {
+    const sections = describeCommits([
+      "fix: the first",
+      "feat: the second\n\nWhy the branch exists.",
+    ]);
+    assert.deepEqual(sections, [
+      "## Commits",
+      "",
+      "- fix: the first",
+      "- feat: the second",
+      "",
+      "## What changed",
+      "",
+      "Why the branch exists.",
+      "",
+      "---",
+      "",
+    ]);
+  });
+
+  it("contributes nothing when there is nothing to say", () => {
+    assert.deepEqual(describeCommits([]), []);
+    assert.deepEqual(describeCommits([undefined, "  "]), []);
+    assert.deepEqual(describeCommits(["feat: subject only"]), []);
   });
 });
 

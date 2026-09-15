@@ -11,6 +11,10 @@ const maxPages = 3;
 const perPage = 100;
 const branchCreationWorkflow = ".github/workflows/PullRequestBot.yml";
 export const compareMaxJsonResponseBytes = 512 * 1024;
+/** GitHub accepts a longer title; 72 keeps it readable in a list and in a terminal. */
+const maxTitleLength = 72;
+/** Well inside GitHub's own limit for a pull request body. */
+const maxDescriptionBytes = 48 * 1024;
 
 function jsonResponseOptions(method, pathname) {
   // GitHub embeds textual patches in compare responses. Keep the wider bound
@@ -213,14 +217,14 @@ export class PullRequestBot {
         this.defaultBranch +
         " was attributed to @" +
         this.expectedAuthorLogin;
-    const latestCommit = comparison.commits.at(-1);
-    const title = titleFromMessage(latestCommit?.commit?.message, branch);
+    const messages = comparison.commits.map((commit) => commit?.commit?.message);
+    const title = titleFromMessage(messages.at(-1), branch);
     const pullRequest = await this.api.request("POST", "/repos/" + this.repository + "/pulls", {
       body: {
         title,
         head: branch,
         base: this.defaultBranch,
-        body: this.buildBody(branch, reason),
+        body: this.buildBody(branch, reason, messages),
         draft: false,
         maintainer_can_modify: true,
       },
@@ -294,10 +298,17 @@ export class PullRequestBot {
     );
   }
 
-  buildBody(branch, reason) {
+  /**
+   * The pull request's description. What the change is comes from the
+   * commits themselves, because the author already wrote it there and a
+   * reviewer should not have to open the commit list to read it; what the
+   * bot did comes after, so provenance never displaces the substance.
+   */
+  buildBody(branch, reason, messages = []) {
     const quote = String.fromCharCode(96);
     const safeBranch = branch.replaceAll(quote, "\\" + quote);
     return [
+      ...describeCommits(messages),
       "## Automated pull request",
       "",
       "Decionis Bot opened this pull request for " +
@@ -319,7 +330,50 @@ export class PullRequestBot {
 
 export function titleFromMessage(message, branch) {
   const headline = message?.split("\n")[0]?.trim() || "Changes from " + branch;
-  return headline.length <= 72 ? headline : headline.slice(0, 69) + "...";
+  return headline.length <= maxTitleLength
+    ? headline
+    : headline.slice(0, maxTitleLength - 3) + "...";
+}
+
+/** Trailers belong to the commit, not to a description a person reads. */
+const trailerPattern = /^[a-z][\w-]*:\s/i;
+
+/**
+ * One commit's description: its body, with the subject line and the trailers
+ * removed. A commit whose body is only trailers has no description, and
+ * nothing is invented for it.
+ */
+export function descriptionFromMessage(message) {
+  const lines = typeof message === "string" ? message.split("\n") : [];
+  const body = lines
+    .slice(1)
+    .filter((line) => !trailerPattern.test(line.trim()))
+    .join("\n")
+    .trim();
+  return body.length > maxDescriptionBytes
+    ? body.slice(0, maxDescriptionBytes) + "\n\n[truncated]"
+    : body;
+}
+
+/**
+ * What the change is, from the commits ahead of the default branch. One
+ * commit contributes its own description; several contribute a list of their
+ * subjects followed by the newest description, which is the one that
+ * summarises the branch in this repository's workflow.
+ */
+export function describeCommits(messages = []) {
+  const present = messages.filter(
+    (message) => typeof message === "string" && message.trim() !== "",
+  );
+  if (present.length === 0) return [];
+  const subjects = present.map((message) => message.split("\n")[0].trim());
+  const description = descriptionFromMessage(present.at(-1));
+  const sections = [];
+  if (present.length > 1) {
+    sections.push("## Commits", "", ...subjects.map((subject) => "- " + subject), "");
+  }
+  if (description !== "") sections.push("## What changed", "", description, "");
+  return sections.length === 0 ? [] : [...sections, "---", ""];
 }
 
 async function main() {
