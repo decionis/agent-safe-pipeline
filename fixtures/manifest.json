@@ -321,6 +321,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/deploy/ManifestConfigKeys.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/egress/EgressPolicy.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",

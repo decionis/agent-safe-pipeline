@@ -77,7 +77,7 @@ DECIONIS_API_KEY=server-side-secret
 
 See the [package README](./packages/pipeline/README.md) for the complete enforcement example and [`docs/shadow-mode.md`](./docs/shadow-mode.md) for the shadow rollout path.
 
-To run the boundary as its own service rather than in-process, [`packages/agentsafe`](./packages/agentsafe) is the executor as a process: `@decionis/agentsafe`, a listener in front of the same components with a seam for your handlers. [`examples/trusted-executor`](./examples/trusted-executor) is its proof over real HTTP against the loopback doubles and the template an adopter starts from. [`deploy/`](./deploy) is its image, the Kubernetes manifest with every credential referenced and never written, and the runbook from shadow to enforcement.
+To run the boundary as its own service rather than in-process, [`packages/agentsafe`](./packages/agentsafe) is the executor as a process: `@decionis/agentsafe`, a listener in front of the same components with a seam for your handlers. [`examples/trusted-executor`](./examples/trusted-executor) is its proof over real HTTP against the loopback doubles and the template an adopter starts from. [`deploy/`](./deploy) is its image, the Kubernetes manifests for the two zones with every credential referenced and never written, and the runbook from shadow to enforcement.
 
 ## Installing the Decionis CLI
 
@@ -114,7 +114,7 @@ Apache-2.0 source; `formula/` and `apps/` hold metadata only.
 - [`examples/presence-managed-approval`](./examples/presence-managed-approval) — Decionis-managed Presence orchestration with Decionis-only polling and no Presence credential in the executor.
 - [`examples/local-escalation`](./examples/local-escalation) — both Presence integration modes against loopback Decionis and Presence doubles, no credentials, ceremony simulated.
 - [`examples/trusted-executor`](./examples/trusted-executor) — the proof of `@decionis/agentsafe` over real HTTP against the loopback doubles, and the template an adopter starts from: the handler seam and a process of a few lines.
-- [`deploy/`](./deploy) — the deployment kit: the executor image, a Kubernetes manifest with Secrets referenced and never written, and the runbook from shadow to enforcement.
+- [`deploy/`](./deploy) — the deployment kit: the executor image, conformance-tested Kubernetes manifests for the agent zone and the executor zone with Secrets referenced and never written, and the runbook from shadow to enforcement.
 - [`ARCHITECTURE.md`](./ARCHITECTURE.md) and [`THREAT-MODEL.md`](./THREAT-MODEL.md) — trust boundary and abuse analysis.
 - [`OPEN-CORE.md`](./OPEN-CORE.md) — what is Apache-2.0 here, what Decionis operates, and the seam between them.
 - [`docs/`](./docs) — concepts, execution intent, outcomes, human approval, [Presence Evidence semantics](./docs/presence-evidence.md), the [remote CRO sequence](./docs/remote-cro-authorization.md), shadow mode, Decision Dossiers, trust boundary, the [executor's chained evidence](./docs/executor-evidence.md), [what the executor implements of the BEAP v0.1 banking profile](./docs/beap-conformance.md), and assurance notes.

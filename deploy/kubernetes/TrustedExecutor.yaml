@@ -8,17 +8,18 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: agent-safe-executor-config
-  namespace: agent-safe
+  namespace: agent-safe-executor
 data:
   # SHADOW first. Changing this to ENFORCEMENT is a decision a person makes
   # after the runbook's stopping criteria are met (deploy/Runbook.md).
   EXECUTOR_MODE: "SHADOW"
   EXECUTOR_BIND_ADDRESS: "0.0.0.0"
   PORT: "8443"
-  EXECUTOR_TENANT_ID: "00000000-0000-4000-8000-000000000001"
-  EXECUTOR_ACTOR_ID: "synthetic-payout-agent"
-  EXECUTOR_ACTOR_TYPE: "AI_AGENT"
-  EXECUTOR_ACTOR_RUNTIME: "workflow-runner"
+  # EXECUTOR_TENANT_ID and EXECUTOR_ACTOR_* are deliberately absent: this
+  # deployment identifies its callers from the principals file below, and each
+  # principal carries its own tenant and actor. Setting both is refused at
+  # start-up, because it would leave two answers to "who proposed this".
+  #
   # A proposal stays valid this long; a ceremony has to finish inside it.
   EXECUTOR_INTENT_TTL_SECONDS: "300"
   # EXECUTOR_POSTURE is deliberately not set: it defaults to ENFORCED, and
@@ -61,12 +62,6 @@ data:
   EXECUTOR_HARD_LIMIT_WINDOW_COUNT: "120"
   # How far this host's clock may be from the authority's before it halts.
   EXECUTOR_MAX_CLOCK_SKEW_MS: "2000"
-  # NONE returns the hold. MANAGED has the authority orchestrate Presence and
-  # needs PRESENCE_APPROVER_ID, PRESENCE_VERIFICATION_LEVEL and
-  # PRESENCE_VERIFICATION_METHODS (PRESENCE_APPROVER_ROLE optional). DIRECT
-  # has this process open the Presence request and additionally needs
-  # PRESENCE_API_URL, PRESENCE_API_KEY_FILE, PRESENCE_ORGANIZATION,
-  # PRESENCE_HARDWARE_PKI_REQUIRED and PRESENCE_DISALLOW_VIRTUAL_CAMERAS.
   # Who may call, and as what. The ConfigMap below holds digests and
   # identities only: a bearer credential is the SHA-256 of a token the caller
   # holds, a certificate is named by its SAN URI, a workload token by its
@@ -83,15 +78,33 @@ data:
   # proven identity keeps failing is locked out for five minutes.
   EXECUTOR_RATE_LIMIT_UNAUTHENTICATED: "20/60"
   EXECUTOR_AUTH_LOCKOUT: "10/60/300"
-  EXECUTOR_ESCALATION: "MANAGED"
-  PRESENCE_APPROVER_ID: "synthetic-treasury-approver"
-  PRESENCE_APPROVER_ROLE: "CRO"
-  PRESENCE_VERIFICATION_LEVEL: "HIGH_CONFIDENCE"
-  PRESENCE_VERIFICATION_METHODS: "WEBAUTHN,ACTIVE_LIVENESS"
+  # NONE while this is a shadow deployment, because shadow never escalates and
+  # the executor refuses to start with any other value beside SHADOW. When the
+  # runbook's criteria are met and EXECUTOR_MODE becomes ENFORCEMENT, set this
+  # in the same change:
+  #
+  #   EXECUTOR_ESCALATION: "MANAGED"
+  #   PRESENCE_APPROVER_ID: "synthetic-treasury-approver"
+  #   PRESENCE_APPROVER_ROLE: "CRO"
+  #   PRESENCE_VERIFICATION_LEVEL: "HIGH_CONFIDENCE"
+  #   PRESENCE_VERIFICATION_METHODS: "WEBAUTHN,ACTIVE_LIVENESS"
+  #
+  # MANAGED has the authority orchestrate the ceremony, so no Presence
+  # credential exists in this process. DIRECT has the executor open the request
+  # itself and additionally needs PRESENCE_API_URL, PRESENCE_API_KEY_FILE,
+  # PRESENCE_ORGANIZATION, PRESENCE_HARDWARE_PKI_REQUIRED and
+  # PRESENCE_DISALLOW_VIRTUAL_CAMERAS, plus the egress path in
+  # ExecutorEgress.yaml. NONE returns the hold to the caller and executes
+  # nothing.
+  EXECUTOR_ESCALATION: "NONE"
   DECIONIS_API_URL: "https://authority.decionis.example"
   DECIONIS_API_KEY_FILE: "/var/run/agent-safe/secrets/decionis-api-key"
   DOWNSTREAM_URL: "https://payouts.provider.example/v1/payouts"
   DOWNSTREAM_LOOKUP_URL: "https://payouts.provider.example/v1/payouts/{idempotency_key}"
+  # For a banking action, the effect is read back before it may be called
+  # confirmed; without this address an acknowledgement stays an
+  # acknowledgement. `{provider_reference}` is substituted per attempt.
+  DOWNSTREAM_LOOKUP_BY_REFERENCE_URL: "https://payouts.provider.example/v1/payouts/by-reference/{provider_reference}"
   DOWNSTREAM_SYSTEM: "payout-rail"
   DOWNSTREAM_OPERATION: "create_payout"
   DOWNSTREAM_ENVIRONMENT: "production"
@@ -103,6 +116,15 @@ data:
   DOWNSTREAM_CREDENTIAL_FILE: "/var/run/agent-safe/secrets/downstream-credential"
   DOWNSTREAM_CREDENTIAL_HEADER: "Authorization"
   DOWNSTREAM_TIMEOUT_MS: "5000"
+  # The observer named in every effect record this deployment produces, and
+  # the one the authority is told about; they are the same string on purpose.
+  BANKING_ADAPTER_ID: "AGENTSAFE_CORE_BANKING"
+  BANKING_ADAPTER_VERSION: "0.1.0"
+  # An observed effect that is not the authorised one halts the executor by
+  # default, because the next proposal would be made against a state nobody
+  # has reconciled. ALERT records and counts it and keeps taking work, which
+  # is a decision for an institution with a same-day exception process.
+  EXECUTOR_ON_EFFECT_MISMATCH: "HALT"
 ---
 # Who may call. Digests and identities only; no token, key or certificate is
 # in this file. One principal per workload: a PROPOSER carries the tenant and
@@ -114,7 +136,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: agent-safe-executor-principals
-  namespace: agent-safe
+  namespace: agent-safe-executor
 data:
   principals.json: |
     {
@@ -157,10 +179,20 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: agent-safe-executor-jwks
-  namespace: agent-safe
+  namespace: agent-safe-executor
 data:
   jwks.json: |
     { "keys": [] }
+---
+# The executor's own identity, with no token mounted: nothing this process
+# does talks to the API server. It exists so the pod is not the namespace's
+# `default` account, and so an operator's RBAC can name it.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: agent-safe-executor
+  namespace: agent-safe-executor
+automountServiceAccountToken: false
 ---
 # A StatefulSet, not a Deployment, because the attempt journal is per
 # replica: a pod that restarts must come back to its own journal and
@@ -169,7 +201,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: agent-safe-executor
-  namespace: agent-safe
+  namespace: agent-safe-executor
   labels:
     app: agent-safe-executor
 spec:
@@ -187,7 +219,13 @@ spec:
       labels:
         app: agent-safe-executor
     spec:
+      serviceAccountName: agent-safe-executor
       automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 20
+      # A sandboxed runtime is the strongest answer to the threat model's
+      # first residual risk, a kernel escape from this container. Name the
+      # class your cluster installs (gVisor's `gvisor`, Kata's `kata-qemu`):
+      #   runtimeClassName: gvisor
       # The image runs as distroless `nonroot` (65532). The fsGroup makes the
       # Secret volume readable by the process's group, which is one of the two
       # ownership shapes the executor's posture accepts.
@@ -225,6 +263,8 @@ spec:
               readOnly: true
             - name: journal
               mountPath: /var/lib/agent-safe
+            - name: tmp
+              mountPath: /tmp
           readinessProbe:
             httpGet:
               path: /ready
@@ -253,8 +293,15 @@ spec:
               cpu: 100m
               memory: 128Mi
             limits:
+              cpu: "1"
               memory: 256Mi
       volumes:
+        # The root filesystem is read-only, so the one scratch directory the
+        # runtime may want is a tmpfs of its own with nothing executable in it.
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi
         - name: secrets
           secret:
             # Created out of band with the keys the ConfigMap names:
@@ -300,14 +347,14 @@ spec:
 # replica halts within seconds; delete it and an operator may resume with a
 # reason. The executor refuses to resume while the file is still there.
 #
-#   kubectl -n agent-safe create configmap agent-safe-executor-halt \
+#   kubectl -n agent-safe-executor create configmap agent-safe-executor-halt \
 #     --from-literal=halted="payment rail incident, on-call stopped it"
 #
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: agent-safe-executor
-  namespace: agent-safe
+  namespace: agent-safe-executor
 spec:
   minAvailable: 1
   selector:
@@ -341,7 +388,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: agent-safe-executor
-  namespace: agent-safe
+  namespace: agent-safe-executor
 spec:
   type: ClusterIP
   selector:
@@ -350,49 +397,3 @@ spec:
     - port: 8443
       targetPort: 8443
       protocol: TCP
----
-# Only the workflow that proposes may reach the executor, and the executor
-# may reach only the authority and the downstream. The agent runtime has no
-# path to the downstream at all (THREAT-MODEL.md, "Accepted risks").
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: agent-safe-executor
-  namespace: agent-safe
-spec:
-  podSelector:
-    matchLabels:
-      app: agent-safe-executor
-  policyTypes: ["Ingress", "Egress"]
-  ingress:
-    - from:
-        - podSelector:
-            matchLabels:
-              agent-safe-caller: "true"
-      ports:
-        - port: 8443
-          protocol: TCP
-  egress:
-    # DNS.
-    - to:
-        - namespaceSelector: {}
-          podSelector:
-            matchLabels:
-              k8s-app: kube-dns
-      ports:
-        - port: 53
-          protocol: UDP
-    # The authority and the downstream: fill in the ranges your network
-    # gives them.
-    - to:
-        - ipBlock:
-            cidr: AUTHORITY_CIDR_PLACEHOLDER
-      ports:
-        - port: 443
-          protocol: TCP
-    - to:
-        - ipBlock:
-            cidr: DOWNSTREAM_CIDR_PLACEHOLDER
-      ports:
-        - port: 443
-          protocol: TCP

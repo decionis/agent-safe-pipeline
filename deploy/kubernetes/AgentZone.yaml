@@ -1,0 +1,123 @@
+# The agent zone: what a proposing workflow may reach.
+#
+# One path out, to the executor's listener, plus DNS. There is deliberately no
+# `ipBlock` anywhere in this file, which is the whole point: a rule with a
+# CIDR in it is a rule that could name the provider, and the threat model's
+# first residual risk is an agent that calls the provider directly. With no
+# `ipBlock` and a default-deny beneath it, the agent zone has no route off the
+# cluster at all — not to the downstream, not to the authority, not to the
+# internet. Everything consequential it wants has to go through a proposal.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: treasury-workflow
+  namespace: agent-safe-agents
+automountServiceAccountToken: false
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agent-zone-egress
+  namespace: agent-safe-agents
+spec:
+  # Only a pod that says it is a caller gets the path; an unlabelled pod in
+  # this namespace keeps the default deny.
+  podSelector:
+    matchLabels:
+      agent-safe-caller: "true"
+  policyTypes: ["Egress"]
+  egress:
+    # Cluster DNS, so the executor's Service name resolves.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # The executor's listener, and nothing else in that namespace.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              agent-safe-zone: executor
+          podSelector:
+            matchLabels:
+              app: agent-safe-executor
+      ports:
+        - port: 8443
+          protocol: TCP
+---
+# A proposing workflow, as the executor expects to find it. This is a template
+# rather than a workload: an adopter replaces the image and the command with
+# their own agent runtime, and keeps three things.
+#
+# First, the label: without `agent-safe-caller: "true"` the policy above does
+# not apply and the pod has no network. Second, the projected token: its
+# audience is the executor's `EXECUTOR_JWT_AUDIENCE`, it lives ten minutes,
+# and the cluster signs it, so no shared secret exists between the two zones.
+# Third, `automountServiceAccountToken: false`: the API server's own token is
+# not what authenticates to the executor, and a pod that mounts it by default
+# hands a broader credential to whatever runs inside it.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: treasury-workflow
+  namespace: agent-safe-agents
+  labels:
+    app: treasury-workflow
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: treasury-workflow
+  template:
+    metadata:
+      labels:
+        app: treasury-workflow
+        agent-safe-caller: "true"
+    spec:
+      serviceAccountName: treasury-workflow
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: workflow
+          # Your agent runtime. It reads the token below and posts proposals to
+          # https://agent-safe-executor.agent-safe-executor.svc.cluster.example:8443/v1/actions
+          image: WORKFLOW_IMAGE_PLACEHOLDER
+          volumeMounts:
+            - name: executor-token
+              mountPath: /var/run/secrets/agent-safe
+              readOnly: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 128Mi
+      volumes:
+        - name: executor-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  audience: agentsafe
+                  expirationSeconds: 600

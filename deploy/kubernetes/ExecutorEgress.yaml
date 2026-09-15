@@ -1,0 +1,101 @@
+# What the executor may reach, and who may reach it.
+#
+# This is the narrow half of the boundary. The wide half is `DefaultDeny.yaml`
+# and `AgentZone.yaml`: a pod with no path cannot be talked into using one.
+# Here the executor is given exactly the destinations its own sealed egress
+# policy already admits in-process, so the two agree and either alone is a
+# refusal. Two layers is the point: the CNI stops the packet, and the process
+# refuses the request even where no CNI is enforcing anything.
+#
+# Ranges are placeholders because a CIDR is a fact about your network. Where
+# Cilium is the CNI, `cilium/FqdnEgress.yaml` replaces them with names.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agent-safe-executor
+  namespace: agent-safe-executor
+spec:
+  podSelector:
+    matchLabels:
+      app: agent-safe-executor
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    # Only a labelled caller in the agent zone, and only on the listener. The
+    # kubelet's probes are not covered by a NetworkPolicy — node-local traffic
+    # to a pod is exempt — so `/health` and `/ready` keep working without a
+    # rule that would also admit everything else on the node.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              agent-safe-zone: agents
+          podSelector:
+            matchLabels:
+              agent-safe-caller: "true"
+      ports:
+        - port: 8443
+          protocol: TCP
+    # An operator reads status, metrics and evidence from their own namespace.
+    # Uncomment with the namespace your on-call tooling runs in; until then,
+    # `kubectl port-forward` is the path and it needs no rule.
+    #
+    # - from:
+    #     - namespaceSelector:
+    #         matchLabels:
+    #           kubernetes.io/metadata.name: agent-safe-ops
+    #       ports:
+    #         - port: 8443
+    #           protocol: TCP
+  egress:
+    # Cluster DNS, so the authority and the downstream names resolve. The
+    # in-process policy resolves each destination once per connection and
+    # pins the socket to the address it got, so a rebind between the lookup
+    # and the connect does not move the request.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # The authority. Replace with the range your network gives it.
+    - to:
+        - ipBlock:
+            cidr: AUTHORITY_CIDR_PLACEHOLDER
+      ports:
+        - port: 443
+          protocol: TCP
+    # The downstream, including its read-back address: the effect is compared
+    # against what was authorised, and a provider that cannot be read back
+    # can only ever be acknowledged.
+    - to:
+        - ipBlock:
+            cidr: DOWNSTREAM_CIDR_PLACEHOLDER
+      ports:
+        - port: 443
+          protocol: TCP
+    # The Presence service, for DIRECT escalation only. With MANAGED the
+    # authority orchestrates the ceremony and this process holds no Presence
+    # credential, so the path should not exist.
+    #
+    # - to:
+    #     - ipBlock:
+    #         cidr: PRESENCE_CIDR_PLACEHOLDER
+    #       ports:
+    #         - port: 443
+    #           protocol: TCP
+    #
+    # The API server, only if you set EXECUTOR_JWKS_URL so the executor
+    # refreshes the cluster's signing keys itself. With the JWKS ConfigMap
+    # alone — the default in this kit — it needs no such path.
+    #
+    # - to:
+    #     - ipBlock:
+    #         cidr: APISERVER_CIDR_PLACEHOLDER
+    #       ports:
+    #         - port: 443
+    #           protocol: TCP

@@ -1,0 +1,37 @@
+# Two zones, and the boundary between them.
+#
+# The agent zone holds the workflows that propose. The executor zone holds the
+# one process that may act. Nothing in this kit puts them in one namespace,
+# because the network policies that separate them are namespace-scoped: a
+# single namespace would make "the agent cannot reach the provider" a claim
+# about labels rather than a claim about the network.
+#
+# Both namespaces enforce Pod Security Admission's `restricted` profile. The
+# executor's own posture check refuses to start outside that shape anyway; the
+# label is what stops a pod from being admitted in the first place, and it is
+# the cluster's control rather than the process's.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agent-safe-agents
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest
+    agent-safe-zone: agents
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agent-safe-executor
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest
+    agent-safe-zone: executor
