@@ -1,5 +1,6 @@
-import { statSync, watch, type FSWatcher } from "node:fs";
+import type { FSWatcher } from "node:fs";
 import { dirname } from "node:path";
+import { regularFileExists, watchDirectory } from "./FileProbe.js";
 import { RateLimiter, type RateLimitRule } from "../identity/RateLimiter.js";
 import type { SecurityEvents } from "./SecurityEvents.js";
 
@@ -33,6 +34,12 @@ export interface HaltSwitchOptions {
   readonly clock?: () => Date;
   readonly fileExists?: (path: string) => boolean;
   readonly pollSeconds?: number;
+  /**
+   * How the halt file's directory is followed. The default is `fs.watch`; a
+   * test supplies its own so the error path, and the failure to watch at
+   * all, are reachable without a filesystem that misbehaves on demand.
+   */
+  readonly watchDirectory?: (path: string, onChange: () => void) => FSWatcher;
 }
 
 const POLL_SECONDS = 5;
@@ -60,12 +67,28 @@ export class HaltSwitch {
   private readonly limits: RateLimiter;
   private readonly clock: () => Date;
   private readonly exists: (path: string) => boolean;
+  // Every optional setting is resolved once, here, so that no check further
+  // down has a half no input could reach: `undefined` and `null` both mean
+  // "not configured", and saying that twice per use is a branch with no
+  // behaviour behind it.
+  private readonly haltFile: string | null;
+  private readonly authFailures: RateLimitRule | null;
+  private readonly egressRefusals: RateLimitRule | null;
+  private readonly pollMs: number;
+  private readonly watchDirectory: (path: string, onChange: () => void) => FSWatcher;
+  /** The one thing `start()` leaves behind, so stopping is one call. */
+  private readonly stopper: () => void = () => this.stop();
   private watcher: FSWatcher | null = null;
-  private poll: ReturnType<typeof setInterval> | null = null;
+  private cancelPoll: (() => void) | null = null;
 
   public constructor(private readonly options: HaltSwitchOptions) {
     this.clock = options.clock ?? (() => new Date());
-    this.exists = options.fileExists ?? HaltSwitch.regularFileExists;
+    this.exists = options.fileExists ?? regularFileExists;
+    this.haltFile = options.haltFile ?? null;
+    this.authFailures = options.authFailures ?? null;
+    this.egressRefusals = options.egressRefusals ?? null;
+    this.pollMs = (options.pollSeconds ?? POLL_SECONDS) * 1_000;
+    this.watchDirectory = options.watchDirectory ?? watchDirectory;
     this.limits = new RateLimiter(() => this.clock().getTime());
     this.state = { halted: false, trigger: null, reason: null, since: null };
   }
@@ -78,6 +101,11 @@ export class HaltSwitch {
     return this.state.halted;
   }
 
+  /** Whether this switch is following a halt file right now. */
+  public get following(): boolean {
+    return this.cancelPoll !== null;
+  }
+
   /** The halt file decides the starting state, so a restart does not undo a halt. */
   public assertAtStartup(): HaltState {
     if (this.haltFilePresent()) this.halt("HALT_FILE", "the halt file was present at start");
@@ -87,29 +115,33 @@ export class HaltSwitch {
   /** Follows the halt file while running: created halts, removed only allows a resume. */
   public start(): () => void {
     this.stop();
-    const file = this.options.haltFile;
-    if (file !== null && file !== undefined) {
-      try {
-        this.watcher = watch(dirname(file), { persistent: false }, () => this.check());
-        this.watcher.on("error", () => undefined);
-      } catch {
-        this.watcher = null;
-      }
-      const poll = setInterval(
-        () => this.check(),
-        (this.options.pollSeconds ?? POLL_SECONDS) * 1_000,
-      );
-      poll.unref();
-      this.poll = poll;
+    const file = this.haltFile;
+    if (file === null) return this.stopper;
+    // The watcher is the fast path and the poll is the one that has to work:
+    // a mount that reports no events, or a platform that refuses to watch at
+    // all, still halts within the interval. So a failed watch is not an
+    // error, and an unwatchable directory leaves the poll doing the job.
+    try {
+      const watcher = this.watchDirectory(dirname(file), () => this.check());
+      watcher.on("error", () => undefined);
+      this.watcher = watcher;
+    } catch {
+      // `start()` cleared the watcher before this, so there is nothing to
+      // undo: the poll below is what keeps the stop reachable.
     }
-    return () => this.stop();
+    const poll = setInterval(() => this.check(), this.pollMs);
+    // Unreferenced, so following the halt file never holds the process open.
+    // Stryker disable next-line all: process lifetime is not observable from inside this process.
+    poll.unref();
+    this.cancelPoll = () => clearInterval(poll);
+    return this.stopper;
   }
 
   public stop(): void {
     this.watcher?.close();
     this.watcher = null;
-    if (this.poll !== null) clearInterval(this.poll);
-    this.poll = null;
+    this.cancelPoll?.();
+    this.cancelPoll = null;
   }
 
   /** One look at the halt file; for the interval, the watcher, and tests. */
@@ -127,6 +159,7 @@ export class HaltSwitch {
       reason: reason.slice(0, 200),
       since: this.clock().toISOString(),
     };
+    // Stryker disable next-line StringLiteral: the reason was set just above; the fallback satisfies the type.
     this.options.events.emit({ event: "HALTED", trigger, reason: this.state.reason ?? "" });
     return this.state;
   }
@@ -146,6 +179,7 @@ export class HaltSwitch {
     this.state = { halted: false, trigger: null, reason: null, since: null };
     this.options.events.emit({
       event: "RESUMED",
+      // Stryker disable next-line StringLiteral: a halted switch always has a trigger; the fallback satisfies the type.
       trigger: from ?? "OPERATOR",
       reason: reason.slice(0, 200),
     });
@@ -154,20 +188,19 @@ export class HaltSwitch {
 
   /** One refusal at the door; the window's threshold halts the executor. */
   public recordAuthFailure(): void {
-    this.recordSpike("auth", this.options.authFailures, "AUTH_FAILURE_SPIKE");
+    this.recordSpike(this.authFailures, "AUTH_FAILURE_SPIKE");
   }
 
   /** One outbound request the egress policy refused; the window's threshold halts. */
   public recordEgressRefusal(): void {
-    this.recordSpike("egress", this.options.egressRefusals, "EGRESS_REFUSAL_SPIKE");
+    this.recordSpike(this.egressRefusals, "EGRESS_REFUSAL_SPIKE");
   }
 
-  private recordSpike(
-    key: string,
-    rule: RateLimitRule | null | undefined,
-    trigger: HaltTrigger,
-  ): void {
-    if (rule === null || rule === undefined || this.state.halted) return;
+  private recordSpike(rule: RateLimitRule | null, trigger: HaltTrigger): void {
+    if (rule === null || this.state.halted) return;
+    // The trigger is the bucket: each kind of refusal has its own window,
+    // and there is no second name to keep in step with it.
+    const key = trigger;
     // The rule reads as it is written: `50/60` halts on the fiftieth refusal
     // inside a minute, so this one is counted and then the window is asked
     // whether it is now full.
@@ -178,16 +211,7 @@ export class HaltSwitch {
   }
 
   private haltFilePresent(): boolean {
-    const file = this.options.haltFile;
-    if (file === null || file === undefined) return false;
-    return this.exists(file);
-  }
-
-  private static regularFileExists(path: string): boolean {
-    try {
-      return statSync(path).isFile();
-    } catch {
-      return false;
-    }
+    const file = this.haltFile;
+    return file === null ? false : this.exists(file);
   }
 }

@@ -156,14 +156,21 @@ export class Authenticator {
     if (!registry.issuerKnown(verified.issuer)) {
       throw new Refusal(401, "JWT_ISSUER_UNKNOWN", "jwt", null);
     }
-    const principal = registry.byJwt(verified.issuer, verified.subject);
-    if (principal === null) throw new Refusal(401, "JWT_SUBJECT_UNKNOWN", "jwt", null);
-    const credential = principal.credential;
-    if (credential.kind !== "WORKLOAD_JWT") {
-      throw new Refusal(401, "JWT_SUBJECT_UNKNOWN", "jwt", null);
-    }
+    const named = registry.byJwt(verified.issuer, verified.subject);
+    if (named === null) throw new Refusal(401, "JWT_SUBJECT_UNKNOWN", "jwt", null);
+    // The registry narrowed to the workload kind, so the credential here is
+    // that kind and needs no second check of its own.
+    const { principal, credential } = named;
+    // A principal's own audience wins over the configured one; with neither,
+    // no token is accepted, because "any audience" is not a thing to accept.
     const audience = credential.audience ?? this.options.audience;
-    if (audience === null || !verified.audiences.includes(audience)) {
+    // Two different operator problems, so two different codes: a deployment
+    // that named no audience at all accepts no token, and saying that is
+    // "the token's audience was wrong" would send someone to the caller.
+    if (audience === null) {
+      throw new Refusal(401, "JWT_AUDIENCE_UNCONFIGURED", "jwt", principal);
+    }
+    if (!verified.audiences.includes(audience)) {
       throw new Refusal(401, "JWT_AUDIENCE_MISMATCH", "jwt", principal);
     }
     for (const [claim, expected] of Object.entries(credential.requiredClaims)) {

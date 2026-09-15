@@ -144,6 +144,97 @@ describe("HardLimits", () => {
     expect(hard.check(payment(1))).toMatchObject({ allowed: false });
   });
 
+  it("refuses a value whose shape only resembles an amount", () => {
+    // A regular expression coerces what it tests, so an array of one string
+    // would match a pattern the string never saw. A caller sends JSON.
+    for (const parameters of [
+      { amountMinor: 5, currency: ["CHF"] },
+      { amountMinor: 5, currency: { toString: "CHF" } },
+      { amountMinor: 5, currency: true },
+      { amountMinor: 5, currency: null },
+      { amountMinor: "5", currency: "CHF" },
+      { amountMinor: true, currency: "CHF" },
+      { amountMinor: [5], currency: "CHF" },
+      { amountMinor: 5.5, currency: "CHF" },
+      { amountMinor: -1, currency: "CHF" },
+      { amountMinor: Number.MAX_SAFE_INTEGER + 2, currency: "CHF" },
+    ] as unknown as JsonObject[]) {
+      expect(HardLimits.monetaryValue(parameters), JSON.stringify(parameters)).toBe("INVALID");
+    }
+    // And a zero is an amount, not a missing one.
+    expect(HardLimits.monetaryValue({ amountMinor: 0, currency: "CHF" })).toEqual({
+      currency: "CHF",
+      amountMinor: 0n,
+    });
+  });
+
+  it("measures its window in seconds, and drops an entry only once it is past", () => {
+    const { limits: bounded, tick } = limits({ windowCount: 2, windowSeconds: 60 });
+    expect(bounded.commit(payment(1_000)).allowed).toBe(true);
+    // Half a minute later the first is still inside a sixty-second window,
+    // so the second fills it and the third is refused.
+    tick(30_000);
+    expect(bounded.commit(payment(1_000)).allowed).toBe(true);
+    expect(bounded.check(payment(1_000))).toEqual({
+      allowed: false,
+      code: "HARD_LIMIT_WINDOW_COUNT_EXCEEDED",
+    });
+    // Exactly at the boundary the oldest entry leaves, and one slot opens.
+    tick(30_000);
+    expect(bounded.commit(payment(1_000)).allowed).toBe(true);
+    expect(bounded.check(payment(1_000))).toEqual({
+      allowed: false,
+      code: "HARD_LIMIT_WINDOW_COUNT_EXCEEDED",
+    });
+  });
+
+  it("counts against the clock it was given, whatever that clock says", () => {
+    // The clock is the process's to supply, so there is no default here to
+    // be wrong about. A window measured by the real one still works.
+    const wall = new HardLimits(
+      {
+        singleMinor: ceilings("CHF:2500000000"),
+        windowSeconds: 60,
+        windowCount: 1,
+        windowSumMinor: null,
+      },
+      () => Date.now(),
+    );
+    expect(wall.commit(payment(1_000))).toEqual({ allowed: true });
+    expect(wall.check(payment(1_000))).toEqual({
+      allowed: false,
+      code: "HARD_LIMIT_WINDOW_COUNT_EXCEEDED",
+    });
+  });
+
+  it("starts with an empty window, so the first action is never the one that fills it", () => {
+    const { limits: single } = limits({ windowCount: 1 });
+    expect(single.check(payment(1_000)).allowed).toBe(true);
+    expect(single.commit(payment(1_000)).allowed).toBe(true);
+    expect(single.check(payment(1_000))).toEqual({
+      allowed: false,
+      code: "HARD_LIMIT_WINDOW_COUNT_EXCEEDED",
+    });
+    const { limits: summed } = limits({ windowSumMinor: 1_000n });
+    expect(summed.commit(payment(1_000)).allowed).toBe(true);
+    expect(summed.check(payment(1))).toEqual({
+      allowed: false,
+      code: "HARD_LIMIT_WINDOW_SUM_EXCEEDED",
+    });
+  });
+
+  it("counts an action that moved nothing, and adds nothing to the sum for it", () => {
+    const { limits: both } = limits({ windowCount: 2, windowSumMinor: 1_000n });
+    // A non-monetary action takes a place in the count window and leaves the
+    // sum where it was, so the next payment still has the whole ceiling.
+    expect(both.commit({ note: "a reconciliation" }).allowed).toBe(true);
+    expect(both.commit(payment(1_000)).allowed).toBe(true);
+    expect(both.check({ note: "another" })).toEqual({
+      allowed: false,
+      code: "HARD_LIMIT_WINDOW_COUNT_EXCEEDED",
+    });
+  });
+
   it("only ever refuses: a ceiling is never widened by a window, nor a window by a ceiling", () => {
     const { limits: hard } = limits({
       windowCount: 10,

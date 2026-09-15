@@ -225,14 +225,107 @@ describe("PrincipalRegistry lookups", () => {
     expect(strict.byCertificate(san, "cd".repeat(32))).toBeNull();
   });
 
+  it("names the principal whose rate limit will not parse", () => {
+    // The refusal has to say which principal, because a file may name two
+    // hundred of them and the value itself must not be echoed back.
+    expect(() =>
+      PrincipalRegistry.fromEntries(
+        parsePrincipalsFile(
+          principalsFile({
+            principals: [
+              {
+                id: "treasury-workflow",
+                role: "PROPOSER",
+                tenant_id: TENANT_ID,
+                actor: { id: "synthetic-payout-agent", type: "AI_AGENT" },
+                allowed_actions: ["forward_request"],
+                credential: { kind: "BEARER", token_sha256: sha256Hex(CALLER_TOKEN) },
+                rate_limit: "0/60",
+              },
+            ],
+          }),
+        ),
+        { registeredActions: ["forward_request"], jwtConfigured: false, mutualTls: false },
+      ),
+    ).toThrow("principals/treasury-workflow/rate_limit");
+  });
+
+  it("gives a proposer no scopes and an operator no actions, and leaves an absent runtime absent", () => {
+    const built = registry();
+    const proposer = built.proposers[0];
+    const operator = built.operators[0];
+    expect(proposer?.tenantId).toBe(TENANT_ID);
+    expect(proposer?.actor?.id).toBe("synthetic-payout-agent");
+    expect([...(proposer?.scopes ?? [])]).toEqual([]);
+    expect(operator?.tenantId).toBeNull();
+    expect(operator?.actor).toBeNull();
+    expect([...(operator?.allowedActions ?? [])]).toEqual([]);
+    // An actor with no runtime carries no such key: the actor travels inside
+    // the hashed intent, and a key set to undefined is a different canonical
+    // form from a key that is not there.
+    const withoutRuntime = built.proposers.find((one) => one.actor?.runtime === undefined);
+    expect(withoutRuntime, "a fixture proposer with no runtime").toBeDefined();
+    expect(Object.keys(withoutRuntime?.actor ?? {}).sort()).toEqual(["id", "type"]);
+    const withRuntime = built.proposers.find((one) => one.actor?.runtime !== undefined);
+    if (withRuntime !== undefined) {
+      expect(Object.keys(withRuntime.actor ?? {}).sort()).toEqual(["id", "runtime", "type"]);
+    }
+  });
+
   it("finds a workload by issuer and subject, and knows which issuers it trusts", () => {
     const built = registry();
     expect(built.issuerKnown("https://issuer.synthetic.example")).toBe(true);
     expect(built.issuerKnown("https://other.synthetic.example")).toBe(false);
-    expect(
-      built.byJwt("https://issuer.synthetic.example", "system:serviceaccount:agents:batch-runner")
-        ?.id,
-    ).toBe("batch-runner");
+    // Two issuers, so knowing one is not knowing them all: a cluster that
+    // rotates its API server's name has both trusted for a while.
+    const twoIssuers = PrincipalRegistry.fromEntries(
+      parsePrincipalsFile(
+        principalsFile({
+          principals: [
+            {
+              id: "batch-runner",
+              role: "PROPOSER",
+              tenant_id: TENANT_ID,
+              actor: { id: "synthetic-batch-agent", type: "AI_AGENT" },
+              allowed_actions: ["forward_request"],
+              credential: {
+                kind: "WORKLOAD_JWT",
+                issuer: "https://issuer.synthetic.example",
+                subject: "system:serviceaccount:agents:batch-runner",
+              },
+            },
+            {
+              id: "second-runner",
+              role: "PROPOSER",
+              tenant_id: TENANT_ID,
+              actor: { id: "synthetic-second-agent", type: "AI_AGENT" },
+              allowed_actions: ["forward_request"],
+              credential: {
+                kind: "WORKLOAD_JWT",
+                issuer: "https://second.synthetic.example",
+                subject: "system:serviceaccount:agents:second-runner",
+              },
+            },
+          ],
+        }),
+      ),
+      context,
+    );
+    expect(twoIssuers.issuerKnown("https://issuer.synthetic.example")).toBe(true);
+    expect(twoIssuers.issuerKnown("https://second.synthetic.example")).toBe(true);
+    expect(twoIssuers.issuerKnown("https://third.synthetic.example")).toBe(false);
+    expect([...twoIssuers.audiences()].sort()).toEqual([]);
+    const named = built.byJwt(
+      "https://issuer.synthetic.example",
+      "system:serviceaccount:agents:batch-runner",
+    );
+    expect(named?.principal.id).toBe("batch-runner");
+    // The credential comes back narrowed, so a caller reads the issuer and
+    // the claims without asking the kind a second time.
+    expect(named?.credential.issuer).toBe("https://issuer.synthetic.example");
+    // This fixture names no audience of its own, so the configured one is
+    // what the door will require.
+    expect(named?.credential.audience).toBeNull();
     expect(
       built.byJwt("https://issuer.synthetic.example", "system:serviceaccount:agents:other"),
     ).toBeNull();

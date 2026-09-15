@@ -9,7 +9,12 @@ export interface LockoutRule {
   readonly lockSeconds: number;
 }
 
-const RULE = /^([1-9]\d{0,5})\/([1-9]\d{0,4})$/;
+/**
+ * `<count>/<seconds>`, the one definition of a rate rule in this package. The
+ * principals file validates a rule by parsing it through `parseRule` rather
+ * than restating this pattern, so there is no second copy to drift from it.
+ */
+export const RATE_RULE_PATTERN = /^([1-9]\d{0,5})\/([1-9]\d{0,4})$/;
 const LOCKOUT = /^(\d{1,6})\/([1-9]\d{0,4})\/([1-9]\d{0,5})$/;
 
 /**
@@ -29,7 +34,7 @@ export class RateLimiter {
 
   /** `<count>/<seconds>`; a refusal names the variable. */
   public static parseRule(text: string, key: string): RateLimitRule {
-    const match = RULE.exec(text.trim());
+    const match = RATE_RULE_PATTERN.exec(text.trim());
     if (match === null) throw new Error(`CONFIG_INVALID: ${key} (expected <count>/<seconds>)`);
     return { count: Number(match[1]), windowSeconds: Number(match[2]) };
   }

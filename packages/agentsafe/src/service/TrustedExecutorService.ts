@@ -405,7 +405,9 @@ export class TrustedExecutorService {
       audit,
       journal,
       halt,
-      config.limits === null ? null : new HardLimits(config.limits, dependencies.clock),
+      config.limits === null
+        ? null
+        : new HardLimits(config.limits, dependencies.clock ?? (() => Date.now())),
       () => {
         for (const stop of unsubscribeRotations) stop();
         unsubscribeEvents();

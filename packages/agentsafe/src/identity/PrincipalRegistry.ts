@@ -43,6 +43,12 @@ export interface Principal {
 /** The one caller a configuration without a principals file has. */
 export const LEGACY_CALLER_ID = "legacy-caller";
 
+/** One credential kind's own shape, for a lookup that narrowed to it. */
+type CredentialOf<TKind extends PrincipalCredential["kind"]> = Extract<
+  PrincipalCredential,
+  { readonly kind: TKind }
+>;
+
 export type Comparator = (a: Uint8Array, b: Uint8Array) => boolean;
 
 export interface RegistryContext {
@@ -98,25 +104,38 @@ export class PrincipalRegistry {
           }
         }
       }
-      return {
+      // The two roles carry different things, so they are built separately
+      // rather than by three checks of the same field with a fallback each.
+      const shared = {
         id: entry.id,
         role: entry.role,
-        tenantId: entry.role === "PROPOSER" ? entry.tenant_id : null,
-        actor:
-          entry.role === "PROPOSER"
-            ? {
-                id: entry.actor.id,
-                type: entry.actor.type,
-                ...(entry.actor.runtime === undefined ? {} : { runtime: entry.actor.runtime }),
-              }
-            : null,
-        allowedActions: new Set(entry.role === "PROPOSER" ? entry.allowed_actions : []),
-        scopes: new Set(entry.role === "OPERATOR" ? entry.scopes : []),
         credential: PrincipalRegistry.credential(entry.credential),
         rateLimit:
           entry.rate_limit === undefined
             ? null
             : RateLimiter.parseRule(entry.rate_limit, `principals/${entry.id}/rate_limit`),
+      };
+      if (entry.role === "OPERATOR") {
+        return {
+          ...shared,
+          tenantId: null,
+          actor: null,
+          allowedActions: new Set<string>(),
+          scopes: new Set(entry.scopes),
+        };
+      }
+      return {
+        ...shared,
+        tenantId: entry.tenant_id,
+        actor: {
+          id: entry.actor.id,
+          type: entry.actor.type,
+          // Absent rather than undefined: the actor travels inside the hashed
+          // intent, and a key with no value is not the same canonical form.
+          ...(entry.actor.runtime === undefined ? {} : { runtime: entry.actor.runtime }),
+        },
+        allowedActions: new Set(entry.allowed_actions),
+        scopes: new Set<OperatorScope>(),
       };
     });
     return new PrincipalRegistry(principals, false, compare);
@@ -162,13 +181,30 @@ export class PrincipalRegistry {
     return this.byId.get(id) ?? null;
   }
 
+  /**
+   * The principals holding one kind of credential, narrowed once here rather
+   * than by a kind check inside every lookup. A lookup then reads only the
+   * fields its own kind has, and there is one place where the narrowing
+   * could be wrong.
+   */
+  private ofKind<TKind extends PrincipalCredential["kind"]>(
+    kind: TKind,
+  ): { readonly principal: Principal; readonly credential: CredentialOf<TKind> }[] {
+    const found: { readonly principal: Principal; readonly credential: CredentialOf<TKind> }[] = [];
+    for (const principal of this.principals) {
+      if (principal.credential.kind === kind) {
+        found.push({ principal, credential: principal.credential as CredentialOf<TKind> });
+      }
+    }
+    return found;
+  }
+
   /** Every bearer digest is compared, in constant time, whether or not an earlier one matched. */
   public byBearerDigest(presented: string): Principal | null {
-    const digest = createHash("sha256").update(presented, "utf8").digest();
+    const digest = createHash("sha256").update(presented).digest();
     let found: Principal | null = null;
-    for (const principal of this.principals) {
-      if (principal.credential.kind !== "BEARER") continue;
-      if (this.compare(digest, principal.credential.digest())) found = principal;
+    for (const { principal, credential } of this.ofKind("BEARER")) {
+      if (this.compare(digest, credential.digest())) found = principal;
     }
     return found;
   }
@@ -176,9 +212,8 @@ export class PrincipalRegistry {
   /** The principal a client certificate names by SAN URI, and pins by fingerprint when the file says so. */
   public byCertificate(sanUris: readonly string[], fingerprint: string): Principal | null {
     const presented = normaliseFingerprint(fingerprint);
-    for (const principal of this.principals) {
-      const credential = principal.credential;
-      if (credential.kind !== "MTLS" || !sanUris.includes(credential.sanUri)) continue;
+    for (const { principal, credential } of this.ofKind("MTLS")) {
+      if (!sanUris.includes(credential.sanUri)) continue;
       if (credential.fingerprint !== null && credential.fingerprint !== presented) return null;
       return principal;
     }
@@ -186,17 +221,20 @@ export class PrincipalRegistry {
   }
 
   public issuerKnown(issuer: string): boolean {
-    return this.principals.some(
-      (principal) =>
-        principal.credential.kind === "WORKLOAD_JWT" && principal.credential.issuer === issuer,
-    );
+    return this.ofKind("WORKLOAD_JWT").some((entry) => entry.credential.issuer === issuer);
   }
 
-  public byJwt(issuer: string, subject: string): Principal | null {
-    for (const principal of this.principals) {
-      const credential = principal.credential;
-      if (credential.kind !== "WORKLOAD_JWT") continue;
-      if (credential.issuer === issuer && credential.subject === subject) return principal;
+  /**
+   * The principal a workload token names, with its own credential, so the
+   * caller reads the issuer, audience and required claims without narrowing
+   * a second time.
+   */
+  public byJwt(
+    issuer: string,
+    subject: string,
+  ): { readonly principal: Principal; readonly credential: CredentialOf<"WORKLOAD_JWT"> } | null {
+    for (const entry of this.ofKind("WORKLOAD_JWT")) {
+      if (entry.credential.issuer === issuer && entry.credential.subject === subject) return entry;
     }
     return null;
   }
@@ -204,11 +242,8 @@ export class PrincipalRegistry {
   /** The audiences named per principal, so the verifier accepts each; the global one is the default. */
   public audiences(): readonly string[] {
     const named = new Set<string>();
-    for (const principal of this.principals) {
-      const credential = principal.credential;
-      if (credential.kind === "WORKLOAD_JWT" && credential.audience !== null) {
-        named.add(credential.audience);
-      }
+    for (const { credential } of this.ofKind("WORKLOAD_JWT")) {
+      if (credential.audience !== null) named.add(credential.audience);
     }
     return [...named];
   }

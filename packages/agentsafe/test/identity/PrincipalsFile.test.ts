@@ -60,9 +60,16 @@ describe("parsePrincipalsFile", () => {
     expect(refusal(withPrincipals([{ ...proposer, allowed_actions: [] }]))).toBe(
       "PRINCIPALS_INVALID: principals.0.allowed_actions",
     );
-    expect(refusal(withPrincipals([{ ...proposer, rate_limit: "0/60" }]))).toBe(
+    // A rate rule is bounded here and read by the registry, which refuses it
+    // by principal id rather than by position; the file only rejects a value
+    // that is not a bounded string at all.
+    expect(refusal(withPrincipals([{ ...proposer, rate_limit: "" }]))).toBe(
       "PRINCIPALS_INVALID: principals.0.rate_limit",
     );
+    expect(refusal(withPrincipals([{ ...proposer, rate_limit: "x".repeat(21) }]))).toBe(
+      "PRINCIPALS_INVALID: principals.0.rate_limit",
+    );
+    expect(refusal(withPrincipals([{ ...proposer, rate_limit: "0/60" }]))).toBe("");
     expect(
       refusal(
         withPrincipals([

@@ -417,6 +417,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/incident/FileProbe.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/incident/HaltSwitch.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
@@ -442,6 +448,12 @@
     },
     {
       "path": "packages/agentsafe/test/journal/FileExecutionJournal.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/journal/JournalSchema.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false
