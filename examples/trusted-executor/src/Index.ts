@@ -10,7 +10,8 @@
  * decides again. Every expectation is asserted, so the run is a self-checking
  * proof: the process exits 0 only when every refusal held, every legitimate
  * path executed exactly once, a lost provider response was reconciled without
- * a second send, a rotated caller token retired the old one, and no
+ * a second send, named principals each reached only what they may, a rotated
+ * caller token retired the old one, and no
  * credential, token, or key reached a response, an audit line, or a security
  * line.
  *
@@ -18,12 +19,13 @@
  * host posture is declared as development, so the host checks a deployment
  * enforces are waived here and said so on the security stream.
  */
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
+import { JsonObjectSchema } from "@decionis/agent-safe-pipeline";
 import {
   LOCAL_AUTHORITY_API_KEY,
   LOCAL_PRESENCE_API_KEY,
@@ -40,6 +42,7 @@ import {
   SecurityEvents,
   createTrustedExecutor,
   verifyAuditChain,
+  type HandlerRegistration,
   type TrustedExecutor,
 } from "@decionis/agentsafe";
 import { handlers } from "./Handlers.js";
@@ -48,6 +51,12 @@ const LOOPBACK_ORIGIN = "http://127.0.0.1";
 const TENANT_ID = "00000000-0000-4000-8000-000000000007";
 const APPROVER_ID = "synthetic-approver";
 const callerToken = randomBytes(24).toString("base64url");
+// The principals the named-caller section admits, each with its own token.
+const treasuryToken = randomBytes(24).toString("base64url");
+const batchToken = randomBytes(24).toString("base64url");
+const operatorToken = randomBytes(24).toString("base64url");
+const digestOf = (token: string): string =>
+  createHash("sha256").update(token, "utf8").digest("hex");
 const downstreamCredential = `Bearer ${randomBytes(24).toString("base64url")}`;
 
 const out = (line: string): void => {
@@ -200,6 +209,9 @@ function productionEnvironment(): Record<string, string> {
   return {
     ...env,
     NODE_ENV: "production",
+    // This shape has no principals file, which production allows only when
+    // asked for by name; the principals section proves the refusal without it.
+    EXECUTOR_ALLOW_LEGACY_CALLER: "true",
     DECIONIS_API_URL: "https://authority.decionis.example",
     DOWNSTREAM_URL: "https://payouts.provider.example/v1/payouts",
     DOWNSTREAM_LOOKUP_URL: "https://payouts.provider.example/v1/payouts/{idempotency_key}",
@@ -208,6 +220,13 @@ function productionEnvironment(): Record<string, string> {
     EXECUTOR_TLS_KEY_FILE: "/var/run/agent-safe/tls/tls.key",
   };
 }
+
+/** How many provider responses were lost on purpose; each is one reconciliation. */
+let lostResponses = 0;
+const loseNextResponse = (): void => {
+  lostResponses += 1;
+  provider.loseNext();
+};
 
 const auditLines: string[] = [];
 const securityLines: string[] = [];
@@ -225,6 +244,7 @@ async function startExecutor(
   mode: "SHADOW" | "ENFORCEMENT",
   escalation: Escalation = "NONE",
   overrides: Record<string, string | undefined> = {},
+  registration: HandlerRegistration = handlers,
 ): Promise<RunningExecutor> {
   const env: Record<string, string> = { ...environment(mode, escalation) };
   for (const [key, value] of Object.entries(overrides)) {
@@ -243,7 +263,7 @@ async function startExecutor(
   const executor = await createTrustedExecutor({
     config,
     secrets,
-    handlers,
+    handlers: registration,
     dependencies: {
       emit: (line) => {
         auditLines.push(line);
@@ -298,7 +318,7 @@ function proposal(amountMinor: number, overrides: Record<string, unknown> = {}):
   });
 }
 
-const refusal = (env: Record<string, string>): string => {
+const refusal = (env: Record<string, string | undefined>): string => {
   try {
     ExecutorConfigLoader.load(env);
     return "";
@@ -544,7 +564,7 @@ heading("Refusals at the door");
 
 heading("A lost response is reconciled, never re-sent");
 {
-  provider.loseNext();
+  loseNextResponse();
   const effectsBefore = provider.effects.size;
   const lost = await call(executor, "/v1/actions", { body: proposal(5_000) });
   const lostKey = lastKey;
@@ -630,6 +650,153 @@ heading("Rotation: a replaced caller token file retires the old one");
     `${securityLines.filter((line) => line.includes("SECRET_ROTATED")).length} rotation events`,
   );
   await rotating.executor.close();
+  rmSync(directory, { recursive: true, force: true });
+}
+
+heading("Principals: who may call, as what, and for which actions");
+{
+  const directory = mkdtempSync(join(tmpdir(), "agentsafe-principals-"));
+  const path = join(directory, "principals.json");
+  const proposer = (id: string, actorId: string, token: string, actions: string[]) => ({
+    id,
+    role: "PROPOSER",
+    tenant_id: TENANT_ID,
+    actor: { id: actorId, type: "AI_AGENT" },
+    allowed_actions: actions,
+    credential: { kind: "BEARER", token_sha256: digestOf(token) },
+  });
+  writeFileSync(
+    path,
+    JSON.stringify({
+      version: "agent-safe.principals/1",
+      principals: [
+        proposer("synthetic-treasury-workflow", "synthetic-payout-agent", treasuryToken, [
+          FORWARD_REQUEST_ACTION,
+        ]),
+        proposer("synthetic-batch-runner", "synthetic-batch-agent", batchToken, [
+          "synthetic_second_action",
+        ]),
+        {
+          id: "synthetic-ops-oncall",
+          role: "OPERATOR",
+          scopes: ["status", "metrics"],
+          credential: { kind: "BEARER", token_sha256: digestOf(operatorToken) },
+        },
+      ],
+    }),
+    { mode: 0o600 },
+  );
+  // Two registered actions, so a principal can be allowed one and not the other.
+  const SECOND_ACTION = "synthetic_second_action";
+  const bothActions: HandlerRegistration = (context) => {
+    const registered = handlers(context);
+    context.registry.register(SECOND_ACTION, {
+      parametersSchema: JsonObjectSchema,
+      execute: ({ dispatch }) => dispatch.run(() => ({ recorded: true })),
+    });
+    return [...registered, SECOND_ACTION];
+  };
+  const named = await startExecutor(
+    "ENFORCEMENT",
+    "NONE",
+    {
+      EXECUTOR_PRINCIPALS_FILE: path,
+      EXECUTOR_TENANT_ID: undefined,
+      EXECUTOR_ACTOR_ID: undefined,
+      EXECUTOR_ACTOR_TYPE: undefined,
+      EXECUTOR_ACTOR_RUNTIME: undefined,
+      EXECUTOR_CALLER_TOKEN: undefined,
+    },
+    bothActions,
+  );
+  check(
+    named.executor.principals.size === 3 && !named.executor.principals.legacy,
+    "the principals file replaces the one caller with named principals",
+    `${named.executor.principals.size} principals, ${named.executor.principals.operators.length} operator`,
+  );
+  const evidenceBefore = named.evidence.length;
+  const executed = await call(named, "/v1/actions", {
+    body: proposal(6_000),
+    token: treasuryToken,
+  });
+  const naming = named.evidence
+    .slice(evidenceBefore)
+    .map((line) => (JSON.parse(line) as { caller_principal: string }).caller_principal);
+  check(
+    executed.status === 200 &&
+      executed.body["outcome"] === "COMPLETED" &&
+      naming.length > 0 &&
+      naming.every((principal) => principal === "synthetic-treasury-workflow"),
+    "a named proposer executes, and every evidence line names it",
+    `${naming.length} lines, all ${naming[0] ?? "none"}`,
+  );
+  const unknown = await call(named, "/v1/actions", {
+    body: proposal(6_000),
+    token: callerToken,
+  });
+  const wrongAction = await call(named, "/v1/actions", {
+    body: proposal(6_000),
+    token: batchToken,
+  });
+  const proposerOnControl = await call(named, "/v1/control/status", {
+    method: "GET",
+    token: treasuryToken,
+  });
+  check(
+    unknown.status === 401 &&
+      wrongAction.status === 403 &&
+      wrongAction.body["code"] === "ACTION_NOT_PERMITTED_FOR_PRINCIPAL" &&
+      proposerOnControl.status === 403 &&
+      proposerOnControl.body["code"] === "ROLE_FORBIDDEN",
+    "a token nobody holds, an action outside the list, and an operator route are refused",
+    `unknown ${unknown.status}, action ${String(wrongAction.body["code"])}, control ${String(proposerOnControl.body["code"])}`,
+  );
+  const status = await call(named, "/v1/control/status", { method: "GET", token: operatorToken });
+  const metrics = await fetch(`${named.baseUrl}/metrics`, {
+    headers: { authorization: `Bearer ${operatorToken}` },
+  });
+  const exposition = await metrics.text();
+  responses.push(exposition);
+  check(
+    status.status === 200 &&
+      (status.body["principals"] as { mode: string }).mode === "PRINCIPALS" &&
+      metrics.status === 200 &&
+      exposition.includes('agentsafe_proposals_total{verdict="ALLOW"}'),
+    "an operator reads the status and the metrics its scopes name",
+    `status ${status.status}, metrics ${metrics.status}, ${exposition.split("\n").length} exposition lines`,
+  );
+  loseNextResponse();
+  const lost = await call(named, "/v1/actions", { body: proposal(7_000), token: treasuryToken });
+  const recovery = lost.body["recovery"] as Record<string, unknown>;
+  const stranger = await call(named, "/v1/reconciliations", {
+    body: JSON.stringify(recovery),
+    token: batchToken,
+  });
+  const own = await call(named, "/v1/reconciliations", {
+    body: JSON.stringify(recovery),
+    token: treasuryToken,
+  });
+  check(
+    lost.body["outcome"] === "UNKNOWN_AFTER_DISPATCH" &&
+      stranger.status === 403 &&
+      stranger.body["code"] === "INTENT_PRINCIPAL_MISMATCH" &&
+      own.status === 200 &&
+      own.body["outcome"] === "COMPLETED",
+    "one proposer cannot reconcile another's intent; its own is reconciled",
+    `stranger ${String(stranger.body["code"])}, own ${String(own.body["outcome"])}`,
+  );
+  const withoutFile = refusal({
+    ...productionEnvironment(),
+    EXECUTOR_ALLOW_LEGACY_CALLER: undefined,
+  });
+  const byName = refusal(productionEnvironment());
+  check(
+    withoutFile.includes("EXECUTOR_PRINCIPALS_FILE") &&
+      !byName.includes("EXECUTOR_PRINCIPALS_FILE"),
+    "production needs a principals file unless the legacy caller is asked for by name",
+    `${withoutFile}; by name: ${byName === "" ? "accepted" : byName}`,
+  );
+  await named.executor.close();
   rmSync(directory, { recursive: true, force: true });
 }
 
@@ -760,6 +927,9 @@ heading("Nothing secret left the process");
   const tokens = [...authority.grants.keys()];
   const leaked = [
     everything.includes(callerToken) ? "caller token" : null,
+    everything.includes(treasuryToken) ? "treasury principal token" : null,
+    everything.includes(batchToken) ? "batch principal token" : null,
+    everything.includes(operatorToken) ? "operator principal token" : null,
     everything.includes(downstreamCredential) ? "downstream credential" : null,
     everything.includes(LOCAL_AUTHORITY_API_KEY) ? "authority key" : null,
     everything.includes(LOCAL_PRESENCE_API_KEY) ? "presence key" : null,
@@ -767,7 +937,7 @@ heading("Nothing secret left the process");
   ].filter((item) => item !== null);
   check(
     leaked.length === 0 && tokens.length > 0,
-    "no credential, token, or key in any response, audit line, or security line",
+    "no credential, token, or key in any response, exposition, audit line, or security line",
     `${responses.length} responses, ${auditLines.length} audit lines, ${securityLines.length} security lines, ${tokens.length} grants`,
   );
   const chain = verifyAuditChain(executor.evidence);
@@ -793,9 +963,12 @@ heading("Nothing secret left the process");
   const dispatches = provider.requests.filter((request) => request.path === "/dispatches").length;
   const presenceEvents = auditLines.filter((line) => line.includes('"PRESENCE_')).length;
   check(
-    executions === dispatches - 1 && reconciliations === 1 && presenceEvents >= 4,
+    executions === dispatches - lostResponses &&
+      reconciliations === lostResponses &&
+      lostResponses > 0 &&
+      presenceEvents >= 4,
     "the audit stream counts every execution, reconciliation and ceremony",
-    `${executions} executions for ${dispatches} dispatches, ${reconciliations} reconciliation, ${presenceEvents} Presence events`,
+    `${executions} executions for ${dispatches} dispatches, ${lostResponses} lost, ${reconciliations} reconciliations, ${presenceEvents} Presence events`,
   );
 }
 

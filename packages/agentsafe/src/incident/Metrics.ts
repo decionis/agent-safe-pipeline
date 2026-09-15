@@ -114,6 +114,8 @@ export interface ExecutorMetrics {
   readonly leaksSuspected: Counter;
   readonly tlsRotations: Counter;
   readonly auditLines: Counter;
+  readonly principalsLocked: Counter;
+  readonly operatorActions: Counter;
   observe(event: SecurityEvent): void;
 }
 
@@ -159,6 +161,15 @@ export function executorMetrics(registry: Metrics = new Metrics()): ExecutorMetr
     auditLines: registry.counter("agentsafe_audit_lines", "Chained lines written, by stream.", [
       "chain",
     ]),
+    principalsLocked: registry.counter(
+      "agentsafe_principals_locked",
+      "Principals locked out after repeated authentication failures.",
+    ),
+    operatorActions: registry.counter(
+      "agentsafe_operator_actions",
+      "Control routes an operator exercised, by action.",
+      ["action"],
+    ),
   };
   return {
     ...metrics,
@@ -176,6 +187,10 @@ export function executorMetrics(registry: Metrics = new Metrics()): ExecutorMetr
           return metrics.leaksSuspected.inc();
         case "TLS_CONTEXT_ROTATED":
           return metrics.tlsRotations.inc();
+        case "PRINCIPAL_LOCKED":
+          return metrics.principalsLocked.inc();
+        case "OPERATOR_ACTION":
+          return metrics.operatorActions.inc({ action: event.action });
         default:
           return undefined;
       }

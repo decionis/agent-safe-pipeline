@@ -41,8 +41,8 @@ describe("Metrics", () => {
 
   it("counts the security events that have a family, and leaves the rest alone", () => {
     const metrics = executorMetrics();
-    metrics.observe({ event: "AUTH_FAILED", method: "bearer" });
-    metrics.observe({ event: "AUTH_FAILED", method: "mtls" });
+    metrics.observe({ event: "AUTH_FAILED", method: "bearer", code: "CALLER_NOT_AUTHENTICATED" });
+    metrics.observe({ event: "AUTH_FAILED", method: "mtls", code: "CALLER_NOT_AUTHENTICATED" });
     metrics.observe({ event: "EGRESS_REFUSED", origin: null, code: "EGRESS_ORIGIN_NOT_ALLOWED" });
     metrics.observe({ event: "SECRET_ROTATED", name: "DECIONIS_API_KEY" });
     metrics.observe({ event: "POSTURE_DRIFT", check: "PROXY_ENV" });

@@ -63,19 +63,25 @@ export class EgressPolicy {
         ca: anchor.caFile === null ? null : EgressPolicy.bundle(readFile(anchor.caFile), key),
         pins: anchor.pins,
       }));
+    const downstream = [
+      config.downstream.url,
+      ...(config.downstream.lookupUrl === null ? [] : [config.downstream.lookupUrl]),
+      ...(config.downstream.credential.kind === "PRIVATE_KEY_JWT"
+        ? [config.downstream.credential.tokenUrl]
+        : []),
+    ];
+    const jwt = config.identity.jwt;
+    const jwks =
+      jwt === null || jwt.jwksUrl === null
+        ? []
+        : anchored([jwt.jwksUrl], { caFile: jwt.jwksCaFile, pins: [] }, "EXECUTOR_JWKS_CA_FILE");
     return new EgressPolicy([
       ...anchored([config.authority.baseUrl], trust.authority, "DECIONIS_CA_FILE"),
       ...(config.escalation.mode === "DIRECT"
         ? anchored([config.escalation.presence.baseUrl], trust.presence, "PRESENCE_CA_FILE")
         : []),
-      ...anchored(
-        [
-          config.downstream.url,
-          ...(config.downstream.lookupUrl === null ? [] : [config.downstream.lookupUrl]),
-        ],
-        trust.downstream,
-        "DOWNSTREAM_CA_FILE",
-      ),
+      ...anchored(downstream, trust.downstream, "DOWNSTREAM_CA_FILE"),
+      ...jwks,
     ]);
   }
 

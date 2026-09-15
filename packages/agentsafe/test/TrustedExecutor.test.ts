@@ -178,11 +178,10 @@ describe("createTrustedExecutor", () => {
     );
     const second = await start();
     expect(second.executor.evidence.head).toEqual(head);
-    expect(securityLines.at(-1)).toContain('"CHAIN_RESUMED"');
-    expect(JSON.parse(securityLines.at(-1) ?? "{}")).toMatchObject({
-      chain: EVIDENCE_STREAM,
-      head: head.seq,
-    });
+    const resumed = securityLines
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+      .filter((event) => event["event"] === "CHAIN_RESUMED");
+    expect(resumed).toEqual([expect.objectContaining({ chain: EVIDENCE_STREAM, head: head.seq })]);
     await propose(second.baseUrl, 30_00);
     expect(second.executor.evidence.head.seq).toBeGreaterThan(head.seq);
     await second.executor.close();

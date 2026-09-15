@@ -35,10 +35,13 @@ Kubernetes manifest and the runbook from shadow to enforcement are under [`deplo
 drives the executor over real HTTP through: refusals to start, shadow (nothing executes),
 enforcement (one `ALLOW` is one dispatch), refusals at the door (trusted fields, unregistered
 actions, anonymous and wrong tokens, oversized and malformed bodies, unknown routes), a lost
-provider response reconciled without a second send, direct escalation, managed escalation, a
-verification of the executor's own evidence chain (with one altered line reported at its
-sequence number), and a final assertion that no caller token, downstream credential, authority
-key, or grant token appears in any response or audit line.
+provider response reconciled without a second send, named principals (a proposer that executes and
+is named on every evidence line, a token nobody holds, an action outside a principal's list, an
+operator route refused to a proposer and answered for the operator, and one proposer's intent that
+another may not reconcile), direct escalation, managed escalation, a verification of the executor's
+own evidence chain (with one altered line reported at its sequence number), and a final assertion
+that no caller token, principal token, downstream credential, authority key, or grant token
+appears in any response, exposition, or audit line.
 
 ## What a green run is not
 

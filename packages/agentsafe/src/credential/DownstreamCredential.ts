@@ -14,6 +14,6 @@ export interface DownstreamRequest {
  * follows rotation.
  */
 export interface DownstreamCredential {
-  readonly kind: "STATIC_HEADER";
+  readonly kind: "STATIC_HEADER" | "PRIVATE_KEY_JWT" | "SIGNED_REQUEST";
   headersFor(request: DownstreamRequest): Promise<Readonly<Record<string, string>>>;
 }

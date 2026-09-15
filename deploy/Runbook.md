@@ -7,7 +7,10 @@ first.
 
 - A Decionis tenant and its server-side API key, mounted as `DECIONIS_API_KEY_FILE`, or your own
   authority behind the same two interfaces.
-- A caller token, mounted as `EXECUTOR_CALLER_TOKEN_FILE`, held by the workflow that proposes and by
+- A principals file, mounted as `EXECUTOR_PRINCIPALS_FILE`, naming every caller: the workflows that
+  may propose, what each may propose, and the operators who may read the status and the metrics. A
+  first deployment without one runs on a single caller token, mounted as
+  `EXECUTOR_CALLER_TOKEN_FILE`, held by the workflow that proposes and by
   nothing else.
 - The handler for the action, in `src/Handlers.ts`, with its parameter schema; the image built from
   it; the ConfigMap naming the downstream and the actor.

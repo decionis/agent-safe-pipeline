@@ -27,8 +27,8 @@ itself at start, `POSTURE_VERIFIED` and `LISTENING`, carry no `stream` and belon
 `agent-safe.executor-evidence/1` is the executor's envelope around the pipeline's audit contract,
 [`agent-safe.audit/1`](./audit-events.md), which is unchanged. Each line carries the recorder's
 identifiers, digests, verdict, reason codes and duration, and one field of the executor's own:
-`caller_principal`, the principal the request was authenticated as, or `null` for a line written
-outside a request. Parameters, targets, bodies, headers and credentials have no place in it.
+`caller_principal`, the principal the request was made as (`legacy-caller` without a principals
+file), or `null` for a line written outside any request. Parameters, targets, bodies, headers and credentials have no place in it.
 
 ```json
 {
@@ -57,7 +57,11 @@ outside a request. Parameters, targets, bodies, headers and credentials have no 
 `agent-safe.security/1` carries what happened to the process rather than to an intent: posture
 verified, waived, drifted and restored; a secret rotated or a reload refused; the credential
 clients rebuilt; a redaction (`LEAK_SUSPECTED`); a refusal at the door (`AUTH_FAILED` with the
-method, `bearer` or `mtls`); an outbound request the egress policy refused (`EGRESS_REFUSED` with
+method, `bearer`, `jwt`, `mtls` or `none`, and the code); a principal locked after repeated proven
+failures (`PRINCIPAL_LOCKED`); the principals loaded at start, or the legacy caller mode
+(`PRINCIPALS_LOADED`, `LEGACY_PRINCIPAL_MODE`, `BEARER_PRINCIPAL_CONFIGURED`); the JWKS refreshed
+or not (`JWKS_REFRESHED`, `JWKS_REFRESH_FAILED`); an operator's action (`OPERATOR_ACTION` with the
+principal and the action); an outbound request the egress policy refused (`EGRESS_REFUSED` with
 the origin and the code); the listener's TLS context replaced; and the chain's own bookkeeping
 (`CHAIN_RESUMED`, `CHAIN_CHECKPOINT`). Every field is an identifier, a code, an origin, or a
 count, checked against a schema before the line is written; an event that does not fit is dropped

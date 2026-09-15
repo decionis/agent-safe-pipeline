@@ -11,7 +11,10 @@ export class ProviderDouble {
   public readonly requests: {
     readonly path: string;
     readonly headers: IncomingMessage["headers"];
+    readonly body: string;
   }[] = [];
+  /** The access token the token endpoint hands out; never a value a real provider would issue. */
+  public readonly accessToken = "synthetic-provider-access-token-0123456789";
   private loseNextResponse = false;
   private server: Server | null = null;
   private port = 0;
@@ -34,11 +37,23 @@ export class ProviderDouble {
       request.on("data", (chunk: Buffer) => chunks.push(chunk));
       request.on("end", () => {
         const path = request.url ?? "/";
-        this.requests.push({ path, headers: request.headers });
+        const body = Buffer.concat(chunks).toString("utf8");
+        this.requests.push({ path, headers: request.headers, body });
         const reply = (status: number, body: unknown): void => {
           response.writeHead(status, { "content-type": "application/json" });
           response.end(JSON.stringify(body));
         };
+        if (request.method === "POST" && path === "/oauth/token") {
+          const form = new URLSearchParams(body);
+          if (form.get("grant_type") !== "client_credentials" || !form.has("client_assertion")) {
+            return reply(400, { error: "invalid_request" });
+          }
+          return reply(200, {
+            access_token: this.accessToken,
+            token_type: "Bearer",
+            expires_in: 300,
+          });
+        }
         if (request.method === "POST" && path === "/dispatches") {
           const key = String(request.headers["idempotency-key"] ?? "");
           if (this.effects.has(key)) return reply(200, { duplicate: true });

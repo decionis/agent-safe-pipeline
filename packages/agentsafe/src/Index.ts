@@ -16,7 +16,9 @@ export { CONFIG_KEYS, SECRET_KEYS, type ConfigKey } from "./config/ConfigKeys.js
 export {
   ExecutorConfigLoader,
   type DownstreamConfig,
+  type DownstreamCredentialConfig,
   type EgressConfig,
+  type IdentityConfig,
   type EscalationConfig,
   type EscalationMode,
   type EvidenceConfig,
@@ -28,7 +30,22 @@ export {
   type VerificationLevel,
   type VerificationMethod,
 } from "./config/ExecutorConfig.js";
+export { CredentialError } from "./credential/CredentialError.js";
 export type { DownstreamCredential, DownstreamRequest } from "./credential/DownstreamCredential.js";
+export {
+  CLIENT_ASSERTION_TYPE,
+  PrivateKeyJwtCredential,
+  type PrivateKeyJwtAlgorithm,
+  type PrivateKeyJwtOptions,
+} from "./credential/PrivateKeyJwtCredential.js";
+export {
+  SIGNATURE_LABEL,
+  SIGNED_COMPONENTS,
+  SignedRequestCredential,
+  type SignedRequestAlgorithm,
+  type SignedRequestMaterial,
+  type SignedRequestOptions,
+} from "./credential/SignedRequestCredential.js";
 export { StaticHeaderCredential } from "./credential/StaticHeaderCredential.js";
 export { EgressError, type EgressCode } from "./egress/EgressError.js";
 export { EgressPolicy, type EgressCheck, type EgressDestination } from "./egress/EgressPolicy.js";
@@ -61,7 +78,65 @@ export {
   RequestContext,
   type RequestScope,
 } from "./http/RequestContext.js";
-export { MAX_BODY_BYTES, RESPONSE_HEADERS, ROUTES, type RouteDefinition } from "./http/Routes.js";
+export {
+  MAX_BODY_BYTES,
+  METRICS_CONTENT_TYPE,
+  RESPONSE_HEADERS,
+  ROUTES,
+  type RouteDefinition,
+  type RoutePath,
+} from "./http/Routes.js";
+export {
+  AuthError,
+  Authenticator,
+  UNAUTHENTICATED_KEY,
+  type AuthMethod,
+  type AuthenticatedPrincipal,
+  type AuthenticationInput,
+  type AuthenticatorOptions,
+} from "./identity/Authenticator.js";
+export {
+  normaliseFingerprint,
+  peerIdentity,
+  type PeerIdentity,
+  type PeerSocket,
+} from "./identity/PeerIdentity.js";
+export {
+  LEGACY_CALLER_ID,
+  PrincipalRegistry,
+  type ClaimValue,
+  type Comparator,
+  type LegacyContext,
+  type Principal,
+  type PrincipalActor,
+  type PrincipalCredential,
+  type RegistryContext,
+  type Role,
+} from "./identity/PrincipalRegistry.js";
+export {
+  MAX_PRINCIPALS,
+  OPERATOR_SCOPES,
+  PRINCIPALS_VERSION,
+  PrincipalCredentialSchema,
+  PrincipalsError,
+  PrincipalsFileSchema,
+  credentialIdentity,
+  parsePrincipalsFile,
+  type OperatorScope,
+  type PrincipalCredentialEntry,
+  type PrincipalEntry,
+} from "./identity/PrincipalsFile.js";
+export { RateLimiter, type LockoutRule, type RateLimitRule } from "./identity/RateLimiter.js";
+export { assertSeparationOfDuties, separationViolated } from "./identity/SeparationOfDuties.js";
+export {
+  JWT_ALGORITHMS,
+  JwtError,
+  WorkloadJwtVerifier,
+  type JwksRefresh,
+  type JwtCode,
+  type VerifiedJwt,
+  type WorkloadJwtVerifierOptions,
+} from "./identity/WorkloadJwtVerifier.js";
 export {
   TLS12_CIPHERS,
   TlsListener,
@@ -153,6 +228,7 @@ export {
 export { ServiceError } from "./service/ServiceError.js";
 export {
   TrustedExecutorService,
+  type ExecutorStatus,
   type ServiceDependencies,
 } from "./service/TrustedExecutorService.js";
 export { nodeProcess, serve, type ServeProcess } from "./Serve.js";

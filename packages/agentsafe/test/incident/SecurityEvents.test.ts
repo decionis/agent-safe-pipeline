@@ -55,7 +55,7 @@ describe("SecurityEvents", () => {
       origin: "https://elsewhere.example",
       code: "EGRESS_ORIGIN_NOT_ALLOWED",
     });
-    events.emit({ event: "AUTH_FAILED", method: "mtls" });
+    events.emit({ event: "AUTH_FAILED", method: "mtls", code: "CALLER_NOT_AUTHENTICATED" });
     stop();
     events.emit({ event: "TLS_CONTEXT_ROTATED" });
     events.emit({ event: "CHAIN_CHECKPOINT", chain: SECURITY_STREAM, head: 44 });

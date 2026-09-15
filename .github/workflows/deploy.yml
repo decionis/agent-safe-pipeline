@@ -129,6 +129,24 @@ jobs:
           printf 'synthetic-caller-token-ci\n' > "$secrets/caller-token"
           printf 'synthetic-authority-key-ci\n' > "$secrets/decionis-api-key"
           printf 'Bearer synthetic-downstream-credential-ci\n' > "$secrets/downstream-credential"
+          # Who may call: one proposer, by the digest of a token nothing here
+          # holds. The file carries digests and identities, never a token.
+          digest="$(printf 'synthetic-caller-token-ci' | sha256sum | cut -d' ' -f1)"
+          cat > "$secrets/principals.json" <<EOF
+          {
+            "version": "agent-safe.principals/1",
+            "principals": [
+              {
+                "id": "synthetic-ci-workflow",
+                "role": "PROPOSER",
+                "tenant_id": "00000000-0000-4000-8000-000000000001",
+                "actor": { "id": "synthetic-payout-agent", "type": "AI_AGENT" },
+                "allowed_actions": ["forward_request"],
+                "credential": { "kind": "BEARER", "token_sha256": "$digest" }
+              }
+            ]
+          }
+          EOF
           openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes \
             -keyout "$secrets/tls.key" -out "$secrets/tls.crt" -days 2 \
             -subj "/CN=agent-safe-executor" -addext "subjectAltName=DNS:agent-safe-executor" 2>/dev/null
@@ -142,13 +160,10 @@ jobs:
           EXECUTOR_TLS_CERT_FILE=/var/run/agent-safe/secrets/tls.crt
           EXECUTOR_TLS_KEY_FILE=/var/run/agent-safe/secrets/tls.key
           EXECUTOR_JOURNAL_DIR=/var/lib/agent-safe/journal
-          EXECUTOR_TENANT_ID=00000000-0000-4000-8000-000000000001
-          EXECUTOR_ACTOR_ID=synthetic-payout-agent
-          EXECUTOR_ACTOR_TYPE=AI_AGENT
           EXECUTOR_INTENT_TTL_SECONDS=300
           EXECUTOR_ESCALATION=NONE
           EXECUTOR_SECRETS_DIR=/var/run/agent-safe/secrets
-          EXECUTOR_CALLER_TOKEN_FILE=/var/run/agent-safe/secrets/caller-token
+          EXECUTOR_PRINCIPALS_FILE=/var/run/agent-safe/secrets/principals.json
           DECIONIS_API_URL=https://authority.decionis.example
           DECIONIS_API_KEY_FILE=/var/run/agent-safe/secrets/decionis-api-key
           DOWNSTREAM_URL=https://payouts.provider.example/v1/payouts
@@ -183,6 +198,12 @@ jobs:
           grep -q '"LISTENING"' <<<"$logs"
           grep -q '"tls":true' <<<"$logs"
           grep -q '"CHAIN_CHECKPOINT"' <<<"$logs"
+          grep -q '"PRINCIPALS_LOADED"' <<<"$logs"
+          grep -q '"proposers":1' <<<"$logs"
+          if grep -q 'synthetic-caller-token-ci' <<<"$logs"; then
+            echo "A caller token reached the log." >&2
+            exit 1
+          fi
           if [[ "$status" != "0" ]]; then
             echo "The executor exited with status '$status' on SIGTERM." >&2
             exit 1
@@ -206,6 +227,10 @@ jobs:
               return 1
             fi
           }
+          # The principals file another user could read is refused by name.
+          sudo chmod 0444 "$secrets/principals.json"
+          refuses POSTURE_PRINCIPALS_FILE_MODE docker run --rm "${hardened[@]}" agentsafe:ci
+          sudo chmod 0440 "$secrets/principals.json"
           refuses POSTURE_ROOT_UID docker run --rm "${hardened[@]:1}" --user 0:0 agentsafe:ci
           refuses POSTURE_PROXY_ENV docker run --rm "${hardened[@]}" \
             -e HTTPS_PROXY=http://proxy.corp.example:3128 agentsafe:ci

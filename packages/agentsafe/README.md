@@ -99,18 +99,27 @@ where those controls are written down.
 
 ## The wire contract
 
-| Method | Path                  | Token | What it does                                                                                          |
-| ------ | --------------------- | ----- | ----------------------------------------------------------------------------------------------------- |
-| `GET`  | `/health`             | no    | The process is up                                                                                     |
-| `GET`  | `/ready`              | no    | Configuration loaded and the registry sealed; reports the mode and the actions                        |
-| `POST` | `/v1/actions`         | yes   | Capture, evaluate, and in enforcement execute once on an `ALLOW`                                      |
-| `POST` | `/v1/reconciliations` | yes   | Read-only: what the provider did with an attempt whose answer was lost                                |
-| `POST` | `/v1/escalations`     | yes   | Resume an open escalation: one lookup, then a fresh decision if the person answered                   |
-| `GET`  | `/metrics`            | yes   | OpenMetrics exposition, for an operator; answers `403 OPERATOR_NOT_CONFIGURED` until principals exist |
+| Method | Path                         | Who                                 | What it does                                                                        |
+| ------ | ---------------------------- | ----------------------------------- | ----------------------------------------------------------------------------------- |
+| `GET`  | `/health`                    | anyone                              | The process is up                                                                   |
+| `GET`  | `/ready`                     | anyone                              | Configuration loaded and the registry sealed; reports the mode and the actions      |
+| `POST` | `/v1/actions`                | a `PROPOSER`                        | Capture, evaluate, and in enforcement execute once on an `ALLOW`                    |
+| `POST` | `/v1/reconciliations`        | the `PROPOSER` that proposed        | Read-only: what the provider did with an attempt whose answer was lost              |
+| `POST` | `/v1/escalations`            | the `PROPOSER` that proposed        | Resume an open escalation: one lookup, then a fresh decision if the person answered |
+| `GET`  | `/v1/control/status`         | an `OPERATOR` with `status`         | Mode, actions, posture, principals, the evidence chain's head, the secrets' names   |
+| `POST` | `/v1/control/secrets/reload` | an `OPERATOR` with `secrets.reload` | Re-read every secret file now; the report names files, never values                 |
+| `GET`  | `/metrics`                   | an `OPERATOR` with `metrics`        | The OpenMetrics exposition                                                          |
 
-The caller presents the caller token as `Authorization: Bearer <token>`; it is compared in constant
-time against a digest and never logged. Bodies are JSON, at most 100 KiB, and a refusal is a status
-and a stable code with nothing from the request echoed back. Every response, refusals included,
+Who may call is the principals file, described below; without one, the one legacy caller presents
+the caller token as `Authorization: Bearer <token>`. Every request that is not public passes the
+door in one fixed, fail-closed order: the window for failed attempts (`429 RATE_LIMITED`); a
+client certificate together with a bearer, which is ambiguous and refused (`401 AUTH_AMBIGUOUS`);
+the certificate, by SAN URI and optional pin; the bearer, by digest across every bearer principal
+in constant time, then as a workload token; the principal's lock (`423 PRINCIPAL_LOCKED`, only once
+the principal is known, so a lock is never an existence oracle); the principal's own window; the
+route's role (`403 ROLE_FORBIDDEN`); the route's scope (`403 SCOPE_FORBIDDEN`). A refusal is a
+status and a stable code with nothing from the request echoed back, and one `AUTH_FAILED` event
+with the method and the code. Bodies are JSON, at most 100 KiB. Every response, refusals included,
 carries `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`,
 `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff` and `Cache-Control: no-store`.
 
@@ -120,8 +129,10 @@ The listener is TLS: `EXECUTOR_TLS_CERT_FILE` and the `EXECUTOR_TLS_KEY` secret,
 `EXECUTOR_TLS_MIN_VERSION=1.2` admits 1.2 with ECDHE and an AEAD cipher only, no renegotiation,
 HTTP/1.1 only. With `EXECUTOR_TLS_CLIENT_CA_FILE` every connection is asked for a client
 certificate; the handshake admits a connection without one, deliberately, because the kubelet's
-HTTPS probes present none, and the door then requires an authorized certificate on every route
-that is not public, so a probe reaches `/health` and nothing else. A rotated key replaces the TLS
+HTTPS probes present none. With a principals file, a certificate is one credential kind among
+three and names its principal by SAN URI; without one, every route that is not public requires an
+authorized certificate and the caller token together, so a probe reaches `/health` and nothing
+else. A rotated key replaces the TLS
 context in place; connections already open keep the context they negotiated. Plaintext, for a
 developer's machine and the offline proof, needs `EXECUTOR_ALLOW_PLAINTEXT_LISTENER=true` and is
 refused under `NODE_ENV=production`. A refusal at the door is recorded on the security stream as
@@ -218,42 +229,141 @@ Every variable, in one list (`CONFIG_KEYS`). A missing or invalid value is a ref
 names the variable and never its value. Nothing that identifies a tenant, a system, a person or a
 network path has a default.
 
-| Variable                                                      | Meaning                                                                                                                   |
-| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `EXECUTOR_MODE`                                               | `SHADOW` or `ENFORCEMENT`                                                                                                 |
-| `EXECUTOR_BIND_ADDRESS`, `PORT`                               | Where the listener binds                                                                                                  |
-| `EXECUTOR_TENANT_ID`                                          | The Decionis tenant, a UUID                                                                                               |
-| `EXECUTOR_ACTOR_ID`, `_TYPE`                                  | The actor the intent names; `EXECUTOR_ACTOR_RUNTIME` is optional                                                          |
-| `EXECUTOR_INTENT_TTL_SECONDS`                                 | How long a proposal stays valid, at most five minutes; a ceremony has to finish inside it                                 |
-| `EXECUTOR_CALLER_TOKEN`                                       | The token the proposing workflow presents; secret                                                                         |
-| `EXECUTOR_ESCALATION`                                         | `NONE`, `DIRECT` or `MANAGED`; refused in shadow, which never escalates                                                   |
-| `EXECUTOR_POSTURE`                                            | `ENFORCED` (the default) or `DEVELOPMENT`, which waives the host checks and says so; refused under `NODE_ENV=production`  |
-| `EXECUTOR_POSTURE_INTERVAL_SECONDS`                           | How often the drift checks repeat while running; ten seconds to ten minutes, sixty by default                             |
-| `EXECUTOR_SECRETS_DIR`                                        | The directory every `<NAME>_FILE` must resolve inside; required in production when any file is mounted                    |
-| `EXECUTOR_TLS_CERT_FILE`, `EXECUTOR_TLS_KEY`                  | The listener's certificate chain and its private key; the key is a secret, given as `EXECUTOR_TLS_KEY_FILE` in production |
-| `EXECUTOR_TLS_CLIENT_CA_FILE`                                 | Optional: the CA that callers' client certificates chain to; every non-public route then requires one                     |
-| `EXECUTOR_TLS_MIN_VERSION`                                    | `1.3` (the default) or `1.2`, which admits TLS 1.2 with AEAD ciphers only                                                 |
-| `EXECUTOR_ALLOW_PLAINTEXT_LISTENER`                           | `true` runs the listener without TLS, for a developer's machine; refused under `NODE_ENV=production`                      |
-| `EXECUTOR_EGRESS_MAX_RESPONSE_BYTES`                          | The most any outbound response may carry, 1 KiB to 16 MiB, 1 MiB by default                                               |
-| `EXECUTOR_JOURNAL_DIR`                                        | Optional: where the evidence chains' heads persist across a restart; absolute, writable by the process                    |
-| `EXECUTOR_AUDIT_CHECKPOINT_LINES`                             | How many chained lines between persisted heads, one hundred by default                                                    |
-| `DECIONIS_API_URL`                                            | The authority, HTTPS                                                                                                      |
-| `DECIONIS_API_KEY`                                            | The server-side Decionis credential; secret                                                                               |
-| `DECIONIS_ALLOW_INSECURE_LOOPBACK`                            | `true` permits plain HTTP to loopback for local doubles; refused under `NODE_ENV=production`                              |
-| `DECIONIS_CA_FILE`, `DECIONIS_SPKI_PINS`                      | Optional: the PEM bundle the authority is verified against, and two or more `sha256/<base64>` SPKI pins                   |
-| `PRESENCE_APPROVER_ID`                                        | The person who must approve (`DIRECT` and `MANAGED`); `PRESENCE_APPROVER_ROLE` is optional in `MANAGED`                   |
-| `PRESENCE_VERIFICATION_LEVEL`, `_METHODS`                     | `STANDARD` or `HIGH_CONFIDENCE`, and a comma-separated list of `WEBAUTHN`, `ACTIVE_LIVENESS`                              |
-| `PRESENCE_API_URL`, `PRESENCE_API_KEY`                        | `DIRECT` only: the Presence service and its server-side credential; secret                                                |
-| `PRESENCE_ORGANIZATION`                                       | `DIRECT` only: the requesting party the person sees                                                                       |
-| `PRESENCE_CA_FILE`                                            | `DIRECT` only, optional: the PEM bundle the Presence service is verified against                                          |
-| `PRESENCE_HARDWARE_PKI_REQUIRED`, `_DISALLOW_VIRTUAL_CAMERAS` | `DIRECT` only: `true` or `false`                                                                                          |
-| `DOWNSTREAM_URL`                                              | Where the reference handler forwards the verified parameters, HTTPS                                                       |
-| `DOWNSTREAM_LOOKUP_URL`                                       | Optional read-only lookup for reconciliation; must contain `{idempotency_key}`                                            |
-| `DOWNSTREAM_SYSTEM`, `_OPERATION`, `_ENVIRONMENT`             | The downstream target the intent names                                                                                    |
-| `DOWNSTREAM_CREDENTIAL`                                       | The header value the downstream expects, prefix included; secret                                                          |
-| `DOWNSTREAM_CREDENTIAL_HEADER`                                | The header it goes in                                                                                                     |
-| `DOWNSTREAM_CA_FILE`, `DOWNSTREAM_SPKI_PINS`                  | Optional: the PEM bundle the downstream is verified against, and two or more `sha256/<base64>` SPKI pins                  |
-| `DOWNSTREAM_TIMEOUT_MS`                                       | Finite, at most fifteen seconds                                                                                           |
+| Variable                                                      | Meaning                                                                                                                    |
+| ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `EXECUTOR_MODE`                                               | `SHADOW` or `ENFORCEMENT`                                                                                                  |
+| `EXECUTOR_BIND_ADDRESS`, `PORT`                               | Where the listener binds                                                                                                   |
+| `EXECUTOR_TENANT_ID`                                          | Legacy mode only: the Decionis tenant, a UUID                                                                              |
+| `EXECUTOR_ACTOR_ID`, `_TYPE`                                  | Legacy mode only: the actor the intent names; `EXECUTOR_ACTOR_RUNTIME` is optional                                         |
+| `EXECUTOR_INTENT_TTL_SECONDS`                                 | How long a proposal stays valid, at most five minutes; a ceremony has to finish inside it                                  |
+| `EXECUTOR_CALLER_TOKEN`                                       | Legacy mode only: the token the one caller presents; secret                                                                |
+| `EXECUTOR_PRINCIPALS_FILE`                                    | The principals file; excludes `EXECUTOR_TENANT_ID`, `EXECUTOR_ACTOR_*` and the caller token; required in production        |
+| `EXECUTOR_ALLOW_LEGACY_CALLER`                                | `true` lets production run without a principals file, on the legacy caller alone                                           |
+| `EXECUTOR_JWT_AUDIENCE`, `EXECUTOR_JWKS_FILE`                 | Together: the audience workload tokens must carry, and the JWKS they are verified against                                  |
+| `EXECUTOR_JWKS_URL`, `EXECUTOR_JWKS_CA_FILE`                  | Optional: where the JWKS is refreshed from through the guarded fetch, and the bundle that address is verified against      |
+| `EXECUTOR_JWKS_REFRESH_SECONDS`                               | How often, one minute to a day, five minutes by default                                                                    |
+| `EXECUTOR_JWT_CLOCK_TOLERANCE_SECONDS`                        | Leeway on a token's times, up to five minutes, thirty seconds by default                                                   |
+| `EXECUTOR_RATE_LIMIT_UNAUTHENTICATED`                         | `<count>/<seconds>` for attempts that never became a principal; `20/60` by default                                         |
+| `EXECUTOR_AUTH_LOCKOUT`                                       | `<failures>/<seconds>/<lock seconds>` for a principal's proven failures; `10/60/300` by default, `0/…` disables            |
+| `EXECUTOR_ESCALATION`                                         | `NONE`, `DIRECT` or `MANAGED`; refused in shadow, which never escalates                                                    |
+| `EXECUTOR_POSTURE`                                            | `ENFORCED` (the default) or `DEVELOPMENT`, which waives the host checks and says so; refused under `NODE_ENV=production`   |
+| `EXECUTOR_POSTURE_INTERVAL_SECONDS`                           | How often the drift checks repeat while running; ten seconds to ten minutes, sixty by default                              |
+| `EXECUTOR_SECRETS_DIR`                                        | The directory every `<NAME>_FILE` must resolve inside; required in production when any file is mounted                     |
+| `EXECUTOR_TLS_CERT_FILE`, `EXECUTOR_TLS_KEY`                  | The listener's certificate chain and its private key; the key is a secret, given as `EXECUTOR_TLS_KEY_FILE` in production  |
+| `EXECUTOR_TLS_CLIENT_CA_FILE`                                 | Optional: the CA that callers' client certificates chain to; every non-public route then requires one                      |
+| `EXECUTOR_TLS_MIN_VERSION`                                    | `1.3` (the default) or `1.2`, which admits TLS 1.2 with AEAD ciphers only                                                  |
+| `EXECUTOR_ALLOW_PLAINTEXT_LISTENER`                           | `true` runs the listener without TLS, for a developer's machine; refused under `NODE_ENV=production`                       |
+| `EXECUTOR_EGRESS_MAX_RESPONSE_BYTES`                          | The most any outbound response may carry, 1 KiB to 16 MiB, 1 MiB by default                                                |
+| `EXECUTOR_JOURNAL_DIR`                                        | Optional: where the evidence chains' heads persist across a restart; absolute, writable by the process                     |
+| `EXECUTOR_AUDIT_CHECKPOINT_LINES`                             | How many chained lines between persisted heads, one hundred by default                                                     |
+| `DECIONIS_API_URL`                                            | The authority, HTTPS                                                                                                       |
+| `DECIONIS_API_KEY`                                            | The server-side Decionis credential; secret                                                                                |
+| `DECIONIS_ALLOW_INSECURE_LOOPBACK`                            | `true` permits plain HTTP to loopback for local doubles; refused under `NODE_ENV=production`                               |
+| `DECIONIS_CA_FILE`, `DECIONIS_SPKI_PINS`                      | Optional: the PEM bundle the authority is verified against, and two or more `sha256/<base64>` SPKI pins                    |
+| `PRESENCE_APPROVER_ID`                                        | The person who must approve (`DIRECT` and `MANAGED`); `PRESENCE_APPROVER_ROLE` is optional in `MANAGED`                    |
+| `PRESENCE_VERIFICATION_LEVEL`, `_METHODS`                     | `STANDARD` or `HIGH_CONFIDENCE`, and a comma-separated list of `WEBAUTHN`, `ACTIVE_LIVENESS`                               |
+| `PRESENCE_API_URL`, `PRESENCE_API_KEY`                        | `DIRECT` only: the Presence service and its server-side credential; secret                                                 |
+| `PRESENCE_ORGANIZATION`                                       | `DIRECT` only: the requesting party the person sees                                                                        |
+| `PRESENCE_CA_FILE`                                            | `DIRECT` only, optional: the PEM bundle the Presence service is verified against                                           |
+| `PRESENCE_HARDWARE_PKI_REQUIRED`, `_DISALLOW_VIRTUAL_CAMERAS` | `DIRECT` only: `true` or `false`                                                                                           |
+| `DOWNSTREAM_URL`                                              | Where the reference handler forwards the verified parameters, HTTPS                                                        |
+| `DOWNSTREAM_LOOKUP_URL`                                       | Optional read-only lookup for reconciliation; must contain `{idempotency_key}`                                             |
+| `DOWNSTREAM_SYSTEM`, `_OPERATION`, `_ENVIRONMENT`             | The downstream target the intent names                                                                                     |
+| `DOWNSTREAM_CREDENTIAL_KIND`                                  | `STATIC_HEADER` (the default), `PRIVATE_KEY_JWT` or `SIGNED_REQUEST`; the other kinds' keys must be absent                 |
+| `DOWNSTREAM_CREDENTIAL`                                       | `STATIC_HEADER`: the header value the downstream expects, prefix included; secret                                          |
+| `DOWNSTREAM_CREDENTIAL_HEADER`                                | `STATIC_HEADER`: the header it goes in                                                                                     |
+| `DOWNSTREAM_TOKEN_URL`, `DOWNSTREAM_CLIENT_ID`                | `PRIVATE_KEY_JWT`: the token endpoint, HTTPS, and the client id                                                            |
+| `DOWNSTREAM_PRIVATE_KEY`                                      | `PRIVATE_KEY_JWT`: the PKCS#8 key the assertion is signed with; secret                                                     |
+| `DOWNSTREAM_PRIVATE_KEY_ID`, `_ALGORITHM`                     | `PRIVATE_KEY_JWT`: optional `kid`, and `ES256` (the default) or `PS256`                                                    |
+| `DOWNSTREAM_TOKEN_AUDIENCE`, `DOWNSTREAM_TOKEN_SCOPE`         | `PRIVATE_KEY_JWT`: optional assertion audience (the token endpoint by default) and scope                                   |
+| `DOWNSTREAM_SIGNING_KEY`, `DOWNSTREAM_SIGNING_KEY_ID`         | `SIGNED_REQUEST`: the Ed25519 PKCS#8 key or the HMAC secret, and the `keyid` the downstream knows it by; the key is secret |
+| `DOWNSTREAM_SIGNING_ALGORITHM`                                | `SIGNED_REQUEST`: `ed25519` (the default) or `hmac-sha256`                                                                 |
+| `DOWNSTREAM_CA_FILE`, `DOWNSTREAM_SPKI_PINS`                  | Optional: the PEM bundle the downstream is verified against, and two or more `sha256/<base64>` SPKI pins                   |
+| `DOWNSTREAM_TIMEOUT_MS`                                       | Finite, at most fifteen seconds                                                                                            |
+
+## Principals
+
+`EXECUTOR_PRINCIPALS_FILE` names every caller: who they are, what role they hold, and how they
+prove it. The file is `agent-safe.principals/1`, at most two hundred principals, checked for its
+mode and owner like a secret although it holds no secret: a bearer credential is the SHA-256 of
+the token, a certificate is named by its SAN URI, a workload token by its issuer and subject.
+
+```json
+{
+  "version": "agent-safe.principals/1",
+  "principals": [
+    {
+      "id": "treasury-workflow",
+      "role": "PROPOSER",
+      "tenant_id": "00000000-0000-4000-8000-000000000001",
+      "actor": { "id": "synthetic-payout-agent", "type": "AI_AGENT", "runtime": "workflow-runner" },
+      "allowed_actions": ["forward_request"],
+      "credential": {
+        "kind": "WORKLOAD_JWT",
+        "issuer": "https://kubernetes.default.svc.cluster.example",
+        "subject": "system:serviceaccount:agent-safe-agents:treasury-workflow",
+        "required_claims": { "kubernetes.io/namespace": "agent-safe-agents" }
+      },
+      "rate_limit": "120/60"
+    },
+    {
+      "id": "batch-runner",
+      "role": "PROPOSER",
+      "tenant_id": "00000000-0000-4000-8000-000000000001",
+      "actor": { "id": "synthetic-batch-agent", "type": "AI_AGENT" },
+      "allowed_actions": ["forward_request"],
+      "credential": { "kind": "BEARER", "token_sha256": "<sha256 of the token, hex>" }
+    },
+    {
+      "id": "ops-oncall",
+      "role": "OPERATOR",
+      "scopes": ["status", "metrics", "secrets.reload"],
+      "credential": { "kind": "MTLS", "san_uri": "spiffe://bank.example/ns/ops/sa/oncall" }
+    }
+  ]
+}
+```
+
+A `PROPOSER` carries the tenant and actor its intents name and the actions it may propose; an
+`OPERATOR` carries scopes from `halt`, `resume`, `secrets.reload`, `status`, `metrics`,
+`evidence`. The tenant and actor come from the principal, never from the request, and the
+principal's id travels inside the hashed intent as `context.caller_principal`, so the authority's
+policy can see who asked and a reconciliation or a resumption is refused unless the intent
+presented is the caller's own (`403 INTENT_PRINCIPAL_MISMATCH`). An action a principal may not
+propose is `403 ACTION_NOT_PERMITTED_FOR_PRINCIPAL`, refused before the intent is captured. A
+proposer whose id or actor is the configured approver, or whose actor is an operator, is refused
+at start or as `422 SEPARATION_OF_DUTIES_VIOLATED`; the authority's maker-checker rule is not
+duplicated, only the obvious self-approval shapes are stopped early.
+
+Loading refuses a duplicate id, a credential identity claimed twice
+(`PRINCIPALS_CREDENTIAL_SHARED`), an action nobody registered, a workload credential without
+`EXECUTOR_JWT_AUDIENCE` and `EXECUTOR_JWKS_FILE`, and a certificate credential without
+`EXECUTOR_TLS_CLIENT_CA_FILE`. `BEARER` principals are allowed in production and named on the
+security stream at start (`BEARER_PRINCIPAL_CONFIGURED`), because a digest in a file is still a
+bearer secret somewhere else.
+
+Workload tokens are verified against the JWKS in `EXECUTOR_JWKS_FILE`, which the platform team
+places from the cluster's `/openid/v1/jwks`, optionally refreshed from `EXECUTOR_JWKS_URL`
+through the guarded fetch with the last good set kept on any failure. RS256, ES256 and EdDSA only;
+`iss`, `sub`, `exp` and `iat` required; at most a day old; the audience must include the
+executor's or the one the principal names; `required_claims` must match exactly. Each refusal has
+its own code (`JWT_SIGNATURE_INVALID`, `JWT_AUDIENCE_MISMATCH`, `JWT_ISSUER_UNKNOWN`,
+`JWT_EXPIRED`, `JWT_ALGORITHM_REFUSED`, `JWT_SUBJECT_UNKNOWN`, `JWT_CLAIM_MISMATCH`). There is no
+`jti` cache by design: a projected token is a bearer for its lifetime, a replayed request is
+defeated by the idempotency key, the intent hash and the single-use grant, and a signed request
+exists for per-request proof.
+
+Failed attempts that never became a principal share one window,
+`EXECUTOR_RATE_LIMIT_UNAUTHENTICATED`; a principal whose proven identity keeps failing (a workload
+token with the wrong audience or claim, a pinned certificate that does not match) is locked after
+`EXECUTOR_AUTH_LOCKOUT` failures, unlocked only by expiry or a restart, and the lock is recorded
+as `PRINCIPAL_LOCKED`; a principal's own `rate_limit` bounds what it may send.
+
+Without a principals file the executor runs in legacy mode: one `PROPOSER` named `legacy-caller`
+is synthesised from `EXECUTOR_TENANT_ID`, `EXECUTOR_ACTOR_*` and the caller token, allowed every
+registered action, with no operator at all, so every control route answers `403`. The security
+stream says `LEGACY_PRINCIPAL_MODE` at start, and production refuses it unless
+`EXECUTOR_ALLOW_LEGACY_CALLER=true` says so by name.
 
 ## Secrets
 
@@ -283,6 +393,49 @@ Where the value comes from is yours: a Kubernetes Secret, the Secrets Store CSI 
 a cloud KMS or Vault, or External Secrets. Each lands the credential as a file this process reads
 and follows; none of them is integrated here, and an HSM-resident signing key that must never leave
 its device needs a signing sidecar this package does not provide.
+
+## Downstream credentials
+
+`DOWNSTREAM_CREDENTIAL_KIND` says how this process proves itself to the downstream; a handler asks
+the credential for headers before the point of no return and never holds a value of its own.
+
+- `STATIC_HEADER` (the default): the value of `DOWNSTREAM_CREDENTIAL` in
+  `DOWNSTREAM_CREDENTIAL_HEADER`, prefix included.
+- `PRIVATE_KEY_JWT`: OAuth 2.0 client credentials with a `private_key_jwt` assertion, the FAPI
+  baseline. An assertion signed with `DOWNSTREAM_PRIVATE_KEY` (ES256 or PS256, `iss` and `sub` the
+  client id, `aud` the token endpoint or `DOWNSTREAM_TOKEN_AUDIENCE`, a fresh `jti`, sixty
+  seconds of life) is posted to `DOWNSTREAM_TOKEN_URL`, a sealed egress destination under the
+  downstream's anchor; the access token is held as a secret handle until thirty seconds before it
+  expires, with one refresh in flight at a time. A token that cannot be obtained is a failure
+  before dispatch, never an unknown outcome.
+- `SIGNED_REQUEST`: an RFC 9421 signature over a fixed set of components with an RFC 9530 content
+  digest, Ed25519 or HMAC-SHA256 with `DOWNSTREAM_SIGNING_KEY`, so the downstream can prove that
+  this process, holding this key, sent this request for this intent. The handler must send
+  `idempotency-key` and `x-agent-safe-intent-hash` with the values it asked the credential to
+  sign; the reference handler does.
+
+The keys of the kinds not selected must be absent, and each kind names the one secret it needs. A
+downstream verifies a signed request like this:
+
+```text
+components  = ("@method" "@path" "content-digest" "idempotency-key" "x-agent-safe-intent-hash")
+params      = the text after "agentsafe=" in the signature-input header:
+              (components);created=<unix seconds>;keyid="<id>";alg="ed25519"|"hmac-sha256"
+base        = '"@method": ' + METHOD                                   + "\n"
+            + '"@path": ' + PATH                                       + "\n"
+            + '"content-digest": sha-256=:' + base64(sha256(body)) + ':' + "\n"
+            + '"idempotency-key": ' + the idempotency-key header       + "\n"
+            + '"x-agent-safe-intent-hash": ' + that header             + "\n"
+            + '"@signature-params": ' + params
+signature   = base64 between the colons after "agentsafe=" in the signature header
+accept only if the content-digest matches the body you received,
+           created is inside your clock window,
+           keyid names a key you issued to the executor,
+           and verify(alg, key, base, signature) holds
+```
+
+`SignedRequestCredential.verify` in this package is that procedure, for tests and for a downstream
+written in TypeScript.
 
 ## Egress
 
@@ -336,6 +489,7 @@ host recovers (`POSTURE_RESTORED`).
 | `SECRET_FILE_OUTSIDE_DIR`, `SECRET_FILE_MODE`, `SECRET_FILE_OWNER`                                | A secret file resolves outside `EXECUTOR_SECRETS_DIR`, or another user could read it                           |
 | `PERMISSION_MODEL_ABSENT`, `PERMISSION_FS_WRITE`, `PERMISSION_CHILD_PROCESS`, `PERMISSION_WORKER` | Node's permission model is off, or allows writes outside the journal directory, child processes, or workers    |
 | `GLOBAL_FETCH_UNLOCKED`                                                                           | The global `fetch` is not the refusing stub `serve` installs, so code could reach the network around the guard |
+| `PRINCIPALS_FILE_MODE`, `PRINCIPALS_FILE_OWNER`                                                   | The principals file is not a regular file another user could not write, or is owned by someone else            |
 
 `EXECUTOR_POSTURE=DEVELOPMENT`, for a developer's machine and the offline proof, waives the
 host-specific checks, the fetch lock among them because a test process is its own client, and
@@ -362,10 +516,11 @@ are in
 
 Counters with fixed label names count proposals by verdict, executions by outcome, refusals at
 the door by method, egress refusals by code, secret rotations by name, posture drift by check,
-redactions, TLS context rotations, and chained lines by stream. They are rendered as OpenMetrics
-text through `executor.metrics.registry.render()` and on `GET /metrics`, which answers
-`403 OPERATOR_NOT_CONFIGURED` to every caller until principals with an operator role exist: the
-proposing workflow is not the party that should read them.
+redactions, TLS context rotations, chained lines by stream, principals locked, and operator
+actions by action. They are rendered as OpenMetrics
+text through `executor.metrics.registry.render()` and on `GET /metrics` to an operator with the
+`metrics` scope; a proposer is not the party that should read them, and every operator action is
+recorded as `OPERATOR_ACTION` with the principal and the action.
 
 ## The seam
 

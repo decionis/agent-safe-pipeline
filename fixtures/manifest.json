@@ -345,6 +345,78 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/TrustedExecutorPrincipals.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/credential/PrivateKeyJwtCredential.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/credential/SignedRequestCredential.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/identity/Authenticator.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/identity/PeerIdentity.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/identity/PrincipalRegistry.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/identity/PrincipalsFile.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/identity/RateLimiter.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/identity/SeparationOfDuties.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/identity/WorkloadJwtVerifier.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/service/Principals.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/support/Principals.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/pipeline/test/approval/PresenceApprovalCoordinator.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",

@@ -114,6 +114,113 @@ describe("EgressPolicy.fromConfig", () => {
   });
 });
 
+describe("EgressPolicy.fromConfig for the token endpoint and the JWKS", () => {
+  it("seals the token endpoint under the downstream's anchor only for the private-key kind", () => {
+    const base = offlineEnvironment();
+    delete base["DOWNSTREAM_CREDENTIAL"];
+    delete base["DOWNSTREAM_CREDENTIAL_HEADER"];
+    const withToken = EgressPolicy.fromConfig(
+      ExecutorConfigLoader.load({
+        ...base,
+        DOWNSTREAM_CREDENTIAL_KIND: "PRIVATE_KEY_JWT",
+        DOWNSTREAM_TOKEN_URL: `${DOWNSTREAM}/oauth/token`,
+        DOWNSTREAM_CLIENT_ID: "synthetic-client",
+        DOWNSTREAM_PRIVATE_KEY: "synthetic-key-material",
+      }),
+      () => "",
+    );
+    expect(check(withToken, `${DOWNSTREAM}/oauth/token`)).toBe("ALLOWED");
+    expect(check(withToken, `${DOWNSTREAM}/oauth/revoke`)).toBe("EGRESS_PATH_NOT_ALLOWED");
+    const signed = EgressPolicy.fromConfig(
+      ExecutorConfigLoader.load({
+        ...base,
+        DOWNSTREAM_CREDENTIAL_KIND: "SIGNED_REQUEST",
+        DOWNSTREAM_SIGNING_KEY: "synthetic-key-material",
+        DOWNSTREAM_SIGNING_KEY_ID: "k1",
+      }),
+      () => "",
+    );
+    expect(check(signed, `${DOWNSTREAM}/oauth/token`)).toBe("EGRESS_PATH_NOT_ALLOWED");
+    expect(
+      check(
+        EgressPolicy.fromConfig(ExecutorConfigLoader.load(offlineEnvironment()), () => ""),
+        `${DOWNSTREAM}/oauth/token`,
+      ),
+    ).toBe("EGRESS_PATH_NOT_ALLOWED");
+  });
+
+  it("seals the JWKS address with its own anchor, and nothing when there is none", () => {
+    const readFile = vi.fn((path: string) =>
+      path === "/etc/agent-safe/jwks-ca.pem" ? CA_BUNDLE : "not a bundle",
+    );
+    const refreshed = EgressPolicy.fromConfig(
+      ExecutorConfigLoader.load({
+        ...offlineEnvironment(),
+        EXECUTOR_JWT_AUDIENCE: "agentsafe",
+        EXECUTOR_JWKS_FILE: "/var/run/agent-safe/jwks/jwks.json",
+        EXECUTOR_JWKS_URL: "https://kubernetes.default.svc.cluster.example/openid/v1/jwks",
+        EXECUTOR_JWKS_CA_FILE: "/etc/agent-safe/jwks-ca.pem",
+      }),
+      readFile,
+    );
+    expect(refreshed.origins).toEqual([
+      AUTHORITY,
+      DOWNSTREAM,
+      "https://kubernetes.default.svc.cluster.example",
+    ]);
+    const result = refreshed.check(
+      new URL("https://kubernetes.default.svc.cluster.example/openid/v1/jwks"),
+    );
+    expect(result.allowed && result.destination).toEqual({
+      origin: "https://kubernetes.default.svc.cluster.example",
+      pathPrefixes: ["/openid/v1/jwks"],
+      ca: CA_BUNDLE,
+      pins: [],
+    });
+    expect(check(refreshed, "https://kubernetes.default.svc.cluster.example/api/v1/secrets")).toBe(
+      "EGRESS_PATH_NOT_ALLOWED",
+    );
+    expect(readFile).toHaveBeenCalledWith("/etc/agent-safe/jwks-ca.pem");
+    expect(() =>
+      EgressPolicy.fromConfig(
+        ExecutorConfigLoader.load({
+          ...offlineEnvironment(),
+          EXECUTOR_JWT_AUDIENCE: "agentsafe",
+          EXECUTOR_JWKS_FILE: "/var/run/agent-safe/jwks/jwks.json",
+          EXECUTOR_JWKS_URL: "https://kubernetes.default.svc.cluster.example/openid/v1/jwks",
+          EXECUTOR_JWKS_CA_FILE: "/etc/agent-safe/jwks-ca.pem",
+        }),
+        (path) =>
+          path === "/etc/agent-safe/jwks-ca.pem" ? "-----BEGIN PRIVATE KEY-----" : CA_BUNDLE,
+      ),
+    ).toThrow("CONFIG_INVALID: EXECUTOR_JWKS_CA_FILE (not a PEM certificate bundle)");
+    const unanchored = EgressPolicy.fromConfig(
+      ExecutorConfigLoader.load({
+        ...offlineEnvironment(),
+        EXECUTOR_JWT_AUDIENCE: "agentsafe",
+        EXECUTOR_JWKS_FILE: "/var/run/agent-safe/jwks/jwks.json",
+        EXECUTOR_JWKS_URL: "https://kubernetes.default.svc.cluster.example/openid/v1/jwks",
+      }),
+      () => {
+        throw new Error("no file should be read");
+      },
+    );
+    const plain = unanchored.check(
+      new URL("https://kubernetes.default.svc.cluster.example/openid/v1/jwks"),
+    );
+    expect(plain.allowed && plain.destination.ca).toBeNull();
+    const local = EgressPolicy.fromConfig(
+      ExecutorConfigLoader.load({
+        ...offlineEnvironment(),
+        EXECUTOR_JWT_AUDIENCE: "agentsafe",
+        EXECUTOR_JWKS_FILE: "/var/run/agent-safe/jwks/jwks.json",
+      }),
+      () => "",
+    );
+    expect(local.origins).toEqual([AUTHORITY, DOWNSTREAM]);
+  });
+});
+
 describe("EgressPolicy.check", () => {
   const policy = new EgressPolicy([
     { origin: AUTHORITY, pathPrefixes: ["/"], ca: null, pins: [] },

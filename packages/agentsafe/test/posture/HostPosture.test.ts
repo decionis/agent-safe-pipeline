@@ -57,6 +57,7 @@ function config(overrides: Partial<PostureConfig> = {}): PostureConfig {
     secretsInEnvironment: [],
     secretFiles: { DECIONIS_API_KEY: SECRET },
     secretsDir: "/var/run/agent-safe/secrets",
+    principalsFile: null,
     ...overrides,
   };
 }
@@ -154,6 +155,21 @@ describe("HostPosture", () => {
       "PERMISSION_WORKER",
     );
     expect(refusal({ ...green(), fetchLocked: false })).toBe("GLOBAL_FETCH_UNLOCKED");
+    const principals = "/var/run/agent-safe/principals/principals.json";
+    const withFile = (mode: number, uid: number, gid: number): FixtureOptions => ({
+      files: { ...green().files, [principals]: { mode, uid, gid } },
+    });
+    expect(refusal(withFile(0o100440, 0, 65532), { principalsFile: principals })).toBeNull();
+    expect(refusal(withFile(0o100600, 65532, 65532), { principalsFile: principals })).toBeNull();
+    expect(refusal(withFile(0o100644, 0, 65532), { principalsFile: principals })).toBe(
+      "PRINCIPALS_FILE_MODE",
+    );
+    expect(refusal(withFile(0o100440, 0, 1000), { principalsFile: principals })).toBe(
+      "PRINCIPALS_FILE_OWNER",
+    );
+    expect(refusal(green(), { principalsFile: principals })).toBe("PRINCIPALS_FILE_MODE");
+    expect(WAIVABLE_CHECKS.has("PRINCIPALS_FILE_MODE")).toBe(true);
+    expect(DRIFT_CHECKS.has("PRINCIPALS_FILE_OWNER")).toBe(true);
   });
 
   it("checks every secret file's place, mode, and owner", () => {
