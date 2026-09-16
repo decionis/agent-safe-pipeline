@@ -78,8 +78,8 @@
   },
   "dependencies": {
     "@decionis/presence-node": "^0.2.0",
-    "jose": "^6.2.10",
-    "zod": "^4.5.4"
+    "jose": "^6.2.12",
+    "zod": "^4.6.4"
   },
   "devDependencies": {
     "@stryker-mutator/core": "10.0.0",
