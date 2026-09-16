@@ -12,6 +12,7 @@ release/
 
 # Local-only planning material
 brief.pipeline.md
+gtm/
 
 # Private keys, certificates, and machine-local credentials
 *.key
