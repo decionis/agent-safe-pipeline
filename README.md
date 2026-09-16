@@ -48,6 +48,77 @@ const result = await executor.run(captured, decision);
 
 The executor accepts a captured intent and a decision. It does not accept an arbitrary callback from the agent. A sealed `ActionRegistry` maps action names to trusted handlers and validates parameters before consuming a single-use grant.
 
+## Optional: a signed Decision Dossier from Decionis
+
+Everything above runs locally and always will. The fixture authority evaluates in process, with no
+network call and no account, and that path stays supported: it is not a trial, not a reduced tier,
+and nothing in this repository stops working if you never do this step.
+
+What the local path cannot do is prove a decision to someone else. With a Decionis key, the same
+four examples (`basic-agent`, `shopify-refund-agent`, `github-deploy-agent`, `mcp-tool-gate`) ask
+Decionis to evaluate the same intent beside the fixture, and each run ends with the identifier of
+the Decision Dossier it left: a signed record of what was proposed, what was decided, and why,
+whose Ed25519 signatures verify against the authority's published keys, offline, with no account.
+
+```bash
+export DECIONIS_API_KEY=...        # the key
+export DECIONIS_TENANT_ID=...      # that key's organization id
+pnpm --filter @decionis/agent-safe-example-basic demo
+```
+
+The run prints exactly what it printed before, then:
+
+```text
+verdict: BLOCK
+decionis: ALLOW (SHADOW, recorded beside the local verdict)
+  - POLICY_AUTONOMOUS_LIMIT
+dossier: 6b2e5c1e-4b3a-4f0e-9c6d-2a1f7e8d9b0c
+verify it yourself, no account needed: pnpm decionis:verify 6b2e5c1e-4b3a-4f0e-9c6d-2a1f7e8d9b0c
+```
+
+`pnpm decionis:verify <id>` fetches the record with your key, resolves the public JWKS the record
+names, and checks every signed artifact with [`@decionis/verify`](https://www.npmjs.com/package/@decionis/verify),
+which uses only Node's built-in crypto. It prints each check, who minted the record, and `VERIFIED`
+or `NOT VERIFIED`. Add `--out dossier.json` to keep the signed record; anyone holding that file can
+repeat the check with the command under [Verify Decision Dossiers](#verify-decision-dossiers), with no
+key at all.
+
+A key without an account: `POST https://api.decionis.com/v1/public/agents/provision` mints a
+provisional workspace and returns `org_id` and `raw_key` once, no signup and no email, with an
+allowance of 50 decisions a month. Every dossier it mints carries a signed
+`provisional_anonymous` issuer tier, so a verifier can always tell it from an owned organization's
+record. An owned organization's key comes from the Decionis console.
+
+### How it is wired
+
+`createGate` in [`packages/pipeline`](./packages/pipeline/README.md#selecting-the-gate-from-the-environment)
+reads the environment and returns the authority and verifier the example runs:
+
+| Variable              | Default                    | Effect                                                                                                                                                                                                                    |
+| --------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DECIONIS_API_KEY`    | unset                      | Unset: the fixture pair, the same objects as before, and no client is built. Set: `DecionisGate` runs beside the fixture.                                                                                                 |
+| `DECIONIS_TENANT_ID`  | required with the key      | The key's organization. Decionis binds every intent to it, so the examples capture under it instead of their synthetic tenant.                                                                                            |
+| `DECIONIS_MODE`       | `SHADOW`                   | `SHADOW`: the fixture's verdict still governs execution; the hosted verdict and dossier are recorded. `ENFORCEMENT`: the hosted decision governs and its grant is claimed with Decionis; the fixture can only tighten it. |
+| `DECIONIS_API_URL`    | `https://api.decionis.com` | HTTPS only, for staging or a loopback double with `DECIONIS_ALLOW_INSECURE_LOOPBACK=true`.                                                                                                                                |
+| `DECIONIS_TIMEOUT_MS` | `4000`                     | Budget for the hosted call. A call past it is recorded as fail-closed.                                                                                                                                                    |
+
+Hosted mode fails closed. A timeout, a network error, a non-2xx response, a body that is not the
+contract's decision, a verdict the contract does not define, a decision about another intent, or an
+intent that expired before evaluation is recorded as `BLOCK` from the hosted side, with no grant. In
+`SHADOW` that is recorded and the fixture's verdict still governs, so setting a key cannot change what
+a working fork does; in `ENFORCEMENT` it blocks, as the threat model requires. Neither mode is ever
+less restrictive than the fixture alone; the matrix is asserted in
+[`ShadowGate.test.ts`](./packages/pipeline/test/decision/ShadowGate.test.ts) and every failure mode in
+[`FailClosed.test.ts`](./packages/pipeline/test/decision/FailClosed.test.ts).
+
+Only the captured intent leaves your process: the action, target and parameters the agent proposed,
+and the tenant, actor, downstream target, expiry and context the trusted configuration supplied. It
+is the same `ExecutionIntentBinding` the intent hash covers, and nothing else; credentials live behind
+the executor and are never part of an intent. The request body is pinned field by field in
+[`FailClosed.test.ts`](./packages/pipeline/test/decision/FailClosed.test.ts).
+
+To go back: delete the key. That is the whole rollback.
+
 ## Golden adversarial demo
 
 One legitimate path and eight adversarial attempts against the same boundary, offline, in a few seconds, with every expectation asserted:
@@ -75,7 +146,7 @@ DECIONIS_API_URL=https://api.decionis.com
 DECIONIS_API_KEY=server-side-secret
 ```
 
-See the [package README](./packages/pipeline/README.md) for the complete enforcement example and [`docs/shadow-mode.md`](./docs/shadow-mode.md) for the shadow rollout path.
+See the [package README](./packages/pipeline/README.md) for the complete enforcement example and [`docs/shadow-mode.md`](./docs/shadow-mode.md) for the shadow rollout path. To move an example between the stages with configuration alone, see [Optional: a signed Decision Dossier from Decionis](#optional-a-signed-decision-dossier-from-decionis).
 
 To run the boundary as its own service rather than in-process, [`packages/agentsafe`](./packages/agentsafe) is the executor as a process: `@decionis/agentsafe`, a listener in front of the same components with a seam for your handlers. [`examples/trusted-executor`](./examples/trusted-executor) is its proof over real HTTP against the loopback doubles and the template an adopter starts from. [`deploy/`](./deploy) is its image, the Kubernetes manifests for the two zones with every credential referenced and never written, and the runbook from shadow to enforcement.
 
