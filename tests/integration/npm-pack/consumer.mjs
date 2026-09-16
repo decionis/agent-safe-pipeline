@@ -34,9 +34,11 @@ const EXPECTED_RUNTIME = [
   "ProviderRefusal",
   "RESERVED_CONTEXT_IDEMPOTENCY_KEY",
   "SafeExecutor",
+  "ShadowGate",
   "ShadowPipeline",
   "TrustedIntentContextSchema",
   "createFixtureAuthorityPair",
+  "createGate",
 ];
 assert.deepStrictEqual(exports, EXPECTED_RUNTIME);
 console.log(`All ${exports.length} runtime exports imported successfully.`);
