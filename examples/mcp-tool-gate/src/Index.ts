@@ -3,6 +3,8 @@ import {
   IntentCapture,
   SafeExecutor,
   createFixtureAuthorityPair,
+  createGate,
+  printDecision,
 } from "@decionis/agent-safe-pipeline";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -10,8 +12,11 @@ import { z } from "zod";
 
 const server = new McpServer({ name: "agent-safe-mcp-example", version: "0.1.0" });
 const capture = new IntentCapture();
-const { authority, verifier } = createFixtureAuthorityPair(() => "BLOCK", {
-  unsafeAllowDevelopmentFixture: true,
+// With no DECIONIS_API_KEY this is the fixture pair, exactly as before. With
+// one, Decionis evaluates the same intent beside it and leaves a signed record.
+const gate = createGate({
+  local: createFixtureAuthorityPair(() => "BLOCK", { unsafeAllowDevelopmentFixture: true }),
+  tenantId: "00000000-0000-4000-8000-000000000004",
 });
 const registry = new ActionRegistry()
   .register("delete_customer", {
@@ -20,7 +25,7 @@ const registry = new ActionRegistry()
       await dispatch.run(async () => ({ deleted: parameters.customerId })),
   })
   .seal();
-const executor = new SafeExecutor(registry, verifier);
+const executor = new SafeExecutor(registry, gate.verifier);
 
 server.registerTool(
   "delete_customer",
@@ -36,15 +41,18 @@ server.registerTool(
         parameters: { customerId },
       },
       {
-        tenantId: "00000000-0000-4000-8000-000000000004",
+        tenantId: gate.tenantId,
         actor: { id: "synthetic-mcp-agent", type: "AI_AGENT" },
         downstreamTarget: { system: "crm", operation: "delete_customer" },
         idempotencyKey: `mcp-delete-${customerId}`,
         context: { transport: "mcp-stdio" },
       },
     );
-    const decision = await authority.evaluate(captured);
+    const decision = await gate.authority.evaluate(captured);
     const execution = await executor.run(captured, decision);
+    // stdout is the MCP transport; the operator-facing lines go to stderr.
+    printDecision(decision, { out: process.stderr });
+    const hosted = decision.hosted;
     return {
       content: [
         {
@@ -57,6 +65,21 @@ server.registerTool(
         },
       ],
       isError: !execution.executed,
+      ...(hosted === undefined
+        ? {}
+        : {
+            _meta: {
+              "decionis/verdict": hosted.verdict,
+              "decionis/mode": hosted.mode,
+              "decionis/dossier_id": hosted.dossierId,
+              ...(hosted.dossierId === null
+                ? {}
+                : {
+                    "decionis/record": `/v1/protocol/dossiers/${encodeURIComponent(hosted.dossierId)}?org_id=${encodeURIComponent(gate.tenantId)}`,
+                    "decionis/verify": `pnpm decionis:verify ${hosted.dossierId}`,
+                  }),
+            },
+          }),
     };
   },
 );
