@@ -117,6 +117,12 @@ is the same `ExecutionIntentBinding` the intent hash covers, and nothing else; c
 the executor and are never part of an intent. The request body is pinned field by field in
 [`FailClosed.test.ts`](./packages/pipeline/test/decision/FailClosed.test.ts).
 
+Beside it, every hosted call carries a `User-Agent` naming this package and its version, and from
+the examples the upstream repository slug and the example name, so Decionis can count which example
+a key was first used from. That is the whole of it: the header is sent only when a key is set, it
+is not decision input and does not enter the dossier, and an integration that passes no `source`
+sends the package name and version alone.
+
 To go back: delete the key. That is the whole rollback.
 
 ## Golden adversarial demo
