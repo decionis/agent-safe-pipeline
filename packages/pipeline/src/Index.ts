@@ -13,4 +13,5 @@ export * from "./intent/CanonicalIntentHasher.js";
 export * from "./intent/ExecutionIntent.js";
 export * from "./intent/IntentCapture.js";
 export * from "./intent/JsonValue.js";
+export * from "./report/DecisionReport.js";
 export * from "./shadow/ShadowPipeline.js";

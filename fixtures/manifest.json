@@ -723,6 +723,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/pipeline/test/report/DecisionReport.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/pipeline/test/shadow/ShadowPipeline.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
