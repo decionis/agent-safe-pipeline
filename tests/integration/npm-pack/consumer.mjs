@@ -39,6 +39,7 @@ const EXPECTED_RUNTIME = [
   "TrustedIntentContextSchema",
   "createFixtureAuthorityPair",
   "createGate",
+  "printDecision",
 ];
 assert.deepStrictEqual(exports, EXPECTED_RUNTIME);
 console.log(`All ${exports.length} runtime exports imported successfully.`);

@@ -317,6 +317,14 @@ outside `SHADOW` and `ENFORCEMENT`, a missing `DECIONIS_TENANT_ID`, a non-HTTPS 
 construction rather than falling back to local, so a misconfiguration is never mistaken for hosted
 mode.
 
+`printDecision(decision, { out })` writes what Decionis said, when it was asked, and nothing when
+it was not: the governing verdict, the hosted verdict with its standing (`governs`, `recorded
+beside the local verdict`, or `failed closed`), the dossier identifier, and the command that
+verifies it. Pass `out: process.stderr` where stdout is a transport, as in a stdio MCP server, and
+`verifyCommand` to name your own verification step; the default names this repository's
+`pnpm decionis:verify <dossier-id>`, which fetches the signed record with your key and checks its
+Ed25519 proof bundle against the authority's public JWKS offline.
+
 ## Local testing
 
 `@decionis/agent-safe-pipeline/testing` ships `LocalPresence` and `LocalAuthority`: loopback doubles
@@ -355,17 +363,17 @@ them from the testing entry. See
 
 ## API overview
 
-| Concern        | Exports                                                                                           | Role                                                                                            |
-| -------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| Intent         | `IntentCapture`, `CanonicalIntentHasher`, `ExecutionIntentSchema`, `AgentProposalSchema`          | Build the immutable `agent-safe.intent/1` binding and its canonical SHA-256 hash                |
-| Decision       | `DecionisGate`, `DecisionAuthority`, `GateDecision`, `FailClosedDecision`                         | Obtain an independent `ALLOW` / `ESCALATE` / `BLOCK` decision with dossier identifiers          |
-| Selection      | `createGate`, `ShadowGate`, `SelectedGate`, `HostedEvaluation`                                    | Choose local, shadow, or enforcement from the environment; combine a local and a hosted verdict |
-| Human approval | `PresenceApprovalCoordinator`, `ManagedEscalationRequest`, `HumanApprovalEvidence`                | Coordinate DIRECT Presence ceremonies or request MANAGED orchestration by Decionis              |
-| Execution      | `SafeExecutor`, `ActionRegistry`, `DecionisGrantVerifier`, `AuthorizationVerifier`, `ReplayStore` | Claim the single-use grant, validate parameters, invoke a sealed handler, finalize the attempt  |
-| Effect         | `AuthorityEffectEvidence`, `AuthorityEffectReport`, `DecionisGrantVerifier.effectReport`          | Forward a trusted runtime's downstream observation on finalize and read the authority's answer  |
-| Observation    | `ShadowPipeline`, `ShadowObservation`                                                             | Record what the authority would have decided without granting execution                         |
-| Audit          | `AuditRecorder`, `AuditEventV1`, `AuditSink`                                                      | Emit immutable, redacted lifecycle records through one bounded sink call                        |
-| Testing        | `LocalPresence`, `LocalAuthority`, `createFixtureAuthorityPair` (from `/testing`)                 | Loopback doubles and fixture authorities for development and CI                                 |
+| Concern        | Exports                                                                                           | Role                                                                                           |
+| -------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Intent         | `IntentCapture`, `CanonicalIntentHasher`, `ExecutionIntentSchema`, `AgentProposalSchema`          | Build the immutable `agent-safe.intent/1` binding and its canonical SHA-256 hash               |
+| Decision       | `DecionisGate`, `DecisionAuthority`, `GateDecision`, `FailClosedDecision`                         | Obtain an independent `ALLOW` / `ESCALATE` / `BLOCK` decision with dossier identifiers         |
+| Selection      | `createGate`, `ShadowGate`, `SelectedGate`, `HostedEvaluation`, `printDecision`                   | Choose local, shadow, or enforcement from the environment; combine and report the two verdicts |
+| Human approval | `PresenceApprovalCoordinator`, `ManagedEscalationRequest`, `HumanApprovalEvidence`                | Coordinate DIRECT Presence ceremonies or request MANAGED orchestration by Decionis             |
+| Execution      | `SafeExecutor`, `ActionRegistry`, `DecionisGrantVerifier`, `AuthorizationVerifier`, `ReplayStore` | Claim the single-use grant, validate parameters, invoke a sealed handler, finalize the attempt |
+| Effect         | `AuthorityEffectEvidence`, `AuthorityEffectReport`, `DecionisGrantVerifier.effectReport`          | Forward a trusted runtime's downstream observation on finalize and read the authority's answer |
+| Observation    | `ShadowPipeline`, `ShadowObservation`                                                             | Record what the authority would have decided without granting execution                        |
+| Audit          | `AuditRecorder`, `AuditEventV1`, `AuditSink`                                                      | Emit immutable, redacted lifecycle records through one bounded sink call                       |
+| Testing        | `LocalPresence`, `LocalAuthority`, `createFixtureAuthorityPair` (from `/testing`)                 | Loopback doubles and fixture authorities for development and CI                                |
 
 The seam between this package and Decionis is two interfaces, `DecisionAuthority` and
 `AuthorizationVerifier`, plus a published OpenAPI contract. Anyone can implement the interfaces; the
