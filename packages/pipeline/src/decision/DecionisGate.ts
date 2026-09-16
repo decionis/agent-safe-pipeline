@@ -2,6 +2,7 @@ import { z } from "zod";
 import { AuthorityBaseUrl } from "../http/AuthorityBaseUrl.js";
 import { credentialReader, type Credential } from "../http/Credential.js";
 import { BoundedResponseBody } from "../http/BoundedResponseBody.js";
+import { userAgent, type ClientSource } from "../http/ClientIdentification.js";
 import { CanonicalIntentHasher } from "../intent/CanonicalIntentHasher.js";
 import type { CapturedIntent } from "../intent/ExecutionIntent.js";
 import {
@@ -256,6 +257,13 @@ export interface DecionisGateOptions {
    * response carries one.
    */
   readonly mode?: DecisionEvaluationMode;
+  /**
+   * Where this integration came from, carried in the `User-Agent` of every
+   * call beside the package name and version. It is client identification
+   * for the authority's own accounting: not decision input, not part of the
+   * intent or its hash, and not part of the record the authority leaves.
+   */
+  readonly source?: ClientSource;
 }
 
 export class DecionisGate implements DecisionAuthority {
@@ -264,6 +272,7 @@ export class DecionisGate implements DecisionAuthority {
   private readonly apiKey: () => string;
   private readonly timeoutMs: number;
   private readonly fetchImpl: typeof fetch;
+  private readonly userAgent: string;
   private readonly pendingAuthorizationWaits = new Map<string, Promise<GateDecision>>();
   public constructor(options: DecionisGateOptions) {
     this.baseUrl = AuthorityBaseUrl.normalize(
@@ -273,6 +282,7 @@ export class DecionisGate implements DecisionAuthority {
     this.apiKey = credentialReader(options.apiKey);
     this.timeoutMs = Math.min(Math.max(options.timeoutMs ?? 4_000, 1), 15_000);
     this.fetchImpl = options.fetch ?? fetch;
+    this.userAgent = userAgent(options.source);
     const mode = options.mode ?? "ENFORCEMENT";
     if (mode !== "ENFORCEMENT" && mode !== "SHADOW") {
       throw new Error("DECIONIS_GATE_MODE_INVALID");
@@ -316,6 +326,7 @@ export class DecionisGate implements DecisionAuthority {
           // The contract requires the header to equal the signed intent_id;
           // intent_id is the authority's grant-issuance boundary.
           "idempotency-key": captured.intent.intentId,
+          "user-agent": this.userAgent,
         },
         body: JSON.stringify({
           ...CanonicalIntentHasher.bindingOf(captured.intent),
@@ -387,7 +398,7 @@ export class DecionisGate implements DecisionAuthority {
         `${this.baseUrl}/v1/authority/escalations/${encodeURIComponent(escalation.escalationId)}`,
         {
           method: "GET",
-          headers: { authorization: `Bearer ${this.apiKey()}` },
+          headers: { authorization: `Bearer ${this.apiKey()}`, "user-agent": this.userAgent },
           signal: controller.signal,
         },
       );

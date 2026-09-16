@@ -13,6 +13,8 @@ import { z } from "zod";
 const gate = createGate({
   local: createFixtureAuthorityPair(() => "BLOCK", { unsafeAllowDevelopmentFixture: true }),
   tenantId: "00000000-0000-4000-8000-000000000001",
+  // Client identification on hosted calls only: which example a key was first used from.
+  source: { repo: "decionis/agent-safe-pipeline", example: "basic-agent" },
 });
 const captured = new IntentCapture().capture(
   {

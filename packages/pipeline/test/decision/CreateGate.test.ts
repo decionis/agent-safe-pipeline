@@ -188,6 +188,37 @@ describe("createGate", () => {
     expect(url.endsWith("/v1/authority/enforce-and-bind")).toBe(true);
   });
 
+  it("carries the source in the User-Agent of hosted calls, and sends nothing without a key", async () => {
+    const intent = captured();
+    const fetchMock = vi.fn<typeof fetch>(async () => json(verdictBody(intent, "ALLOW", "SHADOW")));
+    const source = { repo: "decionis/agent-safe-pipeline", example: "basic-agent" };
+
+    const gate = createGate({
+      local: local(),
+      tenantId: TENANT_ID,
+      env: HOSTED,
+      fetch: fetchMock,
+      source,
+    });
+    await gate.authority.evaluate(intent);
+    const [, request] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect((request.headers as Record<string, string>)["user-agent"]).toMatch(
+      /^agent-safe-pipeline\/\d+\.\d+\.\d+ \(repo=decionis\/agent-safe-pipeline; example=basic-agent\)$/,
+    );
+    // The source is client identification only: it is not in the body the authority decides on.
+    expect(request.body as string).not.toContain("basic-agent");
+
+    const offline = createGate({
+      local: local(),
+      tenantId: TENANT_ID,
+      env: {},
+      fetch: fetchMock,
+      source,
+    });
+    await offline.authority.evaluate(intent);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("bounds the hosted call by DECIONIS_TIMEOUT_MS and records a timeout as fail-closed", async () => {
     const intent = captured();
     const fetchMock = vi.fn<typeof fetch>(

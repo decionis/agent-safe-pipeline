@@ -23,6 +23,8 @@ const gate = createGate({
     { unsafeAllowDevelopmentFixture: true },
   ),
   tenantId: "00000000-0000-4000-8000-000000000003",
+  // Client identification on hosted calls only: which example a key was first used from.
+  source: { repo: "decionis/agent-safe-pipeline", example: "github-deploy-agent" },
 });
 const registry = new ActionRegistry()
   .register("deploy", {

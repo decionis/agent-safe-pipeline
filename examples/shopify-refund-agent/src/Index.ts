@@ -30,6 +30,8 @@ const gate = createGate({
     { unsafeAllowDevelopmentFixture: true },
   ),
   tenantId: "00000000-0000-4000-8000-000000000002",
+  // Client identification on hosted calls only: which example a key was first used from.
+  source: { repo: "decionis/agent-safe-pipeline", example: "shopify-refund-agent" },
 });
 const captured = new IntentCapture().capture(proposal, {
   tenantId: gate.tenantId,

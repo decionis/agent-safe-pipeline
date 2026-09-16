@@ -317,6 +317,11 @@ outside `SHADOW` and `ENFORCEMENT`, a missing `DECIONIS_TENANT_ID`, a non-HTTPS 
 construction rather than falling back to local, so a misconfiguration is never mistaken for hosted
 mode.
 
+`DecionisGate` sends `User-Agent: agent-safe-pipeline/<version>` on every call, and `source`
+(`{ repo, example }`, on `createGate` or the gate itself) is appended to it as a comment. It is
+client identification for the authority's own accounting, never decision input, and it is sent only
+when a call is made at all.
+
 `printDecision(decision, { out })` writes what Decionis said, when it was asked, and nothing when
 it was not: the governing verdict, the hosted verdict with its standing (`governs`, `recorded
 beside the local verdict`, or `failed closed`), the dossier identifier, and the command that
