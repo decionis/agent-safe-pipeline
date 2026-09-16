@@ -3,9 +3,17 @@ import {
   IntentCapture,
   SafeExecutor,
   createFixtureAuthorityPair,
+  createGate,
+  printDecision,
 } from "@decionis/agent-safe-pipeline";
 import { z } from "zod";
 
+// With no DECIONIS_API_KEY this is the fixture pair, exactly as before. With
+// one, Decionis evaluates the same intent beside it and leaves a signed record.
+const gate = createGate({
+  local: createFixtureAuthorityPair(() => "BLOCK", { unsafeAllowDevelopmentFixture: true }),
+  tenantId: "00000000-0000-4000-8000-000000000001",
+});
 const captured = new IntentCapture().capture(
   {
     action: "delete_customer",
@@ -13,7 +21,7 @@ const captured = new IntentCapture().capture(
     parameters: { customerId: "synthetic-42" },
   },
   {
-    tenantId: "00000000-0000-4000-8000-000000000001",
+    tenantId: gate.tenantId,
     actor: { id: "synthetic-demo-agent", type: "AI_AGENT" },
     downstreamTarget: { system: "crm", operation: "delete_customer" },
     idempotencyKey: "basic-delete-synthetic-42",
@@ -21,9 +29,6 @@ const captured = new IntentCapture().capture(
   },
 );
 
-const { authority, verifier } = createFixtureAuthorityPair(() => "BLOCK", {
-  unsafeAllowDevelopmentFixture: true,
-});
 const registry = new ActionRegistry()
   .register("delete_customer", {
     parametersSchema: z.object({ customerId: z.string() }).strict(),
@@ -31,8 +36,8 @@ const registry = new ActionRegistry()
       await dispatch.run(async () => ({ deleted: parameters.customerId })),
   })
   .seal();
-const decision = await authority.evaluate(captured);
-const result = await new SafeExecutor(registry, verifier).run(captured, decision);
+const decision = await gate.authority.evaluate(captured);
+const result = await new SafeExecutor(registry, gate.verifier).run(captured, decision);
 
 process.stdout.write(
   `${JSON.stringify(
@@ -46,3 +51,4 @@ process.stdout.write(
     2,
   )}\n`,
 );
+printDecision(decision);
