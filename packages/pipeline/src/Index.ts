@@ -9,6 +9,7 @@ export * from "./execution/ActionRegistry.js";
 export * from "./execution/AuthorizationVerifier.js";
 export * from "./execution/ReplayStore.js";
 export * from "./execution/SafeExecutor.js";
+export type { ClientSource } from "./http/ClientIdentification.js";
 export * from "./intent/CanonicalIntentHasher.js";
 export * from "./intent/ExecutionIntent.js";
 export * from "./intent/IntentCapture.js";

@@ -269,6 +269,7 @@ describe("the wire payload", () => {
       const headers = init.headers as Record<string, string>;
       expect(headers.authorization).toBe(`Bearer ${API_KEY}`);
       expect(headers["idempotency-key"]).toBe(intent.intent.intentId);
+      expect(headers["user-agent"]).toMatch(/^agent-safe-pipeline\/\d+\.\d+\.\d+/);
 
       const raw = init.body as string;
       const body = JSON.parse(raw) as Record<string, unknown>;
