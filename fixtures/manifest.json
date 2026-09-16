@@ -621,13 +621,31 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/pipeline/test/decision/CreateGate.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/pipeline/test/decision/DecionisGate.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false
     },
     {
+      "path": "packages/pipeline/test/decision/FailClosed.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/pipeline/test/decision/ManagedEscalation.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/pipeline/test/decision/ShadowGate.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false
@@ -705,7 +723,19 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/pipeline/test/report/DecisionReport.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/pipeline/test/shadow/ShadowPipeline.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/pipeline/test/support/AuthorityDouble.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false

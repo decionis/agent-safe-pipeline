@@ -35,6 +35,7 @@
     "discovery": "node scripts/CheckDiscovery.mjs",
     "dossiers:check": "node scripts/GenerateDossierCorpus.mjs --check",
     "dossiers:regenerate": "node scripts/GenerateDossierCorpus.mjs",
+    "decionis:verify": "node scripts/VerifyDossier.mjs",
     "format": "prettier --check .",
     "format:fix": "prettier --write .",
     "hooks:install": "simple-git-hooks",

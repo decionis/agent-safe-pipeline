@@ -1,8 +1,10 @@
 export * from "./approval/PresenceApprovalCoordinator.js";
 export * from "./audit/AuditRecorder.js";
+export * from "./decision/CreateGate.js";
 export * from "./decision/DecisionAuthority.js";
 export * from "./decision/DecionisGate.js";
 export * from "./decision/FixtureDecisionAuthority.js";
+export * from "./decision/ShadowGate.js";
 export * from "./execution/ActionRegistry.js";
 export * from "./execution/AuthorizationVerifier.js";
 export * from "./execution/ReplayStore.js";
@@ -11,4 +13,5 @@ export * from "./intent/CanonicalIntentHasher.js";
 export * from "./intent/ExecutionIntent.js";
 export * from "./intent/IntentCapture.js";
 export * from "./intent/JsonValue.js";
+export * from "./report/DecisionReport.js";
 export * from "./shadow/ShadowPipeline.js";

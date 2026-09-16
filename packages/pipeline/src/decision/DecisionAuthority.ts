@@ -70,6 +70,24 @@ export interface DecisionEvidence {
   readonly humanApproval?: HumanApprovalEvidence;
 }
 
+/**
+ * What Decionis said about the same intent when a hosted evaluation ran
+ * beside a local authority. It carries no grant: the grant, when one exists,
+ * is on the decision this record is attached to, and only when `governs` is
+ * true did the hosted verdict choose it.
+ */
+export interface HostedEvaluation {
+  readonly mode: DecisionEvaluationMode;
+  /** True when the attached decision is the hosted one; false when the local authority's decision stood. */
+  readonly governs: boolean;
+  readonly verdict: DecisionVerdict;
+  readonly decisionId: string;
+  readonly dossierId: string | null;
+  readonly reasonCodes: readonly string[];
+  /** True when the hosted call did not answer the policy question and was recorded as BLOCK. */
+  readonly failClosed: boolean;
+}
+
 export interface GateDecision {
   readonly verdict: DecisionVerdict;
   readonly decisionId: string;
@@ -85,6 +103,8 @@ export interface GateDecision {
   readonly evidence?: DecisionEvidence;
   /** Present only when Decionis, rather than the executor, orchestrates Presence. */
   readonly managedEscalation?: ManagedEscalationState;
+  /** Present only when a hosted Decionis evaluation ran beside the local authority. */
+  readonly hosted?: HostedEvaluation;
 }
 
 export interface DecisionAuthority {

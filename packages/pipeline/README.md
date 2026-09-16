@@ -282,6 +282,49 @@ rewritten between them.
 | Shadow      | `ShadowPipeline` over `DecionisGate` with `mode: "SHADOW"`    | What Decionis would have decided about actions that already run; no grant issued |
 | Enforcement | `DecionisGate` plus `DecionisGrantVerifier` in `SafeExecutor` | Nothing runs without an independent decision and a consumed single-use grant     |
 
+### Selecting the gate from the environment
+
+`createGate` moves an integration between those stages with configuration alone. It takes the
+authority and verifier you already run, and reads one variable to decide whether Decionis runs
+beside them:
+
+```ts
+import { createFixtureAuthorityPair, createGate } from "@decionis/agent-safe-pipeline";
+
+const gate = createGate({
+  local: createFixtureAuthorityPair(() => "BLOCK", { unsafeAllowDevelopmentFixture: true }),
+  tenantId: "00000000-0000-4000-8000-000000000001",
+});
+const captured = new IntentCapture().capture(proposal, { tenantId: gate.tenantId, ...trusted });
+const decision = await gate.authority.evaluate(captured);
+const result = await new SafeExecutor(registry, gate.verifier).run(captured, decision);
+```
+
+| Variable                           | Default                    | Effect                                                                                                                                                                                                           |
+| ---------------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DECIONIS_API_KEY`                 | unset                      | Unset: `gate.authority` and `gate.verifier` are the `local` objects themselves, and no client is constructed. Set: `DecionisGate` runs beside `local` through `ShadowGate`.                                      |
+| `DECIONIS_TENANT_ID`               | required with the key      | The key's organization. Decionis binds every intent to it, so `gate.tenantId` returns it for the capture; without the key, `gate.tenantId` is the `tenantId` you passed.                                         |
+| `DECIONIS_MODE`                    | `SHADOW`                   | `SHADOW`: the local decision governs execution and the hosted one is recorded on `decision.hosted`. `ENFORCEMENT`: the hosted decision governs, claimed through `DecionisGrantVerifier`; local can only tighten. |
+| `DECIONIS_API_URL`                 | `https://api.decionis.com` | HTTPS only, unless `DECIONIS_ALLOW_INSECURE_LOOPBACK=true` names a loopback double.                                                                                                                              |
+| `DECIONIS_TIMEOUT_MS`              | `DecionisGate`'s default   | Budget for the hosted call. A call past it is recorded as fail-closed.                                                                                                                                           |
+| `DECIONIS_ALLOW_INSECURE_LOOPBACK` | unset                      | `true` permits `http://127.0.0.1` for `LocalAuthority`.                                                                                                                                                          |
+
+`ShadowGate` never returns a decision less restrictive than the local authority's, in either mode. A
+hosted timeout, network error, non-2xx response, malformed body, or binding mismatch is recorded on
+`decision.hosted` as `failClosed` with verdict `BLOCK`: in `SHADOW` that changes nothing about
+execution, in `ENFORCEMENT` it blocks. A hosted variable that cannot be honoured (`DECIONIS_MODE`
+outside `SHADOW` and `ENFORCEMENT`, a missing `DECIONIS_TENANT_ID`, a non-HTTPS URL) throws at
+construction rather than falling back to local, so a misconfiguration is never mistaken for hosted
+mode.
+
+`printDecision(decision, { out })` writes what Decionis said, when it was asked, and nothing when
+it was not: the governing verdict, the hosted verdict with its standing (`governs`, `recorded
+beside the local verdict`, or `failed closed`), the dossier identifier, and the command that
+verifies it. Pass `out: process.stderr` where stdout is a transport, as in a stdio MCP server, and
+`verifyCommand` to name your own verification step; the default names this repository's
+`pnpm decionis:verify <dossier-id>`, which fetches the signed record with your key and checks its
+Ed25519 proof bundle against the authority's public JWKS offline.
+
 ## Local testing
 
 `@decionis/agent-safe-pipeline/testing` ships `LocalPresence` and `LocalAuthority`: loopback doubles
@@ -324,6 +367,7 @@ them from the testing entry. See
 | -------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | Intent         | `IntentCapture`, `CanonicalIntentHasher`, `ExecutionIntentSchema`, `AgentProposalSchema`          | Build the immutable `agent-safe.intent/1` binding and its canonical SHA-256 hash               |
 | Decision       | `DecionisGate`, `DecisionAuthority`, `GateDecision`, `FailClosedDecision`                         | Obtain an independent `ALLOW` / `ESCALATE` / `BLOCK` decision with dossier identifiers         |
+| Selection      | `createGate`, `ShadowGate`, `SelectedGate`, `HostedEvaluation`, `printDecision`                   | Choose local, shadow, or enforcement from the environment; combine and report the two verdicts |
 | Human approval | `PresenceApprovalCoordinator`, `ManagedEscalationRequest`, `HumanApprovalEvidence`                | Coordinate DIRECT Presence ceremonies or request MANAGED orchestration by Decionis             |
 | Execution      | `SafeExecutor`, `ActionRegistry`, `DecionisGrantVerifier`, `AuthorizationVerifier`, `ReplayStore` | Claim the single-use grant, validate parameters, invoke a sealed handler, finalize the attempt |
 | Effect         | `AuthorityEffectEvidence`, `AuthorityEffectReport`, `DecionisGrantVerifier.effectReport`          | Forward a trusted runtime's downstream observation on finalize and read the authority's answer |
