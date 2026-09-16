@@ -505,7 +505,10 @@ describe("DecionisGate managed escalation", () => {
       expect(url).toBe("http://127.0.0.1:3001/v1/authority/escalations/synthetic-escalation-1");
       expect(init.method).toBe("GET");
       expect(init.body).toBeUndefined();
-      expect(init.headers).toEqual({ authorization: "Bearer test-key" });
+      expect(init.headers).toEqual({
+        authorization: "Bearer test-key",
+        "user-agent": expect.stringMatching(/^agent-safe-pipeline\/\d+\.\d+\.\d+$/),
+      });
     }
   });
 

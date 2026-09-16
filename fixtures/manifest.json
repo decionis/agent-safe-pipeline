@@ -699,6 +699,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/pipeline/test/http/ClientIdentification.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/pipeline/test/intent/IntentCapture.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",

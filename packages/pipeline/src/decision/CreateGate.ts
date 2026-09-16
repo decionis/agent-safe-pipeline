@@ -2,6 +2,7 @@ import {
   DecionisGrantVerifier,
   type AuthorizationVerifier,
 } from "../execution/AuthorizationVerifier.js";
+import type { ClientSource } from "../http/ClientIdentification.js";
 import { DecionisGate } from "./DecionisGate.js";
 import type { DecisionAuthority, DecisionEvaluationMode } from "./DecisionAuthority.js";
 import { ShadowGate } from "./ShadowGate.js";
@@ -36,6 +37,8 @@ export interface CreateGateOptions {
   /** Defaults to `process.env`. */
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly fetch?: typeof fetch;
+  /** Carried in the `User-Agent` of hosted calls only; never sent without a key. */
+  readonly source?: ClientSource;
 }
 
 const DEFAULT_API_URL = "https://api.decionis.com";
@@ -75,7 +78,11 @@ export function createGate(options: CreateGateOptions): SelectedGate {
     ...(timeoutMs === undefined ? {} : { timeoutMs }),
     ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
   };
-  const hosted = new DecionisGate({ ...connection, mode });
+  const hosted = new DecionisGate({
+    ...connection,
+    mode,
+    ...(options.source === undefined ? {} : { source: options.source }),
+  });
   return {
     mode,
     tenantId,
