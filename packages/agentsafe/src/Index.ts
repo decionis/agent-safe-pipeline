@@ -519,7 +519,11 @@ export {
   type UpstreamOptions,
   type UpstreamResult,
 } from "./gateway/Upstream.js";
-export { GatewayHttpServer, type GatewayHttpServerOptions } from "./http/GatewayHttpServer.js";
+export {
+  GatewayHttpServer,
+  type GatewayHttpServerOptions,
+  type GatewaySelector,
+} from "./http/GatewayHttpServer.js";
 export { packageVersion } from "./Version.js";
 export {
   ArgumentError,
