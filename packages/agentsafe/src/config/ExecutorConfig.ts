@@ -939,7 +939,8 @@ export class ExecutorConfigLoader {
    * credentials in the URL, no query or fragment. Plain HTTP is accepted for
    * loopback only, only when asked for, and never in production.
    */
-  private static serviceUrl(value: string, key: string, allowInsecureLoopback: boolean): string {
+  /** An https URL, or a loopback http one when that is allowed by name; the gateway's loader shares it. */
+  public static serviceUrl(value: string, key: string, allowInsecureLoopback: boolean): string {
     let url: URL;
     try {
       url = new URL(value);

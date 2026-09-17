@@ -16,6 +16,35 @@ side of a network policy from the agent.
 npm install @decionis/agentsafe
 ```
 
+## The gateway
+
+The same runtime is also an HTTP-interception gateway: put it in front of an agent, an API or a
+service, and every `POST`, `PUT`, `PATCH` and `DELETE` that passes through it is captured as an
+intent, decided by the authority, and forwarded byte for byte only on an `ALLOW`, once, under a
+claimed single-use grant. A `BLOCK` is refused, an `ESCALATE` is held, and an authority that
+cannot be reached is its own state, never a verdict.
+
+```bash
+npm install -g @decionis/agentsafe
+agentsafe proxy --upstream http://localhost:3000 --port 8080
+```
+
+Without a Decionis key that runs a local demo authority in the same process, on loopback, with a
+synthetic policy, and says so on every line. With `DECIONIS_API_KEY` and `DECIONIS_TENANT_ID` (or
+`agentsafe login`) it asks Decionis, in shadow first. `agentsafe init` writes the configuration
+file, `agentsafe doctor` checks the binary, the configuration, the upstream, Decionis and the
+credentials, `agentsafe config` prints what resolved and from where, and `agentsafe status` asks
+a running gateway what it is doing. The five-minute path is
+[docs/quickstart](https://github.com/decionis/agent-safe-pipeline/blob/master/docs/quickstart/README.md);
+what is intercepted, bound and forwarded is
+[docs/gateway/http-interception.md](https://github.com/decionis/agent-safe-pipeline/blob/master/docs/gateway/http-interception.md);
+every command, key and variable is under
+[docs/reference](https://github.com/decionis/agent-safe-pipeline/blob/master/docs/reference/cli.md).
+
+The rest of this README is the proposal executor, `agentsafe serve`: the same lifecycle behind an
+envelope ingress with principals, a downstream credential and a verified host posture, for a
+deployment that holds the boundary as a bank does.
+
 ## Minimal process
 
 ```ts
@@ -76,7 +105,7 @@ re-reads the secret files, and a rotated TLS key replaces the listener's context
 file another user could read is a refusal to start that names the variable or the check, never a
 value. The bin `agentsafe serve` does the same with the reference forwarding handler,
 `forwardRequestHandlers()`, which posts the verified parameters to `DOWNSTREAM_URL`;
-`agentsafe verify-chain <file>` checks a log's chains offline. To assemble the
+`agentsafe verify chain <file>` (also `verify-chain`) checks a log's chains offline. To assemble the
 executor without a process around it, `createTrustedExecutor({ config, secrets, handlers })`
 verifies the posture, returns the service and a `listen`/`close` pair, and owns the secret store
 from then on; the offline proof in the repository does exactly that against loopback doubles.

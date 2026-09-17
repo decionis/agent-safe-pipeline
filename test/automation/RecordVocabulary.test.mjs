@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { describe, it } from "node:test";
 
 /**
@@ -84,7 +84,10 @@ describe("record vocabulary", () => {
   });
 
   it("never says that a dossier becomes a grant", async () => {
-    const docs = (await readdir(new URL("docs/", root))).map((name) => `docs/${name}`);
+    // Every page under docs/, the nested sections included.
+    const docs = (await readdir(new URL("docs/", root), { recursive: true, withFileTypes: true }))
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
+      .map((entry) => `${relative(root.pathname, entry.parentPath)}/${entry.name}`);
     const surfaces = [
       "README.md",
       "packages/pipeline/README.md",

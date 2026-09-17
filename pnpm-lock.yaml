@@ -197,6 +197,9 @@ importers:
       jose:
         specifier: ^6.2.10
         version: 6.2.10
+      yaml:
+        specifier: ^2.9.0
+        version: 2.9.0
       zod:
         specifier: ^4.5.4
         version: 4.5.4
@@ -213,9 +216,6 @@ importers:
       vitest:
         specifier: ^4.1.11
         version: 4.1.11(@types/node@26.2.0)(@vitest/coverage-v8@4.1.10)(vite@6.4.3(@types/node@26.2.0)(tsx@4.23.13)(yaml@2.9.0))
-      yaml:
-        specifier: ^2.9.0
-        version: 2.9.0
 
   packages/commerce-mcp:
     devDependencies:

@@ -1,39 +1,76 @@
 #!/usr/bin/env node
 /**
- * `agentsafe <command>`. `serve` runs the trusted executor with the reference
+ * `agentsafe <command>`. The gateway commands (`init`, `proxy`, `run`,
+ * `status`, `doctor`, `config`, `login`, `logout`, `version`) are in
+ * `cli/Commands.ts`. `serve` runs the trusted executor with the reference
  * forwarding handler and the configuration in the environment; an adopter
  * with their own handlers calls `serve(handlers)` from their own entry
- * instead. `verify-chain [file]` walks the chained lines of a file, or of
- * standard input, and exits non-zero on any break. `verify-bundle <dir>`
- * verifies an evidence bundle offline: every file's digest against the
- * manifest, both chains, and the signature when the bundle carries one.
- * `probe-containment <name=host:port>...` runs in the agent zone and reports
- * whether a system of record answers without the executor; it exits 1 when
- * any target does. Anything else is refused with a stable code and exit
- * status 2.
+ * instead. `verify chain [file]` (also `verify-chain`) walks the chained
+ * lines of a file, or of standard input, and exits non-zero on any break.
+ * `verify bundle <dir>` (also `verify-bundle`) verifies an evidence bundle
+ * offline: every file's digest against the manifest, both chains, and the
+ * signature when the bundle carries one. `probe-containment
+ * <name=host:port>...` runs in the agent zone and reports whether a system
+ * of record answers without the executor; it exits 1 when any target does.
+ * Anything else is refused with a stable code and exit status 2.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
+import { nodeCliProcess } from "./cli/CliProcess.js";
+import { isGatewayCommand, runGatewayCommand } from "./cli/Commands.js";
+import { usage } from "./cli/Help.js";
 import { parseTarget, probeContainment } from "./containment/ContainmentProbe.js";
 import { dial } from "./egress/TcpProbe.js";
 import { serve } from "./Serve.js";
+import { packageVersion } from "./Version.js";
 import { verifyAuditChain } from "./verify/VerifyAuditChain.js";
 import { verifyEvidenceBundle } from "./verify/VerifyEvidenceBundle.js";
 
-const COMMANDS = ["serve", "verify-chain", "verify-bundle", "probe-containment"] as const;
-const command = process.argv[2];
+const COMMANDS = [
+  "init",
+  "proxy",
+  "run",
+  "status",
+  "doctor",
+  "config",
+  "login",
+  "logout",
+  "version",
+  "verify",
+  "serve",
+  "verify-chain",
+  "verify-bundle",
+  "probe-containment",
+] as const;
+let command = process.argv[2];
+let rest = process.argv.slice(3);
 
-if (command === "serve") {
+if (command === "--version" || command === "-v") command = "version";
+if (command === "--help" || command === "-h") command = "help";
+// `verify chain` and `verify bundle` are the two verifiers under one word;
+// the hyphenated names keep working as they always have.
+if (command === "verify" && (rest[0] === "chain" || rest[0] === "bundle")) {
+  command = `verify-${rest[0]}`;
+  rest = rest.slice(1);
+}
+
+if (command === undefined) {
+  // No command is a refusal, as it always was, with the usage beside the code.
+  process.stderr.write(usage(packageVersion()));
+  process.exit(2);
+} else if (isGatewayCommand(command)) {
+  await runGatewayCommand(command, rest, nodeCliProcess());
+} else if (command === "serve") {
   await serve();
 } else if (command === "verify-chain") {
-  const source = process.argv[3];
+  const source = rest[0];
   const text = readFileSync(source === undefined ? 0 : source, "utf8");
   const report = verifyAuditChain(text.replace(/\n$/, "").split("\n"));
   process.stdout.write(`${JSON.stringify(report)}\n`);
   process.exit(report.ok ? 0 : 1);
 } else if (command === "verify-bundle") {
-  const directory = process.argv[3];
+  const directory = rest[0];
   if (directory === undefined) {
     process.stderr.write(`${JSON.stringify({ event: "BUNDLE_DIRECTORY_REQUIRED" })}\n`);
     process.exit(2);
@@ -63,7 +100,7 @@ if (command === "serve") {
   process.stdout.write(`${JSON.stringify(report)}\n`);
   process.exit(report.ok ? 0 : 1);
 } else if (command === "probe-containment") {
-  const arguments_ = process.argv.slice(3);
+  const arguments_ = rest;
   if (arguments_.length === 0) {
     process.stderr.write(`${JSON.stringify({ event: "CONTAINMENT_TARGETS_REQUIRED" })}\n`);
     process.exit(2);
@@ -82,6 +119,9 @@ if (command === "serve") {
   // A reachable target is the finding worth failing a job over; containment
   // is never asserted, so a clean run exits 0 without claiming anything.
   process.exit(report.noneReachable ? 0 : 1);
+} else if (command === "verify") {
+  process.stderr.write(usage(packageVersion()));
+  process.exit(2);
 } else {
   process.stderr.write(
     `${JSON.stringify({ event: "UNKNOWN_COMMAND", command: command ?? null, commands: COMMANDS })}\n`,
