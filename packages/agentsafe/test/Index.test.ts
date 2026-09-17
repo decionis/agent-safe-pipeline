@@ -5,7 +5,9 @@ describe("public surface", () => {
   it("exports exactly the documented names", () => {
     const expected = [
       "ACTION_NAME",
+      "ACTIVATION_MILESTONES",
       "ATTESTATION_COMPONENT",
+      "ActivationFunnel",
       "ArgumentError",
       "AuthError",
       "Authenticator",

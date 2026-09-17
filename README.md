@@ -1,4 +1,4 @@
-# Agent-Safe Pipeline
+# AgentSafe
 
 [![Continuous integration](https://github.com/decionis/agent-safe-pipeline/actions/workflows/deploy.yml/badge.svg?branch=master)](https://github.com/decionis/agent-safe-pipeline/actions/workflows/deploy.yml)
 [![CodeQL](https://github.com/decionis/agent-safe-pipeline/actions/workflows/codeql.yml/badge.svg?branch=master)](https://github.com/decionis/agent-safe-pipeline/actions/workflows/codeql.yml)
@@ -7,27 +7,298 @@
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/14098/badge)](https://www.bestpractices.dev/projects/14098)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
 
-**Let agents propose. Let policy decide.**
+**Put an authority boundary in front of any agent or API.**
 
-Agent-Safe Pipeline is the reference implementation of the Execution Authority architecture: AI-agent actions execute only through an independent authorization boundary, and every authorization decision leaves a verifiable evidence record.
+AgentSafe intercepts consequential actions and checks whether they are authorized before
+forwarding them. An agent, an application or a tool sends its HTTP request to AgentSafe instead of
+the target; AgentSafe captures the action as an intent, asks the Decionis control plane for a
+decision, and forwards exactly the authorized request once on a claimed single-use grant, holds it
+for a person, or refuses it, leaving a chained record of each. It decides nothing itself.
 
-This repository ships the library `@decionis/agent-safe-pipeline` and, over it, `@decionis/agentsafe`: the execution boundary as one deployable process that verifies the host posture it can observe, authenticates its callers as principals with roles, seals its own outbound connections, journals every attempt before dispatch, and exports evidence that verifies offline. None of that makes it a hosted authorization service, an identity provider, or a KMS, and no process can make a cluster enforce the network policies the deployment kit declares: isolation, secret provisioning, and who is on call stay with the cluster. Its safety claims apply only when the documented trust boundary is preserved, and [who owns which control](./EVALUATION-PATH.md#who-owns-which-control) assigns each one to the library, the executor package, the authority, or your cluster.
+```bash
+brew tap decionis/agent-safe https://github.com/decionis/agent-safe-pipeline && brew install agentsafe
 
-Canonical source: <https://github.com/decionis/agent-safe-pipeline>. Copies of this repository at other hosts — including sites that reverse-proxy github.com wholesale — are not maintained by Decionis, lag security fixes, and are not what the npm package, the Zenodo record, or decionis.com cite. Verify any copy against the signed release tags ([docs/release-tag-signing.md](./docs/release-tag-signing.md)).
+agentsafe proxy \
+  --upstream http://localhost:3000 \
+  --port 8080
+```
+
+[5-minute quickstart](./docs/quickstart/README.md) · [Homebrew](./docs/install/macos.md) ·
+[Linux](./docs/install/linux.md) · [Docker](./docs/install/docker.md) ·
+[Kubernetes](./docs/install/kubernetes.md) · [Hosted](./docs/install/hosted.md)
+
+> The installed forms are produced by the release workflow from the first release after `v0.1.4`.
+> Until that release, the same commands run from a clone, as the quickstart shows.
+
+## Five-minute quickstart
+
+Nothing here needs an account: without a Decionis key the gateway runs a local demo authority in
+the same process, on loopback, with a synthetic policy, and says so on every line.
+
+```bash
+agentsafe proxy --upstream http://localhost:3000 --port 8080
+```
+
+```text
+AgentSafe 0.1.0
+
+Gateway      http://127.0.0.1:8080
+Upstream     http://localhost:3000
+Mode         ENFORCEMENT
+Authority    local/demo (synthetic policy on loopback; not Decionis)
+Failure      fail-closed
+Routes       none named; every unsafe method is governed
+Evidence     not written; use --verbose or evidence.journalDir
+Status       READY
+
+Waiting for consequential actions...
+```
+
+Send it one request:
+
+```bash
+curl -i -X POST http://127.0.0.1:8080/payments -H 'content-type: application/json' -d '{"amount": 500}'
+```
+
+```text
+ESCALATE
+
+POST /payments
+
+Action       http.post
+Decision     ESCALATE
+Reason       HUMAN_APPROVAL_REQUIRED
+Execution    HELD
+Dossier      synthetic-dossier-1
+Latency      4ms
+```
+
+The caller gets `202` and nothing reached the upstream. `{"amount": 50}` is `ALLOW`: forwarded
+once, byte for byte, with the dossier id beside the upstream's own answer. `{"amount": 5000}` is
+`BLOCK`: `403`, not forwarded. A `GET` passes through untouched. Every state has its own heading
+and, with a terminal, its own color: `ALLOW`, `BLOCK`, `ESCALATE`, `SHADOW`, `AUTHORITY
+UNAVAILABLE`. `--verbose` shows the chained evidence lines; `agentsafe init` writes the
+configuration file; `agentsafe doctor` says what would stop it from governing; `agentsafe login`
+connects a Decionis key, after which the same gateway asks Decionis, in shadow first. The
+[quickstart](./docs/quickstart/README.md) is the full walk, and the
+[CLI reference](./docs/reference/cli.md) every command.
+
+## How it works
+
+```text
+Agent / Application / Tool
+          │
+          ▼
+      AgentSafe
+   ingress / interceptor          captures the action as an intent (agent-safe.intent/1)
+          │
+          ▼
+ Decionis Control Plane           policy, ExecutionBinding, Presence, Decision Dossiers
+          │
+   ALLOW | BLOCK | ESCALATE
+          │
+          ▼
+      AgentSafe                   claims the single-use grant, forwards the exact bytes once
+          │
+          ▼
+   Target Service / API
+          │
+          ▼
+       finalize                   COMMITTED | FAILED | INDETERMINATE, on the Decision Dossier
+```
+
+AgentSafe owns ingress and interception, action extraction and normalization, enforcement of the
+verdict, claim-before-forward, forwarding, effect evidence, finalization, fail-safe behavior and
+the local ergonomics. Decionis owns execution authority: policy evaluation, `ALLOW` / `BLOCK` /
+`ESCALATE`, policy versioning, ExecutionBinding semantics, Presence verification, Decision Dossiers,
+and the verification of evidence and authority. AgentSafe is not a second policy engine: the local
+demo authority is a loopback double of the Decionis routes, named `local/demo` everywhere, refused
+in production.
+
+| State                   | What happened                                                                                  | The caller sees                                                                                   |
+| ----------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `ALLOW`                 | The grant was claimed and the exact request forwarded once                                     | The upstream's response, plus `agentsafe-decision`, `agentsafe-dossier-id`, `agentsafe-execution` |
+| `ESCALATE`              | Held for a person; with Presence, a resume asks Decionis again                                 | `202`, `execution: HELD`, a `resume` path                                                         |
+| `BLOCK`                 | Refused; nothing forwarded                                                                     | `403` with the dossier that records why                                                           |
+| `AUTHORITY_UNAVAILABLE` | Decionis could not be asked; fail-closed refuses, fail-open forwards ungoverned and records it | `503` with `Retry-After`, never a `BLOCK`                                                         |
+| `SHADOW`                | Forwarded unchanged while Decionis recorded what it would have decided                         | The upstream's response, `agentsafe-mode: SHADOW`                                                 |
+
+What is bound and forwarded, and what each outcome finalizes as, is
+[docs/gateway/http-interception.md](./docs/gateway/http-interception.md); what happens when the
+authority cannot be reached is [docs/gateway/failure-policy.md](./docs/gateway/failure-policy.md);
+the configuration, one schema for every distribution with the precedence flags, environment, file,
+defaults, is [docs/gateway/configuration.md](./docs/gateway/configuration.md).
+
+## Install
+
+One runtime, five ways to run it. The executable, the packages, the image and the chart are built
+and smoke-tested by the release workflow from the same code; nothing about authority, binding,
+claim or finalization differs between them.
+
+| Where       | How                                                                                                                                                                | Page                                       |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------ |
+| macOS       | `brew tap decionis/agent-safe https://github.com/decionis/agent-safe-pipeline && brew install agentsafe`                                                           | [macOS](./docs/install/macos.md)           |
+| Linux       | `curl -fsSL https://raw.githubusercontent.com/decionis/agent-safe-pipeline/master/packaging/install.sh \| sh`, or the `.deb` / `.rpm` with a hardened systemd unit | [Linux](./docs/install/linux.md)           |
+| Docker      | `ghcr.io/decionis/agentsafe:<version>`, distroless, non-root, two architectures                                                                                    | [Docker](./docs/install/docker.md)         |
+| Kubernetes  | `helm install agentsafe oci://ghcr.io/decionis/charts/agentsafe`, one Deployment in front of one Service                                                           | [Kubernetes](./docs/install/kubernetes.md) |
+| Hosted      | `agentsafe.decionis.com`, the same runtime behind one listener; not live yet                                                                                       | [Hosted](./docs/install/hosted.md)         |
+| From source | `git clone`, `pnpm install --frozen-lockfile`, `pnpm build`, `node packages/agentsafe/dist/Cli.js`                                                                 | [Quickstart](./docs/quickstart/README.md)  |
+
+Every install page ends at the same place: send your first governed action.
+
+## Golden adversarial demo
+
+One legitimate path and eight adversarial attempts against the same boundary, offline, in a few seconds, with every expectation asserted:
+
+```bash
+git clone https://github.com/decionis/agent-safe-pipeline.git && cd agent-safe-pipeline
+pnpm install --frozen-lockfile
+pnpm --filter @decionis/agent-safe-example-golden-adversarial demo
+```
+
+A treasury agent proposes a USD 250,000 wire, a remote Chief Risk Officer completes a FIDO2 plus liveness ceremony, and exactly one wire executes. Injected authorization fields, a fabricated ALLOW, an asserted approval, a swapped receipt, a post-approval amount change, a replayed grant, 25 concurrent claims, a shadow observation, and an expired grant all fail to execute. The run exits 0 only when that holds. See [`examples/golden-adversarial-demo`](./examples/golden-adversarial-demo), the bank-audience walkthrough in [`docs/remote-cro-authorization.md`](./docs/remote-cro-authorization.md), and the receipt semantics in [`docs/presence-evidence.md`](./docs/presence-evidence.md).
+
+## Execution lifecycle
+
+For a consequential action, in every distribution and in the library alike:
+
+```text
+request → normalize intent → enforce-and-bind → ALLOW | BLOCK | ESCALATE
+
+ALLOW    → claim-token → forward the exact authorized action, once → capture effect → finalize-token
+           COMMITTED | FAILED | INDETERMINATE
+BLOCK    → nothing is forwarded
+ESCALATE → nothing is forwarded → Presence, or a managed ceremony Decionis runs → signed approval
+           evidence → Decionis reauthorization → a new grant → claim → execute once → finalize
+```
+
+An `ESCALATE` is never turned into an `ALLOW` locally, and a Presence approval is never trusted
+without Decionis reauthorization. The pages under [docs/authority](./docs/authority/execution-binding.md)
+map each step onto the protocol: [ExecutionBinding](./docs/authority/execution-binding.md),
+[claim and finalize](./docs/authority/claim-finalize.md), [Presence](./docs/authority/presence.md),
+[evidence](./docs/authority/evidence.md).
+
+### Production invariants
+
+1. Agent input contains only the proposed action, target, and parameters. Tenant, actor, downstream target, and credentials come from trusted runtime configuration.
+2. The exact canonical intent is hashed and expires quickly.
+3. Decionis independently decides. Network errors, malformed responses, missing grants, or binding mismatches fail closed.
+4. Presence proves a human approved that exact intent; Presence never directly authorizes execution. Decionis verifies the receipt and re-evaluates policy.
+5. The grant is bound to the intent, decision, audience, and expiry and is claimed atomically before the handler runs; the attempt outcome is finalized with the authority afterwards as evidence, never as authority.
+6. Downstream credentials exist only behind the trusted executor.
+7. Every decision is evidence-bearing. An ALLOW whose response lacks a dossier identifier or grant is refused as non-executable, and an executed result retains its consumed `{decisionId, dossierId, grantId}` binding. A dossier identifier is never an execution credential.
+
+## Presence
+
+Presence supports two explicit integration levels. In DIRECT mode, the trusted executor coordinates
+Presence and returns the receipt reference to Decionis. In MANAGED mode, the executor asks Decionis
+to orchestrate Presence and polls Decionis for a terminal status. Both modes require independently
+signed Presence evidence, exact-intent verification, current-policy re-evaluation, and the same
+claim-before-handler grant path. Invitation delivery and Presence evidence are never execution
+authority, and approval cannot revive a five-minute intent after it expires.
+
+The gateway holds an `ESCALATE` and, with `presence.managed: true`, asks Decionis to orchestrate the ceremony; a resume through `/_agentsafe/v1/escalations/{intent_id}/resume` asks Decionis again, and only a fresh `ALLOW` with a grant executes the held request, once. [docs/authority/presence.md](./docs/authority/presence.md) says what a receipt establishes and what it does not; [`docs/human-approval.md`](./docs/human-approval.md) and [`docs/presence-evidence.md`](./docs/presence-evidence.md) are the protocol pages.
+
+See [`docs/trust-boundary.md`](./docs/trust-boundary.md) before integrating a real downstream API.
+
+## Decision evidence
 
 Five records matter and are easy to blur in a summary: the captured intent, the verified human approval, the execution grant, the Decision Dossier, and the outcome. Only the grant authorizes anything, once; a dossier identifier is never an execution credential. [What each record establishes](#what-each-record-establishes) says so row by row.
 
-```text
-Agent -> immutable intent -> Decionis -> ALLOW / ESCALATE / BLOCK -> SafeExecutor -> API
-                                      |
-                                      +-> Presence -> verified human approval -> Decionis re-evaluation
-                                      |
-                                      +-> Decision Dossier -> compounding decision record
+The Execution Authority architecture has two load-bearing properties. Position on the execution path creates control: nothing runs without an independent decision at the moment of action. The evidence record creates accountability that compounds: every decision adds to an auditable history of what was authorized, under which policy, on whose approval.
+
+Every Decionis evaluation is recorded as a Decision Dossier, and each `GateDecision` returns the `decisionId` and `dossierId` of that record. Escalations attach the verified Presence `receiptDossierId`, and every executed action returns the consumed grant's `{decisionId, dossierId, grantId, intentHash}` binding, so execution results correlate to their evidence without extra bookkeeping. In the research vocabulary, dossiers compound into a Decision Chain: tamper-evident lineage linking evaluation, approval, and execution evidence across workflows. Decionis maintains that record; this repository's contribution is that execution cannot bypass it.
+
+Treat dossier identifiers as audit and support references, never as execution credentials — see [`docs/decision-dossiers.md`](./docs/decision-dossiers.md).
+
+### What each record establishes
+
+Fluent summaries lose these distinctions first. Each row names the record or state, what it
+establishes, and what it does not.
+
+| Record or state                                           | What it establishes                                                                                                                                                                                                                                                                                                                                                                                                                             | What it does not establish                                                                                                                                                                                                                              |
+| --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Captured intent (`IntentCapture`, `intentHash`)           | The exact action, target, and parameters the agent proposed, bound to trusted tenant, actor, and downstream context, hashed and expiring                                                                                                                                                                                                                                                                                                        | That the agent's facts, identities, or amounts are true; that anything may execute                                                                                                                                                                      |
+| Verified human approval (Presence `receiptDossierId`)     | A named person approved that exact intent hash under the assurance the receipt records                                                                                                                                                                                                                                                                                                                                                          | Permission to execute: Decionis re-evaluates policy with the receipt, and only that evaluation can issue a grant                                                                                                                                        |
+| Execution grant (`authorization` on an `ALLOW`)           | Permission for one attempt at one intent, claimed once through the `AuthorizationVerifier` immediately before the handler runs                                                                                                                                                                                                                                                                                                                  | Anything after expiry, for another intent hash, or on a second presentation; a dossier identifier, an invitation link, or an earlier `ALLOW` is not a substitute                                                                                        |
+| Decision Dossier (`decisionId`, `dossierId`)              | The record of why Decionis allowed, escalated, or blocked: policy snapshot, inputs, evidence, and grant metadata                                                                                                                                                                                                                                                                                                                                | An execution credential; proof that the underlying business judgement was right                                                                                                                                                                         |
+| Single claim, `COMPLETED`                                 | The grant was consumed once and the trusted handler returned a provider result                                                                                                                                                                                                                                                                                                                                                                  | An exactly-once downstream business effect or independent confirmation of settlement; whether an observation counts as `CONFIRMED` is the authority's judgement, not this package's                                                                     |
+| `UNKNOWN_AFTER_DISPATCH`, finalized `INDETERMINATE`       | Dispatch began and completion could not be proved                                                                                                                                                                                                                                                                                                                                                                                               | Permission to repeat the side effect: reconcile through provider idempotency and read-only lookup, never by a second dispatch                                                                                                                           |
+| `DEFINITELY_NOT_EXECUTED`, finalized `FAILED`             | Dispatch began, the provider refused it deterministically, and nothing was effected                                                                                                                                                                                                                                                                                                                                                             | Permission to try again: the refusal was about this attempt, and another needs a fresh decision and a fresh grant                                                                                                                                       |
+| Shadow observation (`ShadowPipeline`, `mode: "SHADOW"`)   | What Decionis would have decided about an action that already ran: a verdict and a dossier, no grant                                                                                                                                                                                                                                                                                                                                            | Enforcement, a grant, or a no-write test environment; the production write happened as before                                                                                                                                                           |
+| Library boundary (this package)                           | Intent capture, the gate, verification, and claim-before-handler dispatch inside the trusted integration                                                                                                                                                                                                                                                                                                                                        | Host isolation, IAM, network egress, credential storage, or incident response                                                                                                                                                                           |
+| Trusted executor (`createTrustedExecutor`)                | What one process verifies about itself and enforces at its own door: the host posture `HostPosture` can observe, caller principals with roles and their own credentials, egress sealed to the origins `EgressPolicy` was configured with, a durable attempt journal reconciled by `StartupReconciler`, the ceilings in `HardLimits`, BEAP-vocabulary effect evidence, `HaltSwitch`, and hash-chained evidence with an offline-verifiable export | Node or kernel isolation, a CNI actually enforcing the NetworkPolicies the kit declares, an HSM or KMS, the authority's policy, or a bank's core correctness                                                                                            |
+| Executor evidence bundle (`agent-safe.evidence-bundle/1`) | What one executor process can say about an incident: both hash-chained streams as it still held them, the open attempts, the posture by check, the chain heads, a configuration digest, and every file's own digest                                                                                                                                                                                                                             | Origin, unless a signature over the manifest verifies against a key the reader brought; completeness, since it carries a bounded window and says how many lines it dropped; and it holds no parameter, no provider body, no secret and no digest of one |
+
+## Verify Decision Dossiers
+
+The repository-owned [`dossiers/`](./dossiers/) corpus checks the offline verifier against synthetic
+`ALLOW`, `BLOCK`, and `ESCALATE` proof bundles, including an owned-workspace, execution-bound
+vector. Its private signing key is intentionally public so anyone can regenerate the corpus; it is
+not a production credential and cannot establish that a production dossier is authentic.
+
+```bash
+pnpm exec decionis-verify \
+  --file dossiers/vectors/allow.json \
+  --jwks dossiers/corpus-jwks.json
 ```
 
-Agents can reason, plan, and propose actions. They must not determine whether their own actions are authorized, possess downstream privileged credentials, or choose which trusted handler runs.
+To verify the distinct production claim, obtain a live dossier through an authorized route and run
+the pinned verifier against the live JWKS without committing the dossier:
 
-## Five-minute demo
+```bash
+npx -y @decionis/verify@0.3.0 \
+  --file /absolute/path/to/live-decision-dossier.json \
+  --jwks https://api.decionis.com/v1/.well-known/decision-dossier-jwks.json
+```
+
+See the [corpus README](./dossiers/README.md) for regeneration, provenance, expected failures, and
+the trust boundary between synthetic conformance and production verification.
+
+## Architecture
+
+```text
+Untrusted                              Trusted control plane
+
+Agent proposal                         runtime identity/config
+     |                                         |
+     +--------------> IntentCapture <----------+
+                            |
+                    canonical intent hash
+                            |
+                       DecionisGate
+                     /      |       \
+                 ALLOW  ESCALATE   BLOCK
+                   |        |         |
+                   |     Presence     stop
+                   |        |
+                   |  verified receipt
+                   |        |
+                   +--- Decionis re-evaluation
+                            |
+                     single-use grant
+                            |
+                       SafeExecutor
+                            |
+                sealed trusted ActionRegistry
+                            |
+                    downstream credential
+```
+
+This repository ships the library `@decionis/agent-safe-pipeline` and, over it, the runtime
+`@decionis/agentsafe`, one binary with two ingresses: `agentsafe proxy`, the HTTP-interception
+gateway above, and `agentsafe serve`, the trusted executor for a bank boundary, with principals, a
+downstream credential, a verified host posture, and the [deployment kit](./deploy/README.md). Both
+run the same lifecycle objects; the [discovery report](./docs/architecture/distribution-discovery.md)
+traces one action through them and [ADR 0001](./docs/architecture/decisions/0001-http-interception-ingress.md)
+records why the gateway is a second ingress and not a second implementation. None of it is a
+hosted authorization service, an identity provider or a KMS, and no process can make a cluster
+enforce the network policies the kit and the chart declare; [who owns which control](./EVALUATION-PATH.md#who-owns-which-control)
+assigns each one.
+
+Canonical source: <https://github.com/decionis/agent-safe-pipeline>. Copies of this repository at other hosts — including sites that reverse-proxy github.com wholesale — are not maintained by Decionis, lag security fixes, and are not what the npm package, the Zenodo record, or decionis.com cite. Verify any copy against the signed release tags ([docs/release-tag-signing.md](./docs/release-tag-signing.md)).
+
+### The library
 
 Requirements: Node.js 22.14 or later and pnpm 9.
 
@@ -48,7 +319,7 @@ const result = await executor.run(captured, decision);
 
 The executor accepts a captured intent and a decision. It does not accept an arbitrary callback from the agent. A sealed `ActionRegistry` maps action names to trusted handlers and validates parameters before consuming a single-use grant.
 
-## Optional: a signed Decision Dossier from Decionis
+### Optional: a signed Decision Dossier from Decionis
 
 Everything above runs locally and always will. The fixture authority evaluates in process, with no
 network call and no account, and that path stays supported: it is not a trial, not a reduced tier,
@@ -89,7 +360,7 @@ allowance of 50 decisions a month. Every dossier it mints carries a signed
 `provisional_anonymous` issuer tier, so a verifier can always tell it from an owned organization's
 record. An owned organization's key comes from the Decionis console.
 
-### How it is wired
+#### How it is wired
 
 `createGate` in [`packages/pipeline`](./packages/pipeline/README.md#selecting-the-gate-from-the-environment)
 reads the environment and returns the authority and verifier the example runs:
@@ -125,17 +396,7 @@ sends the package name and version alone.
 
 To go back: delete the key. That is the whole rollback.
 
-## Golden adversarial demo
-
-One legitimate path and eight adversarial attempts against the same boundary, offline, in a few seconds, with every expectation asserted:
-
-```bash
-pnpm --filter @decionis/agent-safe-example-golden-adversarial demo
-```
-
-A treasury agent proposes a USD 250,000 wire, a remote Chief Risk Officer completes a FIDO2 plus liveness ceremony, and exactly one wire executes. Injected authorization fields, a fabricated ALLOW, an asserted approval, a swapped receipt, a post-approval amount change, a replayed grant, 25 concurrent claims, a shadow observation, and an expired grant all fail to execute. The run exits 0 only when that holds. See [`examples/golden-adversarial-demo`](./examples/golden-adversarial-demo), the bank-audience walkthrough in [`docs/remote-cro-authorization.md`](./docs/remote-cro-authorization.md), and the receipt semantics in [`docs/presence-evidence.md`](./docs/presence-evidence.md).
-
-## From the fixture to Decionis
+### From the fixture to Decionis
 
 The package is used in three stages. Each stage uses the same `IntentCapture`, `ActionRegistry`, and handler code, so nothing is rewritten between them.
 
@@ -156,22 +417,32 @@ See the [package README](./packages/pipeline/README.md) for the complete enforce
 
 To run the boundary as its own service rather than in-process, [`packages/agentsafe`](./packages/agentsafe) is the executor as a process: `@decionis/agentsafe`, a listener in front of the same components with a seam for your handlers. [`examples/trusted-executor`](./examples/trusted-executor) is its proof over real HTTP against the loopback doubles and the template an adopter starts from. [`deploy/`](./deploy) is its image, the Kubernetes manifests for the two zones with every credential referenced and never written, and the runbook from shadow to enforcement.
 
-## Installing the Decionis CLI
+## Research and specifications
 
-This repository is also the public distribution home of the `decionis` command-line tool: its
-[GitHub releases](https://github.com/decionis/agent-safe-pipeline/releases) carry every release's
-npm tarball, Debian and RPM packages, Windows archive and registry manifests, and the two
-manifests below are what package managers read. The CLI itself is not part of this repository's
-Apache-2.0 source; `formula/` and `apps/` hold metadata only.
+Decionis Research defines the Execution Authority architecture, this repository demonstrates it as runnable, tested code, and the Decionis platform operates it as a hosted authority. The provenance chain is research paper -> protocol contract -> reference implementation (this repository) -> production service.
 
-- **npm**: `npm install -g decionis`
-- **Homebrew**: `brew tap decionis/agent-safe https://github.com/decionis/agent-safe-pipeline`
-  then `brew install decionis` ([`Formula/decionis.rb`](./Formula/decionis.rb) fetches the npm
-  tarball and pins its SHA-256)
-- **Decionis app install**: `app install decionis` reads [`apps/decionis.json`](./apps/decionis.json)
-- **Windows**: the WinGet manifest `Decionis.CLI` points at each release's
-  `decionis-windows-x64-<version>.zip` here; until the manifest is accepted into winget-pkgs,
-  download the archive from the release and add `decionis\bin` to `PATH`
+Published research:
+
+- Jejelowo, Festus. "The Execution Verifiability Gap: Why Model Governance Cannot Authorize Consequential Actions." Decionis Research, version 1.0, 21 August 2026. [Canonical article](https://decionis.com/research/execution-verifiability-gap) · [Archival PDF](https://decionis.com/research/execution-verifiability-gap-v1.0.pdf) · [Research index](https://decionis.com/research).
+
+Profiles of the protocol: the [Banking Execution Authority Profile (BEAP)](https://banking.decionis.com) applies this architecture to a bank's disbursement, payment run, or limit increase — execution domains, the canonical banking instruction, batch binding, multi-party sign-offs, effect evidence — and its reference runtime builds on `@decionis/agent-safe-pipeline`. BEAP v1.0 was published on 2026-09-15: the profile Decionis publishes and implements, not a standard approved by any body; the 0.1 draft is frozen and mirrored under `profiles/beap/v0.1`. Half of its runtime is here and half is not: the profile's section 24.5 names `@decionis/agentsafe` as the reference Trusted Executor, the executor-side subset it implements is listed in [docs/beap-conformance.md](./docs/beap-conformance.md), and the authority-side half — policy, grants, dossiers, the L1 and L2 requirements — is not in this repository and is not claimed by it. Being named a reference is not a conformance claim, and none is made: the executor implements the 1.0 identifiers, moved together with the profile's other runtimes.
+
+Proof-of-human infrastructure: the [proof-of-human infrastructure page](https://decionis.com/proof-of-human-infrastructure) on the platform site says what the human-authority layer is — a verified, present person on their own device, bound to one exact action, sealed in a signed Presence Record the authority re-checks before commit — and the [Presence property](https://presence.decionis.com) is where it runs; this repository's `PresenceApprovalCoordinator` and the `examples/local-escalation`, `examples/presence-live-approval` and `examples/presence-managed-approval` examples are the reference for resolving an ESCALATE with it. Production enforcement is sales-assisted; the loopback double simulates the ceremony and proves nothing about a real one.
+
+Companion notes on the Execution Authority model, the authorization protocol, Presence-verified human approval, and Decision Dossiers are in preparation. Following this repository's discovery rules, a publication link is added here only after its canonical article resolves publicly.
+
+| Research concept              | Implementation in this repository                                                                                                                                                                  |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Execution Authority boundary  | `IntentCapture` -> `DecionisGate` -> `SafeExecutor`                                                                                                                                                |
+| Protocol contract             | Exactly the Decionis `ExecutionAuthorityRequest` and `ExecutionIntentBinding` contract on the wire; `DecionisGate` and `DecionisGrantVerifier` claim and finalize against the published OpenAPI    |
+| Intent integrity              | `CanonicalIntentHasher` plus the [`conformance/`](./conformance) hash vectors                                                                                                                      |
+| Human approval evidence       | DIRECT `PresenceApprovalCoordinator` or MANAGED `DecionisGate` polling; both require Presence receipt verification and Decionis re-evaluation                                                      |
+| Trusted execution             | Sealed `ActionRegistry` and atomic single-use grant consumption in `SafeExecutor`                                                                                                                  |
+| Decision evidence             | `decisionId` and `dossierId` on every gate decision; executed results retain the consumed-grant binding                                                                                            |
+| Failure semantics             | Fail-closed production invariants and [`THREAT-MODEL.md`](./THREAT-MODEL.md)                                                                                                                       |
+| Observation without authority | `ShadowPipeline` over a `SHADOW`-mode gate: failure-isolated, bounded, grant-free, and rejected by `SafeExecutor`; see [`docs/shadow-mode.md`](./docs/shadow-mode.md)                              |
+| MCP governance                | [`examples/mcp-tool-gate`](./examples/mcp-tool-gate)                                                                                                                                               |
+| Operational patterns          | [`examples/shopify-refund-agent`](./examples/shopify-refund-agent), [`examples/github-deploy-agent`](./examples/github-deploy-agent), [`examples/procurement-agent`](./examples/procurement-agent) |
 
 ## Repository map
 
@@ -205,78 +476,22 @@ Apache-2.0 source; `formula/` and `apps/` hold metadata only.
 - [`SECURITY-EVIDENCE.md`](./SECURITY-EVIDENCE.md) — control-to-artifact evidence map and published gaps.
 - [`PUBLICATION-SIGNOFFS.md`](./PUBLICATION-SIGNOFFS.md) — human decisions that automation cannot make.
 
-## Production invariants
+## Installing the Decionis CLI
 
-1. Agent input contains only the proposed action, target, and parameters. Tenant, actor, downstream target, and credentials come from trusted runtime configuration.
-2. The exact canonical intent is hashed and expires quickly.
-3. Decionis independently decides. Network errors, malformed responses, missing grants, or binding mismatches fail closed.
-4. Presence proves a human approved that exact intent; Presence never directly authorizes execution. Decionis verifies the receipt and re-evaluates policy.
-5. The grant is bound to the intent, decision, audience, and expiry and is claimed atomically before the handler runs; the attempt outcome is finalized with the authority afterwards as evidence, never as authority.
-6. Downstream credentials exist only behind the trusted executor.
-7. Every decision is evidence-bearing. An ALLOW whose response lacks a dossier identifier or grant is refused as non-executable, and an executed result retains its consumed `{decisionId, dossierId, grantId}` binding. A dossier identifier is never an execution credential.
+This repository is also the public distribution home of the `decionis` command-line tool: its
+[GitHub releases](https://github.com/decionis/agent-safe-pipeline/releases) carry every release's
+npm tarball, Debian and RPM packages, Windows archive and registry manifests, and the two
+manifests below are what package managers read. The CLI itself is not part of this repository's
+Apache-2.0 source; `formula/` and `apps/` hold metadata only.
 
-Presence supports two explicit integration levels. In DIRECT mode, the trusted executor coordinates
-Presence and returns the receipt reference to Decionis. In MANAGED mode, the executor asks Decionis
-to orchestrate Presence and polls Decionis for a terminal status. Both modes require independently
-signed Presence evidence, exact-intent verification, current-policy re-evaluation, and the same
-claim-before-handler grant path. Invitation delivery and Presence evidence are never execution
-authority, and approval cannot revive a five-minute intent after it expires.
-
-See [`docs/trust-boundary.md`](./docs/trust-boundary.md) before integrating a real downstream API.
-
-## Decision record
-
-The Execution Authority architecture has two load-bearing properties. Position on the execution path creates control: nothing runs without an independent decision at the moment of action. The evidence record creates accountability that compounds: every decision adds to an auditable history of what was authorized, under which policy, on whose approval.
-
-Every Decionis evaluation is recorded as a Decision Dossier, and each `GateDecision` returns the `decisionId` and `dossierId` of that record. Escalations attach the verified Presence `receiptDossierId`, and every executed action returns the consumed grant's `{decisionId, dossierId, grantId, intentHash}` binding, so execution results correlate to their evidence without extra bookkeeping. In the research vocabulary, dossiers compound into a Decision Chain: tamper-evident lineage linking evaluation, approval, and execution evidence across workflows. Decionis maintains that record; this repository's contribution is that execution cannot bypass it.
-
-Treat dossier identifiers as audit and support references, never as execution credentials — see [`docs/decision-dossiers.md`](./docs/decision-dossiers.md).
-
-### What each record establishes
-
-Fluent summaries lose these distinctions first. Each row names the record or state, what it
-establishes, and what it does not.
-
-| Record or state                                           | What it establishes                                                                                                                                                                                                                                                                                                                                                                                                                             | What it does not establish                                                                                                                                                                                                                              |
-| --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Captured intent (`IntentCapture`, `intentHash`)           | The exact action, target, and parameters the agent proposed, bound to trusted tenant, actor, and downstream context, hashed and expiring                                                                                                                                                                                                                                                                                                        | That the agent's facts, identities, or amounts are true; that anything may execute                                                                                                                                                                      |
-| Verified human approval (Presence `receiptDossierId`)     | A named person approved that exact intent hash under the assurance the receipt records                                                                                                                                                                                                                                                                                                                                                          | Permission to execute: Decionis re-evaluates policy with the receipt, and only that evaluation can issue a grant                                                                                                                                        |
-| Execution grant (`authorization` on an `ALLOW`)           | Permission for one attempt at one intent, claimed once through the `AuthorizationVerifier` immediately before the handler runs                                                                                                                                                                                                                                                                                                                  | Anything after expiry, for another intent hash, or on a second presentation; a dossier identifier, an invitation link, or an earlier `ALLOW` is not a substitute                                                                                        |
-| Decision Dossier (`decisionId`, `dossierId`)              | The record of why Decionis allowed, escalated, or blocked: policy snapshot, inputs, evidence, and grant metadata                                                                                                                                                                                                                                                                                                                                | An execution credential; proof that the underlying business judgement was right                                                                                                                                                                         |
-| Single claim, `COMPLETED`                                 | The grant was consumed once and the trusted handler returned a provider result                                                                                                                                                                                                                                                                                                                                                                  | An exactly-once downstream business effect or independent confirmation of settlement; whether an observation counts as `CONFIRMED` is the authority's judgement, not this package's                                                                     |
-| `UNKNOWN_AFTER_DISPATCH`, finalized `INDETERMINATE`       | Dispatch began and completion could not be proved                                                                                                                                                                                                                                                                                                                                                                                               | Permission to repeat the side effect: reconcile through provider idempotency and read-only lookup, never by a second dispatch                                                                                                                           |
-| `DEFINITELY_NOT_EXECUTED`, finalized `FAILED`             | Dispatch began, the provider refused it deterministically, and nothing was effected                                                                                                                                                                                                                                                                                                                                                             | Permission to try again: the refusal was about this attempt, and another needs a fresh decision and a fresh grant                                                                                                                                       |
-| Shadow observation (`ShadowPipeline`, `mode: "SHADOW"`)   | What Decionis would have decided about an action that already ran: a verdict and a dossier, no grant                                                                                                                                                                                                                                                                                                                                            | Enforcement, a grant, or a no-write test environment; the production write happened as before                                                                                                                                                           |
-| Library boundary (this package)                           | Intent capture, the gate, verification, and claim-before-handler dispatch inside the trusted integration                                                                                                                                                                                                                                                                                                                                        | Host isolation, IAM, network egress, credential storage, or incident response                                                                                                                                                                           |
-| Trusted executor (`createTrustedExecutor`)                | What one process verifies about itself and enforces at its own door: the host posture `HostPosture` can observe, caller principals with roles and their own credentials, egress sealed to the origins `EgressPolicy` was configured with, a durable attempt journal reconciled by `StartupReconciler`, the ceilings in `HardLimits`, BEAP-vocabulary effect evidence, `HaltSwitch`, and hash-chained evidence with an offline-verifiable export | Node or kernel isolation, a CNI actually enforcing the NetworkPolicies the kit declares, an HSM or KMS, the authority's policy, or a bank's core correctness                                                                                            |
-| Executor evidence bundle (`agent-safe.evidence-bundle/1`) | What one executor process can say about an incident: both hash-chained streams as it still held them, the open attempts, the posture by check, the chain heads, a configuration digest, and every file's own digest                                                                                                                                                                                                                             | Origin, unless a signature over the manifest verifies against a key the reader brought; completeness, since it carries a bounded window and says how many lines it dropped; and it holds no parameter, no provider body, no secret and no digest of one |
-
-## Research and specifications
-
-Decionis Research defines the Execution Authority architecture, this repository demonstrates it as runnable, tested code, and the Decionis platform operates it as a hosted authority. The provenance chain is research paper -> protocol contract -> reference implementation (this repository) -> production service.
-
-Published research:
-
-- Jejelowo, Festus. "The Execution Verifiability Gap: Why Model Governance Cannot Authorize Consequential Actions." Decionis Research, version 1.0, 21 August 2026. [Canonical article](https://decionis.com/research/execution-verifiability-gap) · [Archival PDF](https://decionis.com/research/execution-verifiability-gap-v1.0.pdf) · [Research index](https://decionis.com/research).
-
-Profiles of the protocol: the [Banking Execution Authority Profile (BEAP)](https://banking.decionis.com) applies this architecture to a bank's disbursement, payment run, or limit increase — execution domains, the canonical banking instruction, batch binding, multi-party sign-offs, effect evidence — and its reference runtime builds on `@decionis/agent-safe-pipeline`. BEAP v1.0 was published on 2026-09-15: the profile Decionis publishes and implements, not a standard approved by any body; the 0.1 draft is frozen and mirrored under `profiles/beap/v0.1`. Half of its runtime is here and half is not: the profile's section 24.5 names `@decionis/agentsafe` as the reference Trusted Executor, the executor-side subset it implements is listed in [docs/beap-conformance.md](./docs/beap-conformance.md), and the authority-side half — policy, grants, dossiers, the L1 and L2 requirements — is not in this repository and is not claimed by it. Being named a reference is not a conformance claim, and none is made: the executor implements the 1.0 identifiers, moved together with the profile's other runtimes.
-
-Proof-of-human infrastructure: the [proof-of-human infrastructure page](https://decionis.com/proof-of-human-infrastructure) on the platform site says what the human-authority layer is — a verified, present person on their own device, bound to one exact action, sealed in a signed Presence Record the authority re-checks before commit — and the [Presence property](https://presence.decionis.com) is where it runs; this repository's `PresenceApprovalCoordinator` and the `examples/local-escalation`, `examples/presence-live-approval` and `examples/presence-managed-approval` examples are the reference for resolving an ESCALATE with it. Production enforcement is sales-assisted; the loopback double simulates the ceremony and proves nothing about a real one.
-
-Companion notes on the Execution Authority model, the authorization protocol, Presence-verified human approval, and Decision Dossiers are in preparation. Following this repository's discovery rules, a publication link is added here only after its canonical article resolves publicly.
-
-| Research concept              | Implementation in this repository                                                                                                                                                                  |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Execution Authority boundary  | `IntentCapture` -> `DecionisGate` -> `SafeExecutor`                                                                                                                                                |
-| Protocol contract             | Exactly the Decionis `ExecutionAuthorityRequest` and `ExecutionIntentBinding` contract on the wire; `DecionisGate` and `DecionisGrantVerifier` claim and finalize against the published OpenAPI    |
-| Intent integrity              | `CanonicalIntentHasher` plus the [`conformance/`](./conformance) hash vectors                                                                                                                      |
-| Human approval evidence       | DIRECT `PresenceApprovalCoordinator` or MANAGED `DecionisGate` polling; both require Presence receipt verification and Decionis re-evaluation                                                      |
-| Trusted execution             | Sealed `ActionRegistry` and atomic single-use grant consumption in `SafeExecutor`                                                                                                                  |
-| Decision evidence             | `decisionId` and `dossierId` on every gate decision; executed results retain the consumed-grant binding                                                                                            |
-| Failure semantics             | Fail-closed production invariants and [`THREAT-MODEL.md`](./THREAT-MODEL.md)                                                                                                                       |
-| Observation without authority | `ShadowPipeline` over a `SHADOW`-mode gate: failure-isolated, bounded, grant-free, and rejected by `SafeExecutor`; see [`docs/shadow-mode.md`](./docs/shadow-mode.md)                              |
-| MCP governance                | [`examples/mcp-tool-gate`](./examples/mcp-tool-gate)                                                                                                                                               |
-| Operational patterns          | [`examples/shopify-refund-agent`](./examples/shopify-refund-agent), [`examples/github-deploy-agent`](./examples/github-deploy-agent), [`examples/procurement-agent`](./examples/procurement-agent) |
+- **npm**: `npm install -g decionis`
+- **Homebrew**: `brew tap decionis/agent-safe https://github.com/decionis/agent-safe-pipeline`
+  then `brew install decionis` ([`Formula/decionis.rb`](./Formula/decionis.rb) fetches the npm
+  tarball and pins its SHA-256)
+- **Decionis app install**: `app install decionis` reads [`apps/decionis.json`](./apps/decionis.json)
+- **Windows**: the WinGet manifest `Decionis.CLI` points at each release's
+  `decionis-windows-x64-<version>.zip` here; until the manifest is accepted into winget-pkgs,
+  download the archive from the release and add `decionis\bin` to `PATH`
 
 ## Open core
 
@@ -287,31 +502,6 @@ The architecture, intent contract, execution boundary, client adapters, audit co
 This is intended to be the public, canonical reference implementation. It should not be mirrored: mirrors create contract and security-fix drift. Public content belongs here—architecture, package source, synthetic policies, and runnable examples. Production policy bundles, customer data, credentials, internal infrastructure, and private incident material do not.
 
 Decionis remains the authoritative decision service, Presence remains the human-verification service, and their server internals can evolve independently behind versioned contracts.
-
-## Verify Decision Dossiers
-
-The repository-owned [`dossiers/`](./dossiers/) corpus checks the offline verifier against synthetic
-`ALLOW`, `BLOCK`, and `ESCALATE` proof bundles, including an owned-workspace, execution-bound
-vector. Its private signing key is intentionally public so anyone can regenerate the corpus; it is
-not a production credential and cannot establish that a production dossier is authentic.
-
-```bash
-pnpm exec decionis-verify \
-  --file dossiers/vectors/allow.json \
-  --jwks dossiers/corpus-jwks.json
-```
-
-To verify the distinct production claim, obtain a live dossier through an authorized route and run
-the pinned verifier against the live JWKS without committing the dossier:
-
-```bash
-npx -y @decionis/verify@0.3.0 \
-  --file /absolute/path/to/live-decision-dossier.json \
-  --jwks https://api.decionis.com/v1/.well-known/decision-dossier-jwks.json
-```
-
-See the [corpus README](./dossiers/README.md) for regeneration, provenance, expected failures, and
-the trust boundary between synthetic conformance and production verification.
 
 ## Start here
 
@@ -380,5 +570,14 @@ Two consequences matter when you add or evaluate tests:
 See [`FIXTURE-PROVENANCE.md`](./FIXTURE-PROVENANCE.md) for the full construction rules and
 [`tests/integration/contract/`](./tests/integration/contract/) for the loopback harness that
 follows them.
+
+## Contributing, support and license
+
+[`CONTRIBUTING.md`](./CONTRIBUTING.md) is how a change lands: `pnpm verify` before a pull request,
+the coding, security and discovery rules beside it, and the bot that opens pull requests for
+branches. Questions and bug reports are [GitHub issues](https://github.com/decionis/agent-safe-pipeline/issues);
+the runtime's first governed action, not a star, is the number this repository is measured by, and
+[docs/reference/telemetry.md](./docs/reference/telemetry.md) says exactly what the runtime records
+about that and what it never sends.
 
 Apache-2.0 licensed except for the explicitly scoped MIT Claude Desktop wrapper in [`packages/commerce-mcp-claude-extension`](./packages/commerce-mcp-claude-extension). See [`LICENSE`](./LICENSE), [`OPEN-CORE.md`](./OPEN-CORE.md), [`TRADEMARKS.md`](./TRADEMARKS.md), [`SECURITY.md`](./SECURITY.md), and [`CONTRIBUTING.md`](./CONTRIBUTING.md). Report suspected vulnerabilities through [GitHub's private advisory form](https://github.com/decionis/agent-safe-pipeline/security/advisories/new), not a public issue.

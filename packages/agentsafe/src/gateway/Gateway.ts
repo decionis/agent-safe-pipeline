@@ -29,6 +29,7 @@ import { CompositeSecretStore } from "../secrets/CompositeSecretStore.js";
 import { Redactor } from "../secrets/Redactor.js";
 import type { SecretStore } from "../secrets/SecretStore.js";
 import { EscalationResolver, type EscalationHandoff } from "../service/EscalationResolver.js";
+import { ActivationFunnel, type ActivationMilestone } from "./Activation.js";
 import { startDemoAuthority, type DemoAuthorityHandle } from "./DemoAuthority.js";
 import {
   httpForwardHandler,
@@ -97,6 +98,8 @@ export interface GatewayStatus {
   readonly held: number;
   readonly counts: Readonly<Record<string, number>>;
   readonly evidence: { readonly seq: number; readonly hash: string };
+  /** The adoption milestones this process has reached, with when; never a payload. */
+  readonly activation: Readonly<Record<ActivationMilestone, string | null>>;
 }
 
 interface HeldEscalation {
@@ -126,6 +129,7 @@ export class Gateway {
   private readonly resolver: EscalationResolver | null;
   private readonly stopFollowing: readonly (() => void)[];
   private readonly counts: Record<string, number> = {};
+  private readonly activation: ActivationFunnel;
 
   private constructor(
     public readonly config: GatewayConfig,
@@ -147,6 +151,10 @@ export class Gateway {
     private readonly version: string,
   ) {
     this.capture = new IntentCapture({ audit, ttlSeconds: config.intentTtlSeconds });
+    this.activation = new ActivationFunnel(
+      (milestone, at) => this.report({ event: "ACTIVATION", milestone, at }),
+      clock,
+    );
     const registry = registerHttpActions(
       new ActionRegistry(),
       routes.actions(),
@@ -341,6 +349,11 @@ export class Gateway {
       mode: this.config.authority.mode,
       authority: this.demo === null ? "decionis" : "local/demo",
     });
+    this.activation.started({
+      mode: this.config.authority.mode,
+      authority: this.config.authority.kind,
+      production: this.config.production,
+    });
   }
 
   public stopped(signal: string): void {
@@ -374,6 +387,7 @@ export class Gateway {
       held: this.held.size,
       counts: { ...this.counts },
       evidence: this.evidence.head,
+      activation: this.activation.snapshot(),
     };
   }
 
@@ -421,6 +435,7 @@ export class Gateway {
     }
     this.metrics.interceptions.inc({ action });
     this.count("interceptions");
+    this.activation.intercepted();
     return await RequestContext.run({ principal: this.principalOf(captured) }, async () => {
       if (this.shadow !== null) return await this.observe(request, captured, startedAt);
       return await this.enforce(request, captured, startedAt);
@@ -601,6 +616,7 @@ export class Gateway {
       return await this.unavailable(request, captured, decision, startedAt, authorityMs);
     }
     this.metrics.decisions.inc({ verdict: decision.verdict });
+    this.activation.governed();
     if (decision.verdict === "ALLOW") {
       this.metrics.allows.inc();
       this.count("allows");

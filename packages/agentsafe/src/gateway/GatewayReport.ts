@@ -73,7 +73,14 @@ export interface StoppedReport {
   readonly signal: string;
 }
 
-export type GatewayReport = InterceptionReport | StartedReport | NoteReport | StoppedReport;
+export interface ActivationMilestoneReport {
+  readonly event: "ACTIVATION";
+  readonly milestone: string;
+  readonly at: string;
+}
+
+export type GatewayReport =
+  InterceptionReport | StartedReport | NoteReport | StoppedReport | ActivationMilestoneReport;
 
 const ESC = String.fromCharCode(27);
 const RESET = `${ESC}[0m`;
@@ -156,6 +163,8 @@ export function renderHuman(report: GatewayReport, options: RenderOptions): stri
       ].join("\n");
     case "GATEWAY_STOPPED":
       return `${dim(`Stopped on ${report.signal}.`)}\n`;
+    case "ACTIVATION":
+      return `${dim(`✓ ${report.milestone.replace(/_/g, " ")}`)}\n`;
     case "NOTE": {
       const prefix =
         report.level === "error" ? "ERROR" : report.level === "warn" ? "WARNING" : "NOTE";
