@@ -56,15 +56,17 @@ bound; a mismatch fails before dispatch and nothing is sent. Then, exactly once:
 - the method and path from the verified parameters, the query as received;
 - the client's headers minus the hop-by-hop ones (`Connection` and what it names, `Keep-Alive`,
   `TE`, `Trailer`, `Transfer-Encoding`, `Upgrade`, `Proxy-*`), minus `Host`, `Content-Length` and
-  `Expect`, which the hop recomputes;
+  `Expect`, which the hop recomputes, and minus any `x-agent-safe-*` the client sent, which only
+  the gateway may say;
 - `X-Forwarded-For` appended with the caller's address, `X-Forwarded-Proto`, `X-Forwarded-Host`;
 - `Accept-Encoding: identity`, so the bytes relayed back are the bytes received;
 - `x-agent-safe-intent-hash`, `x-agent-safe-decision-id`, `x-agent-safe-dossier-id`;
 - the raw body bytes.
 
 Redirects from the upstream are relayed, never followed. The response is read in full, under 16
-MiB, and relayed with its status and headers, `Set-Cookie` included, plus `agentsafe-decision`,
-`agentsafe-dossier-id`, `agentsafe-intent-hash` and `agentsafe-execution`.
+MiB, and relayed with its status and headers, `Set-Cookie` included and any `agentsafe-*` the
+upstream sent dropped, plus the gateway's own `agentsafe-decision`, `agentsafe-dossier-id`,
+`agentsafe-intent-hash` and `agentsafe-execution`.
 
 ## What each outcome means
 

@@ -96,6 +96,9 @@ describe("the gateway in enforcement with the demo authority", () => {
     expect(headers["agentsafe-dossier-id"]).toMatch(/^synthetic-dossier-/);
     expect(headers["x-upstream"]).toBe("double");
     expect(answer.headers.filter(([name]) => name === "set-cookie")).toHaveLength(2);
+    expect(answer.headers.filter(([name]) => name === "agentsafe-decision")).toEqual([
+      ["agentsafe-decision", "ALLOW"],
+    ]);
     expect(headers["connection"]).toBeUndefined();
     const seen = upstream.seen.at(-1);
     expect(seen?.method).toBe("POST");

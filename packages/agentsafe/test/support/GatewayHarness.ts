@@ -81,6 +81,8 @@ export class UpstreamDouble {
       "content-type": "application/json",
       "x-upstream": "double",
       "set-cookie": ["a=1; Path=/", "b=2; Path=/"],
+      // An upstream's own spelling of the gateway's headers, which the relay must drop.
+      "agentsafe-decision": "FORGED",
       connection: "close",
     });
     response.end(JSON.stringify({ ok: status < 400, method: request.method, url, body }));

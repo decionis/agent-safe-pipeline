@@ -61,6 +61,14 @@ describe("the upstream client", () => {
       request({ headers: {}, remoteAddress: null, encrypted: false }),
     );
     expect(bare).toEqual({ "x-forwarded-proto": "http", "accept-encoding": "identity" });
+    const spoofed = upstream.headersFor(
+      request({
+        headers: { "x-agent-safe-dossier-id": "forged", "x-agent-safe-intent-hash": "forged" },
+      }),
+      { "x-agent-safe-dossier-id": "real" },
+    );
+    expect(spoofed["x-agent-safe-dossier-id"]).toBe("real");
+    expect(spoofed["x-agent-safe-intent-hash"]).toBeUndefined();
   });
 
   it("sends the bytes verbatim and relays status, headers and cookies, never following a redirect", async () => {

@@ -40,6 +40,10 @@ const REQUEST_OWNED: ReadonlySet<string> = new Set([
 /** Response headers the relay recomputes, because it relays decoded bytes of a known length. */
 const RESPONSE_OWNED: ReadonlySet<string> = new Set(["content-length", "content-encoding"]);
 const BODYLESS_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD"]);
+/** The headers the gateway sends the upstream about the authorization; a caller may not set them. */
+const EVIDENCE_HEADER_PREFIX = "x-agent-safe-";
+/** The headers the gateway sends the caller about the decision; an upstream may not set them. */
+const RELAY_HEADER_PREFIX = "agentsafe-";
 
 export interface UpstreamOptions {
   readonly url: string;
@@ -89,7 +93,16 @@ export class Upstream {
     );
     const headers: Record<string, string> = {};
     for (const [name, value] of Object.entries(request.headers)) {
-      if (HOP_BY_HOP.has(name) || REQUEST_OWNED.has(name) || connectionNamed.has(name)) continue;
+      // The evidence headers are the gateway's own statement to the upstream;
+      // a caller's spelling of one is dropped so it can never be mistaken for it.
+      if (
+        HOP_BY_HOP.has(name) ||
+        REQUEST_OWNED.has(name) ||
+        connectionNamed.has(name) ||
+        name.startsWith(EVIDENCE_HEADER_PREFIX)
+      ) {
+        continue;
+      }
       headers[name] = value;
     }
     const forwardedFor = request.headers["x-forwarded-for"];
@@ -130,7 +143,16 @@ export class Upstream {
     });
     const relayed: (readonly [string, string])[] = [];
     for (const [name, value] of response.headers) {
-      if (HOP_BY_HOP.has(name) || RESPONSE_OWNED.has(name) || name === "set-cookie") continue;
+      // Likewise on the way back: what the caller reads under `agentsafe-` is
+      // the gateway's, never the upstream's.
+      if (
+        HOP_BY_HOP.has(name) ||
+        RESPONSE_OWNED.has(name) ||
+        name === "set-cookie" ||
+        name.startsWith(RELAY_HEADER_PREFIX)
+      ) {
+        continue;
+      }
       relayed.push([name, value]);
     }
     for (const cookie of response.headers.getSetCookie()) relayed.push(["set-cookie", cookie]);

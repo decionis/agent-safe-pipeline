@@ -25,7 +25,8 @@ claimed single-use grant. A `BLOCK` is refused, an `ESCALATE` is held, and an au
 cannot be reached is its own state, never a verdict.
 
 ```bash
-npx agentsafe proxy --upstream http://localhost:3000 --port 8080
+npm install -g @decionis/agentsafe
+agentsafe proxy --upstream http://localhost:3000 --port 8080
 ```
 
 Without a Decionis key that runs a local demo authority in the same process, on loopback, with a
