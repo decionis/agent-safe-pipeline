@@ -438,3 +438,136 @@ export {
   type TrustedExecutorDependencies,
   type TrustedExecutorOptions,
 } from "./TrustedExecutor.js";
+export {
+  Gateway,
+  GATEWAY_PREFIX,
+  GATEWAY_RESPONSE_VERSION,
+  GATEWAY_STREAM,
+  type GatewayDependencies,
+  type GatewayIo,
+  type GatewayResponse,
+  type GatewayStatus,
+} from "./gateway/Gateway.js";
+export {
+  ACTION_NAME,
+  CONSEQUENTIAL_METHODS,
+  DEFAULT_AUTHORITY_ENDPOINT,
+  DEFAULT_LISTEN,
+  GATEWAY_ENVIRONMENT,
+  GatewayConfigError,
+  GatewayConfigLoader,
+  GatewayFileSchema,
+  LOCAL_TENANT_ID,
+  renderConfigFile,
+  type AuthorityKind,
+  type ConfigSource,
+  type ConsequentialMethod,
+  type FailurePolicy,
+  type GatewayConfig,
+  type GatewayConfigInput,
+  type GatewayFile,
+  type GatewayFlags,
+  type GatewayMode,
+  type OutputFormat,
+  type RouteConfig,
+  type StoredCredentials,
+  type UnmatchedPolicy,
+} from "./gateway/GatewayConfig.js";
+export {
+  DEMO_AUTONOMOUS_LIMIT_MINOR,
+  DEMO_HUMAN_LIMIT_MINOR,
+  amountMinorOf,
+  demoPolicy,
+  startDemoAuthority,
+  type DemoAuthorityHandle,
+  type DemoPolicyRequest,
+} from "./gateway/DemoAuthority.js";
+export {
+  HttpActionParametersSchema,
+  RequestHolder,
+  httpForwardHandler,
+  registerHttpActions,
+  type ForwardOutcome,
+} from "./gateway/ForwardHandler.js";
+export { gatewayMetrics, type GatewayMetrics } from "./gateway/GatewayMetrics.js";
+export {
+  executionLabel,
+  renderHuman,
+  renderJson,
+  stateLabel,
+  type ExecutionDisposition,
+  type GatewayReport,
+  type GatewayState,
+  type InterceptionReport,
+  type NoteReport,
+  type RenderOptions,
+  type StartedReport,
+  type StoppedReport,
+} from "./gateway/GatewayReport.js";
+export {
+  bodyDigest,
+  normalizeRequest,
+  type HttpActionContext,
+  type HttpActionParameters,
+  type InterceptedRequest,
+  type NormalizedAction,
+} from "./gateway/InterceptedRequest.js";
+export { RouteTable, derivedAction, type RoutePlan } from "./gateway/RouteTable.js";
+export {
+  Upstream,
+  UpstreamResponseTooLarge,
+  type UpstreamOptions,
+  type UpstreamResult,
+} from "./gateway/Upstream.js";
+export { GatewayHttpServer, type GatewayHttpServerOptions } from "./http/GatewayHttpServer.js";
+export { packageVersion } from "./Version.js";
+export {
+  ArgumentError,
+  optionPort,
+  optionValue,
+  parseArguments,
+  type ArgumentSpec,
+  type ParsedArguments,
+} from "./cli/Arguments.js";
+export { nodeCliProcess, nodeFiles, type CliFiles, type CliProcess } from "./cli/CliProcess.js";
+export {
+  GATEWAY_COMMANDS,
+  isGatewayCommand,
+  runGatewayCommand,
+  type GatewayCommand,
+} from "./cli/Commands.js";
+export {
+  ConfigFileError,
+  DEFAULT_CONFIG_FILE,
+  loadConfigFile,
+  locateConfigFile,
+  type LoadedConfigFile,
+} from "./cli/ConfigFile.js";
+export {
+  credentialsDirectory,
+  credentialsPath,
+  readCredentials,
+  removeCredentials,
+  writeCredentials,
+} from "./cli/Credentials.js";
+export { effectiveConfig, runConfig } from "./cli/ConfigCommand.js";
+export { DOCTOR_ARGUMENTS, runDoctor, type DoctorCheck, type DoctorOptions } from "./cli/Doctor.js";
+export { usage } from "./cli/Help.js";
+export {
+  INIT_ARGUMENTS,
+  actionNameFrom,
+  routesFromOpenApi,
+  runInit,
+  upstreamFromPackage,
+  type InitReport,
+} from "./cli/Init.js";
+export { LOGIN_ARGUMENTS, runLogin, runLogout } from "./cli/Login.js";
+export {
+  PROXY_ARGUMENTS,
+  explainRefusal,
+  gatewayFlags,
+  resolveGateway,
+  runProxy,
+  type ResolvedGateway,
+} from "./cli/Proxy.js";
+export { runStatus } from "./cli/Status.js";
