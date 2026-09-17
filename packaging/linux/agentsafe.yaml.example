@@ -1,0 +1,29 @@
+# AgentSafe gateway configuration for the system service. Copy to
+# /etc/agentsafe/agentsafe.yaml and edit; the reference is
+# https://github.com/decionis/agent-safe-pipeline/blob/master/docs/reference/config.md
+version: 1
+
+gateway:
+  listen: "0.0.0.0:8080"
+  upstream: "https://payments.internal.example"
+
+authority:
+  # The key comes from /etc/agentsafe/environment (DECIONIS_API_KEY_FILE),
+  # never from this file. Shadow first; enforcement once the decisions look right.
+  mode: shadow
+  failurePolicy: failClosed
+  # tenantId: the key's organization id, or DECIONIS_TENANT_ID in the environment
+
+interception:
+  http: true
+  unmatched: govern
+  routes: []
+  #  - path: /payments/**
+  #    action: payment.create
+  #    methods: [POST]
+
+presence:
+  managed: false
+
+evidence:
+  enabled: true

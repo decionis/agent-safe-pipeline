@@ -4,3 +4,6 @@ node_modules
 pnpm-lock.yaml
 brief.pipeline.md
 .stryker-tmp
+packaging/sea/out
+packaging/sea/cache
+Formula/*.rb

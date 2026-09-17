@@ -1,0 +1,53 @@
+# The gateway as a system service. It runs from /etc/agentsafe/agentsafe.yaml
+# under a dynamic user with nothing writable but its state directory. The
+# Decionis key is a systemd credential: root writes it to
+# /etc/agentsafe/decionis-api-key (mode 0600), systemd hands the service a
+# private copy, and the gateway reads it from DECIONIS_API_KEY_FILE; the key
+# is never in the environment and never in this unit.
+#
+#   cp /etc/agentsafe/agentsafe.yaml.example /etc/agentsafe/agentsafe.yaml
+#   cp /etc/agentsafe/environment.example /etc/agentsafe/environment
+#   (umask 077; printf '%s' "$KEY" > /etc/agentsafe/decionis-api-key)
+#   systemctl enable --now agentsafe
+[Unit]
+Description=AgentSafe execution-authority gateway
+Documentation=https://github.com/decionis/agent-safe-pipeline/blob/master/docs/install/linux.md
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/agentsafe/agentsafe.yaml
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/agentsafe run --config /etc/agentsafe/agentsafe.yaml
+EnvironmentFile=-/etc/agentsafe/environment
+LoadCredential=decionis-api-key:/etc/agentsafe/decionis-api-key
+Environment=DECIONIS_API_KEY_FILE=%d/decionis-api-key
+Environment=NODE_ENV=production
+Environment=AGENTSAFE_EVIDENCE_DIR=/var/lib/agentsafe/evidence
+Environment=AGENTSAFE_LOG_FORMAT=json
+Restart=on-failure
+RestartSec=2
+KillSignal=SIGTERM
+TimeoutStopSec=15
+DynamicUser=yes
+StateDirectory=agentsafe
+StateDirectoryMode=0750
+ConfigurationDirectory=agentsafe
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=no
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target

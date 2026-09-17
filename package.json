@@ -59,6 +59,8 @@
     "test:contract": "pnpm --filter @decionis/agent-safe-contract-tests test",
     "typecheck": "pnpm --filter @decionis/agent-safe-pipeline build && pnpm --filter @decionis/agentsafe build && pnpm -r typecheck",
     "verify": "pnpm format && pnpm lint && pnpm metadata:check && pnpm fixture:check && pnpm dossiers:check && pnpm license:check && pnpm security && pnpm dependabot:check && pnpm discovery && pnpm performance && pnpm typecheck && pnpm test:automation && pnpm test && pnpm build",
+    "executable": "node scripts/BuildExecutable.mjs",
+    "executable:smoke": "packaging/smoke/Smoke.sh packaging/sea/out/agentsafe \"$(node -p \"require('./packages/agentsafe/package.json').version\")\"",
     "examples:prove": "pnpm --filter @decionis/agent-safe-example-golden-adversarial demo && pnpm --filter @decionis/agent-safe-example-whisper-boundary demo && pnpm --filter @decionis/agent-safe-example-crm-outreach demo && pnpm --filter @decionis/agent-safe-example-trusted-executor demo"
   },
   "simple-git-hooks": {
@@ -70,12 +72,14 @@
     "@types/node": "^26.2.0",
     "@typescript-eslint/eslint-plugin": "^8.44.0",
     "@typescript-eslint/parser": "^8.44.0",
+    "esbuild": "0.27.2",
     "eslint": "^9.16.0",
     "eslint-import-resolver-typescript": "^4.3.5",
     "eslint-plugin-import": "^2.31.0",
     "eslint-plugin-regexp": "^3.2.0",
     "globals": "^17.11.0",
     "markdownlint-cli2": "^0.23.2",
+    "postject": "1.0.0-alpha.6",
     "prettier": "^3.2.5",
     "simple-git-hooks": "^2.13.1",
     "typescript": "^6.0.3",

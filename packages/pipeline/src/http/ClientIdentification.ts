@@ -14,9 +14,19 @@ const TOKEN = /^[\w.\-/@]{1,120}$/;
 
 let cachedVersion: string | undefined;
 
+/** Defined at bundle time by a single-executable build of a consumer; absent everywhere else. */
+declare const __AGENT_SAFE_PIPELINE_VERSION__: string | undefined;
+
 /** This package's own version, read once from its manifest; `unknown` if it cannot be. */
 export function packageVersion(): string {
   if (cachedVersion === undefined) {
+    if (
+      typeof __AGENT_SAFE_PIPELINE_VERSION__ === "string" &&
+      TOKEN.test(__AGENT_SAFE_PIPELINE_VERSION__)
+    ) {
+      cachedVersion = __AGENT_SAFE_PIPELINE_VERSION__;
+      return cachedVersion;
+    }
     try {
       const manifest = createRequire(import.meta.url)("../../package.json") as {
         readonly version?: unknown;

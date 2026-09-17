@@ -182,3 +182,33 @@ DEPRECATE
 
 - Nothing. `verify-chain` and `verify-bundle` gain a `verify chain|bundle` spelling and keep the
   old one.
+
+## Decisions taken while packaging (Phase 2)
+
+Routine packaging choices, recorded here rather than as ADRs:
+
+- **The executable is a Node single executable application** built by
+  `scripts/BuildExecutable.mjs` from the official Node release `packaging/sea/node.json` pins,
+  verified by SHA-256 before use, never from the Node that runs the build (a shared-library
+  build such as Homebrew's cannot carry an application). One bundle, one blob, four targets.
+- **The image's default command is now the gateway.** `ENTRYPOINT` is the `agentsafe` command
+  under the same permission model; `CMD ["proxy"]`. A deployment of the trusted executor names
+  `serve` (the kit's StatefulSet now does; the CI's container runs do). An adopter of the image
+  who passed no argument gets the gateway's `REFUSED_TO_START` until they add `args: ["serve"]`;
+  that is the whole migration.
+- **The registry stays `ghcr.io/decionis/agentsafe`**, the existing convention, with `<version>`,
+  `<major>.<minor>`, `<major>` and `latest` tags and a two-architecture manifest. A Docker Hub
+  mirror is a credential this repository does not hold.
+- **The tap stays this repository.** `Formula/agentsafe.rb` is rendered by the release workflow
+  from the release's `SHA256SUMS` and pushed to a `homebrew/agentsafe-<version>` branch for the
+  pull request bot to open; nothing is pushed to `master` by a workflow. A `decionis/homebrew-tap`
+  short form would be a copy of the same file in another repository.
+- **Versions stay separate.** A release is still keyed to `packages/pipeline`'s version, as the
+  workflow always was; the runtime artifacts carry `packages/agentsafe`'s own version. The first
+  runtime release therefore rides on the next pipeline version bump.
+- **`@decionis/agentsafe` on npm** is published by the release workflow only once
+  `NPM_PUBLISH_RUNTIME_ENABLED` is set, because a package's first publication cannot use trusted
+  publishing until the publisher is configured on npm.
+- **Runner labels** for the four targets (`ubuntu-latest`, `ubuntu-24.04-arm`, `macos-15`,
+  `macos-15-intel`) are GitHub's current hosted labels and are the one thing here the repository
+  cannot test before the workflow runs.
