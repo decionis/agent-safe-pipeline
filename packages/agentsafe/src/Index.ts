@@ -566,8 +566,10 @@ export {
   PROXY_ARGUMENTS,
   explainRefusal,
   gatewayFlags,
+  refusalLine,
   resolveGateway,
   runProxy,
+  speaksJson,
   type ResolvedGateway,
 } from "./cli/Proxy.js";
 export { runStatus } from "./cli/Status.js";

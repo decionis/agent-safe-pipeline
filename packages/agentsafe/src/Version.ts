@@ -2,8 +2,17 @@ import { createRequire } from "node:module";
 
 const TOKEN = /^[\w.-]{1,64}$/;
 
-/** This package's own version, from its manifest; `0.0.0` if the manifest cannot be read. */
+/** Defined at bundle time by the single-executable build; absent everywhere else. */
+declare const __AGENTSAFE_VERSION__: string | undefined;
+
+/**
+ * This package's own version: the one the bundler defined, else the one
+ * in the manifest beside the code, else `0.0.0` if neither can be read.
+ */
 export function packageVersion(): string {
+  if (typeof __AGENTSAFE_VERSION__ === "string" && TOKEN.test(__AGENTSAFE_VERSION__)) {
+    return __AGENTSAFE_VERSION__;
+  }
   try {
     const manifest = createRequire(import.meta.url)("../package.json") as {
       readonly version?: unknown;

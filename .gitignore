@@ -24,3 +24,7 @@ gtm/
 *.keystore
 credentials*.json
 service-account*.json
+packaging/sea/out/
+packaging/sea/cache/
+packaging/sea/launcher/
+packaging/linux/build/

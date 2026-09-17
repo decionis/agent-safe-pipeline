@@ -1,0 +1,56 @@
+# The Linux packages, built by nfpm from the single executable: the same
+# binary the archive and the Homebrew formula install, placed where a
+# distribution expects it, with a hardened systemd unit that runs the gateway
+# from /etc/agentsafe/agentsafe.yaml. Nothing here is configuration: the unit
+# refuses to start until the operator writes that file.
+#
+# The executable is read from packaging/linux/build/agentsafe, a path the
+# build step copies it to, because nfpm expands variables in the fields
+# above and not in a content's source.
+#
+#   VERSION=<version> ARCH=<amd64|arm64> nfpm package -f packaging/linux/nfpm.yaml -p deb -t <dir>
+name: agentsafe
+arch: ${ARCH}
+platform: linux
+version: ${VERSION}
+version_schema: semver
+section: net
+priority: optional
+maintainer: Decionis, Inc. <security@decionis.com>
+description: |
+  AgentSafe: an execution-authority gateway for agents and APIs.
+  It intercepts consequential HTTP actions, asks Decionis whether they are
+  authorized, and forwards exactly the authorized request once, on a claimed
+  single-use grant, or holds or refuses it, leaving chained evidence of each.
+vendor: Decionis, Inc.
+homepage: https://github.com/decionis/agent-safe-pipeline
+license: Apache-2.0
+contents:
+  - src: ./packaging/linux/build/agentsafe
+    dst: /usr/bin/agentsafe
+    file_info:
+      mode: 0755
+  - src: ./LICENSE
+    dst: /usr/share/doc/agentsafe/LICENSE
+  - src: ./NOTICE
+    dst: /usr/share/doc/agentsafe/NOTICE
+  - src: ./packaging/linux/agentsafe.service
+    dst: /usr/lib/systemd/system/agentsafe.service
+  - src: ./packaging/linux/agentsafe.yaml.example
+    dst: /etc/agentsafe/agentsafe.yaml.example
+    type: config|noreplace
+  - src: ./packaging/linux/environment.example
+    dst: /etc/agentsafe/environment.example
+    type: config|noreplace
+  # Traversable by everyone: the service reads its configuration as a dynamic
+  # user. What is secret in here (the key, the environment) is a file the
+  # operator writes at 0600, and systemd reads those as root.
+  - dst: /etc/agentsafe
+    type: dir
+    file_info:
+      mode: 0755
+rpm:
+  summary: Execution-authority gateway for agents and APIs
+deb:
+  fields:
+    Bugs: https://github.com/decionis/agent-safe-pipeline/issues

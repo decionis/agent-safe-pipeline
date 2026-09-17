@@ -265,6 +265,8 @@ spec:
       containers:
         - name: executor
           image: IMAGE_PLACEHOLDER
+          # The image's default command is the gateway; this is the executor.
+          args: ["serve"]
           ports:
             - containerPort: 8443
               protocol: TCP

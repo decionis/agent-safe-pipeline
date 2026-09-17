@@ -69,6 +69,30 @@ export function resolveGateway(io: CliProcess, parsed: ParsedArguments): Resolve
   return { config, env, configPath: file.path };
 }
 
+/** Whether the process should speak JSON: asked for, or running where a log pipeline listens. */
+export function speaksJson(io: CliProcess, argv: readonly string[]): boolean {
+  return (
+    argv.includes("--json") ||
+    io.env["AGENTSAFE_LOG_FORMAT"]?.trim().toLowerCase() === "json" ||
+    io.env["NODE_ENV"] === "production"
+  );
+}
+
+/**
+ * A refusal to start as one JSON line, in the executor's own shape, for a
+ * container or a service whose logs are lines: the code and the setting,
+ * never a value.
+ */
+export function refusalLine(error: unknown): string {
+  const reason =
+    error instanceof GatewayConfigError || error instanceof ConfigFileError
+      ? error.message
+      : error instanceof Error
+        ? error.message
+        : "UNKNOWN";
+  return `${JSON.stringify({ event: "REFUSED_TO_START", reason })}\n`;
+}
+
 /** A refusal to start, on one line that names the setting and never a value. */
 export function explainRefusal(error: unknown): string {
   if (error instanceof GatewayConfigError) {
@@ -98,13 +122,15 @@ export async function runProxy(
   argv: readonly string[],
   dependencies: GatewayDependencies = {},
 ): Promise<void> {
+  const refuse = (error: unknown): string =>
+    speaksJson(io, argv) ? refusalLine(error) : explainRefusal(error);
   let resolved: ResolvedGateway;
   let parsed: ParsedArguments;
   try {
     parsed = parseArguments(argv, PROXY_ARGUMENTS);
     resolved = resolveGateway(io, parsed);
   } catch (error) {
-    io.stderr(explainRefusal(error));
+    io.stderr(refuse(error));
     io.exit(2);
     return;
   }
@@ -122,7 +148,7 @@ export async function runProxy(
       ...dependencies,
     });
   } catch (error) {
-    io.stderr(explainRefusal(error));
+    io.stderr(refuse(error));
     io.exit(1);
     return;
   }
@@ -136,9 +162,13 @@ export async function runProxy(
     await gateway.close();
     const code = (error as { code?: string }).code ?? "LISTEN_FAILED";
     io.stderr(
-      `AgentSafe refused to start.\n\n${code}: ${config.listen.host}:${config.listen.port}${
-        code === "EADDRINUSE" ? "\n\nAnother process holds the port; choose one with --port." : ""
-      }\n`,
+      speaksJson(io, argv)
+        ? refusalLine(new Error(`${code}: ${config.listen.host}:${config.listen.port}`))
+        : `AgentSafe refused to start.\n\n${code}: ${config.listen.host}:${config.listen.port}${
+            code === "EADDRINUSE"
+              ? "\n\nAnother process holds the port; choose one with --port."
+              : ""
+          }\n`,
     );
     io.exit(1);
     return;

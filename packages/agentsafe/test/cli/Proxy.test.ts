@@ -1,7 +1,14 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { GatewayConfigError } from "../../src/gateway/GatewayConfig.js";
 import { ConfigFileError } from "../../src/cli/ConfigFile.js";
-import { explainRefusal, gatewayFlags, resolveGateway, runProxy } from "../../src/cli/Proxy.js";
+import {
+  explainRefusal,
+  gatewayFlags,
+  refusalLine,
+  resolveGateway,
+  runProxy,
+  speaksJson,
+} from "../../src/cli/Proxy.js";
 import { parseArguments } from "../../src/cli/Arguments.js";
 import { closedPort } from "../support/Environment.js";
 import { fakeProcess, UpstreamDouble, LOOPBACK_ORIGIN } from "../support/GatewayHarness.js";
@@ -125,6 +132,33 @@ describe("agentsafe proxy", () => {
     expect(io.exits).toEqual([0]);
     expect(io.out.at(-1)).toContain('"event":"GATEWAY_STOPPED"');
     await expect(fetch(`${LOOPBACK_ORIGIN}:${port}/_agentsafe/healthz`)).rejects.toThrow();
+  });
+
+  it("refuses as one JSON line where a log pipeline listens, in the executor's own shape", async () => {
+    const production = fakeProcess({ env: { NODE_ENV: "production" } });
+    await runProxy(production, []);
+    expect(production.exits).toEqual([2]);
+    expect(JSON.parse(production.err.join(""))).toEqual({
+      event: "REFUSED_TO_START",
+      reason: "CONFIG_MISSING: upstream (--upstream, AGENTSAFE_UPSTREAM or gateway.upstream)",
+    });
+    const asked = fakeProcess();
+    await runProxy(asked, [
+      "--json",
+      "--upstream",
+      upstream.baseUrl,
+      "--listen",
+      `127.0.0.1:${new URL(upstream.baseUrl).port}`,
+    ]);
+    expect(asked.exits).toEqual([1]);
+    expect((JSON.parse(asked.err.join("")) as { reason: string }).reason).toContain("EADDRINUSE");
+    expect(speaksJson(fakeProcess({ env: { AGENTSAFE_LOG_FORMAT: "JSON" } }), [])).toBe(true);
+    expect(speaksJson(fakeProcess(), [])).toBe(false);
+    expect(JSON.parse(refusalLine("x"))).toEqual({ event: "REFUSED_TO_START", reason: "UNKNOWN" });
+    expect(JSON.parse(refusalLine(new ConfigFileError("CONFIG_FILE_NOT_YAML", "/f")))).toEqual({
+      event: "REFUSED_TO_START",
+      reason: "CONFIG_FILE_NOT_YAML: /f",
+    });
   });
 
   it("refuses to start on a bad argument, a bad configuration, or a port that is taken", async () => {
