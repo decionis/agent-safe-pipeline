@@ -146,6 +146,8 @@ describe("the workflow", () => {
       "Pack the runtime package and build its SBOM",
       "Attest runtime provenance",
       "Build the runtime image",
+      "Package the Helm chart",
+      "Push the Helm chart",
       "Render the Homebrew formula",
       "Open the Homebrew formula for review",
     ]) {
