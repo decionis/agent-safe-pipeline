@@ -261,12 +261,26 @@ describe("the gateway in enforcement with the demo authority", () => {
     expect(gateway.evidenceLabel).toBe("terminal");
   });
 
-  it("prints the banner and the stop line", () => {
+  it("prints the banner and the stop line, and the milestones the funnel reached", () => {
     gateway.started("http://127.0.0.1:1");
     gateway.stopped("SIGTERM");
     const events = io.out.map((line) => (JSON.parse(line) as { event: string }).event);
     expect(events).toContain("GATEWAY_STARTED");
     expect(events.at(-1)).toBe("GATEWAY_STOPPED");
+    const milestones = io.out
+      .map((line) => JSON.parse(line) as { event: string; milestone?: string })
+      .filter((line) => line.event === "ACTIVATION")
+      .map((line) => line.milestone);
+    expect(milestones).toEqual([
+      "first_interception",
+      "first_governed_action",
+      "gateway_started",
+      "enforcement_enabled",
+    ]);
+    const activation = gateway.status().activation;
+    expect(activation.first_governed_action).not.toBeNull();
+    expect(activation.decionis_connected).toBeNull();
+    expect(activation.shadow_enabled).toBeNull();
   });
 });
 
