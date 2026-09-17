@@ -17,8 +17,8 @@ pnpm --filter @decionis/agent-safe-pipeline build && pnpm --filter @decionis/age
 alias agentsafe="node $PWD/packages/agentsafe/dist/Cli.js"
 ```
 
-The installed forms (Homebrew, Linux packages, Docker, Kubernetes) are the same runtime and the
-same commands.
+The installed forms are the same runtime and the same commands: [macOS](../install/macos.md)
+(Homebrew), [Linux](../install/linux.md) (packages and an installer), [Docker](../install/docker.md).
 
 ## Start the gateway
 

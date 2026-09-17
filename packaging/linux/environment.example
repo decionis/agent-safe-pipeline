@@ -1,0 +1,7 @@
+# Environment for the agentsafe service. Copy to /etc/agentsafe/environment.
+# The Decionis key is not set here: the unit loads /etc/agentsafe/decionis-api-key
+# as a systemd credential and points DECIONIS_API_KEY_FILE at the private copy.
+DECIONIS_TENANT_ID=00000000-0000-4000-8000-000000000000
+# DECIONIS_API_URL=https://api.decionis.com
+# AGENTSAFE_MODE=shadow
+# AGENTSAFE_METRICS_TOKEN=

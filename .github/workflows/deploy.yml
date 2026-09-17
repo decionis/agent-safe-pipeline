@@ -113,6 +113,46 @@ jobs:
             exit 1
           fi
           grep -q 'REFUSED_TO_START' <<<"$output"
+      # The gateway in the production image: it answers its version, resolves
+      # a configuration with a mounted key under the permission model, comes
+      # up ready without ever contacting the authority, and fails closed on
+      # the first consequential request when the authority cannot be reached.
+      - name: Run the gateway in the image and watch it fail closed
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(docker run --rm agentsafe:ci version)" = "$(node -p "require('./packages/agentsafe/package.json').version")"
+          secrets="$RUNNER_TEMP/agentsafe-gateway-secrets"
+          mkdir -p "$secrets"
+          printf 'synthetic-authority-key-ci\n' > "$secrets/decionis-api-key"
+          sudo chown root:65532 "$secrets"/*
+          sudo chmod 0440 "$secrets"/*
+          common=(--read-only --user 65532:65532 --cap-drop ALL --security-opt no-new-privileges
+            --network host
+            -e AGENTSAFE_UPSTREAM=http://127.0.0.1:1
+            -e AGENTSAFE_LISTEN=127.0.0.1:8089
+            -e AGENTSAFE_MODE=enforcement
+            -e DECIONIS_API_URL=https://authority.decionis.example
+            -e DECIONIS_API_KEY_FILE=/var/run/agent-safe/secrets/decionis-api-key
+            -e DECIONIS_TENANT_ID=00000000-0000-4000-8000-000000000001
+            -e DECIONIS_TIMEOUT_MS=1000
+            --mount "type=bind,src=$secrets,dst=/var/run/agent-safe/secrets,readonly")
+          docker run --rm "${common[@]}" agentsafe:ci config --json | grep -q '"kind":"decionis"'
+          container="$(docker run -d "${common[@]}" agentsafe:ci)"
+          for _ in $(seq 1 30); do
+            if curl -fs http://127.0.0.1:8089/_agentsafe/readyz >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          curl -fs http://127.0.0.1:8089/_agentsafe/readyz
+          status="$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8089/payments \
+            -H 'content-type: application/json' -d '{"amount": 1}')"
+          docker stop -t 10 "$container" >/dev/null
+          logs="$(docker logs "$container" 2>&1)"
+          docker rm "$container" >/dev/null
+          test "$status" = "503"
+          grep -q '"event":"GATEWAY_STARTED"' <<<"$logs"
+          grep -q '"state":"AUTHORITY_UNAVAILABLE"' <<<"$logs"
+          grep -q '"event":"GATEWAY_STOPPED"' <<<"$logs"
       # The posture the manifest declares, reproduced with docker: a non-root
       # user, a read-only root, no capabilities, no new privileges, secrets as
       # files owned by root and readable by the process's group only, a TLS
@@ -181,7 +221,7 @@ jobs:
           hardened=("${base[@]}"
             --tmpfs "/var/lib/agent-safe:rw,noexec,nosuid,size=16m,uid=65532,gid=65532,mode=0700")
 
-          container="$(docker run -d "${hardened[@]}" agentsafe:ci)"
+          container="$(docker run -d "${hardened[@]}" agentsafe:ci serve)"
           for _ in $(seq 1 30); do
             if docker logs "$container" 2>&1 | grep -q '"LISTENING"'; then break; fi
             sleep 1
@@ -230,18 +270,18 @@ jobs:
           }
           # The principals file another user could read is refused by name.
           sudo chmod 0444 "$secrets/principals.json"
-          refuses POSTURE_PRINCIPALS_FILE_MODE docker run --rm "${hardened[@]}" agentsafe:ci
+          refuses POSTURE_PRINCIPALS_FILE_MODE docker run --rm "${hardened[@]}" agentsafe:ci serve
           sudo chmod 0440 "$secrets/principals.json"
-          refuses POSTURE_ROOT_UID docker run --rm "${hardened[@]:1}" --user 0:0 agentsafe:ci
+          refuses POSTURE_ROOT_UID docker run --rm "${hardened[@]:1}" --user 0:0 agentsafe:ci serve
           refuses POSTURE_PROXY_ENV docker run --rm "${hardened[@]}" \
-            -e HTTPS_PROXY=http://proxy.corp.example:3128 agentsafe:ci
+            -e HTTPS_PROXY=http://proxy.corp.example:3128 agentsafe:ci serve
 
           # The halt file stops the executor by existing: the process starts,
           # listens, and takes no work, saying which cause stopped it.
           printf 'stopped by the on-call operator\n' > "$secrets/halted"
           sudo chown root:65532 "$secrets/halted"
           sudo chmod 0440 "$secrets/halted"
-          container="$(docker run -d "${hardened[@]}" agentsafe:ci)"
+          container="$(docker run -d "${hardened[@]}" agentsafe:ci serve)"
           for _ in $(seq 1 30); do
             if docker logs "$container" 2>&1 | grep -q '"LISTENING"'; then break; fi
             sleep 1
@@ -264,7 +304,7 @@ jobs:
           sudo chown 65532:65532 "$journal"
           persistent=("${base[@]}" --mount "type=bind,src=$journal,dst=/var/lib/agent-safe")
           for attempt in 1 2; do
-            container="$(docker run -d "${persistent[@]}" agentsafe:ci)"
+            container="$(docker run -d "${persistent[@]}" agentsafe:ci serve)"
             for _ in $(seq 1 30); do
               if docker logs "$container" 2>&1 | grep -q '"LISTENING"'; then break; fi
               sleep 1
@@ -280,14 +320,137 @@ jobs:
             fi
           done
 
+  distribution:
+    name: Runtime ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x64
+            runner: ubuntu-latest
+            nfpm_arch: x86_64
+            nfpm_sha256: 0660ca602b2d2d2ae4781a06c692b3eeb9d437ffea05b831d76e41f4a3188783
+            package_arch: amd64
+          - target: linux-arm64
+            runner: ubuntu-24.04-arm
+            nfpm_arch: arm64
+            nfpm_sha256: 1c0f5f2999b9a974bfb04fdb0cc3306096de530ac5dbb25d739cc5f5219c919c
+            package_arch: arm64
+          - target: darwin-arm64
+            runner: macos-15
+          # Node has no single-executable support on x64 macOS; this target
+          # ships the launcher layout, which the build script chooses itself.
+          - target: darwin-x64
+            runner: macos-15-intel
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    env:
+      NFPM_VERSION: 2.47.0
+    steps:
+      - name: Harden runner
+        if: runner.os == 'Linux'
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Not standalone: the standalone pnpm is itself a Node single executable,
+      # which does not run on Intel macOS; the npm install uses the runner's Node.
+      - name: Install pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 9.15.3
+          run_install: false
+          standalone: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.20.0
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Install dependencies without lifecycle scripts
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      # The executable is built from the Node release packaging/sea/node.json
+      # pins, downloaded and verified by the build itself, never from the
+      # runner's Node; then archived, extracted again, and put through the
+      # whole first-five-minutes path by the smoke test.
+      - name: Build, archive and smoke-test the executable
+        env:
+          TARGET: ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm --filter @decionis/agent-safe-pipeline build
+          pnpm --filter @decionis/agentsafe build
+          version="$(node -p "require('./packages/agentsafe/package.json').version")"
+          node scripts/BuildExecutable.mjs --out release/sea --target "$TARGET"
+          node scripts/ArchiveExecutable.mjs --executable release/sea/agentsafe --target "$TARGET" --out release
+          extracted="$RUNNER_TEMP/extracted"
+          mkdir -p "$extracted"
+          tar -xzf "release/agentsafe-$version-$TARGET.tar.gz" -C "$extracted"
+          packaging/smoke/Smoke.sh "$extracted/agentsafe-$version-$TARGET/agentsafe" "$version"
+          cp release/sea/agentsafe.cjs "release/agentsafe-$version-$TARGET.bundle.cjs"
+          rm -rf release/sea
+      # The Linux packages, from the same executable, installed for real on
+      # the runner and smoke-tested from /usr/bin before they are kept.
+      - name: Build, install and smoke-test the Linux packages
+        if: runner.os == 'Linux'
+        env:
+          TARGET: ${{ matrix.target }}
+          NFPM_ARCH: ${{ matrix.nfpm_arch }}
+          NFPM_SHA256: ${{ matrix.nfpm_sha256 }}
+          PACKAGE_ARCH: ${{ matrix.package_arch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./packages/agentsafe/package.json').version")"
+          curl --proto '=https' --tlsv1.2 -fsSL -o "$RUNNER_TEMP/nfpm.tgz" \
+            "https://github.com/goreleaser/nfpm/releases/download/v$NFPM_VERSION/nfpm_${NFPM_VERSION}_Linux_$NFPM_ARCH.tar.gz"
+          echo "$NFPM_SHA256  $RUNNER_TEMP/nfpm.tgz" | sha256sum --check --strict
+          tar -xzf "$RUNNER_TEMP/nfpm.tgz" -C "$RUNNER_TEMP" nfpm
+          extracted="$RUNNER_TEMP/extracted/agentsafe-$version-$TARGET"
+          mkdir -p packaging/linux/build
+          cp "$extracted/agentsafe" packaging/linux/build/agentsafe
+          for format in deb rpm; do
+            VERSION="$version" ARCH="$PACKAGE_ARCH" \
+              "$RUNNER_TEMP/nfpm" package -f packaging/linux/nfpm.yaml -p "$format" -t release
+          done
+          ls -l release/*.deb release/*.rpm
+          sudo dpkg -i release/agentsafe_*.deb
+          installed="$(command -v agentsafe || true)"
+          [ "$installed" = /usr/bin/agentsafe ] || { echo "agentsafe resolves to '$installed', not /usr/bin/agentsafe" >&2; exit 1; }
+          reported="$(agentsafe version || true)"
+          [ "$reported" = "$version" ] || { echo "the installed agentsafe reports '$reported', not $version" >&2; exit 1; }
+          # Readable as this unprivileged user, as they must be for the unit's dynamic user.
+          for path in /usr/lib/systemd/system/agentsafe.service /etc/agentsafe/agentsafe.yaml.example /etc/agentsafe/environment.example; do
+            [ -r "$path" ] || { echo "$path is not readable after install" >&2; ls -ld /etc/agentsafe >&2 || true; exit 1; }
+          done
+          systemd-analyze verify /usr/lib/systemd/system/agentsafe.service
+          packaging/smoke/Smoke.sh /usr/bin/agentsafe "$version"
+          sudo dpkg -r agentsafe
+          if command -v rpm >/dev/null 2>&1; then rpm -qip release/agentsafe-*.rpm | grep -q '^Name *: agentsafe'; fi
+      - name: Upload runtime artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: runtime-${{ matrix.target }}
+          path: |
+            release/agentsafe-*.tar.gz
+            release/agentsafe-*.bundle.cjs
+            release/*.deb
+            release/*.rpm
+          if-no-files-found: error
+          retention-days: 7
+
   release:
     name: Release
     if: >-
       (github.event_name == 'push' && github.ref == 'refs/heads/master') ||
       (github.event_name == 'workflow_dispatch' && inputs.release_dry_run)
-    needs: [verify, assurance, image]
+    needs: [verify, assurance, image, distribution]
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     permissions:
       attestations: write
       contents: write
@@ -460,6 +623,52 @@ jobs:
             node --input-type=module -e \
               "const pkg = await import('$EXPECTED_NAME'); if (typeof pkg.SafeExecutor !== 'function') throw new Error('PACKED_EXPORT_MISSING')"
           )
+      # The runtime: the executables and packages the distribution job built
+      # and smoke-tested on every platform, the npm tarball of the runtime
+      # package, and a CycloneDX SBOM of what the executable and the image
+      # carry, from the runtime's own production dependency tree.
+      - name: Download the runtime artifacts
+        if: steps.release.outputs.exists != 'true'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: runtime-*
+          path: release
+          merge-multiple: true
+      - name: Pack the runtime package and build its SBOM
+        if: steps.release.outputs.exists != 'true'
+        id: runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          runtime_version="$(node -p "require('./packages/agentsafe/package.json').version")"
+          runtime_name="$(node -p "require('./packages/agentsafe/package.json').name")"
+          test "$runtime_name" = "@decionis/agentsafe"
+          for target in linux-x64 linux-arm64 darwin-arm64 darwin-x64; do
+            test -s "release/agentsafe-$runtime_version-$target.tar.gz"
+          done
+          test -s release/agentsafe_"$runtime_version"_amd64.deb
+          test -s release/agentsafe_"$runtime_version"_arm64.deb
+          ls release/agentsafe-"$runtime_version"-*.rpm >/dev/null
+          pnpm --filter @decionis/agentsafe build
+          (
+            cd packages/agentsafe
+            pnpm pack --pack-destination "$GITHUB_WORKSPACE/release"
+          )
+          test -s "release/decionis-agentsafe-$runtime_version.tgz"
+          pnpm deploy --filter @decionis/agentsafe --prod "$RUNNER_TEMP/runtime-deploy"
+          (
+            cd "$RUNNER_TEMP/runtime-deploy"
+            npm sbom --omit dev --sbom-format cyclonedx --sbom-type application \
+              > "$GITHUB_WORKSPACE/release/agentsafe-$runtime_version.cdx.json"
+          )
+          node scripts/AssertReleaseSbom.mjs \
+            "release/agentsafe-$runtime_version.cdx.json" "$runtime_name" "$runtime_version" 5
+          sh -n packaging/install.sh
+          cp packaging/install.sh release/install.sh
+          {
+            echo "version=$runtime_version"
+            echo "tarball=decionis-agentsafe-$runtime_version.tgz"
+          } >> "$GITHUB_OUTPUT"
       - name: Attest package provenance
         if: steps.release.outputs.exists != 'true'
         id: provenance
@@ -473,7 +682,23 @@ jobs:
         with:
           subject-path: release/${{ steps.release.outputs.tarball }}
           sbom-path: release/${{ steps.release.outputs.stem }}.cdx.json
-      - name: Build the trusted executor image
+      - name: Attest runtime provenance
+        if: steps.release.outputs.exists != 'true'
+        id: runtime_provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            release/agentsafe-*.tar.gz
+            release/agentsafe_*.deb
+            release/agentsafe-*.rpm
+            release/decionis-agentsafe-*.tgz
+      - name: Set up QEMU
+        if: steps.release.outputs.exists != 'true'
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - name: Set up Buildx
+        if: steps.release.outputs.exists != 'true'
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build the runtime image
         if: steps.release.outputs.exists != 'true'
         id: image
         env:
@@ -487,12 +712,23 @@ jobs:
         run: |
           set -euo pipefail
           image="$(printf '%s' "$IMAGE_NAME" | tr '[:upper:]' '[:lower:]')"
-          docker build -f packages/agentsafe/Dockerfile \
-            --label "org.opencontainers.image.version=$RELEASE_VERSION" \
-            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
-            -t "$image:$RELEASE_VERSION" .
+          labels=(--label "org.opencontainers.image.version=$RELEASE_VERSION"
+            --label "org.opencontainers.image.revision=$GITHUB_SHA")
+          # The tags: the exact version always; for a stable release also the
+          # minor, the major and latest, so a deployment pins as tightly as it
+          # chooses. Production documentation recommends the exact version.
+          tags=(-t "$image:$RELEASE_VERSION")
+          if [[ "$RELEASE_VERSION" != *-* ]]; then
+            major="${RELEASE_VERSION%%.*}"
+            minor="${RELEASE_VERSION%.*}"
+            tags+=(-t "$image:$minor" -t "$image:$major" -t "$image:latest")
+          fi
+          # The runner's own platform first, loaded locally, so the image can
+          # be run and refused before anything is pushed.
+          docker buildx build -f packages/agentsafe/Dockerfile "${labels[@]}" \
+            --platform linux/amd64 --load -t "$image:$RELEASE_VERSION" .
           if output="$(docker run --rm "$image:$RELEASE_VERSION" 2>&1)"; then
-            echo "The executor started with no configuration." >&2
+            echo "The gateway started with no configuration." >&2
             exit 1
           fi
           grep -q 'REFUSED_TO_START' <<<"$output"
@@ -505,13 +741,12 @@ jobs:
           fi
 
           printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_ACTOR" --password-stdin
-          docker push "$image:$RELEASE_VERSION"
-          if [[ "$RELEASE_VERSION" != *-* ]]; then
-            docker tag "$image:$RELEASE_VERSION" "$image:latest"
-            docker push "$image:latest"
-          fi
-          digest="$(docker inspect --format '{{index .RepoDigests 0}}' "$image:$RELEASE_VERSION")"
-          digest="${digest##*@}"
+          # Both architectures as one manifest list, with BuildKit's own SBOM
+          # and provenance attestations attached to it.
+          docker buildx build -f packages/agentsafe/Dockerfile "${labels[@]}" \
+            --platform linux/amd64,linux/arm64 --sbom=true --provenance=mode=max \
+            "${tags[@]}" --push .
+          digest="$(docker buildx imagetools inspect "$image:$RELEASE_VERSION" --format '{{json .Manifest.Digest}}' | tr -d '"')"
           [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
           printf 'image=%s\nversion=%s\ndigest=%s\npublished=true\n' \
             "$image" "$RELEASE_VERSION" "$digest" > "release/$RELEASE_STEM.image.txt"
@@ -520,7 +755,7 @@ jobs:
             echo "name=$image"
             echo "digest=$digest"
           } >> "$GITHUB_OUTPUT"
-      - name: Attest the trusted executor image
+      - name: Attest the runtime image
         if: steps.release.outputs.exists != 'true' && steps.image.outputs.published == 'true'
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
@@ -572,6 +807,40 @@ jobs:
             test "$(wc -l < "$checksum_file")" -ge 9
           )
           mv "$checksum_file" release/SHA256SUMS
+      # The Homebrew formula, from the same SHA256SUMS the installer verifies
+      # against: nothing in it is typed by hand.
+      - name: Render the Homebrew formula
+        if: steps.release.outputs.exists != 'true'
+        env:
+          RUNTIME_VERSION: ${{ steps.runtime.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/RenderHomebrewFormula.mjs --version "$RUNTIME_VERSION" \
+            --sums release/SHA256SUMS --out release/agentsafe.rb
+          ruby -c release/agentsafe.rb
+      - name: Publish the runtime package to npm through trusted publishing
+        if: >-
+          steps.release.outputs.exists != 'true' &&
+          github.event_name == 'push' &&
+          vars.NPM_PUBLISH_RUNTIME_ENABLED == 'true'
+        env:
+          NPM_PACKAGE: "@decionis/agentsafe"
+          RELEASE_TARBALL: ${{ steps.runtime.outputs.tarball }}
+          RELEASE_VERSION: ${{ steps.runtime.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          published_version="$(npm view "$NPM_PACKAGE@$RELEASE_VERSION" version 2>/dev/null || true)"
+          if [[ "$published_version" == "$RELEASE_VERSION" ]]; then
+            echo "$NPM_PACKAGE@$RELEASE_VERSION is already public; skipping publication."
+          else
+            publish_args=("./release/$RELEASE_TARBALL" --access public)
+            if [[ "$RELEASE_VERSION" == *-* ]]; then
+              publish_args+=(--tag next)
+            fi
+            npm publish "${publish_args[@]}"
+          fi
       - name: Publish package to npm through trusted publishing
         if: >-
           steps.release.outputs.exists != 'true' &&
@@ -639,6 +908,15 @@ jobs:
             image_note="The trusted executor image was built and checked for this release but not published."
           fi
           {
+            echo "## Install the runtime"
+            echo
+            echo '```sh'
+            echo "curl -fsSL https://raw.githubusercontent.com/$GH_REPO/$RELEASE_TAG/packaging/install.sh | sh"
+            echo "brew tap decionis/agent-safe https://github.com/$GH_REPO && brew install agentsafe"
+            echo '```'
+            echo
+            echo "The \`agentsafe-<version>-<os>-<arch>.tar.gz\` archives, the \`.deb\` and \`.rpm\` packages and the npm tarball of \`@decionis/agentsafe\` are attached, listed in \`SHA256SUMS\`, and attested by this workflow; \`agentsafe-<version>.cdx.json\` is the runtime's CycloneDX SBOM. The Homebrew formula for this release is opened as a pull request from the \`homebrew/agentsafe-<version>\` branch."
+            echo
             echo "## Verifiable artifacts"
             echo
             echo "$npm_note"
@@ -670,6 +948,31 @@ jobs:
             release_args+=(--prerelease)
           fi
           gh release create "${release_args[@]}"
+      # The tap is this repository: the rendered formula goes to a branch of
+      # its own, and the pull request bot opens the change for review the way
+      # it opens every other branch. Nothing is pushed to master by a workflow.
+      - name: Open the Homebrew formula for review
+        if: steps.release.outputs.exists != 'true' && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUNTIME_VERSION: ${{ steps.runtime.outputs.version }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch="homebrew/agentsafe-$RUNTIME_VERSION"
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            echo "$branch exists; nothing to open."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch" "$GITHUB_SHA"
+          cp release/agentsafe.rb Formula/agentsafe.rb
+          git add Formula/agentsafe.rb
+          git commit -s -m "dist(homebrew): pin the agentsafe formula to $RELEASE_TAG" \
+            -m "Rendered by the release workflow from the release's SHA256SUMS."
+          git push origin "$branch"
       - name: Upload verified dry-run assets
         if: steps.release.outputs.exists != 'true' && github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
