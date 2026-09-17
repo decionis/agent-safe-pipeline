@@ -35,6 +35,15 @@ export interface GatewayHttpServerOptions {
 }
 
 /**
+ * Which gateway answers a request, by the host it was addressed to. One
+ * listener can front many gateways this way, each with its own upstream,
+ * key, tenant and mode: the hosted shape, where every governed endpoint is
+ * a host name and none is a separate implementation. `null` refuses the
+ * host with 421.
+ */
+export type GatewaySelector = (hostname: string | null) => Gateway | null;
+
+/**
  * The interception listener. Every request is either the gateway's own
  * (under `/_agentsafe`), passed through unchanged, or governed: the body is
  * read in full under the configured bound and handed to the gateway with the
@@ -44,11 +53,13 @@ export interface GatewayHttpServerOptions {
  */
 export class GatewayHttpServer {
   private readonly server: Server;
+  private readonly select: GatewaySelector;
 
   public constructor(
-    private readonly gateway: Gateway,
+    gateway: Gateway | GatewaySelector,
     private readonly options: GatewayHttpServerOptions = {},
   ) {
+    this.select = typeof gateway === "function" ? gateway : () => gateway;
     const handler: RequestListener = (request, response) => {
       void this.handle(request, response);
     };
@@ -78,15 +89,17 @@ export class GatewayHttpServer {
       // Stryker disable next-line all: Node sets `url` on every request it hands out; the fallback satisfies the type.
       const url = new URL(request.url ?? "/", "http://gateway.invalid");
       const method = (request.method ?? "GET").toUpperCase();
+      const gateway = this.select(GatewayHttpServer.hostnameOf(request));
+      if (gateway === null) throw new GuardError(421, "HOST_NOT_SERVED");
       if (url.pathname === GATEWAY_PREFIX || url.pathname.startsWith(`${GATEWAY_PREFIX}/`)) {
-        return await this.own(method, url, request, response);
+        return await this.own(gateway, method, url, request, response);
       }
-      const plan = this.gateway.plan(method, url.pathname);
+      const plan = gateway.plan(method, url.pathname);
       const body = await GatewayHttpServer.readBody(
         request,
         plan.kind === "GOVERN"
-          ? this.gateway.config.interception.maxBodyBytes
-          : this.gateway.config.upstream.maxResponseBytes,
+          ? gateway.config.interception.maxBodyBytes
+          : gateway.config.upstream.maxResponseBytes,
       );
       const intercepted: InterceptedRequest = {
         method,
@@ -99,8 +112,8 @@ export class GatewayHttpServer {
       };
       const answer =
         plan.kind === "GOVERN"
-          ? await this.gateway.govern(intercepted, plan.action)
-          : await this.gateway.passthrough(intercepted);
+          ? await gateway.govern(intercepted, plan.action)
+          : await gateway.passthrough(intercepted);
       GatewayHttpServer.write(response, answer);
     } catch (error) {
       if (error instanceof GuardError) {
@@ -111,7 +124,17 @@ export class GatewayHttpServer {
     }
   }
 
+  /** The host a request was addressed to, lower-cased and without a port; null when it named none. */
+  private static hostnameOf(request: IncomingMessage): string | null {
+    const host = request.headers.host?.trim().toLowerCase();
+    if (host === undefined || host === "") return null;
+    if (host.startsWith("[")) return host.slice(0, host.indexOf("]") + 1);
+    const separator = host.indexOf(":");
+    return separator === -1 ? host : host.slice(0, separator);
+  }
+
   private async own(
+    gateway: Gateway,
     method: string,
     url: URL,
     request: IncomingMessage,
@@ -122,14 +145,14 @@ export class GatewayHttpServer {
       const intentId = rest[0] ?? "";
       if (!INTENT_ID.test(intentId)) throw new GuardError(404, "NOT_FOUND");
       if (rest.length === 1 && method === "GET") {
-        const held = this.gateway.escalation(intentId);
+        const held = gateway.escalation(intentId);
         if (held === null) throw new GuardError(404, "ESCALATION_NOT_HELD");
         return GatewayHttpServer.reply(response, 200, held);
       }
       if (rest.length === 2 && rest[1] === "resume" && method === "POST") {
         // The body, if any, is read and discarded: the gateway holds the intent.
         await GatewayHttpServer.readBody(request, 1024);
-        return GatewayHttpServer.write(response, await this.gateway.resume(intentId));
+        return GatewayHttpServer.write(response, await gateway.resume(intentId));
       }
       throw new GuardError(
         rest.length === 1 || rest[1] === "resume" ? 405 : 404,
@@ -143,18 +166,18 @@ export class GatewayHttpServer {
       case "healthz":
         return GatewayHttpServer.reply(response, 200, { status: "ok" });
       case "readyz": {
-        const readiness = this.gateway.readiness();
+        const readiness = gateway.readiness();
         return GatewayHttpServer.reply(response, readiness.ready ? 200 : 503, readiness.body);
       }
       case "status":
-        return GatewayHttpServer.reply(response, 200, this.gateway.status());
+        return GatewayHttpServer.reply(response, 200, gateway.status());
       case "metrics": {
         const token = this.options.metricsToken ?? null;
         if (token !== null && request.headers.authorization !== `Bearer ${token}`) {
           throw new GuardError(401, "UNAUTHORIZED");
         }
         response.writeHead(200, { ...RESPONSE_HEADERS, "content-type": METRICS_CONTENT_TYPE });
-        response.end(this.gateway.metricsText());
+        response.end(gateway.metricsText());
         return;
       }
     }

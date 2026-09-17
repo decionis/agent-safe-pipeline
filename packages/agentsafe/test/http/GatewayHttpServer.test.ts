@@ -1,3 +1,4 @@
+import { request as httpRequest } from "node:http";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Gateway } from "../../src/gateway/Gateway.js";
 import { GatewayHttpServer } from "../../src/http/GatewayHttpServer.js";
@@ -140,5 +141,103 @@ describe("the gateway listener", () => {
     expect(response.status).toBe(500);
     expect(await response.text()).toBe('{"code":"INTERNAL_ERROR"}');
     await broken.close(10);
+  });
+});
+
+describe("one listener in front of many gateways", () => {
+  const upstreamA = new UpstreamDouble();
+  const upstreamB = new UpstreamDouble();
+  let a: Gateway;
+  let b: Gateway;
+  let server: GatewayHttpServer;
+  let port = 0;
+
+  /** A raw request, because `fetch` will not let a test set the Host header. */
+  function raw(
+    method: string,
+    path: string,
+    host: string,
+    body: string | null = null,
+  ): Promise<{
+    status: number;
+    headers: Record<string, string | string[] | undefined>;
+    body: string;
+  }> {
+    return new Promise((resolve, reject) => {
+      const request = httpRequest(
+        {
+          host: "127.0.0.1",
+          port,
+          method,
+          path,
+          headers: {
+            host,
+            ...(body === null ? {} : { "content-type": "application/json" }),
+          },
+        },
+        (response) => {
+          let text = "";
+          response.setEncoding("utf8");
+          response.on("data", (chunk: string) => {
+            text += chunk;
+          });
+          response.on("end", () =>
+            resolve({ status: response.statusCode ?? 0, headers: response.headers, body: text }),
+          );
+        },
+      );
+      request.on("error", reject);
+      request.end(body ?? undefined);
+    });
+  }
+
+  beforeAll(async () => {
+    await upstreamA.start();
+    await upstreamB.start();
+    a = await Gateway.create(testConfig(upstreamA.baseUrl), { env: {}, io: collectedIo() });
+    b = await Gateway.create(testConfig(upstreamB.baseUrl, { flags: { mode: "shadow" } }), {
+      env: {},
+      io: collectedIo(),
+    });
+    const byHost = new Map([
+      ["a.gateway.example", a],
+      ["b.gateway.example", b],
+    ]);
+    server = new GatewayHttpServer((hostname) =>
+      hostname === null ? null : (byHost.get(hostname) ?? null),
+    );
+    port = (await server.listen(0, "127.0.0.1")).port;
+  });
+  afterAll(async () => {
+    await server.close(100);
+    await a.close();
+    await b.close();
+    await upstreamA.stop();
+    await upstreamB.stop();
+  });
+
+  it("routes each host to its own gateway, own routes included, and refuses a host it does not serve", async () => {
+    const blocked = await raw("POST", "/payments", "a.gateway.example:8080", '{"amount": 5000}');
+    expect(blocked.status).toBe(403);
+    expect(upstreamA.seen).toHaveLength(0);
+    const shadowed = await raw("POST", "/payments", "B.GATEWAY.EXAMPLE", '{"amount": 5000}');
+    expect(shadowed.status).toBe(201);
+    expect(shadowed.headers["agentsafe-mode"]).toBe("SHADOW");
+    expect(upstreamB.seen).toHaveLength(1);
+    const statusA = JSON.parse(
+      (await raw("GET", "/_agentsafe/status", "a.gateway.example")).body,
+    ) as { mode: string };
+    const statusB = JSON.parse(
+      (await raw("GET", "/_agentsafe/status", "b.gateway.example")).body,
+    ) as { mode: string };
+    expect(statusA.mode).toBe("ENFORCEMENT");
+    expect(statusB.mode).toBe("SHADOW");
+    const unknown = await raw("GET", "/_agentsafe/healthz", "c.gateway.example");
+    expect(unknown.status).toBe(421);
+    expect(JSON.parse(unknown.body)).toEqual({ code: "HOST_NOT_SERVED" });
+    const bracketed = await raw("GET", "/_agentsafe/healthz", "[::1]:8080");
+    expect(bracketed.status).toBe(421);
+    const none = await raw("GET", "/_agentsafe/healthz", "");
+    expect(none.status).toBe(421);
   });
 });

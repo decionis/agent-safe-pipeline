@@ -219,3 +219,13 @@ Routine packaging choices, recorded here rather than as ADRs:
 - **Runner labels** for the four targets (`ubuntu-latest`, `ubuntu-24.04-arm`, `macos-15`,
   `macos-15-intel`) are GitHub's current hosted labels and are the one thing here the repository
   cannot test before the workflow runs.
+
+## Hosted readiness (Phase 4)
+
+One seam, additive: `GatewayHttpServer` takes either a `Gateway` or a `GatewaySelector`, a
+function from the request's host name to the gateway that answers it (`421` for a host it does
+not serve). With it a hosted instance fronts every governed endpoint from one listener, each
+endpoint one `Gateway` with its own configuration object, secret store, sinks and transports,
+which `Gateway.create` and `GatewayConfigLoader.load` already accepted. Nothing about authority,
+binding, claim or finalization is different in that shape, and nothing is forked; the page is
+[`docs/install/hosted.md`](../install/hosted.md).
