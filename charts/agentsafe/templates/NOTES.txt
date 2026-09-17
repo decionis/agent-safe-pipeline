@@ -1,0 +1,27 @@
+AgentSafe {{ .Chart.AppVersion }} is deploying as {{ include "agentsafe.fullname" . }} in {{ .Release.Namespace }}.
+
+  Mode        {{ .Values.gateway.mode }}
+  Failure     {{ include "agentsafe.failurePolicy" . }}
+  Upstream    {{ include "agentsafe.upstreamUrl" . }}
+  Authority   {{ .Values.decionis.endpoint }}
+  Key         Secret {{ .Values.decionis.apiKeySecretRef.name }}, key {{ .Values.decionis.apiKeySecretRef.key }}, mounted as a file
+
+Watch it come up:
+
+  kubectl -n {{ .Release.Namespace }} rollout status deployment/{{ include "agentsafe.fullname" . }}
+  kubectl -n {{ .Release.Namespace }} logs deployment/{{ include "agentsafe.fullname" . }} -f
+
+Send your first governed action from inside the cluster:
+
+  kubectl -n {{ .Release.Namespace }} run curl --rm -it --image=curlimages/curl --restart=Never -- \
+    curl -i -X POST http://{{ include "agentsafe.fullname" . }}:{{ .Values.service.port }}/payments \
+    -H 'content-type: application/json' -d '{"amount": 500}'
+
+{{- if eq .Values.gateway.mode "shadow" }}
+
+In shadow the request goes through unchanged and the log says what Decionis would have decided
+("state":"SHADOW"). Set gateway.mode=enforcement when the decisions look right.
+{{- else }}
+
+In enforcement an ALLOW is forwarded once, an ESCALATE is held (202) and a BLOCK is refused (403).
+{{- end }}

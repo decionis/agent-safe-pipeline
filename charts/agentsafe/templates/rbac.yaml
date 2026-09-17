@@ -1,0 +1,35 @@
+{{- if .Values.rbac.create }}
+# What on-call may do to the deployment through the API server: read pods
+# and logs. Nothing on Secrets, nothing on the ConfigMap. Changing the
+# upstream, the routes or the mode is a reviewed change to the values.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "agentsafe.fullname" . }}-operator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "agentsafe.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "services"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "agentsafe.fullname" . }}-operator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "agentsafe.labels" . | nindent 4 }}
+subjects:
+  - kind: Group
+    name: {{ .Values.rbac.operatorGroup }}
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: Role
+  name: {{ include "agentsafe.fullname" . }}-operator
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}

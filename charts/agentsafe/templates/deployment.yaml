@@ -1,0 +1,164 @@
+# The gateway. Stateless but for the escalations a replica holds in memory
+# until they expire; the Service's affinity keeps a caller on one replica.
+# The key is a file from a Secret, the configuration a file from the
+# ConfigMap, the evidence one JSON line per event on standard output.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "agentsafe.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "agentsafe.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      {{- include "agentsafe.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "agentsafe.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        # A changed configuration rolls the pods.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- if and .Values.metrics.enabled .Values.metrics.annotations }}
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /_agentsafe/metrics
+        prometheus.io/port: {{ .Values.gateway.listenPort | quote }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "agentsafe.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountServiceAccountToken }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: gateway
+          image: {{ include "agentsafe.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["run"]
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.gateway.listenPort }}
+              protocol: TCP
+          env:
+            - name: AGENTSAFE_CONFIG
+              value: /etc/agentsafe/agentsafe.yaml
+            - name: AGENTSAFE_LOG_FORMAT
+              value: json
+            - name: DECIONIS_API_KEY_FILE
+              value: /var/run/agent-safe/secrets/{{ .Values.decionis.apiKeySecretRef.key }}
+            {{- if .Values.metrics.tokenSecretRef.name }}
+            - name: AGENTSAFE_METRICS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.metrics.tokenSecretRef.name }}
+                  key: {{ .Values.metrics.tokenSecretRef.key }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/agentsafe
+              readOnly: true
+            - name: secrets
+              mountPath: /var/run/agent-safe/secrets
+              readOnly: true
+            {{- if .Values.evidence.journalDir }}
+            - name: evidence
+              mountPath: {{ .Values.evidence.journalDir }}
+            {{- end }}
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          startupProbe:
+            httpGet:
+              path: /_agentsafe/healthz
+              port: http
+            periodSeconds: 2
+            failureThreshold: 15
+          readinessProbe:
+            httpGet:
+              path: /_agentsafe/readyz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /_agentsafe/healthz
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 2
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "agentsafe.fullname" . }}
+        - name: secrets
+          secret:
+            secretName: {{ .Values.decionis.apiKeySecretRef.name }}
+            # 0440, written in decimal because YAML parsers disagree about a leading zero.
+            defaultMode: 288
+            items:
+              - key: {{ .Values.decionis.apiKeySecretRef.key }}
+                path: {{ .Values.decionis.apiKeySecretRef.key }}
+        {{- if .Values.evidence.journalDir }}
+        - name: evidence
+          emptyDir: {}
+        {{- end }}
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.affinity }}
+      affinity:
+        {{- toYaml .Values.affinity | nindent 8 }}
+      {{- else }}
+      # Replicas prefer different nodes, so one node's loss is not the boundary's.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    {{- include "agentsafe.selectorLabels" . | nindent 20 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

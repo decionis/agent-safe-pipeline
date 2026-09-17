@@ -1,0 +1,175 @@
+# AgentSafe gateway. Every value here is configuration for the runtime; none
+# is policy, and none is a credential. The Decionis key is a Secret created
+# out of band and referenced by name, mounted as a file, never an environment
+# variable and never a value in this file.
+
+image:
+  repository: ghcr.io/decionis/agentsafe
+  # The exact release version; the chart's appVersion when empty. Production
+  # pins the digest below, which then wins over the tag.
+  tag: ""
+  digest: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+replicaCount: 2
+
+decionis:
+  # https://api.decionis.com, or a staging endpoint; always https.
+  endpoint: https://api.decionis.com
+  # The key's organization id. Required.
+  tenantId: ""
+  # The Secret holding the key, created out of band:
+  #   kubectl create secret generic decionis --from-literal=api-key=...
+  apiKeySecretRef:
+    name: decionis
+    key: api-key
+  timeoutMs: 4000
+
+gateway:
+  # shadow: every consequential request goes through unchanged and Decionis
+  # records what it would have decided. enforcement: the decisions bind.
+  mode: shadow
+  # FailClosed: an unreachable authority refuses the request (503, never a
+  # BLOCK). FailOpen forwards ungoverned and records that it did; it is a
+  # decision an operator writes here and nowhere else.
+  failurePolicy: FailClosed
+  listenPort: 8080
+  # govern: an unsafe request no route names is governed under http.<method>.
+  # passthrough: only the routes below are governed.
+  unmatched: govern
+  # The consequential actions, by path pattern; see docs/gateway/routes.md.
+  routes: []
+  #  - path: /payments/**
+  #    action: payment.create
+  #    methods: [POST]
+  # A request header carried into the intent as claimed_principal; unverified.
+  principalHeader: ""
+  # downstream_target.environment in every intent.
+  environment: production
+  # Bodies: read in full under maxBodyBytes; JSON up to maxEmbeddedBodyBytes
+  # is visible to policy, larger is bound by digest only.
+  maxBodyBytes: 1048576
+  maxEmbeddedBodyBytes: 65536
+  intentTtlSeconds: 120
+  actor:
+    id: agentsafe-gateway
+    type: GATEWAY
+
+upstream:
+  # The Service the gateway forwards to, in the release namespace unless
+  # `namespace` says otherwise. `url` overrides all three.
+  service: ""
+  port: 8080
+  namespace: ""
+  # http inside the cluster (the hop is the network's, and the chart says so
+  # to the runtime as upstreamInsecure); https when the Service terminates TLS.
+  scheme: http
+  url: ""
+  timeoutMs: 10000
+
+presence:
+  # Decionis orchestrates the human ceremony on an ESCALATE. Needs enforcement
+  # mode and an approver.
+  managed: false
+  approverId: ""
+  approverRole: ""
+  level: standard
+  methods: [webauthn]
+
+evidence:
+  # Chained evidence lines go to standard output as JSON, where the cluster's
+  # log pipeline keeps them. A journal directory on a volume is optional and
+  # per pod; enable it only with a volume you provide under extraVolumes.
+  journalDir: ""
+
+metrics:
+  # /_agentsafe/metrics in OpenMetrics text. A bearer token guards it when a
+  # Secret is referenced; open to the network policy's ingress otherwise.
+  enabled: true
+  tokenSecretRef:
+    name: ""
+    key: ""
+  # Prometheus scrape annotations on the pods.
+  annotations: true
+
+service:
+  type: ClusterIP
+  port: 8080
+  # A held escalation lives in the replica that holds it; a resume must reach
+  # the same replica. ClientIP affinity keeps a caller on one replica.
+  sessionAffinity: ClientIP
+  annotations: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  # The gateway calls no Kubernetes API.
+  automountServiceAccountToken: false
+
+rbac:
+  # A Role for on-call: read pods and logs of this release, nothing else. Bound
+  # to the group named here; a placeholder binds nobody.
+  create: false
+  operatorGroup: OPERATOR_GROUP_PLACEHOLDER
+
+networkPolicy:
+  # Ingress on the listener from the selected sources; egress to DNS, the
+  # upstream and the authority. Enforced only by a CNI that enforces
+  # NetworkPolicy; the runtime cannot verify that about the cluster.
+  enabled: true
+  # Who may reach the listener. Empty admits every pod in the namespace.
+  ingressFrom: []
+  #  - namespaceSelector:
+  #      matchLabels:
+  #        kubernetes.io/metadata.name: agents
+  # Where Decionis is, as CIDRs, because a NetworkPolicy names ranges. An empty
+  # list admits every non-cluster address on 443, which is wider.
+  authorityCidrs: []
+  # Where the upstream Service's pods are, when they are not in this namespace.
+  upstreamNamespace: ""
+  upstreamPodSelector: {}
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 512Mi
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+terminationGracePeriodSeconds: 20
+priorityClassName: ""
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []
+podAnnotations: {}
+podLabels: {}
+extraEnv: []
+extraVolumes: []
+extraVolumeMounts: []

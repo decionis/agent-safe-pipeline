@@ -1,0 +1,75 @@
+{{- if .Values.networkPolicy.enabled }}
+# The one way in (the listener, from the sources named) and the three ways
+# out (DNS, the upstream, the authority). The kubelet's probes are node-local
+# and not covered, so the health routes need no rule. A CNI that does not
+# enforce NetworkPolicy ignores all of this silently; the runtime cannot
+# verify that about the cluster.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "agentsafe.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "agentsafe.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "agentsafe.selectorLabels" . | nindent 6 }}
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - {{- if .Values.networkPolicy.ingressFrom }}
+      from:
+        {{- toYaml .Values.networkPolicy.ingressFrom | nindent 8 }}
+      {{- else }}
+      from:
+        - podSelector: {}
+      {{- end }}
+      ports:
+        - port: {{ .Values.gateway.listenPort }}
+          protocol: TCP
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    {{- if not .Values.upstream.url }}
+    - to:
+        - {{- if .Values.upstream.namespace }}
+          namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.upstream.namespace }}
+          {{- else }}
+          podSelector:
+            {{- if .Values.networkPolicy.upstreamPodSelector }}
+            {{- toYaml .Values.networkPolicy.upstreamPodSelector | nindent 12 }}
+            {{- else }}
+            {}
+            {{- end }}
+          {{- end }}
+      ports:
+        - port: {{ .Values.upstream.port }}
+          protocol: TCP
+    {{- end }}
+    - to:
+        {{- if .Values.networkPolicy.authorityCidrs }}
+        {{- range .Values.networkPolicy.authorityCidrs }}
+        - ipBlock:
+            cidr: {{ . }}
+        {{- end }}
+        {{- else }}
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+        {{- end }}
+      ports:
+        - port: 443
+          protocol: TCP
+{{- end }}

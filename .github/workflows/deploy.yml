@@ -669,6 +669,24 @@ jobs:
             echo "version=$runtime_version"
             echo "tarball=decionis-agentsafe-$runtime_version.tgz"
           } >> "$GITHUB_OUTPUT"
+      - name: Package the Helm chart
+        if: steps.release.outputs.exists != 'true'
+        id: chart
+        env:
+          RUNTIME_VERSION: ${{ steps.runtime.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          app_version="$(node -p "require('yaml').parse(require('fs').readFileSync('charts/agentsafe/Chart.yaml','utf8')).appVersion")"
+          chart_version="$(node -p "require('yaml').parse(require('fs').readFileSync('charts/agentsafe/Chart.yaml','utf8')).version")"
+          if [[ "$app_version" != "$RUNTIME_VERSION" ]]; then
+            echo "charts/agentsafe/Chart.yaml appVersion $app_version is not the runtime version $RUNTIME_VERSION." >&2
+            exit 1
+          fi
+          helm lint charts/agentsafe --set decionis.tenantId=00000000-0000-4000-8000-000000000001 --set upstream.service=payments
+          helm package charts/agentsafe --destination release
+          test -s "release/agentsafe-$chart_version.tgz"
+          echo "version=$chart_version" >> "$GITHUB_OUTPUT"
       - name: Attest package provenance
         if: steps.release.outputs.exists != 'true'
         id: provenance
@@ -692,6 +710,7 @@ jobs:
             release/agentsafe_*.deb
             release/agentsafe-*.rpm
             release/decionis-agentsafe-*.tgz
+            release/agentsafe-${{ steps.chart.outputs.version }}.tgz
       - name: Set up QEMU
         if: steps.release.outputs.exists != 'true'
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
@@ -704,7 +723,8 @@ jobs:
         env:
           IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/agentsafe
           RELEASE_STEM: ${{ steps.release.outputs.stem }}
-          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+          # The image is the runtime, and carries the runtime's version.
+          RELEASE_VERSION: ${{ steps.runtime.outputs.version }}
           PUBLISH: ${{ github.event_name == 'push' && 'true' || 'false' }}
           GHCR_ACTOR: ${{ github.actor }}
           GHCR_TOKEN: ${{ github.token }}
@@ -771,6 +791,19 @@ jobs:
         run: |
           set -euo pipefail
           gh attestation verify "oci://$IMAGE_REFERENCE" --repo "$GITHUB_REPOSITORY"
+      - name: Push the Helm chart
+        if: steps.release.outputs.exists != 'true' && steps.image.outputs.published == 'true'
+        env:
+          CHART_VERSION: ${{ steps.chart.outputs.version }}
+          GHCR_ACTOR: ${{ github.actor }}
+          GHCR_TOKEN: ${{ github.token }}
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          owner="$(printf '%s' "$REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+          printf '%s' "$GHCR_TOKEN" | helm registry login ghcr.io -u "$GHCR_ACTOR" --password-stdin
+          helm push "release/agentsafe-$CHART_VERSION.tgz" "oci://ghcr.io/$owner/charts"
       - name: Prepare offline attestation assets
         if: steps.release.outputs.exists != 'true'
         env:
@@ -890,6 +923,7 @@ jobs:
           IMAGE_PUBLISHED: ${{ steps.image.outputs.published }}
           IMAGE_NAME: ${{ steps.image.outputs.name }}
           IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+          IMAGE_VERSION: ${{ steps.runtime.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
@@ -903,9 +937,9 @@ jobs:
             npm_note="npm publication was not enabled for this release."
           fi
           if [[ "$IMAGE_PUBLISHED" == "true" ]]; then
-            image_note="Container image: \`$IMAGE_NAME:$RELEASE_VERSION\` at \`$IMAGE_DIGEST\`, attested by this workflow. Verify with \`gh attestation verify oci://$IMAGE_NAME@$IMAGE_DIGEST --repo $GITHUB_REPOSITORY\`."
+            image_note="Container image: \`$IMAGE_NAME:$IMAGE_VERSION\` at \`$IMAGE_DIGEST\`, attested by this workflow. Verify with \`gh attestation verify oci://$IMAGE_NAME@$IMAGE_DIGEST --repo $GITHUB_REPOSITORY\`."
           else
-            image_note="The trusted executor image was built and checked for this release but not published."
+            image_note="The runtime image was built and checked for this release but not published."
           fi
           {
             echo "## Install the runtime"
@@ -915,7 +949,7 @@ jobs:
             echo "brew tap decionis/agent-safe https://github.com/$GH_REPO && brew install agentsafe"
             echo '```'
             echo
-            echo "The \`agentsafe-<version>-<os>-<arch>.tar.gz\` archives, the \`.deb\` and \`.rpm\` packages and the npm tarball of \`@decionis/agentsafe\` are attached, listed in \`SHA256SUMS\`, and attested by this workflow; \`agentsafe-<version>.cdx.json\` is the runtime's CycloneDX SBOM. The Homebrew formula for this release is opened as a pull request from the \`homebrew/agentsafe-<version>\` branch."
+            echo "The \`agentsafe-<version>-<os>-<arch>.tar.gz\` archives, the \`.deb\` and \`.rpm\` packages, the npm tarball of \`@decionis/agentsafe\` and the Helm chart \`agentsafe-<chart version>.tgz\` (also at \`oci://ghcr.io/decionis/charts/agentsafe\`) are attached, listed in \`SHA256SUMS\`, and attested by this workflow; \`agentsafe-<version>.cdx.json\` is the runtime's CycloneDX SBOM. The Homebrew formula for this release is opened as a pull request from the \`homebrew/agentsafe-<version>\` branch."
             echo
             echo "## Verifiable artifacts"
             echo
