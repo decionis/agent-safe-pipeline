@@ -417,6 +417,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/gateway/Activation.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/gateway/DemoAuthority.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",

@@ -474,6 +474,13 @@ export {
   type UnmatchedPolicy,
 } from "./gateway/GatewayConfig.js";
 export {
+  ACTIVATION_MILESTONES,
+  ActivationFunnel,
+  type ActivationContext,
+  type ActivationMilestone,
+  type ActivationReport,
+} from "./gateway/Activation.js";
+export {
   DEMO_AUTONOMOUS_LIMIT_MINOR,
   DEMO_HUMAN_LIMIT_MINOR,
   amountMinorOf,
@@ -495,6 +502,7 @@ export {
   renderHuman,
   renderJson,
   stateLabel,
+  type ActivationMilestoneReport,
   type ExecutionDisposition,
   type GatewayReport,
   type GatewayState,
