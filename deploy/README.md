@@ -114,6 +114,14 @@ The published image runs the reference forwarding handler. An adopter with their
 builds their own image on the package: a process of a few lines that calls `serve(handlers)`, as
 [`examples/trusted-executor/src/Serve.ts`](../examples/trusted-executor/src/Serve.ts) does.
 
+The image's entrypoint is the `agentsafe` command and its default argument is the gateway
+(`proxy`); this kit's StatefulSet names `serve` explicitly, and so must any deployment of the
+executor from the image. The gateway, the HTTP-interception ingress over the same lifecycle, has
+its own chart in [`charts/agentsafe`](../charts/agentsafe) and its own
+[install page](../docs/install/kubernetes.md); it is the smaller deployment, one Deployment in
+front of one Service, and it does not replace this kit where a bank boundary with principals,
+downstream credentials and a verified host posture is what is wanted.
+
 ## Who supplies what
 
 | Piece                                                                  | Who                                                                                                                                                                    |

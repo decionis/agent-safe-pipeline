@@ -204,8 +204,12 @@ Routine packaging choices, recorded here rather than as ADRs:
   pull request bot to open; nothing is pushed to `master` by a workflow. A `decionis/homebrew-tap`
   short form would be a copy of the same file in another repository.
 - **Versions stay separate.** A release is still keyed to `packages/pipeline`'s version, as the
-  workflow always was; the runtime artifacts carry `packages/agentsafe`'s own version. The first
-  runtime release therefore rides on the next pipeline version bump.
+  workflow always was; the runtime artifacts, the image tags and the chart's `appVersion` carry
+  `packages/agentsafe`'s own version, and the release job refuses a chart whose `appVersion` is
+  not the runtime's. The first runtime release therefore rides on the next pipeline version bump.
+- **The chart is an OCI artifact** at `oci://ghcr.io/decionis/charts/agentsafe`, pushed beside the
+  image with the same token, and attached to the release; `https://charts.decionis.com` would be
+  an index pointing at it, which this repository cannot host.
 - **`@decionis/agentsafe` on npm** is published by the release workflow only once
   `NPM_PUBLISH_RUNTIME_ENABLED` is set, because a package's first publication cannot use trusted
   publishing until the publisher is configured on npm.

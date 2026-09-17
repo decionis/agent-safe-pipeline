@@ -1,0 +1,25 @@
+apiVersion: v2
+name: agentsafe
+description: >-
+  AgentSafe, the execution-authority gateway, as a Deployment in front of one upstream Service:
+  consequential HTTP actions are captured as intents, decided by Decionis, forwarded exactly once on
+  a claimed single-use grant or held or refused, with chained evidence of each. The same image and
+  the same runtime as every other distribution; no policy lives in the chart.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.27.0-0"
+home: https://github.com/decionis/agent-safe-pipeline
+sources:
+  - https://github.com/decionis/agent-safe-pipeline
+keywords:
+  - execution-authority
+  - ai-agents
+  - authorization
+  - gateway
+  - decionis
+maintainers:
+  - name: Decionis, Inc.
+    url: https://decionis.com
+annotations:
+  artifacthub.io/license: Apache-2.0

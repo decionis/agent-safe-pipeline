@@ -1,0 +1,65 @@
+# The runtime's configuration file, rendered from the values. It carries no
+# secret: the key is a mounted file the environment names.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "agentsafe.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "agentsafe.labels" . | nindent 4 }}
+data:
+  agentsafe.yaml: |
+    version: 1
+    gateway:
+      listen: "0.0.0.0:{{ .Values.gateway.listenPort }}"
+      upstream: {{ include "agentsafe.upstreamUrl" . | quote }}
+      upstreamInsecure: {{ if and (not .Values.upstream.url) (eq .Values.upstream.scheme "http") }}true{{ else if hasPrefix "http://" .Values.upstream.url }}true{{ else }}false{{ end }}
+      upstreamTimeoutMs: {{ int .Values.upstream.timeoutMs }}
+      environment: {{ .Values.gateway.environment | quote }}
+    authority:
+      endpoint: {{ .Values.decionis.endpoint | quote }}
+      mode: {{ .Values.gateway.mode }}
+      failurePolicy: {{ include "agentsafe.failurePolicy" . }}
+      tenantId: {{ required "decionis.tenantId is required: the key's organization id" .Values.decionis.tenantId | quote }}
+      timeoutMs: {{ int .Values.decionis.timeoutMs }}
+    interception:
+      http: true
+      unmatched: {{ .Values.gateway.unmatched }}
+      maxBodyBytes: {{ int .Values.gateway.maxBodyBytes }}
+      maxEmbeddedBodyBytes: {{ int .Values.gateway.maxEmbeddedBodyBytes }}
+      {{- if .Values.gateway.principalHeader }}
+      principalHeader: {{ .Values.gateway.principalHeader | quote }}
+      {{- end }}
+      routes:
+        {{- if .Values.gateway.routes }}
+        {{- range .Values.gateway.routes }}
+        - path: {{ .path | quote }}
+          action: {{ .action | quote }}
+          {{- if .methods }}
+          methods: {{ toJson .methods }}
+          {{- end }}
+        {{- end }}
+        {{- else }}
+        []
+        {{- end }}
+    actor:
+      id: {{ .Values.gateway.actor.id | quote }}
+      type: {{ .Values.gateway.actor.type | quote }}
+    intentTtlSeconds: {{ int .Values.gateway.intentTtlSeconds }}
+    presence:
+      managed: {{ .Values.presence.managed }}
+      {{- if .Values.presence.managed }}
+      approverId: {{ required "presence.approverId is required with presence.managed" .Values.presence.approverId | quote }}
+      {{- if .Values.presence.approverRole }}
+      approverRole: {{ .Values.presence.approverRole | quote }}
+      {{- end }}
+      level: {{ .Values.presence.level }}
+      methods: {{ toJson .Values.presence.methods }}
+      {{- end }}
+    evidence:
+      enabled: true
+      {{- if .Values.evidence.journalDir }}
+      journalDir: {{ .Values.evidence.journalDir | quote }}
+      {{- end }}
+    output:
+      format: json
