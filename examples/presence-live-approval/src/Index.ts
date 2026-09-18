@@ -19,6 +19,7 @@ import {
   PresenceApprovalCoordinator,
   SafeExecutor,
   type PresenceVerificationRequirements,
+  readStoredCredentials,
 } from "@decionis/agent-safe-pipeline";
 import { z } from "zod";
 
@@ -51,8 +52,28 @@ const CEREMONIES: Readonly<Record<string, Ceremony>> = {
 const WINDOW_SECONDS = 300;
 const SERVICE_TIMEOUT_MS = 15_000;
 
+// The Decionis connection: the environment, else the credential `agentsafe login`
+// stored. A ceremony needs an owned organization with an enrolled device, so a
+// workspace an example provisioned for itself (DECIONIS_HOSTED=1) is refused
+// here by name rather than failing on its first grant.
+const stored = readStoredCredentials({ env: process.env });
+if (
+  stored?.provisional === true &&
+  (process.env["DECIONIS_API_KEY"]?.trim() ?? "") === "" &&
+  process.env["DECIONIS_HOSTED"] !== undefined
+) {
+  throw new Error(
+    "a provisional workspace cannot run a Presence ceremony; this example needs an owned organization's key and an enrolled person (see examples/presence-live-approval/README.md)",
+  );
+}
+const fromLogin: Record<string, string | undefined> = {
+  DECIONIS_API_KEY: stored?.provisional === true ? undefined : stored?.apiKey,
+  DECIONIS_TENANT_ID: stored?.provisional === true ? undefined : (stored?.tenantId ?? undefined),
+  DECIONIS_API_URL: stored?.provisional === true ? undefined : (stored?.endpoint ?? undefined),
+};
+
 function requireEnv(name: string): string {
-  const value = process.env[name]?.trim();
+  const value = (process.env[name]?.trim() || fromLogin[name])?.trim();
   if (value === undefined || value.length === 0) {
     throw new Error(`${name} is required; see examples/presence-live-approval/README.md`);
   }

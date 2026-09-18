@@ -29,9 +29,11 @@ import { z } from "zod";
 import {
   ActionRegistry,
   AuditRecorder,
-  IntentCapture,
-  SafeExecutor,
   createFixtureAuthorityPair,
+  createHostedGate,
+  IntentCapture,
+  printHostedOutcome,
+  SafeExecutor,
   type AgentProposal,
   type AuditEventV1,
   type CapturedIntent,
@@ -39,7 +41,7 @@ import {
   type JsonObject,
 } from "@decionis/agent-safe-pipeline";
 
-const TENANT_ID = "00000000-0000-4000-8000-000000000005";
+const SYNTHETIC_TENANT_ID = "00000000-0000-4000-8000-000000000005";
 const SESSION = "synthetic-session-7f2a";
 const PRINCIPAL = "synthetic-user-1001";
 const VICTIM_SESSION = "synthetic-session-9c41";
@@ -209,6 +211,21 @@ function resolveVerdict(captured: CapturedIntent): DecisionVerdict {
 }
 
 const pair = createFixtureAuthorityPair(resolveVerdict, { unsafeAllowDevelopmentFixture: true });
+
+// With nothing set the fixture is the whole authority, as before. With
+// DECIONIS_HOSTED=1, or a key, Decionis evaluates the golden checkout beside it
+// (in shadow, so nothing below changes) and leaves a signed Decision Dossier;
+// the adversarial attempts stay local by design. A hosted tenant is the key's own.
+const gate = await createHostedGate({
+  local: pair,
+  tenantId: SYNTHETIC_TENANT_ID,
+  source: {
+    repo: "decionis/agent-safe-pipeline",
+    example: "whisper-boundary-demo",
+    surface: "github",
+  },
+});
+const TENANT_ID = gate.tenantId;
 
 const orders: string[] = [];
 const credentialLookups: string[] = [];
@@ -524,3 +541,11 @@ out(
   `\n${allOk ? "PROVEN" : "NOT PROVEN"}: 6 adversarial attempts, ${orders.length - 1} unauthorized orders, ${credentialLookups.length} credential lookups; ${orders.length} execution for ${orders.length} verified grant on the golden path.`,
 );
 process.exitCode = allOk ? 0 : 1;
+
+// ---------------------------------------------------------------------------
+// Hosted epilogue: the same golden checkout, evaluated by Decionis beside the
+// fixture, ending with the signed record and where to verify it.
+await printHostedOutcome(
+  gate,
+  gate.credentials === null ? goldenDecision : await gate.authority.evaluate(golden),
+);

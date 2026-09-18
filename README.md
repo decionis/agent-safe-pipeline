@@ -27,8 +27,9 @@ agentsafe proxy \
 [Linux](./docs/install/linux.md) · [Docker](./docs/install/docker.md) ·
 [Kubernetes](./docs/install/kubernetes.md) · [Hosted](./docs/install/hosted.md)
 
-> The installed forms are produced by the release workflow from the first release after `v0.1.4`.
-> Until that release, the same commands run from a clone, as the quickstart shows.
+> The installed forms are produced by the release workflow from `v0.2.0` on; the Homebrew formula
+> reaches master by its own pull request after each release. The same commands run from a clone,
+> as the quickstart shows.
 
 The path from here is short: discover, install, **test your boundary**, see what is exposed, run in
 shadow, enforce, deploy.
@@ -364,19 +365,27 @@ Everything above runs locally and always will. The fixture authority evaluates i
 network call and no account, and that path stays supported: it is not a trial, not a reduced tier,
 and nothing in this repository stops working if you never do this step.
 
-What the local path cannot do is prove a decision to someone else. With a Decionis key, the same
-four examples (`basic-agent`, `shopify-refund-agent`, `github-deploy-agent`, `mcp-tool-gate`) ask
-Decionis to evaluate the same intent beside the fixture, and each run ends with the identifier of
-the Decision Dossier it left: a signed record of what was proposed, what was decided, and why,
-whose Ed25519 signatures verify against the authority's published keys, offline, with no account.
+What the local path cannot do is prove a decision to someone else. With one variable, every example
+asks Decionis to evaluate the same intent beside the fixture and ends with the thing only the
+authority can produce: a Decision Dossier, a signed record of what was proposed, what was decided
+and why, whose Ed25519 signatures verify against the authority's published keys, offline, with no
+account.
 
 ```bash
-export DECIONIS_API_KEY=...        # the key
-export DECIONIS_TENANT_ID=...      # that key's organization id
-pnpm --filter @decionis/agent-safe-example-basic demo
+DECIONIS_HOSTED=1 pnpm --filter @decionis/agent-safe-example-basic demo
 ```
 
-The run prints exactly what it printed before, then:
+No key? The run mints one: a free provisional workspace from
+`POST https://api.decionis.com/v1/public/agents/provision`, no signup, no email, no card, with an
+allowance of 50 governed decisions a month, kept in `~/.config/agentsafe/credentials.json` so the
+next run reuses it. The first run says so on standard error:
+
+```text
+decionis: provisioned a free workspace 7f0c3a5e-... (provisional, no account; 50 governed decisions a month)
+decionis: key stored at /home/you/.config/agentsafe/credentials.json; the next run reuses this workspace
+```
+
+Then the run prints exactly what it printed before, and ends with:
 
 ```text
 verdict: BLOCK
@@ -384,29 +393,44 @@ decionis: ALLOW (SHADOW, recorded beside the local verdict)
   - POLICY_AUTONOMOUS_LIMIT
 dossier: 6b2e5c1e-4b3a-4f0e-9c6d-2a1f7e8d9b0c
 verify it yourself, no account needed: pnpm decionis:verify 6b2e5c1e-4b3a-4f0e-9c6d-2a1f7e8d9b0c
+signed dossier: 6b2e5c1e-4b3a-4f0e-9c6d-2a1f7e8d9b0c (14211 bytes, ALLOW)
+  Ed25519 by key decionis-dossier-2026-09 at 2026-09-18T01:02:03.000Z, 3 signed artifact(s)
+  issuer: provisional_anonymous (a workspace without an account; claim it to keep it)
 ```
 
-`pnpm decionis:verify <id>` fetches the record with your key, resolves the public JWKS the record
-names, and checks every signed artifact with [`@decionis/verify`](https://www.npmjs.com/package/@decionis/verify),
-which uses only Node's built-in crypto. It prints each check, who minted the record, and `VERIFIED`
+When the authority attaches a verification page to the decision, one more line names it: a URL
+anyone can open, with no account, to see the signatures checked. `pnpm decionis:verify <id>`
+fetches the record with the stored key, resolves the public JWKS the record names, and checks
+every signed artifact with [`@decionis/verify`](https://www.npmjs.com/package/@decionis/verify),
+which uses only Node's built-in crypto; it prints each check, who minted the record, and `VERIFIED`
 or `NOT VERIFIED`. Add `--out dossier.json` to keep the signed record; anyone holding that file can
-repeat the check with the command under [Verify Decision Dossiers](#verify-decision-dossiers), with no
-key at all.
+repeat the check with the command under [Verify Decision Dossiers](#verify-decision-dossiers), with
+no key at all.
 
-A key without an account: `POST https://api.decionis.com/v1/public/agents/provision` mints a
-provisional workspace and returns `org_id` and `raw_key` once, no signup and no email, with an
-allowance of 50 decisions a month. Every dossier it mints carries a signed
+A provisional key evaluates in `SHADOW` only: the fixture's verdict still governs execution, and the
+hosted decision and its dossier are recorded beside it. Every dossier it mints carries a signed
 `provisional_anonymous` issuer tier, so a verifier can always tell it from an owned organization's
-record. An owned organization's key comes from the Decionis console.
+record. Claiming the workspace (the response says how) attaches a person and keeps the key and the
+ledger. An owned organization's key, from the Decionis console or `agentsafe login`, takes the mode
+you ask for, `ENFORCEMENT` included.
+
+Which examples do what: `basic-agent`, `shopify-refund-agent`, `github-deploy-agent`,
+`mcp-tool-gate` and `procurement-agent` evaluate their one proposal beside the fixture;
+`golden-adversarial-demo`, `whisper-boundary-demo`, `crm-outreach-demo` and `local-escalation` run
+their adversarial attempts locally by design and end with the golden proposal evaluated by
+Decionis; `trusted-executor` runs the executor process once more in shadow against Decionis; the
+two Presence examples need an owned organization with an enrolled approver, and say so when given
+a provisional workspace.
 
 #### How it is wired
 
-`createGate` in [`packages/pipeline`](./packages/pipeline/README.md#selecting-the-gate-from-the-environment)
+`createHostedGate` in [`packages/pipeline`](./packages/pipeline/README.md#one-variable-a-key-issued-in-the-run)
 reads the environment and returns the authority and verifier the example runs:
 
 | Variable              | Default                    | Effect                                                                                                                                                                                                                    |
 | --------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DECIONIS_API_KEY`    | unset                      | Unset: the fixture pair, the same objects as before, and no client is built. Set: `DecionisGate` runs beside the fixture.                                                                                                 |
+| `DECIONIS_HOSTED`     | unset                      | `1`: with no key, the stored credential, else a free provisional workspace minted in the run and stored for the next; the hosted evaluation runs in `SHADOW`.                                                             |
+| `DECIONIS_API_KEY`    | unset                      | Unset: the fixture pair, the same objects as before, and no client is built. Set: `DecionisGate` runs beside the fixture, whatever `DECIONIS_HOSTED` says.                                                                |
 | `DECIONIS_TENANT_ID`  | required with the key      | The key's organization. Decionis binds every intent to it, so the examples capture under it instead of their synthetic tenant.                                                                                            |
 | `DECIONIS_MODE`       | `SHADOW`                   | `SHADOW`: the fixture's verdict still governs execution; the hosted verdict and dossier are recorded. `ENFORCEMENT`: the hosted decision governs and its grant is claimed with Decionis; the fixture can only tighten it. |
 | `DECIONIS_API_URL`    | `https://api.decionis.com` | HTTPS only, for staging or a loopback double with `DECIONIS_ALLOW_INSECURE_LOOPBACK=true`.                                                                                                                                |

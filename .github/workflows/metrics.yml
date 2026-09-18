@@ -1,0 +1,79 @@
+# The repository's numbers, once a day, kept on the `metrics` branch: clones
+# and unique cloners, views and unique visitors, stars, forks and watchers,
+# the top referrers and paths, and npm downloads per package, one JSON line
+# per day per file (scripts/CollectRepoMetrics.mjs). GitHub keeps traffic for
+# fourteen days; this keeps it for good. The branch is an orphan the pull
+# request bot ignores (it has no common ancestor with master), and every
+# commit says [skip ci] so nothing else runs on it.
+#
+# Traffic needs METRICS_GITHUB_TOKEN, a fine-grained token with read access to
+# this repository's administration; without it the traffic rows are skipped
+# and the run says so. The other counts are public and need nothing.
+name: Repository metrics
+
+on:
+  schedule:
+    - cron: "23 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: repository-metrics
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    name: Collect and record
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.20.0
+      - name: Check out the metrics branch, or begin it
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p metrics-branch
+          cd metrics-branch
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git fetch -q origin metrics 2>/dev/null; then
+            git checkout -q -b metrics FETCH_HEAD
+          else
+            git checkout -q --orphan metrics
+          fi
+      - name: Collect
+        env:
+          METRICS_GITHUB_TOKEN: ${{ secrets.METRICS_GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/CollectRepoMetrics.mjs --dir metrics-branch/metrics | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Record
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd metrics-branch
+          git add -A metrics
+          if git diff --cached --quiet; then
+            echo "Nothing changed since the last collection."
+            exit 0
+          fi
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -q -m "metrics: $(date -u +%F) [skip ci]"
+          git push -q origin metrics

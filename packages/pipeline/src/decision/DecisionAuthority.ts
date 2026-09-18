@@ -86,6 +86,11 @@ export interface HostedEvaluation {
   readonly reasonCodes: readonly string[];
   /** True when the hosted call did not answer the policy question and was recorded as BLOCK. */
   readonly failClosed: boolean;
+  /**
+   * The public page that verifies the dossier without an account, when the
+   * authority attached one to the decision; null until it does.
+   */
+  readonly verificationUrl: string | null;
 }
 
 export interface GateDecision {
@@ -99,6 +104,8 @@ export interface GateDecision {
     readonly expiresAt: string;
   } | null;
   readonly failClosed: boolean;
+  /** The public page that verifies the dossier, when the authority attached one. */
+  readonly verificationUrl?: string;
   /** Evidence the authority evaluated with; a claim must present the same evidence. */
   readonly evidence?: DecisionEvidence;
   /** Present only when Decionis, rather than the executor, orchestrates Presence. */

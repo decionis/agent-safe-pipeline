@@ -12,9 +12,11 @@ export interface DecisionReportOptions {
  * with no `hosted` evaluation prints nothing, so a caller that never set a
  * key sees exactly the output it saw before.
  *
- * The verify line names the record by identifier only. Verification needs the
- * signed record, fetched with the caller's key, and the public JWKS, fetched
- * by anyone; the signature check itself runs offline and needs no account.
+ * The verify lines name the record by identifier only. The page, when the
+ * authority attached one, verifies it for anyone who opens it; the command
+ * needs the signed record, fetched with the caller's key, and the public
+ * JWKS, fetched by anyone; the signature check itself runs offline and needs
+ * no account.
  */
 export function printDecision(decision: GateDecision, options: DecisionReportOptions = {}): void {
   const hosted = decision.hosted;
@@ -31,6 +33,9 @@ export function printDecision(decision: GateDecision, options: DecisionReportOpt
     return;
   }
   out.write(`dossier: ${hosted.dossierId}\n`);
+  if (hosted.verificationUrl !== null) {
+    out.write(`verify it in a browser, no account needed: ${hosted.verificationUrl}\n`);
+  }
   out.write(`verify it yourself, no account needed: ${verifyCommand(hosted.dossierId)}\n`);
 }
 

@@ -60,3 +60,13 @@ snapshot, session, principal, budget and delegation path refuses the resulting a
 show that a particular agent resists the steering, and it does not surface the dearer-item choice to a
 real user — `ESCALATE` is where a Presence ceremony would begin (see
 [`examples/golden-adversarial-demo`](../golden-adversarial-demo) for that path).
+
+## Hosted epilogue
+
+`DECIONIS_HOSTED=1` (or `DECIONIS_API_KEY` with `DECIONIS_TENANT_ID`) adds one step after the
+proof: Decionis evaluates the golden proposal beside the fixture, in shadow, so nothing above
+changes, and the run ends with the signed Decision Dossier it left, its verification page when the
+authority attaches one, and how to verify it offline. With no key, the run mints a free provisional
+workspace and stores its key for the next run. The adversarial attempts stay local by design; they
+are about this boundary, not the authority. Unset, the run prints one hint line and nothing else
+changes.

@@ -33,3 +33,11 @@ Decionis does; the direct request becomes structural once the Presence SDK forwa
 `intentHash`.
 
 For the doubles' semantics and limits, see [`docs/local-testing.md`](../../docs/local-testing.md).
+
+## Hosted epilogue
+
+`DECIONIS_HOSTED=1` (or `DECIONIS_API_KEY` with `DECIONIS_TENANT_ID`) adds one step after the four
+flows: Decionis evaluates the first proposal beside the loopback double, in shadow, and the run
+ends with the signed Decision Dossier it left and how to verify it. The ceremonies stay on the
+loopback Presence double by design. With no key, the run mints a free provisional workspace and
+stores its key for the next run.

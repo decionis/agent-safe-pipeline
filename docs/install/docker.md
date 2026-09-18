@@ -11,8 +11,8 @@ ghcr.io/decionis/agentsafe:<major>
 ghcr.io/decionis/agentsafe:latest        moves; never in production
 ```
 
-> Availability: the image is pushed by the release workflow from the first release after
-> `v0.1.4`; the tag is the release version. Until then, build it from a clone:
+> Availability: the image is pushed by the release workflow from `v0.2.0` on; the tag is the
+> runtime version. Before that, build it from a clone:
 > `docker build -f packages/agentsafe/Dockerfile -t agentsafe .`
 
 The image's default command is the gateway. The image runs as `NODE_ENV=production`, which

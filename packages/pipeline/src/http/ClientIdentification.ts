@@ -6,6 +6,12 @@ export interface ClientSource {
   readonly repo?: string;
   /** The example or integration name within it. */
   readonly example?: string;
+  /**
+   * Which surface the integration was taken from, `github` for a clone or
+   * fork of the repository; the authority stamps an organization it creates
+   * for such a caller with it, so a repository's path can be measured.
+   */
+  readonly surface?: string;
 }
 
 const PRODUCT = "agent-safe-pipeline";
@@ -52,6 +58,7 @@ export function userAgent(source: ClientSource = {}): string {
   const comment = [
     ["repo", source.repo],
     ["example", source.example],
+    ["surface", source.surface],
   ]
     .filter(
       (entry): entry is [string, string] => typeof entry[1] === "string" && TOKEN.test(entry[1]),

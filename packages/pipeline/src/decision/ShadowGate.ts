@@ -69,6 +69,7 @@ export class ShadowGate implements DecisionAuthority {
         dossierId: hosted.dossierId,
         reasonCodes: hosted.reasonCodes,
         failClosed: hosted.failClosed,
+        verificationUrl: hosted.verificationUrl ?? null,
       },
     });
   }

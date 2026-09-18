@@ -307,7 +307,16 @@ export interface LocalAuthorityOptions {
    */
   readonly trustedEffectObserverIds?: readonly string[];
   readonly clock?: () => number;
+  /**
+   * Attach a verification envelope to every decision, as the hosted
+   * `evaluate-decision` does and `enforce-and-bind` may: a page URL under
+   * this double's own origin, so a test can see the link travel end to end.
+   */
+  readonly verificationLinks?: boolean;
 }
+
+/** The organization a provisioned synthetic workspace belongs to. */
+export const LOCAL_AUTHORITY_PROVISIONAL_ORG_ID = "00000000-0000-4000-8000-000000000008";
 
 /** What one claim attestation says, as the fixture signs it and a provider double reads it. */
 export interface LocalClaimAttestationClaims {
@@ -411,12 +420,19 @@ export class LocalAuthority {
   private readonly managedByIntent = new Map<string, LocalManagedEscalationRecord>();
   private nextManagedLifecycle: LifecycleEntry[] | null = null;
   private decisions = 0;
+  /** Every decision minted, by dossier id, for `GET /v1/protocol/dossiers/{id}`. */
+  private readonly dossiers = new Map<
+    string,
+    { readonly request: LocalAuthorityRequest; readonly decision: Decision }
+  >();
+  private readonly verificationLinks: boolean;
   private server: Server | null = null;
   private port = 0;
 
   public constructor(options: LocalAuthorityOptions = {}) {
     if (process.env.NODE_ENV === "production") throw new Error("LOCAL_DOUBLE_FORBIDDEN");
     this.apiKey = options.apiKey ?? LOCAL_AUTHORITY_API_KEY;
+    this.verificationLinks = options.verificationLinks === true;
     this.presence = options.presence;
     this.legacyVerifyReceipt = options.verifyReceipt;
     this.policy = options.policy ?? defaultPolicy;
@@ -558,8 +574,32 @@ export class LocalAuthority {
     if (req.method === "GET" && url.pathname === LOCAL_AUTHORITY_JWKS_PATH) {
       return this.send(res, record, 200, this.jwks);
     }
+    // The public lane: a workspace minted with no account, as the hosted
+    // authority mints one, with this double's own key as the raw key.
+    if (req.method === "POST" && url.pathname === "/v1/public/agents/provision") {
+      return this.send(res, record, 201, {
+        org_id: LOCAL_AUTHORITY_PROVISIONAL_ORG_ID,
+        raw_key: this.apiKey,
+        provisional: true,
+        limits: {
+          requests_per_minute: 10,
+          workspaces_per_network_per_day: 5,
+          governed_decisions_per_month: 50,
+        },
+        claim: { note: "synthetic workspace on loopback; there is nothing to claim" },
+        next: {},
+      });
+    }
     if (req.headers.authorization !== `Bearer ${this.apiKey}`) {
       return this.send(res, record, 401, { error: "UNAUTHORIZED" });
+    }
+    const dossierLookup = url.pathname.match(/^\/v1\/protocol\/dossiers\/([^/]+)$/);
+    if (req.method === "GET" && dossierLookup !== null) {
+      const minted = this.dossiers.get(decodeURIComponent(dossierLookup[1] ?? ""));
+      if (minted === undefined || url.searchParams.get("org_id") !== minted.request.tenant_id) {
+        return this.send(res, record, 404, { error: "DOSSIER_NOT_FOUND" });
+      }
+      return this.send(res, record, 200, this.dossierRecord(minted.request, minted.decision));
     }
     const escalationLookup = url.pathname.match(/^\/v1\/authority\/escalations\/([^/]+)$/);
     if (req.method === "GET" && escalationLookup !== null) {
@@ -607,12 +647,82 @@ export class LocalAuthority {
     this.decisions += 1;
     const decision = this.baseDecision(request, evaluation.status, [evaluation.reasonCode]);
     if (evaluation.status === "ESCALATE" && request.escalation?.mode === "MANAGED") {
-      return { status: 200, body: this.openManaged(request, decision) };
+      return { status: 200, body: this.remember(request, this.openManaged(request, decision)) };
     }
     if (evaluation.status !== "ALLOW" || request.mode !== "ENFORCEMENT") {
-      return { status: 200, body: decision };
+      return { status: 200, body: this.remember(request, decision) };
     }
-    return { status: 200, body: this.grantDecision(request, decision, evaluation.approval) };
+    return {
+      status: 200,
+      body: this.remember(request, this.grantDecision(request, decision, evaluation.approval)),
+    };
+  }
+
+  /** Keeps a minted decision for its dossier route, with the envelope when links are on. */
+  private remember(request: LocalAuthorityRequest, decision: Decision): Decision {
+    const dossierId = decision["dossier_id"];
+    if (typeof dossierId !== "string") return decision;
+    const linked = this.verificationLinks
+      ? {
+          ...decision,
+          verification: {
+            verification_page_url: `${this.baseUrl}/verify/${dossierId}?sig=synthetic`,
+            verification_url: `${this.baseUrl}/v1/public/decision-dossiers/${dossierId}/verify?sig=synthetic`,
+            link_expires_at: new Date(this.clock() + 24 * 60 * 60 * 1_000).toISOString(),
+            signature_scheme: "synthetic",
+          },
+        }
+      : decision;
+    this.dossiers.set(dossierId, { request, decision: linked });
+    return linked;
+  }
+
+  /**
+   * The persisted record, shaped as `GET /v1/protocol/dossiers/{id}` returns
+   * it: a payload with the routing decision, the inputs and a proof bundle
+   * naming this double's key. The artifacts are not signed; the record says
+   * so in its issuer tier, and nothing here claims otherwise.
+   */
+  private dossierRecord(
+    request: LocalAuthorityRequest,
+    decision: Decision,
+  ): Record<string, unknown> {
+    const generatedAt = new Date(this.clock()).toISOString();
+    return {
+      service: "synthetic-authority",
+      protocol_version: "synthetic",
+      dossier: {
+        dossier_payload: {
+          schema_version: "decionis.decision_dossier/2.0",
+          dossier_id: decision["dossier_id"],
+          generated_at: generatedAt,
+          routing_decision: {
+            decision_id: decision["decision_id"],
+            outcome: decision["status"],
+            authority: decision["authority_classification"],
+            policy_version: decision["policy_version"],
+            reason_codes: decision["reason_codes"],
+          },
+          inputs_snapshot: {
+            tenant_id: request.tenant_id,
+            actor_id: request.actor.id,
+            action: request.action.type,
+            target: request.action.resource,
+          },
+          portable_artifact: { issuer_context: { tier: "synthetic_loopback" } },
+          integrity: {
+            proof_bundle: {
+              bundle_type: "decionis.decision_dossier.proof_bundle",
+              version: "2.0",
+              issued_at: generatedAt,
+              algorithm: "Ed25519",
+              key_id: this.attestationKeyId,
+              artifacts: [],
+            },
+          },
+        },
+      },
+    };
   }
 
   /** Policy plus evidence handling: a valid receipt turns an escalation into an allow. */

@@ -17,11 +17,13 @@ import { z } from "zod";
 import {
   ActionRegistry,
   AuditRecorder,
+  createFixtureAuthorityPair,
+  createHostedGate,
   IntentCapture,
   PresenceApprovalCoordinator,
+  printHostedOutcome,
   SafeExecutor,
   ShadowPipeline,
-  createFixtureAuthorityPair,
   type AgentProposal,
   type AuditEventV1,
   type CapturedIntent,
@@ -31,7 +33,7 @@ import {
   type PresenceGateResult,
 } from "@decionis/agent-safe-pipeline";
 
-const TENANT_ID = "00000000-0000-4000-8000-000000000004";
+const SYNTHETIC_TENANT_ID = "00000000-0000-4000-8000-000000000004";
 const AUTONOMOUS_LIMIT_MINOR = 1_000_000; // USD 10,000
 const HUMAN_LIMIT_MINOR = 50_000_000; // USD 500,000
 const CEREMONY = "FIDO2 / WebAuthn with active liveness";
@@ -116,6 +118,21 @@ const pair = createFixtureAuthorityPair(
   },
   { unsafeAllowDevelopmentFixture: true },
 );
+
+// With nothing set the fixture is the whole authority, as before. With
+// DECIONIS_HOSTED=1, or a key, Decionis evaluates the golden wire beside it (in
+// shadow, so nothing below changes) and leaves a signed Decision Dossier; the
+// eight adversarial attempts stay local by design. A hosted tenant is the key's own.
+const gate = await createHostedGate({
+  local: pair,
+  tenantId: SYNTHETIC_TENANT_ID,
+  source: {
+    repo: "decionis/agent-safe-pipeline",
+    example: "golden-adversarial-demo",
+    surface: "github",
+  },
+});
+const TENANT_ID = gate.tenantId;
 
 const wires: string[] = [];
 const registry = new ActionRegistry()
@@ -436,3 +453,11 @@ out(
   `\n${allOk ? "PROVEN" : "NOT PROVEN"}: 8 adversarial attempts, ${wires.length - 1} unauthorized executions; ${wires.length} execution for ${wires.length} verified grant on the golden path.`,
 );
 process.exitCode = allOk ? 0 : 1;
+
+// ---------------------------------------------------------------------------
+// Hosted epilogue: the same golden wire, evaluated by Decionis beside the
+// fixture, ending with the signed record and where to verify it.
+await printHostedOutcome(
+  gate,
+  gate.credentials === null ? decisionA : await gate.authority.evaluate(wireA),
+);
