@@ -7,6 +7,7 @@ import { runInit } from "./Init.js";
 import { runLogin, runLogout } from "./Login.js";
 import { runProxy } from "./Proxy.js";
 import { runStatus } from "./Status.js";
+import { runTest } from "./TestCommand.js";
 
 /** The commands this module owns; the executor's own are dispatched by the entry. */
 export const GATEWAY_COMMANDS = [
@@ -16,6 +17,7 @@ export const GATEWAY_COMMANDS = [
   "run",
   "status",
   "doctor",
+  "test",
   "config",
   "login",
   "logout",
@@ -49,6 +51,9 @@ export async function runGatewayCommand(
       return;
     case "doctor":
       await runDoctor(io, argv);
+      return;
+    case "test":
+      await runTest(io, argv);
       return;
     case "config":
       runConfig(io, argv);

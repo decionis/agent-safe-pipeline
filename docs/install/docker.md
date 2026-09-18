@@ -54,7 +54,10 @@ docker run --rm -p 8080:8080 \
 
 The other commands are the same binary: `docker run --rm ghcr.io/decionis/agentsafe:<version>
 version`, `... doctor`, `... config --json`, and `... serve` for the trusted executor the
-[deployment kit](../../deploy/README.md) runs.
+[deployment kit](../../deploy/README.md) runs. The image is marked `NODE_ENV=production`, where
+the synthetic authority the boundary test runs on refuses to start; to run
+[`agentsafe test`](../reference/cli.md#agentsafe-test-namehostport) in the container, unset it
+for that run: `docker run --rm -e NODE_ENV= ghcr.io/decionis/agentsafe:<version> test`.
 
 ## Health, readiness, shutdown
 
