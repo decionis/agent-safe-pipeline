@@ -644,9 +644,19 @@ jobs:
           pattern: runtime-*
           path: release
           merge-multiple: true
+      # The runtime's SBOM comes from the packed tarball, installed flat with
+      # npm and read by npm, the way the pipeline's does. A pnpm tree cannot be
+      # read by `npm sbom`: it takes every symlinked package for a workspace
+      # link, demands its devDependencies, and refuses the `workspace:` range
+      # the deployed manifest still carries. The pipeline is not on the
+      # registry yet at this point of the job, so it is installed from its own
+      # packed tarball, and the range the runtime declares is put back before
+      # the SBOM is read.
       - name: Pack the runtime package and build its SBOM
         if: steps.release.outputs.exists != 'true'
         id: runtime
+        env:
+          PIPELINE_TARBALL: ${{ steps.release.outputs.tarball }}
         shell: bash
         run: |
           set -euo pipefail
@@ -665,12 +675,24 @@ jobs:
             pnpm pack --pack-destination "$GITHUB_WORKSPACE/release"
           )
           test -s "release/decionis-agentsafe-$runtime_version.tgz"
-          pnpm deploy --filter @decionis/agentsafe --prod "$RUNNER_TEMP/runtime-deploy"
+          test -s "release/$PIPELINE_TARBALL"
+          mkdir -p "$RUNNER_TEMP/runtime-packed"
+          tar --extract --gzip --file "release/decionis-agentsafe-$runtime_version.tgz" \
+            --directory "$RUNNER_TEMP/runtime-packed"
           (
-            cd "$RUNNER_TEMP/runtime-deploy"
+            cd "$RUNNER_TEMP/runtime-packed/package"
+            test "$(node -p "require('./package.json').version")" = "$runtime_version"
+            pipeline_range="$(node -p "require('./package.json').dependencies['@decionis/agent-safe-pipeline']")"
+            case "$pipeline_range" in workspace:*) echo "the packed runtime still declares $pipeline_range" >&2; exit 1;; esac
+            npm pkg delete devDependencies scripts
+            npm install --ignore-scripts --omit=dev --no-audit --no-fund "$GITHUB_WORKSPACE/release/$PIPELINE_TARBALL"
+            npm pkg set "dependencies.@decionis/agent-safe-pipeline=$pipeline_range"
             npm sbom --omit dev --sbom-format cyclonedx --sbom-type application \
               > "$GITHUB_WORKSPACE/release/agentsafe-$runtime_version.cdx.json"
           )
+          node scripts/FinalizeReleaseSbom.mjs \
+            "release/agentsafe-$runtime_version.cdx.json" "release/decionis-agentsafe-$runtime_version.tgz" \
+            "$runtime_name" "$runtime_version"
           node scripts/AssertReleaseSbom.mjs \
             "release/agentsafe-$runtime_version.cdx.json" "$runtime_name" "$runtime_version" 5
           sh -n packaging/install.sh
