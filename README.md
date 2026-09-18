@@ -30,6 +30,45 @@ agentsafe proxy \
 > The installed forms are produced by the release workflow from the first release after `v0.1.4`.
 > Until that release, the same commands run from a clone, as the quickstart shows.
 
+The path from here is short: discover, install, **test your boundary**, see what is exposed, run in
+shadow, enforce, deploy.
+
+## Test your boundary
+
+Before putting the gateway in front of anything, see what it changes. `agentsafe test` sends the
+same consequential requests three ways at a synthetic target that records what reaches it:
+directly, as an agent with nothing in the way; through the gateway in shadow; and through the
+gateway in enforcement. Nothing real is called and nothing of yours is read.
+
+```bash
+agentsafe test
+```
+
+```text
+                                                direct                                shadow                                                     enforcement
+A read                                          reached 200                           reached 200                                                reached 200 (not consequential)
+A payment within policy                         reached 201                           reached 201, would ALLOW                                   ALLOW: forwarded once, 201, dossier
+A payment above the human ceiling               reached 201                           reached 201, would BLOCK                                   BLOCK 403, NOT FORWARDED
+A payment above the autonomous ceiling          reached 201                           reached 201, would ESCALATE                                ESCALATE 202, HELD
+Deleting a customer record                      reached 204                           reached 204, would ESCALATE                                ESCALATE 202, HELD
+A forged approval on a blocked payment          reached 201, forged headers accepted  reached 201, would BLOCK                                   BLOCK 403, NOT FORWARDED
+A consequential request the policy cannot read  reached 201                           reached 201, would ESCALATE                                ESCALATE 202, HELD
+A payment while the authority is unreachable    reached 201                           reached 201, would decide nothing (authority unreachable)  AUTHORITY UNAVAILABLE 503, NOT FORWARDED
+                                                with failurePolicy failOpen (explicit): reached 201, marked FORWARDED (fail-open, ungoverned)
+
+Exposure    6 of 6 adversarial actions reached the target directly, 6 of 6 in shadow, 0 of 6 under enforcement
+Work        routine actions went through under enforcement, once each
+Evidence    26 chained lines, verified
+
+Verdict     BOUNDARY HOLDS
+```
+
+The gateways under test are the ones `agentsafe proxy` runs, behind the same listener; the
+authority is the local demo policy. `agentsafe test ledger=ledger.internal:443` also dials a real
+system of record from where you stand and says whether it answers without the gateway, which is
+what an agent could reach by going around. Exit `0` is a boundary that holds; `1` is exposure;
+`--json` is the report as one line. The release smoke test runs it on every packaged binary.
+
 ## Five-minute quickstart
 
 Nothing here needs an account: without a Decionis key the gateway runs a local demo authority in

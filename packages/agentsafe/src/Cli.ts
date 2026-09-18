@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
  * `agentsafe <command>`. The gateway commands (`init`, `proxy`, `run`,
- * `status`, `doctor`, `config`, `login`, `logout`, `version`) are in
- * `cli/Commands.ts`. `serve` runs the trusted executor with the reference
+ * `status`, `doctor`, `test`, `config`, `login`, `logout`, `version`) are
+ * in `cli/Commands.ts`. `serve` runs the trusted executor with the reference
  * forwarding handler and the configuration in the environment; an adopter
  * with their own handlers calls `serve(handlers)` from their own entry
  * instead. `verify chain [file]` (also `verify-chain`) walks the chained
@@ -33,6 +33,7 @@ const COMMANDS = [
   "run",
   "status",
   "doctor",
+  "test",
   "config",
   "login",
   "logout",

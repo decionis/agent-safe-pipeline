@@ -56,6 +56,28 @@ is minted: `401`/`403` is a rejected key, `400`/`422` an accepted one); the Pres
 the evidence configuration. Each failure says what to do. `--no-network` skips the three probes;
 `--json` prints the checks as data. Exit `1` when any check fails.
 
+### `agentsafe test [name=host:port]...`
+
+The boundary test: a fixed set of consequential requests sent three ways at a synthetic loopback
+target that records what reaches it (directly, through the gateway in shadow, through the gateway
+in enforcement), then the exposure each way, whether routine work still went through once each,
+and whether the evidence the run left verifies. The target and the authority (the local demo
+policy) are this process's own; nothing in the configuration, the environment or the stored login
+is read, so a real upstream and a real key are never in play. Each `name=host:port` is also dialed
+from this machine, as `probe-containment` does, and reported as `REACHABLE`, `CONTAINED` or
+`INCONCLUSIVE`.
+
+| Exit | Meaning                                                                                                    |
+| ---- | ---------------------------------------------------------------------------------------------------------- |
+| `0`  | the boundary holds: nothing adversarial reached the target under enforcement, and no named target answered |
+| `1`  | exposure: something adversarial got through under enforcement (a runtime defect), or a target answered     |
+| `2`  | the test did not run: wrong arguments, or `NODE_ENV=production`, where the synthetic authority refuses     |
+
+`--json` prints the report as one object, `agent-safe.boundary-test/1`: `cases[]` with `direct`,
+`shadow`, `enforcement` (and `failOpen` for the outage case), `exposure`, `workFlowed`,
+`evidence`, `verdict` (`BOUNDARY_HOLDS` or `BOUNDARY_BROKEN`), `containment` (null without
+targets) and `exit`.
+
 ### `agentsafe config`
 
 Prints the effective configuration as YAML (`--json` for JSON), with `sources` naming the layer

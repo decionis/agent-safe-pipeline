@@ -363,6 +363,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/cli/TestCommand.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/config/ExecutorConfig.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
@@ -418,6 +424,12 @@
     },
     {
       "path": "packages/agentsafe/test/gateway/Activation.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/gateway/BoundaryTest.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false
@@ -490,6 +502,12 @@
     },
     {
       "path": "packages/agentsafe/test/http/GatewayHttpServer.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/http/RecordingTarget.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false

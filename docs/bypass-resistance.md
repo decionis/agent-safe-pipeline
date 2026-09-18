@@ -67,7 +67,8 @@ the cluster reads it: a cluster with no NetworkPolicy-enforcing CNI accepts ever
 kit and ignores it.
 
 The containment probe (`agentsafe probe-containment`, shipped as a CronJob in
-`deploy/kubernetes/ContainmentProbe.yaml`) makes that failure visible from inside the agent zone.
+`deploy/kubernetes/ContainmentProbe.yaml`, and run by `agentsafe test name=host:port` from a
+developer's machine) makes that failure visible from inside the agent zone.
 Each finding is one JSON line in its own envelope, `agent-safe.containment/1`, carrying a target
 name, a host and a port, a verdict and a code -- never a path, a parameter or a body. It is
 deliberately not part of the executor's evidence plane: the probe is a different process in a

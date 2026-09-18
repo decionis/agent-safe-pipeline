@@ -31,10 +31,12 @@ agentsafe proxy --upstream http://localhost:3000 --port 8080
 
 Without a Decionis key that runs a local demo authority in the same process, on loopback, with a
 synthetic policy, and says so on every line. With `DECIONIS_API_KEY` and `DECIONIS_TENANT_ID` (or
-`agentsafe login`) it asks Decionis, in shadow first. `agentsafe init` writes the configuration
-file, `agentsafe doctor` checks the binary, the configuration, the upstream, Decionis and the
-credentials, `agentsafe config` prints what resolved and from where, and `agentsafe status` asks
-a running gateway what it is doing. The five-minute path is
+`agentsafe login`) it asks Decionis, in shadow first. `agentsafe test` shows, on a synthetic
+target and with nothing of yours involved, what reaches a target with no boundary in the way and
+what enforcement prevents; `agentsafe init` writes the configuration file, `agentsafe doctor`
+checks the binary, the configuration, the upstream, Decionis and the credentials, `agentsafe
+config` prints what resolved and from where, and `agentsafe status` asks a running gateway what
+it is doing. The five-minute path is
 [docs/quickstart](https://github.com/decionis/agent-safe-pipeline/blob/master/docs/quickstart/README.md);
 what is intercepted, bound and forwarded is
 [docs/gateway/http-interception.md](https://github.com/decionis/agent-safe-pipeline/blob/master/docs/gateway/http-interception.md);

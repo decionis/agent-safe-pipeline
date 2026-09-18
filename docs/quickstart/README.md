@@ -20,6 +20,25 @@ alias agentsafe="node $PWD/packages/agentsafe/dist/Cli.js"
 The installed forms are the same runtime and the same commands: [macOS](../install/macos.md)
 (Homebrew), [Linux](../install/linux.md) (packages and an installer), [Docker](../install/docker.md).
 
+## Test your boundary
+
+Before anything of yours is involved, see what the gateway changes:
+
+```bash
+agentsafe test
+```
+
+It sends eight consequential requests three ways at a synthetic loopback target that records what
+reaches it: directly, through the gateway in shadow, and through the gateway in enforcement. Every
+adversarial one reaches the target directly and in shadow; under enforcement each is refused or
+held and none is forwarded, the routine ones go through exactly once with a dossier, a forged
+approval header changes nothing, an unreachable authority fails closed, and the evidence the run
+left verifies. The last line is `Verdict BOUNDARY HOLDS` and the exit status `0`. Nothing real is
+called and nothing in your configuration, environment or stored login is read; the gateways under
+test are the same `Gateway` behind the same listener that `agentsafe proxy` runs. Name a real
+system of record, `agentsafe test ledger=ledger.internal:443`, and the test also dials it from
+where you stand and says whether it answers without the gateway.
+
 ## Start the gateway
 
 Anything that answers HTTP will do as the upstream. If you have nothing to hand:

@@ -122,6 +122,16 @@ jobs:
         run: |
           set -euo pipefail
           test "$(docker run --rm agentsafe:ci version)" = "$(node -p "require('./packages/agentsafe/package.json').version")"
+          # The boundary test in the shipped image: refused as shipped, because
+          # the image is marked production and the synthetic authority will not
+          # start there; holding once NODE_ENV is unset for the run.
+          if docker run --rm agentsafe:ci test --json 2>"$RUNNER_TEMP/test-refusal.json"; then
+            echo "the boundary test ran in a production-marked image" >&2; exit 1
+          fi
+          grep -q '"reason":"LOCAL_DOUBLE_FORBIDDEN"' "$RUNNER_TEMP/test-refusal.json"
+          docker run --rm --read-only --user 65532:65532 --cap-drop ALL --security-opt no-new-privileges \
+            -e NODE_ENV= agentsafe:ci test --json > "$RUNNER_TEMP/boundary.json"
+          grep -q '"verdict":"BOUNDARY_HOLDS"' "$RUNNER_TEMP/boundary.json"
           secrets="$RUNNER_TEMP/agentsafe-gateway-secrets"
           mkdir -p "$secrets"
           printf 'synthetic-authority-key-ci\n' > "$secrets/decionis-api-key"

@@ -27,6 +27,7 @@ describe("the command dispatch", () => {
       "run",
       "status",
       "doctor",
+      "test",
       "config",
       "login",
       "logout",
