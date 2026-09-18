@@ -15,8 +15,15 @@
 # network installs the .deb, the .rpm or the archive by hand;
 # docs/install/linux.md says how.
 #
+# The runtime is versioned on its own, and its archives ride on the
+# repository's releases, which are tagged by the library's version: runtime
+# 0.1.0 lives under the release v0.2.0. Which release carries the archive is
+# read from the release listing, by the archive's own name, never guessed
+# from the version.
+#
 # Settings, all optional:
-#   AGENTSAFE_VERSION         a version such as 0.2.0; the latest release otherwise
+#   AGENTSAFE_VERSION         a runtime version such as 0.1.0; the latest release's otherwise
+#   AGENTSAFE_RELEASE_TAG     the release the archive lives in, for a mirror or a test that has no listing
 #   AGENTSAFE_INSTALL_PREFIX  where bin/agentsafe and lib/agentsafe/<version> go
 #   AGENTSAFE_RELEASE_BASE    the release download base, for a mirror or a test
 #   AGENTSAFE_RELEASE_CA      a CA bundle a mirror's certificate chains to; the system store otherwise
@@ -54,24 +61,44 @@ fetch() {
   fi
 }
 
-if [ -n "${AGENTSAFE_VERSION:-}" ]; then
-  version="$AGENTSAFE_VERSION"
-else
-  # The latest release whose tag is a runtime version and which carries an
-  # archive for this platform; other releases in the repository are not it.
-  version="$(fetch "$API" \
+# Prints "<tag> <runtime version>" for the newest release whose assets
+# include an archive matching the pattern, reading only tag names and asset
+# names out of the listing.
+resolve() {
+  fetch "$API" \
     | tr -d '\r' \
     | grep -E '"(tag_name|name)": "' \
     | sed -E 's/^[[:space:]]*"(tag_name|name)": "([^"]*)".*$/\1 \2/' \
-    | awk -v want="agentsafe-.*-$os-$arch\\.tar\\.gz" '
+    | awk -v want="$1" -v suffix="-$os-$arch.tar.gz" '
         $1 == "tag_name" { tag = $2; next }
-        $1 == "name" && $2 ~ want && tag ~ /^v[0-9]/ { print substr(tag, 2); exit }
-      ')"
-  [ -n "$version" ] || die "no release with an archive for $os-$arch was found; set AGENTSAFE_VERSION"
+        $1 == "name" && $2 ~ want && tag ~ /^v[0-9]/ {
+          v = $2; sub(/^agentsafe-/, "", v); v = substr(v, 1, length(v) - length(suffix))
+          print tag " " v; exit
+        }
+      '
+}
+
+if [ -n "${AGENTSAFE_VERSION:-}" ]; then
+  version="$AGENTSAFE_VERSION"
+  if [ -n "${AGENTSAFE_RELEASE_TAG:-}" ]; then
+    tag="$AGENTSAFE_RELEASE_TAG"
+  else
+    tag="$(resolve "^agentsafe-$version-$os-$arch\\.tar\\.gz\$" | awk '{ print $1 }')"
+  fi
+  [ -n "$tag" ] || die "no release carries agentsafe-$version-$os-$arch.tar.gz; set AGENTSAFE_RELEASE_TAG for a mirror"
+else
+  found="$(resolve "^agentsafe-[0-9][^ ]*-$os-$arch\\.tar\\.gz\$")"
+  tag="${found%% *}"
+  version="${found#* }"
+  [ -n "$found" ] || die "no release with an archive for $os-$arch was found; set AGENTSAFE_VERSION"
 fi
 case "$version" in
   [0-9]*.[0-9]*.[0-9]*) ;;
   *) die "not a version: $version" ;;
+esac
+case "$tag" in
+  v[0-9]*) ;;
+  *) die "not a release tag: $tag" ;;
 esac
 
 name="agentsafe-$version-$os-$arch"
@@ -79,9 +106,9 @@ archive="$name.tar.gz"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
-say "Downloading $archive"
-fetch -o "$work/$archive" "$BASE/v$version/$archive"
-fetch -o "$work/SHA256SUMS" "$BASE/v$version/SHA256SUMS"
+say "Downloading $archive from release $tag"
+fetch -o "$work/$archive" "$BASE/$tag/$archive"
+fetch -o "$work/SHA256SUMS" "$BASE/$tag/SHA256SUMS"
 
 expected="$(grep -E "[[:space:]]$archive\$" "$work/SHA256SUMS" | awk '{ print $1 }' | head -n 1)"
 [ -n "$expected" ] || die "the release's SHA256SUMS does not list $archive; refusing to install"

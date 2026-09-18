@@ -21,13 +21,13 @@ describe("the Homebrew formula renderer", () => {
   });
 
   it("pins every platform's archive to the checksum the release listed", () => {
-    const formula = renderFormula(template, "1.2.3", sums);
+    const formula = renderFormula(template, "1.2.3", "v4.5.6", sums);
     assert.match(formula, /^class Agentsafe < Formula$/m);
     assert.match(formula, /version "1\.2\.3"/);
     for (const [index, target] of TARGETS.entries()) {
       assert.ok(
         formula.includes(
-          `https://github.com/decionis/agent-safe-pipeline/releases/download/v1.2.3/agentsafe-1.2.3-${target}.tar.gz`,
+          `https://github.com/decionis/agent-safe-pipeline/releases/download/v4.5.6/agentsafe-1.2.3-${target}.tar.gz`,
         ),
         target,
       );
@@ -38,19 +38,27 @@ describe("the Homebrew formula renderer", () => {
     assert.match(formula, /bin\.install_symlink libexec\/"agentsafe"/);
     assert.match(formula, /agentsafe doctor --upstream http:\/\/127\.0\.0\.1:1 --no-network/);
     assert.match(
-      renderFormula(template, "1.2.3", sums, "https://mirror.example/r"),
-      /https:\/\/mirror\.example\/r\/v1\.2\.3\//,
+      renderFormula(template, "1.2.3", "v4.5.6", sums, "https://mirror.example/r"),
+      /https:\/\/mirror\.example\/r\/v4\.5\.6\//,
     );
+    // The formula's version is the runtime's; the release it downloads from
+    // is the library's, and the two never appear in each other's place.
+    assert.doesNotMatch(formula, /download\/v1\.2\.3\//);
+    assert.doesNotMatch(formula, /version "4\.5\.6"/);
   });
 
   it("refuses a missing archive, a placeholder without a value, and a version that is not one", () => {
     const partial = new Map(sums);
     partial.delete("agentsafe-1.2.3-linux-arm64.tar.gz");
     assert.throws(
-      () => renderFormula(template, "1.2.3", partial),
+      () => renderFormula(template, "1.2.3", "v4.5.6", partial),
       /does not list agentsafe-1\.2\.3-linux-arm64/,
     );
-    assert.throws(() => renderFormula("{{NOPE}}", "1.2.3", sums), /no value for \{\{NOPE\}\}/);
-    assert.throws(() => renderFormula(template, "v1.2.3", sums), /not a version/);
+    assert.throws(
+      () => renderFormula("{{NOPE}}", "1.2.3", "v4.5.6", sums),
+      /no value for \{\{NOPE\}\}/,
+    );
+    assert.throws(() => renderFormula(template, "v1.2.3", "v4.5.6", sums), /not a version/);
+    assert.throws(() => renderFormula(template, "1.2.3", "4.5.6", sums), /not a release tag/);
   });
 });

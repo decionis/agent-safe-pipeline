@@ -21,7 +21,10 @@ refuses to continue unless the checksum matches, places the archive's directory 
 `<prefix>/lib/agentsafe/<version>` and links `<prefix>/bin/agentsafe` to the executable in it,
 with `/usr/local` as the prefix when its `bin` and `lib` are writable and `~/.local` otherwise. It
 never uses `sudo`, never edits a shell profile, never installs a service, and touches nothing
-else. `AGENTSAFE_VERSION` pins a version; `AGENTSAFE_INSTALL_PREFIX` chooses the prefix.
+else. `AGENTSAFE_VERSION` pins a runtime version; `AGENTSAFE_INSTALL_PREFIX` chooses the prefix. The
+runtime is versioned on its own and its archives ride on the repository's releases, which are tagged
+by the library's version, so the installer reads which release carries the archive from the release
+listing; `AGENTSAFE_RELEASE_TAG` names it for a mirror that has no listing.
 
 ## Packages, for operators who do not run scripts from the network
 

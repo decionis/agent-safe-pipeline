@@ -1,7 +1,7 @@
 /**
  * Renders the Homebrew formula for one release from its checksum file.
  *
- *   node scripts/RenderHomebrewFormula.mjs --version <v> --sums <SHA256SUMS> --out <Formula/agentsafe.rb>
+ *   node scripts/RenderHomebrewFormula.mjs --version <v> --tag <release tag> --sums <SHA256SUMS> --out <Formula/agentsafe.rb>
  *
  * The four archives the release built are looked up by name in SHA256SUMS,
  * which is the same file the installer verifies against, so the formula
@@ -17,6 +17,8 @@ import { fileURLToPath } from "node:url";
 export const TARGETS = ["darwin-arm64", "darwin-x64", "linux-arm64", "linux-x64"];
 export const RELEASE_BASE = "https://github.com/decionis/agent-safe-pipeline/releases/download";
 const VERSION = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[\w.-]+)?$/;
+/** A release tag: the repository's releases are tagged by the library's version, which the runtime's is not. */
+const TAG = /^v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[\w.-]+)?$/;
 
 /** The SHA-256 of each archive named in a SHA256SUMS file, by file name. */
 export function parseSums(text) {
@@ -28,10 +30,16 @@ export function parseSums(text) {
   return sums;
 }
 
-/** The formula text for a version, from its template and its checksums. */
-export function renderFormula(template, version, sums, base = RELEASE_BASE) {
+/**
+ * The formula text for a runtime version, from its template and its
+ * checksums. The archives live under the release tagged `tag`, the
+ * library's version, which is not the runtime's: the formula's `version` is
+ * the runtime's and its URLs are the release's.
+ */
+export function renderFormula(template, version, tag, sums, base = RELEASE_BASE) {
   if (!VERSION.test(version)) throw new Error(`not a version: ${version}`);
-  const values = { VERSION: version, BASE: base };
+  if (!TAG.test(tag)) throw new Error(`not a release tag: ${tag}`);
+  const values = { VERSION: version, TAG: tag, BASE: base };
   for (const target of TARGETS) {
     const name = `agentsafe-${version}-${target}.tar.gz`;
     const sum = sums.get(name);
@@ -54,10 +62,11 @@ const argument = (name) => {
 
 if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const version = argument("--version");
+  const tag = argument("--tag");
   const sumsPath = argument("--sums");
   const out = argument("--out");
-  if (version === undefined || sumsPath === undefined || out === undefined) {
-    throw new Error("--version, --sums and --out are required");
+  if (version === undefined || tag === undefined || sumsPath === undefined || out === undefined) {
+    throw new Error("--version, --tag, --sums and --out are required");
   }
   const template = readFileSync(
     new URL("../packaging/homebrew/agentsafe.rb.tmpl", import.meta.url),
@@ -66,7 +75,7 @@ if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(
   const base = argument("--base") ?? RELEASE_BASE;
   writeFileSync(
     out,
-    renderFormula(template, version, parseSums(readFileSync(sumsPath, "utf8")), base),
+    renderFormula(template, version, tag, parseSums(readFileSync(sumsPath, "utf8")), base),
   );
-  process.stdout.write(`${JSON.stringify({ out, version })}\n`);
+  process.stdout.write(`${JSON.stringify({ out, version, tag })}\n`);
 }

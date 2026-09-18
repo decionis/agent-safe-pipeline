@@ -878,10 +878,13 @@ jobs:
         if: steps.release.outputs.exists != 'true'
         env:
           RUNTIME_VERSION: ${{ steps.runtime.outputs.version }}
+          RELEASE_TAG: v${{ steps.release.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
-          node scripts/RenderHomebrewFormula.mjs --version "$RUNTIME_VERSION" \
+          # The archives live under the release tagged by the library's
+          # version; the formula's own version is the runtime's.
+          node scripts/RenderHomebrewFormula.mjs --version "$RUNTIME_VERSION" --tag "$RELEASE_TAG" \
             --sums release/SHA256SUMS --out release/agentsafe.rb
           ruby -c release/agentsafe.rb
       # The runtime package's first publication cannot use trusted publishing:

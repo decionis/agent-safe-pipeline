@@ -36,7 +36,9 @@ refuses to continue unless the checksum matches, places the archive's directory 
 `<prefix>/lib/agentsafe/<version>` and links `<prefix>/bin/agentsafe` to the executable in it,
 with `/usr/local` as the prefix when its `bin` and `lib` are writable and `~/.local` otherwise. It
 never uses `sudo`, never edits a shell profile, and installs nothing else. `AGENTSAFE_VERSION` pins
-a version; `AGENTSAFE_INSTALL_PREFIX` chooses the prefix. Read it before you run it; it is short.
+a runtime version; `AGENTSAFE_INSTALL_PREFIX` chooses the prefix. The archives ride on the
+repository's releases, which are tagged by the library's version, so the installer reads which
+release carries the archive from the release listing. Read it before you run it; it is short.
 
 ## By hand
 
