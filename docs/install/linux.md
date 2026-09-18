@@ -84,8 +84,12 @@ evidence included.
 
 ```bash
 brew tap decionis/agent-safe https://github.com/decionis/agent-safe-pipeline
+brew trust decionis/agent-safe
 brew install agentsafe
 ```
+
+Homebrew 5 and later load a formula from a third-party tap only after you trust the tap once;
+`brew trust` is the command, and an older Homebrew that does not have it does not need it.
 
 ## After installing
 
