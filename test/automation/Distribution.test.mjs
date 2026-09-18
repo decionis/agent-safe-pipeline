@@ -24,6 +24,13 @@ describe("the installer", () => {
     assert.match(script, /does not list .* refusing to install/);
     assert.match(script, /^REPO="decionis\/agent-safe-pipeline"$/m);
     assert.match(script, /https:\/\/github\.com\/\$REPO\/releases\/download/);
+    // The release is tagged by the library's version, not the runtime's: the
+    // archive is fetched from the release the listing says carries it, and
+    // never from a tag guessed out of the runtime version.
+    assert.match(script, /"\$BASE\/\$tag\/\$archive"/);
+    assert.match(script, /"\$BASE\/\$tag\/SHA256SUMS"/);
+    assert.doesNotMatch(script, /\$BASE\/v\$version/);
+    assert.match(script, /AGENTSAFE_RELEASE_TAG/);
     assert.doesNotMatch(script, /\bsudo\b/);
     assert.doesNotMatch(script, /\.bashrc|\.zshrc|\.profile|systemctl|launchctl/);
     assert.match(script, /lib="\$prefix\/lib\/agentsafe\/\$version"/);
