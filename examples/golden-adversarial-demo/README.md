@@ -54,3 +54,13 @@ production verifier records the same outcome with Decionis so it joins the Decis
 For the same sequence drawn for a bank audience, see
 [`docs/remote-cro-authorization.md`](../../docs/remote-cro-authorization.md). For what the receipt
 does and does not prove, see [`docs/presence-evidence.md`](../../docs/presence-evidence.md).
+
+## Hosted epilogue
+
+`DECIONIS_HOSTED=1` (or `DECIONIS_API_KEY` with `DECIONIS_TENANT_ID`) adds one step after the
+proof: Decionis evaluates the golden proposal beside the fixture, in shadow, so nothing above
+changes, and the run ends with the signed Decision Dossier it left, its verification page when the
+authority attaches one, and how to verify it offline. With no key, the run mints a free provisional
+workspace and stores its key for the next run. The adversarial attempts stay local by design; they
+are about this boundary, not the authority. Unset, the run prints one hint line and nothing else
+changes.

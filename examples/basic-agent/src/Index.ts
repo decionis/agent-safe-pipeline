@@ -3,18 +3,19 @@ import {
   IntentCapture,
   SafeExecutor,
   createFixtureAuthorityPair,
-  createGate,
-  printDecision,
+  createHostedGate,
+  printHostedOutcome,
 } from "@decionis/agent-safe-pipeline";
 import { z } from "zod";
 
-// With no DECIONIS_API_KEY this is the fixture pair, exactly as before. With
-// one, Decionis evaluates the same intent beside it and leaves a signed record.
-const gate = createGate({
+// With nothing set this is the fixture pair, exactly as before. With
+// DECIONIS_HOSTED=1, or a key, Decionis evaluates the same intent beside it and
+// leaves a signed record; a key is provisioned in-flow when there is none.
+const gate = await createHostedGate({
   local: createFixtureAuthorityPair(() => "BLOCK", { unsafeAllowDevelopmentFixture: true }),
   tenantId: "00000000-0000-4000-8000-000000000001",
-  // Client identification on hosted calls only: which example a key was first used from.
-  source: { repo: "decionis/agent-safe-pipeline", example: "basic-agent" },
+  // Client identification on hosted calls only: which example, from which surface.
+  source: { repo: "decionis/agent-safe-pipeline", example: "basic-agent", surface: "github" },
 });
 const captured = new IntentCapture().capture(
   {
@@ -53,4 +54,4 @@ process.stdout.write(
     2,
   )}\n`,
 );
-printDecision(decision);
+await printHostedOutcome(gate, decision);

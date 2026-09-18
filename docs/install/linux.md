@@ -5,9 +5,9 @@ pinned Node release and carrying every dependency. It is distributed as a `.deb`
 archive, and an installer script; all four contain the same binary. Homebrew on Linux uses the
 same formula as macOS.
 
-> Availability: the release assets described here are produced by the release workflow from the
-> first release after `v0.1.4`. Until that release exists, run from a clone as the
-> [quickstart](../quickstart/README.md) shows; the commands are the same.
+> Availability: the release assets described here are produced by the release workflow from
+> `v0.2.0` on. Before that, run from a clone as the [quickstart](../quickstart/README.md) shows;
+> the commands are the same.
 
 ## The installer
 

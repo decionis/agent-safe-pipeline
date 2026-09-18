@@ -4,8 +4,8 @@ import {
   PresenceApprovalCoordinator,
   SafeExecutor,
   createFixtureAuthorityPair,
-  createGate,
-  printDecision,
+  createHostedGate,
+  printHostedOutcome,
 } from "@decionis/agent-safe-pipeline";
 import { z } from "zod";
 
@@ -18,7 +18,7 @@ const amount = proposal.parameters.amountMinor;
 
 // With no DECIONIS_API_KEY this is the fixture pair, exactly as before. With
 // one, Decionis evaluates the same intent beside it and leaves a signed record.
-const gate = createGate({
+const gate = await createHostedGate({
   local: createFixtureAuthorityPair(
     (_intent, evidence) => {
       if (amount > 100_000) return "BLOCK";
@@ -31,7 +31,11 @@ const gate = createGate({
   ),
   tenantId: "00000000-0000-4000-8000-000000000002",
   // Client identification on hosted calls only: which example a key was first used from.
-  source: { repo: "decionis/agent-safe-pipeline", example: "shopify-refund-agent" },
+  source: {
+    repo: "decionis/agent-safe-pipeline",
+    example: "shopify-refund-agent",
+    surface: "github",
+  },
 });
 const captured = new IntentCapture().capture(proposal, {
   tenantId: gate.tenantId,
@@ -99,4 +103,4 @@ process.stdout.write(
     2,
   )}\n`,
 );
-printDecision(decision);
+await printHostedOutcome(gate, decision);

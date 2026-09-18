@@ -324,11 +324,51 @@ when a call is made at all.
 
 `printDecision(decision, { out })` writes what Decionis said, when it was asked, and nothing when
 it was not: the governing verdict, the hosted verdict with its standing (`governs`, `recorded
-beside the local verdict`, or `failed closed`), the dossier identifier, and the command that
-verifies it. Pass `out: process.stderr` where stdout is a transport, as in a stdio MCP server, and
+beside the local verdict`, or `failed closed`), the dossier identifier, the page that verifies it
+when the authority attached one (`decision.hosted.verificationUrl`), and the command that verifies
+it offline. Pass `out: process.stderr` where stdout is a transport, as in a stdio MCP server, and
 `verifyCommand` to name your own verification step; the default names this repository's
 `pnpm decionis:verify <dossier-id>`, which fetches the signed record with your key and checks its
 Ed25519 proof bundle against the authority's public JWKS offline.
+
+### One variable, a key issued in the run
+
+`createHostedGate` is `createGate` with one more way onto Decionis, for the moment a developer has
+nothing but a clone:
+
+```ts
+import { createHostedGate, printHostedOutcome } from "@decionis/agent-safe-pipeline";
+
+const gate = await createHostedGate({
+  local: createFixtureAuthorityPair(() => "BLOCK", { unsafeAllowDevelopmentFixture: true }),
+  tenantId: "00000000-0000-4000-8000-000000000001",
+  source: { repo: "owner/name", example: "basic-agent", surface: "github" },
+});
+const decision = await gate.authority.evaluate(captured);
+await printHostedOutcome(gate, decision);
+```
+
+| `DECIONIS_HOSTED` | `DECIONIS_API_KEY` | What runs                                                                                                                                                                                                                                  |
+| ----------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| unset             | unset              | The local pair, untouched; `printHostedOutcome` writes one hint line.                                                                                                                                                                      |
+| any               | set                | Exactly `createGate`: the key and `DECIONIS_TENANT_ID` from the environment, in `DECIONIS_MODE`.                                                                                                                                           |
+| `1`               | unset              | The credential this user keeps for this authority (`agentsafe login`, or an earlier run), else a free provisional workspace minted now from `POST /v1/public/agents/provision`, stored for the next run, and named on standard error once. |
+
+A provisional workspace needs no account, no email and no card; its key evaluates in `SHADOW`
+only, so the local verdict still governs and the hosted decision and its signed Decision Dossier
+are recorded beside it. The credential lives in `$AGENTSAFE_HOME`, else
+`$XDG_CONFIG_HOME/agentsafe`, else `~/.config/agentsafe/credentials.json`, readable by its owner
+alone, the same file `agentsafe login` writes; `NODE_ENV=production` refuses the whole path, as
+it refuses every stored login. `resolveHostedCredentials` is the same resolution for a process
+that is not a gate, such as the trusted executor. The provisioning call carries the client
+identification (`repo`, `example`, `surface`) in its `User-Agent`, and nothing else about the
+machine.
+
+`printHostedOutcome(gate, decision, { out })` is how an example ends: `printDecision`, then the
+signed record itself, fetched with the run's own key from `GET /v1/protocol/dossiers/{id}`
+(`gate.fetchDossier`) and shown by its proof: the algorithm, the key, when it was issued, how many
+artifacts it covers, and the issuer tier, `provisional_anonymous` for a workspace without an
+account. `fetchSignedDossier`, `summarizeDossier` and `printSignedDossier` are the parts.
 
 ## Local testing
 

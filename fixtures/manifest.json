@@ -783,6 +783,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/pipeline/test/decision/CreateHostedGate.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/pipeline/test/decision/DecionisGate.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
@@ -796,6 +802,12 @@
     },
     {
       "path": "packages/pipeline/test/decision/ManagedEscalation.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/pipeline/test/decision/Provision.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false
@@ -861,6 +873,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/pipeline/test/http/StoredCredentials.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/pipeline/test/intent/IntentCapture.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
@@ -886,6 +904,12 @@
     },
     {
       "path": "packages/pipeline/test/report/DecisionReport.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/pipeline/test/report/DossierReport.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false

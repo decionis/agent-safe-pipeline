@@ -53,6 +53,51 @@ function json(body: unknown, status = 200) {
 }
 
 describe("DecionisGate", () => {
+  it("reads the verification page from the envelope the contract may attach, and nothing else from it", async () => {
+    const intent = captured();
+    const page = "https://decionis.example/verify/dossier-1?sig=synthetic&exp=1";
+    const envelope = {
+      verification_page_url: page,
+      verification_url:
+        "https://authority.decionis.example/v1/public/decision-dossiers/dossier-1/verify?sig=synthetic",
+      link_expires_at: "2026-09-19T00:00:00.000Z",
+      signature_scheme: "hmac-v2-org-scoped",
+      asymmetric_proof: { public_jwks_url: "https://authority.decionis.example/jwks" },
+    };
+    const enforcement = await gateWith(
+      vi.fn<typeof fetch>(async () => json(decisionBody(intent, { verification: envelope }))),
+    ).evaluate(intent);
+    expect(enforcement.verdict).toBe("ALLOW");
+    expect(enforcement.verificationUrl).toBe(page);
+    const shadow = await gateWith(
+      vi.fn<typeof fetch>(async () =>
+        json(
+          decisionBody(intent, {
+            mode: "SHADOW",
+            execution_token: null,
+            execution_token_expires_at: null,
+            should_execute: false,
+            verification: envelope,
+          }),
+        ),
+      ),
+      "SHADOW",
+    ).evaluate(intent);
+    expect(shadow.verificationUrl).toBe(page);
+    // Absent or null, the decision carries no page; a page that is not a URL fails closed.
+    const without = await gateWith(
+      vi.fn<typeof fetch>(async () => json(decisionBody(intent, { verification: null }))),
+    ).evaluate(intent);
+    expect(without.verificationUrl).toBeUndefined();
+    const malformed = await gateWith(
+      vi.fn<typeof fetch>(async () =>
+        json(decisionBody(intent, { verification: { verification_page_url: "not a url" } })),
+      ),
+    ).evaluate(intent);
+    expect(malformed.verdict).toBe("BLOCK");
+    expect(malformed.failClosed).toBe(true);
+  });
+
   it("reads the credential at each request, so a rotation needs no new gate", async () => {
     const intent = captured();
     const seen: string[] = [];

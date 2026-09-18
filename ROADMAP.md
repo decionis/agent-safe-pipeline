@@ -18,6 +18,10 @@ availability; priorities can change when security or compatibility work interven
   and observational, modelled auditable provider outcomes, added local and managed Presence
   escalation demos, and housed the CommerceGate MCP (`@decionis/commerce`) in
   `packages/commerce-mcp` ([tag v0.1.4](https://github.com/decionis/agent-safe-pipeline/releases/tag/v0.1.4)).
+- `v0.2.0` made the runtime installable (`@decionis/agentsafe`: `agentsafe proxy`, the boundary
+  test, Homebrew, Linux packages, an installer, the image, the Helm chart) and put the hosted gate
+  in every example's run path: one variable, a key issued in the run, and each run ending with the
+  signed Decision Dossier Decionis left.
 
 See [GitHub Releases](https://github.com/decionis/agent-safe-pipeline/releases) and the
 [release-verification guide](./CONTRIBUTING.md#releases) for immutable artifacts and verification

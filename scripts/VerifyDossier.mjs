@@ -9,8 +9,10 @@
  *
  * Reads DECIONIS_API_KEY, DECIONIS_TENANT_ID, DECIONIS_API_URL (default
  * https://api.decionis.com) and DECIONIS_ALLOW_INSECURE_LOOPBACK, exactly as
- * `createGate` does. The key travels in one place: the authorization header
- * of the record fetch. The JWKS is fetched without it.
+ * `createGate` does; with no key in the environment, the credential a run
+ * under DECIONIS_HOSTED=1 stored (or `agentsafe login` did) is used, exactly
+ * as `createHostedGate` does. The key travels in one place: the authorization
+ * header of the record fetch. The JWKS is fetched without it.
  */
 import { writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -34,8 +36,8 @@ export function usage() {
   return [
     "usage: pnpm decionis:verify <dossier-id> [--out <path>]",
     "",
-    "  DECIONIS_API_KEY                  the key the record was minted under (required)",
-    "  DECIONIS_TENANT_ID                that key's organization (required)",
+    "  DECIONIS_API_KEY                  the key the record was minted under; else the stored one",
+    "  DECIONIS_TENANT_ID                that key's organization; else the stored one",
     `  DECIONIS_API_URL                  default ${DEFAULT_API_URL}`,
     "  DECIONIS_ALLOW_INSECURE_LOOPBACK  'true' permits http://127.0.0.1 for a loopback double",
     "",
@@ -63,6 +65,18 @@ export function parseArguments(argv) {
   if (dossierId === undefined) return { help: true };
   if (!DOSSIER_ID_PATTERN.test(dossierId)) throw new Error("DOSSIER_ID_INVALID");
   return { help: false, dossierId, ...(out === undefined ? {} : { out }) };
+}
+
+/** The stored credential, through the built pipeline; null when there is none or no build. */
+async function storedCredentials(env) {
+  try {
+    const { readStoredCredentials } = await import(
+      new URL("../packages/pipeline/dist/Index.js", import.meta.url).href
+    );
+    return readStoredCredentials({ env });
+  } catch {
+    return null;
+  }
 }
 
 export function authorityUrl(env) {
@@ -117,12 +131,18 @@ export async function verifyDossier({
   out = process.stdout,
   savePath,
 }) {
-  const apiKey = (env.DECIONIS_API_KEY ?? "").trim();
-  const tenantId = (env.DECIONIS_TENANT_ID ?? "").trim();
+  // A key in the environment first; else the credential a hosted run stored.
+  const stored = (env.DECIONIS_API_KEY ?? "").trim() === "" ? await storedCredentials(env) : null;
+  const apiKey = (env.DECIONIS_API_KEY ?? "").trim() || stored?.apiKey || "";
+  const tenantId = (env.DECIONIS_TENANT_ID ?? "").trim() || stored?.tenantId || "";
   if (apiKey === "") throw new Error("DECIONIS_API_KEY_MISSING");
   if (tenantId === "") throw new Error("DECIONIS_TENANT_ID_MISSING");
   if (!DOSSIER_ID_PATTERN.test(dossierId)) throw new Error("DOSSIER_ID_INVALID");
-  const apiUrl = authorityUrl(env);
+  const apiUrl = authorityUrl(
+    (env.DECIONIS_API_URL ?? "").trim() === "" && stored?.endpoint
+      ? { ...env, DECIONIS_API_URL: stored.endpoint }
+      : env,
+  );
 
   const recordUrl = `${apiUrl}/v1/protocol/dossiers/${encodeURIComponent(dossierId)}?org_id=${encodeURIComponent(tenantId)}`;
   const payload = signedPayload(

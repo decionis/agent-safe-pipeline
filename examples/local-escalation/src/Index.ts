@@ -20,6 +20,8 @@ import {
   IntentCapture,
   PresenceApprovalCoordinator,
   SafeExecutor,
+  createHostedGate,
+  printHostedOutcome,
 } from "@decionis/agent-safe-pipeline";
 import {
   LOCAL_AUTHORITY_API_KEY,
@@ -29,7 +31,7 @@ import {
 } from "@decionis/agent-safe-pipeline/testing";
 import { z } from "zod";
 
-const TENANT_ID = "00000000-0000-4000-8000-000000000005";
+const SYNTHETIC_TENANT_ID = "00000000-0000-4000-8000-000000000005";
 const CRO_IDENTITY = "synthetic-cro";
 // Trusted executor configuration: who must approve, and in which role.
 const MANAGED_APPROVER = { principal_id: CRO_IDENTITY, role_id: "CRO" } as const;
@@ -54,6 +56,16 @@ const verifier = new DecionisGrantVerifier({
   apiKey: LOCAL_AUTHORITY_API_KEY,
   allowInsecureLoopback: true,
 });
+// The loopback double is the whole authority for the four flows below. With
+// DECIONIS_HOSTED=1, or a key, Decionis also evaluates the first proposal, in
+// shadow beside the double, and leaves a signed Decision Dossier at the end;
+// the ceremonies stay on the loopback Presence double by design.
+const hosted = await createHostedGate({
+  local: { authority: gate, verifier },
+  tenantId: SYNTHETIC_TENANT_ID,
+  source: { repo: "decionis/agent-safe-pipeline", example: "local-escalation", surface: "github" },
+});
+const TENANT_ID = hosted.tenantId;
 const wires: string[] = [];
 const registry = new ActionRegistry()
   .register("refund_order", {
@@ -104,11 +116,13 @@ async function completeCeremony(requestId: string, response: "APPROVE" | "DENY")
 }
 
 let failures = 0;
+let firstProposal: ReturnType<typeof capture> | null = null;
 
 // ---------------------------------------------------------------------------
 // DIRECT: the executor coordinates Presence itself and returns the receipt to the authority.
 {
   const captured = capture("direct");
+  firstProposal = captured;
   const first = await gate.evaluate(captured);
   log("direct_decision", { verdict: first.verdict, executable: first.authorization !== null });
   const coordinator = new PresenceApprovalCoordinator(
@@ -252,7 +266,18 @@ let failures = 0;
   if (deniedDecision.verdict !== "BLOCK" || deniedDecision.authorization !== null) failures += 1;
 }
 
-await authority.stop();
-await presence.stop();
 log("summary", { executions: wires.length, expectedExecutions: 2, failures });
 process.exitCode = failures === 0 && wires.length === 2 ? 0 : 1;
+
+// Hosted epilogue: the first proposal, evaluated by Decionis beside the
+// double, ending with the signed record and where to verify it.
+if (firstProposal !== null) {
+  await printHostedOutcome(
+    hosted,
+    hosted.credentials === null
+      ? await gate.evaluate(firstProposal)
+      : await hosted.authority.evaluate(firstProposal),
+  );
+}
+await authority.stop();
+await presence.stop();

@@ -862,11 +862,54 @@ jobs:
           node scripts/RenderHomebrewFormula.mjs --version "$RUNTIME_VERSION" \
             --sums release/SHA256SUMS --out release/agentsafe.rb
           ruby -c release/agentsafe.rb
+      # The runtime package's first publication cannot use trusted publishing:
+      # npm attaches a trusted publisher to a package that already exists. A
+      # granular NPM_TOKEN (publish, bypass 2FA) carries that one publication
+      # through a private npmrc that lives for the step; once the package
+      # exists and its trusted publisher is configured, the secret is deleted
+      # and the step below it publishes with the workflow's identity alone.
+      - name: Note whether a publish token is set for the runtime package
+        if: steps.release.outputs.exists != 'true' && github.event_name == 'push'
+        id: runtime_token
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "$NPM_TOKEN" ]]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "present=false" >> "$GITHUB_OUTPUT"; fi
+      - name: Publish the runtime package to npm with the publish token (first publication)
+        if: >-
+          steps.release.outputs.exists != 'true' &&
+          github.event_name == 'push' &&
+          vars.NPM_PUBLISH_RUNTIME_ENABLED == 'true' &&
+          steps.runtime_token.outputs.present == 'true'
+        env:
+          NPM_PACKAGE: "@decionis/agentsafe"
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          RELEASE_TARBALL: ${{ steps.runtime.outputs.tarball }}
+          RELEASE_VERSION: ${{ steps.runtime.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          published_version="$(npm view "$NPM_PACKAGE@$RELEASE_VERSION" version 2>/dev/null || true)"
+          if [[ "$published_version" == "$RELEASE_VERSION" ]]; then
+            echo "$NPM_PACKAGE@$RELEASE_VERSION is already public; skipping publication."
+            exit 0
+          fi
+          npmrc="$RUNNER_TEMP/npmrc-runtime"
+          (umask 077; printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN" > "$npmrc")
+          publish_args=("./release/$RELEASE_TARBALL" --access public --provenance)
+          if [[ "$RELEASE_VERSION" == *-* ]]; then
+            publish_args+=(--tag next)
+          fi
+          NPM_CONFIG_USERCONFIG="$npmrc" npm publish "${publish_args[@]}"
+          rm -f "$npmrc"
       - name: Publish the runtime package to npm through trusted publishing
         if: >-
           steps.release.outputs.exists != 'true' &&
           github.event_name == 'push' &&
-          vars.NPM_PUBLISH_RUNTIME_ENABLED == 'true'
+          vars.NPM_PUBLISH_RUNTIME_ENABLED == 'true' &&
+          steps.runtime_token.outputs.present != 'true'
         env:
           NPM_PACKAGE: "@decionis/agentsafe"
           RELEASE_TARBALL: ${{ steps.runtime.outputs.tarball }}

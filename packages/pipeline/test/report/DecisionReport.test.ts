@@ -27,6 +27,7 @@ function hosted(overrides: Partial<HostedEvaluation> = {}): HostedEvaluation {
     dossierId: "synthetic-dossier-1",
     reasonCodes: ["POLICY_ALLOW"],
     failClosed: false,
+    verificationUrl: null,
     ...overrides,
   };
 }

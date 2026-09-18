@@ -10,8 +10,8 @@ namespaces and a StatefulSet, stays in [`deploy/`](../../deploy/README.md) for t
 ingress.
 
 > Availability: the chart is packaged and pushed to `oci://ghcr.io/decionis/charts/agentsafe` by
-> the release workflow from the first release after `v0.1.4`. Until then, install from the
-> checkout: `helm install agentsafe ./charts/agentsafe ...`.
+> the release workflow from `v0.2.0` on. Before that, install from the checkout:
+> `helm install agentsafe ./charts/agentsafe ...`.
 
 ## Install
 

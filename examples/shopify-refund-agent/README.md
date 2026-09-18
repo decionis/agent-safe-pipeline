@@ -8,4 +8,4 @@ pnpm --filter @decionis/agent-safe-example-shopify-refund demo
 
 No Shopify network call or real credential is used. A production handler should hold the narrow Shopify credential behind the executor and send a provider idempotency key.
 
-With `DECIONIS_API_KEY` and `DECIONIS_TENANT_ID` set, Decionis evaluates the same intent beside the fixture. The synthetic Presence receipt cannot be verified by a real authority, so the re-evaluation is recorded as fail-closed on the hosted side while the fixture still governs; the first evaluation's ESCALATE leaves a signed record. Unset, nothing changes.
+`DECIONIS_HOSTED=1` (or `DECIONIS_API_KEY` with `DECIONIS_TENANT_ID`) has Decionis evaluate the same intent beside the fixture; with no key, the run mints a free provisional workspace and stores its key for the next run. The synthetic Presence receipt cannot be verified by a real authority, so the re-evaluation is recorded as fail-closed on the hosted side while the fixture still governs; the first evaluation's ESCALATE leaves a signed record, and the run ends with it. Unset, nothing changes.

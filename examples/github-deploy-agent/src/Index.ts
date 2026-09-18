@@ -4,8 +4,8 @@ import {
   IntentCapture,
   SafeExecutor,
   createFixtureAuthorityPair,
-  createGate,
-  printDecision,
+  createHostedGate,
+  printHostedOutcome,
   type AgentProposal,
   type GateDecision,
 } from "@decionis/agent-safe-pipeline";
@@ -14,7 +14,7 @@ import { z } from "zod";
 const capture = new IntentCapture();
 // With no DECIONIS_API_KEY this is the fixture pair, exactly as before. With
 // one, Decionis evaluates the same intents beside it and leaves signed records.
-const gate = createGate({
+const gate = await createHostedGate({
   local: createFixtureAuthorityPair(
     (captured) => {
       if (captured.intent.action === "force_push") return "BLOCK";
@@ -24,7 +24,11 @@ const gate = createGate({
   ),
   tenantId: "00000000-0000-4000-8000-000000000003",
   // Client identification on hosted calls only: which example a key was first used from.
-  source: { repo: "decionis/agent-safe-pipeline", example: "github-deploy-agent" },
+  source: {
+    repo: "decionis/agent-safe-pipeline",
+    example: "github-deploy-agent",
+    surface: "github",
+  },
 });
 const registry = new ActionRegistry()
   .register("deploy", {
@@ -83,7 +87,7 @@ const summary = process.env["GITHUB_STEP_SUMMARY"];
 for (const { proposal, decision } of decisions) {
   if (decision.hosted === undefined) continue;
   process.stdout.write(`${proposal.action} ${JSON.stringify(proposal.parameters)}\n`);
-  printDecision(decision);
+  await printHostedOutcome(gate, decision);
   if (summary !== undefined && summary !== "" && decision.hosted.dossierId !== null) {
     await appendFile(
       summary,

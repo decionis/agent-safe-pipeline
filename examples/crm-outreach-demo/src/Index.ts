@@ -20,10 +20,12 @@ import { z } from "zod";
 import {
   ActionRegistry,
   AuditRecorder,
+  createFixtureAuthorityPair,
+  createHostedGate,
   IntentCapture,
   PresenceApprovalCoordinator,
+  printHostedOutcome,
   SafeExecutor,
-  createFixtureAuthorityPair,
   type AgentProposal,
   type AuditEventV1,
   type CapturedIntent,
@@ -33,7 +35,7 @@ import {
   type PresenceGateResult,
 } from "@decionis/agent-safe-pipeline";
 
-const TENANT_ID = "00000000-0000-4000-8000-000000000006";
+const SYNTHETIC_TENANT_ID = "00000000-0000-4000-8000-000000000006";
 const CEREMONY = "FIDO2 / WebAuthn with active liveness";
 
 const out = (line: string): void => {
@@ -162,6 +164,17 @@ const pair = createFixtureAuthorityPair(
   },
   { unsafeAllowDevelopmentFixture: true },
 );
+
+// With nothing set the fixture is the whole authority, as before. With
+// DECIONIS_HOSTED=1, or a key, Decionis evaluates the golden proposal beside it
+// (in shadow, so nothing below changes) and leaves a signed Decision Dossier;
+// the adversarial attempts stay local by design. A hosted tenant is the key's own.
+const gate = await createHostedGate({
+  local: pair,
+  tenantId: SYNTHETIC_TENANT_ID,
+  source: { repo: "decionis/agent-safe-pipeline", example: "crm-outreach-demo", surface: "github" },
+});
+const TENANT_ID = gate.tenantId;
 
 /** The provider side: what the CRM and the messaging provider actually did. */
 const crmWrites: string[] = [];
@@ -502,3 +515,11 @@ out(
   `\n${allOk ? "PROVEN" : "NOT PROVEN"}: 6 adversarial attempts, ${crmWrites.length + messagesSent.length - 2} unauthorized executions; 1 CRM write and 1 message for 2 verified grants on the golden paths.`,
 );
 process.exitCode = allOk ? 0 : 1;
+
+// ---------------------------------------------------------------------------
+// Hosted epilogue: the same golden proposal, evaluated by Decionis beside the
+// fixture, ending with the signed record and where to verify it.
+await printHostedOutcome(
+  gate,
+  gate.credentials === null ? decisionA : await gate.authority.evaluate(sendA),
+);

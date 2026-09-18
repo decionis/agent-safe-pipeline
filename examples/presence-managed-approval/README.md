@@ -11,7 +11,10 @@ is simulated and side-effect-free.
 
 ## Configure
 
-Create `.env.presence-managed` at the repository root. The file is ignored by Git.
+Create `.env.presence-managed` at the repository root. The file is ignored by Git. The three
+`DECIONIS_*` values may instead come from the credential `agentsafe login` stored; a workspace an
+example provisioned for itself (`DECIONIS_HOSTED=1`) is refused here by name, because a ceremony
+needs an owned organization with an enrolled approver.
 
 ```text
 DECIONIS_API_URL=https://api.decionis.com

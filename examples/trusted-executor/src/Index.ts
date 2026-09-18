@@ -32,7 +32,12 @@ import { createServer as createSocketServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
-import { JsonObjectSchema } from "@decionis/agent-safe-pipeline";
+import {
+  JsonObjectSchema,
+  fetchSignedDossier,
+  printSignedDossier,
+  resolveHostedCredentials,
+} from "@decionis/agent-safe-pipeline";
 import {
   LOCAL_AUTHORITY_API_KEY,
   LOCAL_PRESENCE_API_KEY,
@@ -1661,11 +1666,68 @@ heading("Nothing secret left the process");
 }
 
 await executor.executor.close();
-await provider.stop();
-await authority.stop();
-await presence.stop();
 
 out(
   `\n${failures === 0 ? "PROVEN" : "NOT PROVEN"}: ${authority.grants.size} grants claimed, ${provider.effects.size} provider effects, ${presence.receipts.size} ceremonies completed by a person, one lost response reconciled without a second send, one caller token rotated; ${failures} failed expectations.`,
 );
 process.exitCode = failures === 0 ? 0 : 1;
+
+// ---------------------------------------------------------------------------
+// Hosted epilogue. Everything above ran against the loopback doubles. With
+// DECIONIS_HOSTED=1, or a key, the same executor process runs once more in
+// shadow against Decionis: one proposal, observed and recorded, ending with
+// the signed Decision Dossier it left. Nothing is executed and no grant is
+// claimed; a provisional key evaluates in shadow only.
+heading("Hosted: the same executor, in shadow, against Decionis");
+const hosted = await resolveHostedCredentials({
+  source: { repo: "decionis/agent-safe-pipeline", example: "trusted-executor", surface: "github" },
+});
+if (hosted === null) {
+  out("    hint: DECIONIS_HOSTED=1 runs this leg for real; no account, no card, one variable");
+} else {
+  const insecure = process.env["DECIONIS_ALLOW_INSECURE_LOOPBACK"]?.trim() === "true";
+  const live = await startExecutor("SHADOW", "NONE", {
+    DECIONIS_API_URL: hosted.credentials.endpoint,
+    DECIONIS_API_KEY: hosted.apiKey,
+    DECIONIS_ALLOW_INSECURE_LOOPBACK: insecure ? "true" : undefined,
+    EXECUTOR_TENANT_ID: hosted.credentials.tenantId,
+    DECIONIS_TIMEOUT_MS: "8000",
+  });
+  const observed = await call(live, "/v1/actions", { body: proposal(5_000) });
+  out(
+    `    Decionis: ${String(observed.body["verdict"])} (SHADOW, observed; executed ${String(observed.body["executed"])})`,
+  );
+  const dossierId = observed.body["dossier_id"];
+  if (typeof dossierId !== "string") {
+    out(`    no dossier was recorded (${String(observed.body["outcome"] ?? "no observation")})`);
+  } else {
+    out(`    dossier: ${dossierId}`);
+    try {
+      const { summary } = await fetchSignedDossier({
+        baseUrl: hosted.credentials.endpoint,
+        apiKey: hosted.apiKey,
+        tenantId: hosted.credentials.tenantId,
+        dossierId,
+        allowInsecureLoopback: insecure,
+        source: {
+          repo: "decionis/agent-safe-pipeline",
+          example: "trusted-executor",
+          surface: "github",
+        },
+      });
+      printSignedDossier(summary, {
+        out: { write: (chunk: string) => process.stdout.write(`    ${chunk}`) },
+      });
+      out(`    verify it yourself, no account needed: pnpm decionis:verify ${dossierId}`);
+    } catch (error) {
+      out(
+        `    signed dossier: not fetched (${error instanceof Error ? error.message : "unknown"})`,
+      );
+    }
+  }
+  await live.executor.close();
+}
+
+await provider.stop();
+await authority.stop();
+await presence.stop();

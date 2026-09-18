@@ -6,9 +6,9 @@ silicon it is a single file; on Intel, where Node does not support single execut
 same bundle beside the same pinned Node with an `agentsafe` launcher, and the three ship together.
 Homebrew is the primary path; the archive and the installer carry the same files.
 
-> Availability: the release assets described here are produced by the release workflow from the
-> first release after `v0.1.4`. Until that release exists, run from a clone as the
-> [quickstart](../quickstart/README.md) shows; the commands are the same.
+> Availability: the release assets described here are produced by the release workflow from
+> `v0.2.0` on, and the formula reaches master by its own pull request after each release. Before
+> that, run from a clone as the [quickstart](../quickstart/README.md) shows; the commands are the same.
 
 ## Homebrew
 

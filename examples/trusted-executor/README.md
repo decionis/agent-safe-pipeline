@@ -49,3 +49,11 @@ The proof runs against a loopback authority and a loopback provider with synthet
 the boundary holding in this process on this commit; it is not evidence that a hosted integration
 exists, that any provider behaves this way, or that a deployment has the isolation the threat model
 asks the host for.
+
+## Hosted epilogue
+
+`DECIONIS_HOSTED=1` (or `DECIONIS_API_KEY` with `DECIONIS_TENANT_ID`) runs the same executor
+process once more after the proof, in shadow against Decionis: one proposal, observed and recorded,
+nothing executed, no grant claimed, ending with the signed Decision Dossier it left and how to
+verify it. With no key, the run mints a free provisional workspace and stores its key for the next
+run; a provisional key evaluates in shadow only.

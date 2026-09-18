@@ -105,6 +105,19 @@ const ManagedEscalationWireSchema = z
   });
 
 /**
+ * The dossier's verification envelope, as `evaluate-decision` attaches it and
+ * `enforce-and-bind` may: the contract declares the block open, so only the
+ * page a person can open without an account is read from it.
+ */
+const VerificationEnvelopeSchema = z
+  .object({
+    verification_page_url: z.string().url().max(2_000),
+    verification_url: z.string().url().max(2_000).optional(),
+    link_expires_at: z.string().datetime().nullable().optional(),
+  })
+  .passthrough();
+
+/**
  * Mirrors `ExecutionAuthorityDecision` in the Decionis OpenAPI contract, which
  * declares `additionalProperties: false`; an undocumented field therefore fails
  * closed instead of being interpreted as execution semantics.
@@ -132,6 +145,7 @@ const AuthorityResponseSchema = z
     execution_token_jti: boundedIdentifier.nullable().optional(),
     execution_token_key_id: boundedIdentifier.nullable().optional(),
     managed_escalation: ManagedEscalationWireSchema.nullable().optional(),
+    verification: VerificationEnvelopeSchema.nullable().optional(),
   })
   .strict();
 
@@ -649,6 +663,8 @@ export class DecionisGate implements DecisionAuthority {
         : parsed.status === "ESCALATE" || parsed.status === "REVIEW_REQUIRED"
           ? "ESCALATE"
           : "BLOCK";
+    const verificationUrl = parsed.verification?.verification_page_url;
+    const verification = verificationUrl === undefined ? {} : { verificationUrl };
     if (this.evaluationMode === "SHADOW") {
       return immutableGateDecision({
         verdict,
@@ -658,6 +674,7 @@ export class DecionisGate implements DecisionAuthority {
         reasonCodes: parsed.reason_codes,
         authorization: null,
         failClosed: parsed.status === "ERROR",
+        ...verification,
         ...(evidence === undefined ? {} : { evidence }),
       });
     }
@@ -692,6 +709,7 @@ export class DecionisGate implements DecisionAuthority {
           }
         : null,
       failClosed: parsed.status === "ERROR",
+      ...verification,
       ...(evidence === undefined ? {} : { evidence }),
       ...(managedEscalation === undefined ? {} : { managedEscalation }),
     });

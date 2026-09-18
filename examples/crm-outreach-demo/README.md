@@ -65,3 +65,13 @@ data is accurate; policy decides whether the write may happen, not whether it is
 does not name or call a real CRM or messaging vendor; the handlers are simulated. It is the sales
 reading of "customer acquisition". Creating, approving, or activating a bank customer is a different
 action with different evidence, and this demo does not show it.
+
+## Hosted epilogue
+
+`DECIONIS_HOSTED=1` (or `DECIONIS_API_KEY` with `DECIONIS_TENANT_ID`) adds one step after the
+proof: Decionis evaluates the golden proposal beside the fixture, in shadow, so nothing above
+changes, and the run ends with the signed Decision Dossier it left, its verification page when the
+authority attaches one, and how to verify it offline. With no key, the run mints a free provisional
+workspace and stores its key for the next run. The adversarial attempts stay local by design; they
+are about this boundary, not the authority. Unset, the run prints one hint line and nothing else
+changes.

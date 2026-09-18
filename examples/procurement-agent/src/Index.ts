@@ -3,6 +3,8 @@ import {
   IntentCapture,
   SafeExecutor,
   createFixtureAuthorityPair,
+  createHostedGate,
+  printHostedOutcome,
 } from "@decionis/agent-safe-pipeline";
 import { z } from "zod";
 
@@ -20,6 +22,21 @@ const availableConcurrentUsers = existingSoftware.reduce(
 const withinBudget = purchaseAmountMinor <= remainingBudgetMinor;
 const existingCapacityCanAccommodateRequest = availableConcurrentUsers >= requestedConcurrentUsers;
 
+// With nothing set this is the fixture pair, as before; with DECIONIS_HOSTED=1
+// Decionis evaluates the same purchase beside it and leaves a signed record.
+const gate = await createHostedGate({
+  local: createFixtureAuthorityPair(
+    () => {
+      if (!withinBudget) return "BLOCK";
+      if (existingCapacityCanAccommodateRequest) return "ESCALATE";
+      return "ALLOW";
+    },
+    { unsafeAllowDevelopmentFixture: true },
+  ),
+  tenantId: "00000000-0000-4000-8000-000000000004",
+  source: { repo: "decionis/agent-safe-pipeline", example: "procurement-agent", surface: "github" },
+});
+
 const captured = new IntentCapture().capture(
   {
     action: "purchase_software",
@@ -32,7 +49,7 @@ const captured = new IntentCapture().capture(
     },
   },
   {
-    tenantId: "00000000-0000-4000-8000-000000000004",
+    tenantId: gate.tenantId,
     actor: { id: "synthetic-procurement-agent", type: "AI_AGENT" },
     downstreamTarget: { system: "procurement", operation: "purchase_software" },
     idempotencyKey: "procurement-synthetic-collaboration-suite-v1",
@@ -42,15 +59,6 @@ const captured = new IntentCapture().capture(
       existingSoftware,
     },
   },
-);
-
-const { authority, verifier } = createFixtureAuthorityPair(
-  () => {
-    if (!withinBudget) return "BLOCK";
-    if (existingCapacityCanAccommodateRequest) return "ESCALATE";
-    return "ALLOW";
-  },
-  { unsafeAllowDevelopmentFixture: true },
 );
 
 const registry = new ActionRegistry()
@@ -72,9 +80,9 @@ const registry = new ActionRegistry()
   })
   .seal();
 
-const decision = await authority.evaluate(captured);
+const decision = await gate.authority.evaluate(captured);
 const procurementDecision = decision.verdict === "ESCALATE" ? "HOLD" : decision.verdict;
-const execution = await new SafeExecutor(registry, verifier).run(captured, decision);
+const execution = await new SafeExecutor(registry, gate.verifier).run(captured, decision);
 
 process.stdout.write(
   `${JSON.stringify(
@@ -106,3 +114,4 @@ process.stdout.write(
     2,
   )}\n`,
 );
+await printHostedOutcome(gate, decision);

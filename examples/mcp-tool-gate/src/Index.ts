@@ -3,8 +3,8 @@ import {
   IntentCapture,
   SafeExecutor,
   createFixtureAuthorityPair,
-  createGate,
-  printDecision,
+  createHostedGate,
+  printHostedOutcome,
 } from "@decionis/agent-safe-pipeline";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -14,11 +14,11 @@ const server = new McpServer({ name: "agent-safe-mcp-example", version: "0.1.0" 
 const capture = new IntentCapture();
 // With no DECIONIS_API_KEY this is the fixture pair, exactly as before. With
 // one, Decionis evaluates the same intent beside it and leaves a signed record.
-const gate = createGate({
+const gate = await createHostedGate({
   local: createFixtureAuthorityPair(() => "BLOCK", { unsafeAllowDevelopmentFixture: true }),
   tenantId: "00000000-0000-4000-8000-000000000004",
   // Client identification on hosted calls only: which example a key was first used from.
-  source: { repo: "decionis/agent-safe-pipeline", example: "mcp-tool-gate" },
+  source: { repo: "decionis/agent-safe-pipeline", example: "mcp-tool-gate", surface: "github" },
 });
 const registry = new ActionRegistry()
   .register("delete_customer", {
@@ -53,7 +53,7 @@ server.registerTool(
     const decision = await gate.authority.evaluate(captured);
     const execution = await executor.run(captured, decision);
     // stdout is the MCP transport; the operator-facing lines go to stderr.
-    printDecision(decision, { out: process.stderr });
+    await printHostedOutcome(gate, decision, { out: process.stderr, hint: false });
     const hosted = decision.hosted;
     return {
       content: [
