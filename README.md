@@ -17,7 +17,7 @@ forwards exactly the authorized request once on a claimed single-use grant, hold
 or refuses it, leaving a chained record of each. It decides nothing itself.
 
 ```bash
-brew tap decionis/agent-safe https://github.com/decionis/agent-safe-pipeline && brew install agentsafe
+brew tap decionis/agent-safe https://github.com/decionis/agent-safe-pipeline && brew trust decionis/agent-safe && brew install agentsafe
 
 agentsafe proxy \
   --upstream http://localhost:3000 \
@@ -203,7 +203,7 @@ claim or finalization differs between them.
 
 | Where       | How                                                                                                                                                                | Page                                       |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------ |
-| macOS       | `brew tap decionis/agent-safe https://github.com/decionis/agent-safe-pipeline && brew install agentsafe`                                                           | [macOS](./docs/install/macos.md)           |
+| macOS       | `brew tap decionis/agent-safe https://github.com/decionis/agent-safe-pipeline && brew trust decionis/agent-safe && brew install agentsafe`                         | [macOS](./docs/install/macos.md)           |
 | Linux       | `curl -fsSL https://raw.githubusercontent.com/decionis/agent-safe-pipeline/master/packaging/install.sh \| sh`, or the `.deb` / `.rpm` with a hardened systemd unit | [Linux](./docs/install/linux.md)           |
 | Docker      | `ghcr.io/decionis/agentsafe:<version>`, distroless, non-root, two architectures                                                                                    | [Docker](./docs/install/docker.md)         |
 | Kubernetes  | `helm install agentsafe oci://ghcr.io/decionis/charts/agentsafe`, one Deployment in front of one Service                                                           | [Kubernetes](./docs/install/kubernetes.md) |
