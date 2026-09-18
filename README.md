@@ -11,9 +11,10 @@
 
 AgentSafe intercepts consequential actions and checks whether they are authorized before
 forwarding them. An agent, an application or a tool sends its HTTP request to AgentSafe instead of
-the target; AgentSafe captures the action as an intent, asks the Decionis control plane for a
-decision, and forwards exactly the authorized request once on a claimed single-use grant, holds it
-for a person, or refuses it, leaving a chained record of each. It decides nothing itself.
+the target; AgentSafe captures the action as an intent, asks the [Decionis](https://decionis.com)
+control plane (the Independent Execution Authority, bound to the exact action) for a decision, and
+forwards exactly the authorized request once on a claimed single-use grant, holds it for a person,
+or refuses it, leaving a chained record of each. It decides nothing itself.
 
 ```bash
 brew tap decionis/agent-safe https://github.com/decionis/agent-safe-pipeline && brew install agentsafe
@@ -33,6 +34,31 @@ agentsafe proxy \
 
 The path from here is short: discover, install, **test your boundary**, see what is exposed, run in
 shadow, enforce, deploy.
+
+## The two systems behind the boundary
+
+Arriving here for the first time, you meet three names. This repository is one of them; the other
+two are the services it talks to, and neither is in this repository.
+
+- **Decionis** is the Independent Execution Authority, bound to the exact action: the control
+  plane AgentSafe asks. For one captured intent it evaluates the organization's policy and answers
+  `ALLOW`, `ESCALATE` or `BLOCK`; an `ALLOW` comes with the single-use execution grant the request
+  executes on, an `ESCALATE` with the human ceremony it needs, and every decision with a signed
+  [Decision Dossier](https://decionis.com/docs/decision-dossier) that records what was proposed,
+  what was decided and why. It runs at [decionis.com](https://decionis.com)
+  ([docs](https://decionis.com/docs)); the local demo authority in this repository stands in for it
+  on loopback with a synthetic policy, and says so on every line.
+- **Presence** is the adaptive human verification layer. When Decionis answers `ESCALATE`, a
+  verified, present person on their own device approves that exact action, and the signed Presence
+  Record that results is evidence Decionis re-checks before it issues a grant, never authority by
+  itself. It runs at [presence.decionis.com](https://presence.decionis.com)
+  ([what the layer is](https://decionis.com/proof-of-human-infrastructure)); the loopback double
+  in this repository simulates the ceremony for the examples and proves nothing about a real one.
+- **AgentSafe**, this repository, is the execution boundary between your agent or API and those
+  two: it captures the exact intent, asks Decionis, resolves an `ESCALATE` with Presence, forwards
+  exactly the authorized request once on the claimed grant, holds or refuses the rest, and leaves
+  chained evidence. It is Apache-2.0 and it decides nothing; [`OPEN-CORE.md`](./OPEN-CORE.md)
+  states the seam between it and what Decionis operates.
 
 ## Test your boundary
 
@@ -230,8 +256,9 @@ map each step onto the protocol: [ExecutionBinding](./docs/authority/execution-b
 
 ## Presence
 
-Presence supports two explicit integration levels. In DIRECT mode, the trusted executor coordinates
-Presence and returns the receipt reference to Decionis. In MANAGED mode, the executor asks Decionis
+[Presence](https://presence.decionis.com), the adaptive human verification layer, supports two
+explicit integration levels. In DIRECT mode, the trusted executor coordinates Presence and returns
+the receipt reference to Decionis. In MANAGED mode, the executor asks Decionis
 to orchestrate Presence and polls Decionis for a terminal status. Both modes require independently
 signed Presence evidence, exact-intent verification, current-policy re-evaluation, and the same
 claim-before-handler grant path. Invitation delivery and Presence evidence are never execution
