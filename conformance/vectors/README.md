@@ -5,7 +5,21 @@ contains a `binding`, the expected canonical JSON bytes (`canonical_json`),
 and the SHA-256 digest (`intent_hash`) over those bytes.
 
 `IntentConformance.test.ts` discovers **every** vector in this directory and
-validates both the canonicalization and the digest.
+validates both the canonicalization and the digest. A vector may also carry
+`mutations`: single-field changes to its binding, each with its own
+`canonical_json` and `intent_hash`, which the test holds to be distinct from
+the base and from one another.
+
+## The Compromised Principal Test
+
+`compromised-principal.json` is the test the [execution intent](../../docs/execution-intent.md)
+page describes as a hash vector: an infrastructure agent's `deployment.scale`
+intent (`prod-eu`, `inference`, 96 replicas) and eight mutations a valid
+principal could make after authorization. The replica count raised to 960,
+the service, the cluster, the resource, the principal, the expiry, the
+idempotency key and the environment: every one is inside the hash, so a grant
+for the base authorises none of them. An implementation MUST reproduce all
+nine hashes, and they MUST all differ.
 
 ## Intentional text distinctions (no normalization)
 

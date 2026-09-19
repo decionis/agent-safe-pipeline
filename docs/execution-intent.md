@@ -51,3 +51,37 @@ conformance vector in `conformance/agent-safe-intent-v1.json` reproduces unchang
 A deployment whose authority predates the field issues no grant for an intent that carries it: the
 action is blocked, never mis-authorized. Because the field is opt-in and absent by default, no
 existing caller is affected.
+
+## What the binding covers, and the Compromised Principal Test
+
+The hash is over the whole binding, so authority is bound to the exact action and never to the
+identity that proposed it. That is the property the realistic adversary tests. Most corpora test a
+forged credential: a token the attacker should not hold, a signature that does not verify. The
+failure that matters as agents get faster and more autonomous is the other one, and it is the case
+identity cannot catch, because identity is exactly what is in order:
+
+```text
+valid principal → valid credential → permitted API → unauthorized consequential intent → BLOCK | ESCALATE
+```
+
+An agent that may call `deployment.scale` is not an agent that may scale anything to anything. The
+binding holds the principal (`actor`), the target (`action.resource`), every parameter
+(`action.parameters`), the trusted runtime's context, the downstream target with its environment,
+and the expiry; Decionis decides over that hash against the policy revision in force, and the
+grant it issues is good for that hash, once. A change to any bound field after authorization is
+another intent with another hash, which the grant does not cover: the executor refuses it with
+`INTENT_BINDING_MISMATCH` before anything is dispatched. Identity says who is asking; execution
+authority says whether this is permitted to happen.
+
+An implementation of `agent-safe.intent/1` MUST therefore produce a different hash for every
+single-field change to a binding, and
+[`conformance/vectors/compromised-principal.json`](../conformance/vectors/compromised-principal.json)
+holds it to that: an infrastructure agent's `deployment.scale` intent (`prod-eu`, `inference`,
+96 replicas) and eight mutations a valid principal could make after authorization, each with its
+own canonical bytes and hash. The replica count raised to 960, the service changed to `payments`,
+the cluster changed to `prod-us`, the resource renamed with the parameters left alone, the
+principal replaced by a stronger identity, the expiry extended, the idempotency key changed, and
+the environment changed to `staging`: nine distinct hashes, and a grant for the first authorises
+none of the others. [`examples/infra-scale-demo`](../examples/infra-scale-demo) runs the same
+test against the boundary end to end, and [`THREAT-MODEL.md`](../THREAT-MODEL.md) states it as a
+threat.

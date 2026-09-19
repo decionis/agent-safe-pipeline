@@ -46,6 +46,7 @@ COPY examples/basic-agent/package.json ./examples/basic-agent/
 COPY examples/crm-outreach-demo/package.json ./examples/crm-outreach-demo/
 COPY examples/github-deploy-agent/package.json ./examples/github-deploy-agent/
 COPY examples/golden-adversarial-demo/package.json ./examples/golden-adversarial-demo/
+COPY examples/infra-scale-demo/package.json ./examples/infra-scale-demo/
 COPY examples/local-escalation/package.json ./examples/local-escalation/
 COPY examples/mcp-tool-gate/package.json ./examples/mcp-tool-gate/
 COPY examples/presence-live-approval/package.json ./examples/presence-live-approval/
