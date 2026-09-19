@@ -23,7 +23,10 @@ export default {
   // holds when it does not. The signed-request credential is here for the
   // same reason from the other side: its `verify` is the procedure a system
   // of record copies, and a mutant that accepts a signature it should refuse
-  // is a provider that effects what the authority never claimed.
+  // is a provider that effects what the authority never claimed. The verifying
+  // provider is the rest of that provider's procedure, the attestation and
+  // the single presentation of a grant, and a mutant there is the same
+  // failure from the same side.
   mutate: [
     "src/http/ExecutorHttpServer.ts",
     "src/identity/PrincipalRegistry.ts",
@@ -39,6 +42,7 @@ export default {
     "src/adapters/banking/BankingIntentBinder.ts",
     "src/containment/ContainmentProbe.ts",
     "src/credential/SignedRequestCredential.ts",
+    "src/verify/VerifyingProvider.ts",
   ],
   reporters: ["clear-text", "progress"],
   coverageAnalysis: "perTest",

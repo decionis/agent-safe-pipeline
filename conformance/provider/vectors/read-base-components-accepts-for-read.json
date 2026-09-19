@@ -1,0 +1,54 @@
+{
+  "profile": "agent-safe.verifying-provider/1",
+  "version": "0.1",
+  "vector": "read-base-components-accepts-for-read",
+  "level": "VP-1",
+  "description": "A read signed over the base alone is accepted by a provider that effects nothing.",
+  "provider": {
+    "effects": false,
+    "clock_window_seconds": 300,
+    "now": "2026-09-19T12:00:00.000Z",
+    "authority_issuer": "https://authority.example"
+  },
+  "executor_keys": [
+    {
+      "keyid": "vector-executor-ed25519-1",
+      "alg": "ed25519",
+      "public_pem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAbkjxBZPWwJXBEPL4wiH5JZGLV8gzT61G81J7fa7/MEE=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "keyid": "vector-executor-hmac-1",
+      "alg": "hmac-sha256",
+      "shared_material_utf8": "verifying provider vector shared material one"
+    }
+  ],
+  "authority_jwks": {
+    "keys": [
+      {
+        "crv": "Ed25519",
+        "x": "bXMw8L6Hqmksn3A0_Yx8FtLBE4U9lCWsH2-pICjcYU8",
+        "kty": "OKP",
+        "kid": "vector-execution-grant-1",
+        "alg": "EdDSA",
+        "use": "sig"
+      }
+    ]
+  },
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/v1/wires",
+      "headers": {
+        "idempotency-key": "vpp-wire-0001",
+        "x-agent-safe-intent-hash": "sha256:ee63dec7a6a0e76825bcd4e033b409e27074416ef6b5c5a6bc09e881591c2211",
+        "content-digest": "sha-256=:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=:",
+        "signature-input": "agentsafe=(\"@method\" \"@path\" \"content-digest\" \"idempotency-key\" \"x-agent-safe-intent-hash\");created=1789819195;keyid=\"vector-executor-ed25519-1\";alg=\"ed25519\"",
+        "signature": "agentsafe=:ajD/7Eg0cnPvgqHC4A6S8zBzeiWF+S/RuomxY+bCPRm0nZMrXdeW8e1Bk+fxI8KMhKpp9W1PB/UZfe4z/5X2Ag==:"
+      },
+      "body": null,
+      "expect": {
+        "outcome": "ACCEPT"
+      }
+    }
+  ]
+}

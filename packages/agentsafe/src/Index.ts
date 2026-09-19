@@ -433,6 +433,21 @@ export {
   type StreamSummary,
 } from "./verify/VerifyAuditChain.js";
 export {
+  ATTESTATION_TYPE,
+  JCS_PROFILE,
+  MemoryReplayStore,
+  parseIJson,
+  refusalBody,
+  verifyProviderRequest,
+  type ClaimAttestationClaims,
+  type ExecutorKey,
+  type ProviderRefusalCode,
+  type ProviderVerdict,
+  type ReceivedRequest,
+  type ReplayStore,
+  type VerifyingProviderOptions,
+} from "./verify/VerifyingProvider.js";
+export {
   createTrustedExecutor,
   type TrustedExecutor,
   type TrustedExecutorDependencies,

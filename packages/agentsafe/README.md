@@ -552,8 +552,11 @@ then, for anything you will effect, verify the attestation:
 
 `SignedRequestCredential.verify` in this package is the first half of that procedure, with
 `materialFrom` building the material from a received request and `require` naming what the
-signature must cover; the offline proof's strict provider double is the whole of it, attestation
-included, written against nothing but the authority's public keys.
+signature must cover; `verifyProviderRequest` is the whole of it, attestation and single
+presentation included, and the offline proof's strict provider double is an independent copy
+written against nothing but the authority's public keys. The normative statement of the
+procedure, with the vectors an implementation in any language passes to claim it, is the
+[Verifying Provider Profile](../../docs/authority/verifying-provider.md).
 
 ## The attempt journal
 

@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.decionis</groupId>
+  <artifactId>verifying-provider</artifactId>
+  <version>0.1.0</version>
+  <packaging>jar</packaging>
+
+  <name>Verifying Provider Profile for Spring</name>
+  <description>An independent Java implementation of the Verifying Provider Profile (agent-safe.verifying-provider/1), with a servlet filter for Spring; the same class serves an Apigee Java callout.</description>
+  <url>https://github.com/decionis/agent-safe-pipeline/tree/master/verifiers/spring</url>
+  <licenses>
+    <license>
+      <name>Apache-2.0</name>
+      <url>https://www.apache.org/licenses/LICENSE-2.0</url>
+    </license>
+  </licenses>
+
+  <properties>
+    <maven.compiler.release>17</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <jackson.version>2.22.2</jackson.version>
+    <testng.version>7.12.0</testng.version>
+  </properties>
+
+  <dependencies>
+    <!-- RFC 8785 canonicalization, Apache-2.0. -->
+    <dependency>
+      <groupId>io.github.erdtman</groupId>
+      <artifactId>java-json-canonicalization</artifactId>
+      <version>1.1</version>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <version>${jackson.version}</version>
+    </dependency>
+    <!-- The filter compiles against the jakarta.servlet API; the container the
+         application already runs provides it, and nothing under it ships with
+         this module. Its EPL-2.0 / GPL-2.0-with-Classpath-exception dual
+         licence is the reviewed exception in .github/workflows/supply-chain.yml. -->
+    <dependency>
+      <groupId>jakarta.servlet</groupId>
+      <artifactId>jakarta.servlet-api</artifactId>
+      <version>6.1.0</version>
+      <scope>provided</scope>
+    </dependency>
+    <!-- TestNG is Apache-2.0, as everything this module ships or tests with. -->
+    <dependency>
+      <groupId>org.testng</groupId>
+      <artifactId>testng</artifactId>
+      <version>${testng.version}</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.13.0</version>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>3.5.2</version>
+      </plugin>
+    </plugins>
+  </build>
+</project>

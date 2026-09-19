@@ -43,8 +43,10 @@ What a compromised executor can still do: sign a request the authority never cla
 provider refuses for lacking a valid attestation; or replay a claimed one inside the lease, which
 the provider refuses by keeping the grant id for the length of the lease. What it cannot do is
 make the authority attest to something it did not claim, because the attestation key is not in
-the executor. `packages/agentsafe/README.md` carries the full verification procedure, and the
-offline proof's strict provider double runs it against nothing but the authority's public keys.
+the executor. The [Verifying Provider Profile](./authority/verifying-provider.md) is the full
+verification procedure stated normatively, with vectors any implementation runs to claim it;
+`packages/agentsafe/README.md` carries the executor's side of it, and the offline proof's strict
+provider double runs it against nothing but the authority's public keys.
 
 ### The credential is the strongest thing under this repository's control
 

@@ -8,3 +8,4 @@ packaging/sea/out
 packaging/sea/cache
 Formula/*.rb
 charts/*/templates
+verifiers/spring/target
