@@ -135,7 +135,9 @@ agentsafe proxy --upstream http://localhost:3000 --port 8080
 
 `Mode` is now `SHADOW`: every consequential request goes through unchanged while Decionis records
 what it would have decided, and each line says `Would decide` and `Actual execution PASSTHROUGH`.
-When the decisions look right, `--mode enforcement` makes them binding. A key without an account
+`agentsafe status` prints the [shadow report](../shadow-mode.md#from-shadow-to-enforcement) so
+far, what enforcement would have held or refused by action, and the gateway prints it when it
+stops. When the decisions look right, `--mode enforcement` makes them binding. A key without an account
 comes from `POST https://api.decionis.com/v1/public/agents/provision` (no signup, 50 decisions a
 month, every dossier marked `provisional_anonymous`); an owned organization's key comes from the
 Decionis console.

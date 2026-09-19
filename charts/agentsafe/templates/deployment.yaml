@@ -69,6 +69,8 @@ spec:
               value: /etc/agentsafe/agentsafe.yaml
             - name: AGENTSAFE_LOG_FORMAT
               value: json
+            - name: AGENTSAFE_SURFACE
+              value: kubernetes
             - name: DECIONIS_API_KEY_FILE
               value: /var/run/agent-safe/secrets/{{ .Values.decionis.apiKeySecretRef.key }}
             {{- if .Values.metrics.tokenSecretRef.name }}

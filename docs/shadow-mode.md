@@ -105,6 +105,54 @@ so a reader can tell from the record alone that the evaluation was never authori
 `DECISION_NOT_AUTHORITATIVE` before it records or inspects the object as a decision. This holds
 after an unsafe cast and after a JSON round trip.
 
+## From shadow to enforcement
+
+Shadow is where every hosted gateway starts: beside a real authority, `agentsafe proxy` defaults
+to it, and a workspace provisioned without an account is accepted in no other mode. What turns
+it into enforcement is a report and a switch, and both exist at two places.
+
+**The gateway's own report.** In shadow the gateway keeps a ledger of what it observed: how many
+consequential actions went through unchanged, what the authority would have decided about each
+(`ALLOW`, `ESCALATE`, `BLOCK`, or no verdict when it could not be asked in time), by action name,
+from the first observation to the last. It is counts only; no path, body, parameter or identifier
+is kept. `agentsafe status` prints it for a running gateway, `/_agentsafe/status` carries it as
+`shadow`, and the gateway prints it when it stops, before the stop line:
+
+```text
+Shadow report
+
+Since        2026-09-19T10:00:00.000Z until 2026-09-19T12:14:03.000Z
+Observed     184 consequential actions, every one forwarded unchanged
+Would ALLOW  171
+Would hold   9   ESCALATE: a person would have been asked first
+Would BLOCK  4   nothing would have reached the upstream
+No verdict   0
+By action    http.post          160   allow 150  hold 7  block 3
+             payments.refund     24   allow 21  hold 2  block 1
+
+Enforcement would have held 9 and refused 4 of 184; 171 would have gone through as they did.
+Turn it on   `agentsafe proxy --mode enforcement`, or `AGENTSAFE_MODE=enforcement`, or `authority.mode: enforcement` in agentsafe.yaml
+```
+
+The last line is written in the terms the mode was configured in: the flag for a command line,
+the variable where the environment set it, the file's own key where a file did (`gateway.mode` in
+the chart's values). With a provisional workspace the line says instead that enforcement needs an
+owned key: `agentsafe login` with a key from the Decionis organization, then the switch. A
+gateway started in enforcement with a provisional login refuses to start, by name, rather than
+fail every action closed.
+
+**The authority's report.** Decionis holds the same observations with their dossiers, and for
+Commerce Gate renders them as the shadow report document (`/v1/protocol/shadow-reports`): the
+counts and rates, the reasons, the near misses, and `candidate_enforcement_paths`, each workflow
+with its own recommendation, `CANDIDATE_FOR_ENFORCEMENT`, `REVIEW_POLICY_BOUNDARY` or
+`COLLECT_MORE_TRAFFIC`. `@decionis/commerce` reads it with `commercegate_list_shadow_reports` and
+`commercegate_summarize_shadow_reports`. That report is the merchant's, in the merchant's own
+history; the gateway's is the operator's, where the gateway runs. Neither prices what enforcement
+would have prevented: the amounts are in the dossiers, not in either report.
+
+The measure of the path is the same on both sides: of the gateways and organizations that ran in
+shadow and received a report, the share that turned enforcement on.
+
 ## Rollout guidance
 
 1. Capture intents exactly as enforcement will capture them: same trusted context, same handler

@@ -91,7 +91,10 @@ repository answers.
    boundary, CRM outreach, infrastructure scale); read each `PROVEN` / `NOT PROVEN` line and the
    exit code.
 3. `pnpm dossiers:check` and the corpus README's verifier command — the offline verification
-   contract.
+   contract; and `agentsafe verify intent conformance/vectors conformance/agent-safe-intent-v1.json`
+   from the built runtime (`node packages/agentsafe/dist/Cli.js verify intent ...` on a
+   checkout) — every intent vector reproduced from its bytes, under
+   [spec/intent/v1](./spec/intent/v1/README.md).
 4. Read [THREAT-MODEL.md](./THREAT-MODEL.md) "Accepted risks" and decide, for each row, what your
    host supplies as the compensating control. That table is the list of things the library does not
    do for you.

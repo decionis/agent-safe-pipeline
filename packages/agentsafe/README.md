@@ -36,7 +36,16 @@ target and with nothing of yours involved, what reaches a target with no boundar
 what enforcement prevents; `agentsafe init` writes the configuration file, `agentsafe doctor`
 checks the binary, the configuration, the upstream, Decionis and the credentials, `agentsafe
 config` prints what resolved and from where, and `agentsafe status` asks a running gateway what
-it is doing. The five-minute path is
+it is doing, including, in shadow, its shadow report: what the authority would have allowed, held
+and refused so far, by action, ending with the switch that turns enforcement on for that
+configuration (the gateway prints the same report when it stops). `agentsafe verify intent
+<file|dir>` checks the Agent-Safe Intent conformance vectors offline, or prints the canonical
+bytes and hash of a binding of your own to compare with another implementation's
+([the specification](https://github.com/decionis/agent-safe-pipeline/blob/master/spec/intent/v1/README.md)).
+Hosted calls carry the runtime's version and the surface it was installed from (`AGENTSAFE_SURFACE`,
+or where the executable sits) in their `User-Agent`, and nothing about the machine
+([telemetry](https://github.com/decionis/agent-safe-pipeline/blob/master/docs/reference/telemetry.md)).
+The five-minute path is
 [docs/quickstart](https://github.com/decionis/agent-safe-pipeline/blob/master/docs/quickstart/README.md);
 what is intercepted, bound and forwarded is
 [docs/gateway/http-interception.md](https://github.com/decionis/agent-safe-pipeline/blob/master/docs/gateway/http-interception.md);

@@ -9,10 +9,12 @@
  * lines of a file, or of standard input, and exits non-zero on any break.
  * `verify bundle <dir>` (also `verify-bundle`) verifies an evidence bundle
  * offline: every file's digest against the manifest, both chains, and the
- * signature when the bundle carries one. `probe-containment
- * <name=host:port>...` runs in the agent zone and reports whether a system
- * of record answers without the executor; it exits 1 when any target does.
- * Anything else is refused with a stable code and exit status 2.
+ * signature when the bundle carries one. `verify intent <file|dir>...`
+ * checks Agent-Safe Intent vectors, or prints the canonical bytes and hash
+ * of a binding, offline. `probe-containment <name=host:port>...` runs in
+ * the agent zone and reports whether a system of record answers without the
+ * executor; it exits 1 when any target does. Anything else is refused with
+ * a stable code and exit status 2.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -20,6 +22,7 @@ import process from "node:process";
 import { nodeCliProcess } from "./cli/CliProcess.js";
 import { isGatewayCommand, runGatewayCommand } from "./cli/Commands.js";
 import { usage } from "./cli/Help.js";
+import { runVerifyIntent } from "./cli/VerifyIntent.js";
 import { parseTarget, probeContainment } from "./containment/ContainmentProbe.js";
 import { dial } from "./egress/TcpProbe.js";
 import { serve } from "./Serve.js";
@@ -42,6 +45,7 @@ const COMMANDS = [
   "serve",
   "verify-chain",
   "verify-bundle",
+  "verify-intent",
   "probe-containment",
 ] as const;
 /**
@@ -55,9 +59,12 @@ async function main(): Promise<void> {
 
   if (command === "--version" || command === "-v") command = "version";
   if (command === "--help" || command === "-h") command = "help";
-  // `verify chain` and `verify bundle` are the two verifiers under one word;
-  // the hyphenated names keep working as they always have.
-  if (command === "verify" && (rest[0] === "chain" || rest[0] === "bundle")) {
+  // `verify chain`, `verify bundle` and `verify intent` are the verifiers
+  // under one word; the hyphenated names keep working as they always have.
+  if (
+    command === "verify" &&
+    (rest[0] === "chain" || rest[0] === "bundle" || rest[0] === "intent")
+  ) {
     command = `verify-${rest[0]}`;
     rest = rest.slice(1);
   }
@@ -106,6 +113,8 @@ async function main(): Promise<void> {
     });
     process.stdout.write(`${JSON.stringify(report)}\n`);
     process.exit(report.ok ? 0 : 1);
+  } else if (command === "verify-intent") {
+    runVerifyIntent(nodeCliProcess(), rest);
   } else if (command === "probe-containment") {
     const arguments_ = rest;
     if (arguments_.length === 0) {

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import process from "node:process";
 import { createInterface } from "node:readline";
@@ -9,6 +9,8 @@ export interface CliFiles {
   exists(path: string): boolean;
   /** The text, or null when there is no such file. */
   read(path: string): string | null;
+  /** The names in a directory, sorted, or null when the path is not one. */
+  list(path: string): readonly string[] | null;
   write(path: string, text: string, mode?: number): void;
   mkdir(path: string): void;
   remove(path: string): void;
@@ -37,6 +39,13 @@ export function nodeFiles(): CliFiles {
     read: (path) => {
       try {
         return readFileSync(path, "utf8");
+      } catch {
+        return null;
+      }
+    },
+    list: (path) => {
+      try {
+        return readdirSync(path).sort();
       } catch {
         return null;
       }

@@ -5,9 +5,28 @@
  * no path, no verdict. Nothing here is sent anywhere; the milestones are for
  * the person at the terminal and for an operator's own log pipeline, and
  * the only thing the authority learns is what every hosted call already
- * carries in its `User-Agent`. `installation` is the installer's own last
- * line, because a process cannot see itself being installed.
+ * carries in its `User-Agent`: the runtime's version and the surface it was
+ * installed from. `installation` is the installer's own last line, because
+ * a process cannot see itself being installed, and `boundary_tested` is
+ * `agentsafe test`'s own last line, because the gateway cannot see the test
+ * that ran before it.
  */
+export const ACTIVATION_PATH = [
+  "installation",
+  "boundary_tested",
+  "gateway_started",
+  "shadow_enabled",
+  "first_interception",
+  "first_governed_action",
+  "decionis_connected",
+  "enforcement_enabled",
+  "production_deployment",
+] as const;
+
+/** One step of the path, whichever process reports it. */
+export type ActivationStep = (typeof ACTIVATION_PATH)[number];
+
+/** The steps a gateway process reaches itself. */
 export const ACTIVATION_MILESTONES = [
   "gateway_started",
   "shadow_enabled",
@@ -16,13 +35,13 @@ export const ACTIVATION_MILESTONES = [
   "production_deployment",
   "first_interception",
   "first_governed_action",
-] as const;
+] as const satisfies readonly ActivationStep[];
 
 export type ActivationMilestone = (typeof ACTIVATION_MILESTONES)[number];
 
 export interface ActivationReport {
   readonly event: "ACTIVATION";
-  readonly milestone: ActivationMilestone;
+  readonly milestone: ActivationStep;
   readonly at: string;
 }
 

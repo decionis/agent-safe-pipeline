@@ -81,6 +81,7 @@ describe("the Linux packages", () => {
     assert.match(unit, /^LoadCredential=decionis-api-key:\/etc\/agentsafe\/decionis-api-key$/m);
     assert.match(unit, /^Environment=DECIONIS_API_KEY_FILE=%d\/decionis-api-key$/m);
     assert.match(unit, /^Environment=NODE_ENV=production$/m);
+    assert.match(unit, /^Environment=AGENTSAFE_SURFACE=linux$/m);
     for (const key of [
       "DynamicUser=yes",
       "NoNewPrivileges=yes",
@@ -111,6 +112,7 @@ describe("the image", () => {
     assert.match(dockerfile, /--allow-fs-write=\/var\/lib\/agent-safe"/);
     assert.doesNotMatch(dockerfile, /--allow-fs-write=\/app|--allow-child-process|--allow-worker/);
     assert.match(dockerfile, /^ENV NODE_ENV=production$/m);
+    assert.match(dockerfile, /^ENV AGENTSAFE_SURFACE=docker$/m);
     assert.match(dockerfile, /^EXPOSE 8080 8443$/m);
     const kit = await read("deploy/kubernetes/TrustedExecutor.yaml");
     assert.match(kit, /args: \["serve"\]/);

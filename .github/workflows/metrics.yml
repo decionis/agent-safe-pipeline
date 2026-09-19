@@ -1,10 +1,12 @@
 # The repository's numbers, once a day, kept on the `metrics` branch: clones
 # and unique cloners, views and unique visitors, stars, forks and watchers,
-# the top referrers and paths, and npm downloads per package, one JSON line
-# per day per file (scripts/CollectRepoMetrics.mjs). GitHub keeps traffic for
-# fourteen days; this keeps it for good. The branch is an orphan the pull
-# request bot ignores (it has no common ancestor with master), and every
-# commit says [skip ci] so nothing else runs on it.
+# the top referrers and paths, npm downloads per package, and release asset
+# downloads to date (what Homebrew, the installer and the Linux packages
+# fetch: the install side of the runtime's funnel), one JSON line per day per
+# file (scripts/CollectRepoMetrics.mjs). GitHub keeps traffic for fourteen
+# days; this keeps it for good. The branch is an orphan the pull request bot
+# ignores (it has no common ancestor with master), and every commit says
+# [skip ci] so nothing else runs on it.
 #
 # Traffic needs METRICS_GITHUB_TOKEN, a fine-grained token with read access to
 # this repository's administration; without it the traffic rows are skipped

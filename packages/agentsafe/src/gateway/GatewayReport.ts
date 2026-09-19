@@ -4,6 +4,7 @@
  * The vocabulary keeps the authority's verdicts and the runtime's failure
  * states apart, so an unreachable authority never reads as a policy BLOCK.
  */
+import { renderShadowReport, type ShadowReport } from "./ShadowLedger.js";
 
 export type GatewayState =
   | "ALLOW"
@@ -80,7 +81,12 @@ export interface ActivationMilestoneReport {
 }
 
 export type GatewayReport =
-  InterceptionReport | StartedReport | NoteReport | StoppedReport | ActivationMilestoneReport;
+  | InterceptionReport
+  | StartedReport
+  | NoteReport
+  | StoppedReport
+  | ActivationMilestoneReport
+  | ShadowReport;
 
 const ESC = String.fromCharCode(27);
 const RESET = `${ESC}[0m`;
@@ -165,6 +171,8 @@ export function renderHuman(report: GatewayReport, options: RenderOptions): stri
       return `${dim(`Stopped on ${report.signal}.`)}\n`;
     case "ACTIVATION":
       return `${dim(`✓ ${report.milestone.replace(/_/g, " ")}`)}\n`;
+    case "SHADOW_REPORT":
+      return renderShadowReport(report, options);
     case "NOTE": {
       const prefix =
         report.level === "error" ? "ERROR" : report.level === "warn" ? "WARNING" : "NOTE";

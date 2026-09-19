@@ -51,6 +51,8 @@ const result = (
   ...extra,
 });
 
+const tested = { milestone: "boundary_tested", at: "2026-01-01T00:00:00.000Z" } as const;
+
 const holding: BoundaryTestReport = {
   version: "agent-safe.boundary-test/1",
   at: "2026-01-01T00:00:00.000Z",
@@ -117,6 +119,9 @@ describe("agentsafe test", () => {
     expect(text).toContain("12 chained lines, verified");
     expect(text).toContain("Verdict     BOUNDARY HOLDS\n");
     expect(text).toContain("Next: agentsafe proxy --upstream <your service> --mode shadow");
+    // The sentence the table demonstrates, and the step of the path the run is.
+    expect(text).toContain("Caller      the same on every row, and never the reason");
+    expect(text.trimEnd().endsWith("✓ boundary tested")).toBe(true);
     expect(text).not.toContain(ESC);
     expect(text).not.toContain("Target      Case");
   });
@@ -131,6 +136,7 @@ describe("agentsafe test", () => {
     expect(parsed.containment).toBeNull();
     expect(parsed.exit).toBe(0);
     expect(parsed.cases).toHaveLength(5);
+    expect(parsed.activation).toEqual({ milestone: "boundary_tested", at: holding.at });
     expect(io.out[0]?.endsWith("\n")).toBe(true);
     expect(io.out[0]?.slice(0, -1)).not.toContain("\n");
   });
@@ -205,7 +211,10 @@ describe("agentsafe test", () => {
   });
 
   it("colors the terminal rendering when the process has color", () => {
-    const colored = renderTestReport({ ...holding, containment: null, exit: 0 }, { color: true });
+    const colored = renderTestReport(
+      { ...holding, containment: null, exit: 0, activation: tested },
+      { color: true },
+    );
     expect(colored).toContain(`${ESC}[32m`);
     expect(colored).toContain(`${ESC}[33m`);
     expect(colored).toContain(`${ESC}[2m`);
@@ -217,6 +226,7 @@ describe("agentsafe test", () => {
         verdict: "BOUNDARY_BROKEN",
         containment: null,
         exit: 1,
+        activation: tested,
       },
       { color: true },
     );
@@ -236,6 +246,7 @@ describe("agentsafe test", () => {
         ],
         containment: null,
         exit: 0,
+        activation: tested,
       },
       { color: true },
     );

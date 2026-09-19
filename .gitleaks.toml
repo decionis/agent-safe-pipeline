@@ -10,6 +10,9 @@ regexes = [
   '''^refund-synthetic-1001-v1$''',
   '''^refund-58291-v1$''',
   '''^refund-58291-v2$''',
+  '''^refund-synthetic-1-openai-v1$''',
+  '''^refund-synthetic-1-vercel-v1$''',
+  '''^refund-synthetic-1-langchain-v1$''',
 ]
 
 # The BEAP profile mirrored under profiles/beap/v<version> carries the specification's

@@ -110,8 +110,11 @@ absence of any credential in the agent zone that the cluster would accept
 ([bypass resistance](./docs/bypass-resistance.md)). The same test is a hash vector in
 [`conformance/vectors/compromised-principal.json`](./conformance/vectors/compromised-principal.json):
 eight single-field mutations of the intent, nine distinct hashes, and a grant for one that
-authorises none of the others. [`examples/infra-scale-demo`](./examples/infra-scale-demo) runs it;
-`pnpm examples:prove` runs it in CI.
+authorises none of the others, which [Agent-Safe Intent v1](./spec/intent/v1/README.md#6-what-is-inside-the-hash-the-compromised-principal-requirement)
+states as a requirement of every implementation. [`examples/infra-scale-demo`](./examples/infra-scale-demo)
+runs it; `pnpm examples:prove` runs it in CI; `agentsafe test` shows it as one table on any
+installed runtime. [docs/compromised-principal-test.md](./docs/compromised-principal-test.md) is
+the page to send: the three ways to run it in under a minute, and what each proves and does not.
 
 ## Accepted risks
 

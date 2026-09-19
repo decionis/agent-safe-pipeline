@@ -15,6 +15,24 @@
       "containsCustomerData": false
     },
     {
+      "path": "conformance/frameworks/langchain.json",
+      "family": "Framework coverage vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "conformance/frameworks/openai.json",
+      "family": "Framework coverage vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "conformance/frameworks/vercel.json",
+      "family": "Framework coverage vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "conformance/provider/receipts/receipt-effected-with-digest.json",
       "family": "Verifying provider receipt vector",
       "source": "synthetic",
@@ -555,6 +573,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/cli/VerifyIntent.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/config/ExecutorConfig.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
@@ -657,6 +681,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/gateway/InstallSurface.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/gateway/InterceptedRequest.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
@@ -664,6 +694,12 @@
     },
     {
       "path": "packages/agentsafe/test/gateway/RouteTable.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/gateway/ShadowLedger.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false
@@ -939,6 +975,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/verify/EffectReceipt.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/verify/VerifyAuditChain.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
@@ -951,7 +993,7 @@
       "containsCustomerData": false
     },
     {
-      "path": "packages/agentsafe/test/verify/EffectReceipt.test.ts",
+      "path": "packages/agentsafe/test/verify/VerifyIntentVector.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false
@@ -1072,6 +1114,18 @@
     },
     {
       "path": "packages/pipeline/test/http/StoredCredentials.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/pipeline/test/intent/FrameworkCoverage.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/pipeline/test/intent/IntentBindingSchema.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false

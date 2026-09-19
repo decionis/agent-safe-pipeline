@@ -1,8 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { ACTIVATION_MILESTONES, ActivationFunnel } from "../../src/gateway/Activation.js";
+import {
+  ACTIVATION_MILESTONES,
+  ACTIVATION_PATH,
+  ActivationFunnel,
+} from "../../src/gateway/Activation.js";
 import { renderHuman, renderJson } from "../../src/gateway/GatewayReport.js";
 
 describe("the activation funnel", () => {
+  it("is the whole path, of which the gateway reaches its own steps", () => {
+    // The installer's line and the test command's line come first; every
+    // step a gateway reports is on the path, and the path names no other
+    // process's step twice.
+    expect(ACTIVATION_PATH.slice(0, 2)).toEqual(["installation", "boundary_tested"]);
+    for (const milestone of ACTIVATION_MILESTONES) expect(ACTIVATION_PATH).toContain(milestone);
+    expect(new Set(ACTIVATION_PATH).size).toBe(ACTIVATION_PATH.length);
+    expect(ACTIVATION_PATH.length).toBe(ACTIVATION_MILESTONES.length + 2);
+  });
+
   it("reports each milestone once, with when, and nothing else", () => {
     const reported: [string, string][] = [];
     let now = 1_000;
