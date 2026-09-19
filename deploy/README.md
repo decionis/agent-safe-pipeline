@@ -11,6 +11,20 @@ a shadow deployment to an enforced one. One image, one manifest, one runbook.
 | [`kubernetes/`](./kubernetes)                                       | Two namespaces, a default deny in both, the executor, its egress, the agent zone, operator RBAC  |
 | [`Runbook.md`](./Runbook.md)                                        | Shadow, controlled enforcement, enforcement: what to compare and what changes between them       |
 
+## What the kit is for
+
+The clearest case for the kit is an agent that changes infrastructure. An infrastructure agent
+with a valid identity and a valid credential to the cluster's API can scale, roll and delete, and
+the API checks only that the identity may call it, not that this call is the one anyone
+authorised. The kit puts the executor between the two: the proposing workflow runs in the agent
+zone with no service-account token and no route anywhere but the executor's listener; the executor
+runs in its own namespace with the one credential the API accepts for the operations it handles,
+projected as a file and resolved at dispatch; and each proposal meets the authority as an exact
+intent, principal, cluster, service, parameters and expiry in one hash, to be effected once on a
+claimed grant or refused. [`examples/infra-scale-demo`](../examples/infra-scale-demo) runs that
+case offline as the Compromised Principal Test, seven attempts by a valid principal and none
+executed; the kit is where the same boundary runs in a cluster.
+
 ## Two zones
 
 The kit puts the proposing workflows and the executor in separate namespaces, and the separation

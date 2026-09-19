@@ -1,0 +1,351 @@
+{
+  "description": "The Compromised Principal Test as a hash vector: an infrastructure agent's deployment.scale intent, and eight single-field mutations a valid principal could make after authorization. Every mutation MUST hash differently from the base and from every other, so that a grant for the base authorises none of them.",
+  "binding": {
+    "protocol_version": "agent-safe.intent/1",
+    "tenant_id": "00000000-0000-4000-8000-000000000009",
+    "intent_id": "22222222-2222-4222-8222-222222222222",
+    "captured_at": "2026-09-19T12:00:00.000Z",
+    "expires_at": "2026-09-19T12:05:00.000Z",
+    "actor": {
+      "id": "synthetic-infra-agent",
+      "type": "AI_AGENT",
+      "runtime": "infra-scale-demo"
+    },
+    "action": {
+      "type": "deployment.scale",
+      "resource": "kubernetes:prod-eu:deployments/inference",
+      "parameters": {
+        "cluster": "prod-eu",
+        "namespace": "serving",
+        "service": "inference",
+        "replicas": 96
+      }
+    },
+    "context": {
+      "source": "infra-scale-demo",
+      "approval_role": "SRE",
+      "idempotency_key": "synthetic-scale-a"
+    },
+    "downstream_target": {
+      "system": "kubernetes",
+      "operation": "deployments/scale",
+      "environment": "production"
+    }
+  },
+  "canonical_json": "{\"action\":{\"parameters\":{\"cluster\":\"prod-eu\",\"namespace\":\"serving\",\"replicas\":96,\"service\":\"inference\"},\"resource\":\"kubernetes:prod-eu:deployments/inference\",\"type\":\"deployment.scale\"},\"actor\":{\"id\":\"synthetic-infra-agent\",\"runtime\":\"infra-scale-demo\",\"type\":\"AI_AGENT\"},\"captured_at\":\"2026-09-19T12:00:00.000Z\",\"context\":{\"approval_role\":\"SRE\",\"idempotency_key\":\"synthetic-scale-a\",\"source\":\"infra-scale-demo\"},\"downstream_target\":{\"environment\":\"production\",\"operation\":\"deployments/scale\",\"system\":\"kubernetes\"},\"expires_at\":\"2026-09-19T12:05:00.000Z\",\"intent_id\":\"22222222-2222-4222-8222-222222222222\",\"protocol_version\":\"agent-safe.intent/1\",\"tenant_id\":\"00000000-0000-4000-8000-000000000009\"}",
+  "intent_hash": "sha256:c1124c3c6fa4ace58edb2e053017d4d0413df0816c254d3ef3902a8104480826",
+  "mutations": [
+    {
+      "path": "action.parameters.replicas",
+      "value": 960,
+      "description": "the replica count, raised after authorization: the mutation the demo is named for",
+      "binding": {
+        "protocol_version": "agent-safe.intent/1",
+        "tenant_id": "00000000-0000-4000-8000-000000000009",
+        "intent_id": "22222222-2222-4222-8222-222222222222",
+        "captured_at": "2026-09-19T12:00:00.000Z",
+        "expires_at": "2026-09-19T12:05:00.000Z",
+        "actor": {
+          "id": "synthetic-infra-agent",
+          "type": "AI_AGENT",
+          "runtime": "infra-scale-demo"
+        },
+        "action": {
+          "type": "deployment.scale",
+          "resource": "kubernetes:prod-eu:deployments/inference",
+          "parameters": {
+            "cluster": "prod-eu",
+            "namespace": "serving",
+            "service": "inference",
+            "replicas": 960
+          }
+        },
+        "context": {
+          "source": "infra-scale-demo",
+          "approval_role": "SRE",
+          "idempotency_key": "synthetic-scale-a"
+        },
+        "downstream_target": {
+          "system": "kubernetes",
+          "operation": "deployments/scale",
+          "environment": "production"
+        }
+      },
+      "canonical_json": "{\"action\":{\"parameters\":{\"cluster\":\"prod-eu\",\"namespace\":\"serving\",\"replicas\":960,\"service\":\"inference\"},\"resource\":\"kubernetes:prod-eu:deployments/inference\",\"type\":\"deployment.scale\"},\"actor\":{\"id\":\"synthetic-infra-agent\",\"runtime\":\"infra-scale-demo\",\"type\":\"AI_AGENT\"},\"captured_at\":\"2026-09-19T12:00:00.000Z\",\"context\":{\"approval_role\":\"SRE\",\"idempotency_key\":\"synthetic-scale-a\",\"source\":\"infra-scale-demo\"},\"downstream_target\":{\"environment\":\"production\",\"operation\":\"deployments/scale\",\"system\":\"kubernetes\"},\"expires_at\":\"2026-09-19T12:05:00.000Z\",\"intent_id\":\"22222222-2222-4222-8222-222222222222\",\"protocol_version\":\"agent-safe.intent/1\",\"tenant_id\":\"00000000-0000-4000-8000-000000000009\"}",
+      "intent_hash": "sha256:75cc1a9ae4444e54c565fc3e7f93007154c94329d7d4618882b6d72545285b27"
+    },
+    {
+      "path": "action.parameters.service",
+      "value": "payments",
+      "description": "the service: a deployment outside the principal's remit",
+      "binding": {
+        "protocol_version": "agent-safe.intent/1",
+        "tenant_id": "00000000-0000-4000-8000-000000000009",
+        "intent_id": "22222222-2222-4222-8222-222222222222",
+        "captured_at": "2026-09-19T12:00:00.000Z",
+        "expires_at": "2026-09-19T12:05:00.000Z",
+        "actor": {
+          "id": "synthetic-infra-agent",
+          "type": "AI_AGENT",
+          "runtime": "infra-scale-demo"
+        },
+        "action": {
+          "type": "deployment.scale",
+          "resource": "kubernetes:prod-eu:deployments/inference",
+          "parameters": {
+            "cluster": "prod-eu",
+            "namespace": "serving",
+            "service": "payments",
+            "replicas": 96
+          }
+        },
+        "context": {
+          "source": "infra-scale-demo",
+          "approval_role": "SRE",
+          "idempotency_key": "synthetic-scale-a"
+        },
+        "downstream_target": {
+          "system": "kubernetes",
+          "operation": "deployments/scale",
+          "environment": "production"
+        }
+      },
+      "canonical_json": "{\"action\":{\"parameters\":{\"cluster\":\"prod-eu\",\"namespace\":\"serving\",\"replicas\":96,\"service\":\"payments\"},\"resource\":\"kubernetes:prod-eu:deployments/inference\",\"type\":\"deployment.scale\"},\"actor\":{\"id\":\"synthetic-infra-agent\",\"runtime\":\"infra-scale-demo\",\"type\":\"AI_AGENT\"},\"captured_at\":\"2026-09-19T12:00:00.000Z\",\"context\":{\"approval_role\":\"SRE\",\"idempotency_key\":\"synthetic-scale-a\",\"source\":\"infra-scale-demo\"},\"downstream_target\":{\"environment\":\"production\",\"operation\":\"deployments/scale\",\"system\":\"kubernetes\"},\"expires_at\":\"2026-09-19T12:05:00.000Z\",\"intent_id\":\"22222222-2222-4222-8222-222222222222\",\"protocol_version\":\"agent-safe.intent/1\",\"tenant_id\":\"00000000-0000-4000-8000-000000000009\"}",
+      "intent_hash": "sha256:5b00674723b6a6235f690340ad05a160dd1f166792998496f15324743baa4127"
+    },
+    {
+      "path": "action.parameters.cluster",
+      "value": "prod-us",
+      "description": "the cluster: another team's, with the resource left as it was",
+      "binding": {
+        "protocol_version": "agent-safe.intent/1",
+        "tenant_id": "00000000-0000-4000-8000-000000000009",
+        "intent_id": "22222222-2222-4222-8222-222222222222",
+        "captured_at": "2026-09-19T12:00:00.000Z",
+        "expires_at": "2026-09-19T12:05:00.000Z",
+        "actor": {
+          "id": "synthetic-infra-agent",
+          "type": "AI_AGENT",
+          "runtime": "infra-scale-demo"
+        },
+        "action": {
+          "type": "deployment.scale",
+          "resource": "kubernetes:prod-eu:deployments/inference",
+          "parameters": {
+            "cluster": "prod-us",
+            "namespace": "serving",
+            "service": "inference",
+            "replicas": 96
+          }
+        },
+        "context": {
+          "source": "infra-scale-demo",
+          "approval_role": "SRE",
+          "idempotency_key": "synthetic-scale-a"
+        },
+        "downstream_target": {
+          "system": "kubernetes",
+          "operation": "deployments/scale",
+          "environment": "production"
+        }
+      },
+      "canonical_json": "{\"action\":{\"parameters\":{\"cluster\":\"prod-us\",\"namespace\":\"serving\",\"replicas\":96,\"service\":\"inference\"},\"resource\":\"kubernetes:prod-eu:deployments/inference\",\"type\":\"deployment.scale\"},\"actor\":{\"id\":\"synthetic-infra-agent\",\"runtime\":\"infra-scale-demo\",\"type\":\"AI_AGENT\"},\"captured_at\":\"2026-09-19T12:00:00.000Z\",\"context\":{\"approval_role\":\"SRE\",\"idempotency_key\":\"synthetic-scale-a\",\"source\":\"infra-scale-demo\"},\"downstream_target\":{\"environment\":\"production\",\"operation\":\"deployments/scale\",\"system\":\"kubernetes\"},\"expires_at\":\"2026-09-19T12:05:00.000Z\",\"intent_id\":\"22222222-2222-4222-8222-222222222222\",\"protocol_version\":\"agent-safe.intent/1\",\"tenant_id\":\"00000000-0000-4000-8000-000000000009\"}",
+      "intent_hash": "sha256:8022f9b0ff144e469a3245732d15710d6c7c2305c4a7f89fc7926fdc209e79f0"
+    },
+    {
+      "path": "action.resource",
+      "value": "kubernetes:prod-eu:deployments/payments",
+      "description": "the resource the action names, with the parameters left as they were",
+      "binding": {
+        "protocol_version": "agent-safe.intent/1",
+        "tenant_id": "00000000-0000-4000-8000-000000000009",
+        "intent_id": "22222222-2222-4222-8222-222222222222",
+        "captured_at": "2026-09-19T12:00:00.000Z",
+        "expires_at": "2026-09-19T12:05:00.000Z",
+        "actor": {
+          "id": "synthetic-infra-agent",
+          "type": "AI_AGENT",
+          "runtime": "infra-scale-demo"
+        },
+        "action": {
+          "type": "deployment.scale",
+          "resource": "kubernetes:prod-eu:deployments/payments",
+          "parameters": {
+            "cluster": "prod-eu",
+            "namespace": "serving",
+            "service": "inference",
+            "replicas": 96
+          }
+        },
+        "context": {
+          "source": "infra-scale-demo",
+          "approval_role": "SRE",
+          "idempotency_key": "synthetic-scale-a"
+        },
+        "downstream_target": {
+          "system": "kubernetes",
+          "operation": "deployments/scale",
+          "environment": "production"
+        }
+      },
+      "canonical_json": "{\"action\":{\"parameters\":{\"cluster\":\"prod-eu\",\"namespace\":\"serving\",\"replicas\":96,\"service\":\"inference\"},\"resource\":\"kubernetes:prod-eu:deployments/payments\",\"type\":\"deployment.scale\"},\"actor\":{\"id\":\"synthetic-infra-agent\",\"runtime\":\"infra-scale-demo\",\"type\":\"AI_AGENT\"},\"captured_at\":\"2026-09-19T12:00:00.000Z\",\"context\":{\"approval_role\":\"SRE\",\"idempotency_key\":\"synthetic-scale-a\",\"source\":\"infra-scale-demo\"},\"downstream_target\":{\"environment\":\"production\",\"operation\":\"deployments/scale\",\"system\":\"kubernetes\"},\"expires_at\":\"2026-09-19T12:05:00.000Z\",\"intent_id\":\"22222222-2222-4222-8222-222222222222\",\"protocol_version\":\"agent-safe.intent/1\",\"tenant_id\":\"00000000-0000-4000-8000-000000000009\"}",
+      "intent_hash": "sha256:e137482d371ae3cbb5ab7796a639872ea8a17ca83d85428e5a851132bc9616c6"
+    },
+    {
+      "path": "actor.id",
+      "value": "synthetic-platform-admin",
+      "description": "the principal: the same request from a stronger identity is another intent, not a stronger claim to this one",
+      "binding": {
+        "protocol_version": "agent-safe.intent/1",
+        "tenant_id": "00000000-0000-4000-8000-000000000009",
+        "intent_id": "22222222-2222-4222-8222-222222222222",
+        "captured_at": "2026-09-19T12:00:00.000Z",
+        "expires_at": "2026-09-19T12:05:00.000Z",
+        "actor": {
+          "id": "synthetic-platform-admin",
+          "type": "AI_AGENT",
+          "runtime": "infra-scale-demo"
+        },
+        "action": {
+          "type": "deployment.scale",
+          "resource": "kubernetes:prod-eu:deployments/inference",
+          "parameters": {
+            "cluster": "prod-eu",
+            "namespace": "serving",
+            "service": "inference",
+            "replicas": 96
+          }
+        },
+        "context": {
+          "source": "infra-scale-demo",
+          "approval_role": "SRE",
+          "idempotency_key": "synthetic-scale-a"
+        },
+        "downstream_target": {
+          "system": "kubernetes",
+          "operation": "deployments/scale",
+          "environment": "production"
+        }
+      },
+      "canonical_json": "{\"action\":{\"parameters\":{\"cluster\":\"prod-eu\",\"namespace\":\"serving\",\"replicas\":96,\"service\":\"inference\"},\"resource\":\"kubernetes:prod-eu:deployments/inference\",\"type\":\"deployment.scale\"},\"actor\":{\"id\":\"synthetic-platform-admin\",\"runtime\":\"infra-scale-demo\",\"type\":\"AI_AGENT\"},\"captured_at\":\"2026-09-19T12:00:00.000Z\",\"context\":{\"approval_role\":\"SRE\",\"idempotency_key\":\"synthetic-scale-a\",\"source\":\"infra-scale-demo\"},\"downstream_target\":{\"environment\":\"production\",\"operation\":\"deployments/scale\",\"system\":\"kubernetes\"},\"expires_at\":\"2026-09-19T12:05:00.000Z\",\"intent_id\":\"22222222-2222-4222-8222-222222222222\",\"protocol_version\":\"agent-safe.intent/1\",\"tenant_id\":\"00000000-0000-4000-8000-000000000009\"}",
+      "intent_hash": "sha256:295c59bd21addea4e25f603bf8fd2625ff2c64ffdf7340d566703aae5fbe0e44"
+    },
+    {
+      "path": "expires_at",
+      "value": "2026-09-19T13:05:00.000Z",
+      "description": "the expiry: an hour more is another intent",
+      "binding": {
+        "protocol_version": "agent-safe.intent/1",
+        "tenant_id": "00000000-0000-4000-8000-000000000009",
+        "intent_id": "22222222-2222-4222-8222-222222222222",
+        "captured_at": "2026-09-19T12:00:00.000Z",
+        "expires_at": "2026-09-19T13:05:00.000Z",
+        "actor": {
+          "id": "synthetic-infra-agent",
+          "type": "AI_AGENT",
+          "runtime": "infra-scale-demo"
+        },
+        "action": {
+          "type": "deployment.scale",
+          "resource": "kubernetes:prod-eu:deployments/inference",
+          "parameters": {
+            "cluster": "prod-eu",
+            "namespace": "serving",
+            "service": "inference",
+            "replicas": 96
+          }
+        },
+        "context": {
+          "source": "infra-scale-demo",
+          "approval_role": "SRE",
+          "idempotency_key": "synthetic-scale-a"
+        },
+        "downstream_target": {
+          "system": "kubernetes",
+          "operation": "deployments/scale",
+          "environment": "production"
+        }
+      },
+      "canonical_json": "{\"action\":{\"parameters\":{\"cluster\":\"prod-eu\",\"namespace\":\"serving\",\"replicas\":96,\"service\":\"inference\"},\"resource\":\"kubernetes:prod-eu:deployments/inference\",\"type\":\"deployment.scale\"},\"actor\":{\"id\":\"synthetic-infra-agent\",\"runtime\":\"infra-scale-demo\",\"type\":\"AI_AGENT\"},\"captured_at\":\"2026-09-19T12:00:00.000Z\",\"context\":{\"approval_role\":\"SRE\",\"idempotency_key\":\"synthetic-scale-a\",\"source\":\"infra-scale-demo\"},\"downstream_target\":{\"environment\":\"production\",\"operation\":\"deployments/scale\",\"system\":\"kubernetes\"},\"expires_at\":\"2026-09-19T13:05:00.000Z\",\"intent_id\":\"22222222-2222-4222-8222-222222222222\",\"protocol_version\":\"agent-safe.intent/1\",\"tenant_id\":\"00000000-0000-4000-8000-000000000009\"}",
+      "intent_hash": "sha256:be36e7144f85751721c554084dd12b524703eb60b3cef89c56722853d290f8f3"
+    },
+    {
+      "path": "context.idempotency_key",
+      "value": "synthetic-scale-b",
+      "description": "the idempotency key the trusted runtime chose: a retry is not a re-authorization",
+      "binding": {
+        "protocol_version": "agent-safe.intent/1",
+        "tenant_id": "00000000-0000-4000-8000-000000000009",
+        "intent_id": "22222222-2222-4222-8222-222222222222",
+        "captured_at": "2026-09-19T12:00:00.000Z",
+        "expires_at": "2026-09-19T12:05:00.000Z",
+        "actor": {
+          "id": "synthetic-infra-agent",
+          "type": "AI_AGENT",
+          "runtime": "infra-scale-demo"
+        },
+        "action": {
+          "type": "deployment.scale",
+          "resource": "kubernetes:prod-eu:deployments/inference",
+          "parameters": {
+            "cluster": "prod-eu",
+            "namespace": "serving",
+            "service": "inference",
+            "replicas": 96
+          }
+        },
+        "context": {
+          "source": "infra-scale-demo",
+          "approval_role": "SRE",
+          "idempotency_key": "synthetic-scale-b"
+        },
+        "downstream_target": {
+          "system": "kubernetes",
+          "operation": "deployments/scale",
+          "environment": "production"
+        }
+      },
+      "canonical_json": "{\"action\":{\"parameters\":{\"cluster\":\"prod-eu\",\"namespace\":\"serving\",\"replicas\":96,\"service\":\"inference\"},\"resource\":\"kubernetes:prod-eu:deployments/inference\",\"type\":\"deployment.scale\"},\"actor\":{\"id\":\"synthetic-infra-agent\",\"runtime\":\"infra-scale-demo\",\"type\":\"AI_AGENT\"},\"captured_at\":\"2026-09-19T12:00:00.000Z\",\"context\":{\"approval_role\":\"SRE\",\"idempotency_key\":\"synthetic-scale-b\",\"source\":\"infra-scale-demo\"},\"downstream_target\":{\"environment\":\"production\",\"operation\":\"deployments/scale\",\"system\":\"kubernetes\"},\"expires_at\":\"2026-09-19T12:05:00.000Z\",\"intent_id\":\"22222222-2222-4222-8222-222222222222\",\"protocol_version\":\"agent-safe.intent/1\",\"tenant_id\":\"00000000-0000-4000-8000-000000000009\"}",
+      "intent_hash": "sha256:e43d6e5fcb2e4cfb73cf6c0490fab02a76b6989eafb17d8ea435114faed36cf7"
+    },
+    {
+      "path": "downstream_target.environment",
+      "value": "staging",
+      "description": "the environment the runtime binds: production and staging are different intents with the same parameters",
+      "binding": {
+        "protocol_version": "agent-safe.intent/1",
+        "tenant_id": "00000000-0000-4000-8000-000000000009",
+        "intent_id": "22222222-2222-4222-8222-222222222222",
+        "captured_at": "2026-09-19T12:00:00.000Z",
+        "expires_at": "2026-09-19T12:05:00.000Z",
+        "actor": {
+          "id": "synthetic-infra-agent",
+          "type": "AI_AGENT",
+          "runtime": "infra-scale-demo"
+        },
+        "action": {
+          "type": "deployment.scale",
+          "resource": "kubernetes:prod-eu:deployments/inference",
+          "parameters": {
+            "cluster": "prod-eu",
+            "namespace": "serving",
+            "service": "inference",
+            "replicas": 96
+          }
+        },
+        "context": {
+          "source": "infra-scale-demo",
+          "approval_role": "SRE",
+          "idempotency_key": "synthetic-scale-a"
+        },
+        "downstream_target": {
+          "system": "kubernetes",
+          "operation": "deployments/scale",
+          "environment": "staging"
+        }
+      },
+      "canonical_json": "{\"action\":{\"parameters\":{\"cluster\":\"prod-eu\",\"namespace\":\"serving\",\"replicas\":96,\"service\":\"inference\"},\"resource\":\"kubernetes:prod-eu:deployments/inference\",\"type\":\"deployment.scale\"},\"actor\":{\"id\":\"synthetic-infra-agent\",\"runtime\":\"infra-scale-demo\",\"type\":\"AI_AGENT\"},\"captured_at\":\"2026-09-19T12:00:00.000Z\",\"context\":{\"approval_role\":\"SRE\",\"idempotency_key\":\"synthetic-scale-a\",\"source\":\"infra-scale-demo\"},\"downstream_target\":{\"environment\":\"staging\",\"operation\":\"deployments/scale\",\"system\":\"kubernetes\"},\"expires_at\":\"2026-09-19T12:05:00.000Z\",\"intent_id\":\"22222222-2222-4222-8222-222222222222\",\"protocol_version\":\"agent-safe.intent/1\",\"tenant_id\":\"00000000-0000-4000-8000-000000000009\"}",
+      "intent_hash": "sha256:6a73fb0f7071c6d104e58b9283c9fbaae9a4d6f4c41299eaa17c11f99519d015"
+    }
+  ]
+}

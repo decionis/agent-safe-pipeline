@@ -9,6 +9,14 @@ interface ConformanceVector {
   binding: JsonValue;
   canonical_json?: string;
   intent_hash: string;
+  /** Single-field mutations of the binding, each of which MUST hash differently. */
+  mutations?: readonly {
+    path: string;
+    description: string;
+    binding: JsonValue;
+    canonical_json: string;
+    intent_hash: string;
+  }[];
 }
 
 const VECTORS_DIR = new URL("../../../../conformance/vectors/", import.meta.url);
@@ -43,7 +51,47 @@ describe("agent-safe.intent/1 conformance", () => {
       // 2. the published SHA-256 must match those bytes
       const actual = `sha256:${createHash("sha256").update(canonical, "utf8").digest("hex")}`;
       expect(actual, `${file}: hash mismatch`).toBe(vector.intent_hash);
+
+      // 3. every mutation the vector names is another intent: its own bytes,
+      //    its own hash, and never the base's or another mutation's
+      const hashes = new Set([vector.intent_hash]);
+      for (const mutation of vector.mutations ?? []) {
+        const mutated = CanonicalIntentHasher.stringify(mutation.binding);
+        expect(mutated, `${file}: ${mutation.path} canonical JSON mismatch`).toBe(
+          mutation.canonical_json,
+        );
+        const digest = `sha256:${createHash("sha256").update(mutated, "utf8").digest("hex")}`;
+        expect(digest, `${file}: ${mutation.path} hash mismatch`).toBe(mutation.intent_hash);
+        expect(hashes.has(digest), `${file}: ${mutation.path} hashes like another intent`).toBe(
+          false,
+        );
+        hashes.add(digest);
+      }
     }
+  });
+
+  it("binds every field a compromised principal could change, so a grant for one intent authorises no other", async () => {
+    const vector = JSON.parse(
+      await readFile(new URL("compromised-principal.json", VECTORS_DIR), "utf8"),
+    ) as Required<ConformanceVector>;
+    const paths = vector.mutations.map((mutation) => mutation.path);
+    // The parameters, the resource, the principal, the expiry, the trusted
+    // runtime's idempotency key and the environment: each is inside the hash.
+    expect(paths).toEqual(
+      expect.arrayContaining([
+        "action.parameters.replicas",
+        "action.parameters.service",
+        "action.parameters.cluster",
+        "action.resource",
+        "actor.id",
+        "expires_at",
+        "context.idempotency_key",
+        "downstream_target.environment",
+      ]),
+    );
+    expect(new Set(vector.mutations.map((mutation) => mutation.intent_hash)).size).toBe(
+      vector.mutations.length,
+    );
   });
 
   it("keeps composed and decomposed text intentionally distinct (no NFC)", async () => {
