@@ -35,9 +35,19 @@ DOI, or edit a published record.
 
 ## After a release
 
-Publishing a stable GitHub release starts the read-only `Verify Zenodo release`
-workflow. Zenodo deposits are asynchronous, so the workflow uses a bounded
-five-minute retry window. It verifies that:
+The read-only `Verify Zenodo release` workflow checks the archived record. A
+release published by hand starts it through the `release: published` event; a
+release the deploy workflow publishes does not, because GitHub fires no
+workflow for events an Actions token created, so after an automated release a
+maintainer dispatches it for the released tag:
+
+```bash
+gh workflow run zenodo-release.yml --ref vX.Y.Z -f version=X.Y.Z
+```
+
+Zenodo deposits are asynchronous, so the workflow uses a bounded five-minute
+retry window, and every request it makes names this repository's verifier in
+its user agent, since Zenodo refuses an anonymous client. It verifies that:
 
 - the public record is the requested version under concept DOI
   `10.5281/zenodo.22312955`;
