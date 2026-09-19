@@ -6,6 +6,7 @@ import { after, before, describe, it } from "node:test";
 import { loadReleaseMetadata } from "../../scripts/ReleaseMetadata.mjs";
 import {
   validateZenodoRecord,
+  REQUEST_USER_AGENT,
   verifyZenodoRelease,
   zenodoSearchUrl,
 } from "../../scripts/VerifyZenodoRelease.mjs";
@@ -200,7 +201,9 @@ describe("Zenodo release verification", () => {
     const release = await loadReleaseMetadata({ root });
     const sleeps = [];
     let searches = 0;
-    const fetchImpl = async (url) => {
+    const agents = new Set();
+    const fetchImpl = async (url, init) => {
+      agents.add(init?.headers?.["user-agent"]);
       if (String(url).startsWith("https://zenodo.org/api/records")) {
         searches += 1;
         const hits = searches === 1 ? [] : [zenodoRecord(release)];
@@ -223,6 +226,9 @@ describe("Zenodo release verification", () => {
 
     assert.equal(searches, 2);
     assert.deepEqual(sleeps, [0]);
+    // Every request, to Zenodo and to the DOI resolver, says who is asking:
+    // Zenodo refuses Node's default agent.
+    assert.deepEqual([...agents], [REQUEST_USER_AGENT]);
     assert.equal(evidence.publication_date, "2026-09-05");
     assert.equal(evidence.version_doi, "10.5281/zenodo.22312956");
     assert.match(evidence.metadata_digest, /^sha256:[0-9a-f]{64}$/);

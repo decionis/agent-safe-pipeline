@@ -8,6 +8,13 @@ import { creatorDisplayName, loadReleaseMetadata, normalizeOrcid } from "./Relea
 
 const zenodoRecordsUrl = "https://zenodo.org/api/records";
 const doiResolverUrl = "https://doi.org";
+/**
+ * Who is asking. Zenodo answers Node's default user agent with 403 (observed
+ * 2026-09-19, after the release of v0.3.0), so every request names this
+ * verifier and where it lives, which is also the courtesy an API owner asks.
+ */
+export const REQUEST_USER_AGENT =
+  "agent-safe-pipeline-release-verifier (+https://github.com/decionis/agent-safe-pipeline)";
 const versionDoiPattern = /^10\.5281\/zenodo\.\d+$/;
 
 class PermanentVerificationError extends Error {}
@@ -156,7 +163,7 @@ async function readZenodoSearch(response) {
 
 async function assertDoiResolves(doi, fetchImpl, requestTimeoutMs) {
   const response = await fetchImpl(`${doiResolverUrl}/${doi}`, {
-    headers: { accept: "text/html" },
+    headers: { accept: "text/html", "user-agent": REQUEST_USER_AGENT },
     method: "HEAD",
     redirect: "manual",
     signal: globalThis.AbortSignal.timeout(requestTimeoutMs),
@@ -210,7 +217,7 @@ export async function verifyZenodoRelease({
       const search = object(
         await readZenodoSearch(
           await fetchImpl(searchUrl, {
-            headers: { accept: "application/json" },
+            headers: { accept: "application/json", "user-agent": REQUEST_USER_AGENT },
             signal: globalThis.AbortSignal.timeout(requestTimeoutMs),
           }),
         ),
