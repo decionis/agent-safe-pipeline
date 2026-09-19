@@ -1,0 +1,58 @@
+{
+  "profile": "agent-safe.verifying-provider/1",
+  "version": "0.1",
+  "vector": "dispatch-hmac-attested-accepts",
+  "level": "VP-2",
+  "description": "The executor's signature may be an HMAC over the same base; the attestation is the authority's either way.",
+  "provider": {
+    "effects": true,
+    "clock_window_seconds": 300,
+    "now": "2026-09-19T12:00:00.000Z",
+    "authority_issuer": "https://authority.example"
+  },
+  "executor_keys": [
+    {
+      "keyid": "vector-executor-ed25519-1",
+      "alg": "ed25519",
+      "public_pem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAbkjxBZPWwJXBEPL4wiH5JZGLV8gzT61G81J7fa7/MEE=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "keyid": "vector-executor-hmac-1",
+      "alg": "hmac-sha256",
+      "shared_material_utf8": "verifying provider vector shared material one"
+    }
+  ],
+  "authority_jwks": {
+    "keys": [
+      {
+        "crv": "Ed25519",
+        "x": "bXMw8L6Hqmksn3A0_Yx8FtLBE4U9lCWsH2-pICjcYU8",
+        "kty": "OKP",
+        "kid": "vector-execution-grant-1",
+        "alg": "EdDSA",
+        "use": "sig"
+      }
+    ]
+  },
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/v1/wires",
+      "headers": {
+        "content-type": "application/json",
+        "idempotency-key": "vpp-wire-0001",
+        "x-agent-safe-intent-hash": "sha256:ee63dec7a6a0e76825bcd4e033b409e27074416ef6b5c5a6bc09e881591c2211",
+        "x-agent-safe-grant-id": "11111111-1111-4111-8111-000000000001",
+        "x-agent-safe-decision-id": "vector-decision-0001",
+        "x-agent-safe-claim-attestation": "eyJhbGciOiJFZERTQSIsImtpZCI6InZlY3Rvci1leGVjdXRpb24tZ3JhbnQtMSIsInR5cCI6ImRlY2lvbmlzLWNsYWltLWF0dGVzdGF0aW9uK2p3dCJ9.eyJpc3MiOiJodHRwczovL2F1dGhvcml0eS5leGFtcGxlIiwic3ViIjoiMTExMTExMTEtMTExMS00MTExLTgxMTEtMDAwMDAwMDAwMDAxIiwib3JnX2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDA4IiwiZG9zc2llcl9pZCI6IjIyMjIyMjIyLTIyMjItNDIyMi04MjIyLTAwMDAwMDAwMDAwMSIsImRlY2lzaW9uX2lkIjoidmVjdG9yLWRlY2lzaW9uLTAwMDEiLCJiaW5kaW5nIjp7ImludGVudF9oYXNoIjoic2hhMjU2OmVlNjNkZWM3YTZhMGU3NjgyNWJjZDRlMDMzYjQwOWUyNzA3NDQxNmVmNmI1YzVhNmJjMDllODgxNTkxYzIyMTEiLCJleGVjdXRpb25fcGF5bG9hZF9kaWdlc3QiOiJzaGEyNTY6MTk2ZmYwY2VjNjhmZTBhNjM3NGRhOWQ3OGJkNTc5NTNlZTM3NDJmZmYxMzIxOTNkOWZiNWEyMjQ2NDU5MGY5ZSIsImV4ZWN1dGlvbl9wYXlsb2FkX2Nhbm9uaWNhbGl6YXRpb25fcHJvZmlsZSI6IlJGQzg3ODUvSkNTIiwiZXhlY3V0aW9uX25vbmNlIjoiMHdManliUGFMQlYxQ2NIV0tweXhHQTNfMElRakxBemxwNldnTW9mejJxayIsImV4ZWN1dGlvbl9jb3JyZWxhdGlvbl9pZCI6InZlY3Rvci1jb3JyZWxhdGlvbi0xIn0sImNsYWltX3Rva2VuX2RpZ2VzdCI6InNoYTI1Njo5NTVmOGFlZmZhMGU4ZWY5Y2JmN2FmZjQyYTFhNjU1ZjUyY2ZkOGI4ZWRkNDVhZTBjN2VkNGRkOGZlNWUxODUwIiwiY2xhaW1fdmFsaWRhdGVkX2F0IjoiMjAyNi0wOS0xOVQxMTo1OTo1NS4wMDBaIiwianRpIjoiMzMzMzMzMzMtMzMzMy00MzMzLTgzMzMtMDAwMDAwMDAwMDAxIiwiaWF0IjoxNzg5ODE5MTk1LCJuYmYiOjE3ODk4MTkxOTUsImV4cCI6MTc4OTgxOTIyNX0.hymI_5Pz2A-7uX5Ek5LMU-Z8xZiXl7NiCrw7jamDQd6sjJh368BK0oxMdpwGbT1RgWDmIfLKynZBRCIBP29TBg",
+        "content-digest": "sha-256=:p5gDPC/uFWmhXV97u81K1g7MwavEaak3b25R7rrr5MY=:",
+        "signature-input": "agentsafe=(\"@method\" \"@path\" \"content-digest\" \"idempotency-key\" \"x-agent-safe-intent-hash\" \"x-agent-safe-grant-id\" \"x-agent-safe-decision-id\" \"x-agent-safe-claim-attestation\");created=1789819195;keyid=\"vector-executor-hmac-1\";alg=\"hmac-sha256\"",
+        "signature": "agentsafe=:MrqyyBXJ5wRcw45eKhJ2ZH3SyNwmeoj069a3SryUxAg=:"
+      },
+      "body": "{\"amountMinor\":250000,\"currency\":\"USD\",\"beneficiary\":\"synthetic-vendor-7781\",\"reference\":\"vector-wire-1\"}",
+      "expect": {
+        "outcome": "ACCEPT"
+      }
+    }
+  ]
+}

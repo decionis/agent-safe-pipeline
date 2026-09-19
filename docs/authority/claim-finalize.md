@@ -18,6 +18,15 @@ The dispatch budget is the smaller of the upstream timeout, what is left of the 
 left of the claim lease the authority named, measured on a monotonic clock; a slow upstream cannot
 outlive the permission the request was made under.
 
+The invariant, stated once: offline verification proves the grant; the Decionis claim consumes the
+authority; only a successful claim permits dispatch. A locally verified execution grant MUST NOT,
+by itself, authorize downstream execution, because verification is stateless and cannot know
+whether the grant was consumed. The same holds for a claim that succeeded and a process that then
+failed before the handler ran: the grant is not released for a second claim because execution was
+not observed; the claim lease and the finalization outcome say what happened to it. A provider that
+wants to refuse for itself checks the authority's attestation of the claim, never the grant: the
+[Verifying Provider Profile](./verifying-provider.md).
+
 ## Finalize
 
 After the attempt, `SafeExecutor` finalizes the outcome with the authority so the commit evidence

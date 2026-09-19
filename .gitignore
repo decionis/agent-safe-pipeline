@@ -28,3 +28,6 @@ packaging/sea/out/
 packaging/sea/cache/
 packaging/sea/launcher/
 packaging/linux/build/
+
+# Maven build output of the Java verifier
+verifiers/spring/target/

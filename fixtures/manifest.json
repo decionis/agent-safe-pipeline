@@ -15,6 +15,150 @@
       "containsCustomerData": false
     },
     {
+      "path": "conformance/provider/vectors/attestation-canonicalization-profile-unknown.json",
+      "family": "Verifying provider conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "conformance/provider/vectors/attestation-digest-is-canonical-not-raw.json",
+      "family": "Verifying provider conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "conformance/provider/vectors/attestation-expired.json",
+      "family": "Verifying provider conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "conformance/provider/vectors/attestation-for-another-decision.json",
+      "family": "Verifying provider conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "conformance/provider/vectors/attestation-for-another-grant.json",
+      "family": "Verifying provider conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "conformance/provider/vectors/attestation-intent-hash-differs.json",
+      "family": "Verifying provider conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "conformance/provider/vectors/attestation-issuer-differs.json",
+      "family": "Verifying provider conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "conformance/provider/vectors/attestation-payload-tampered.json",
+      "family": "Verifying provider conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "conformance/provider/vectors/attestation-signed-by-unknown-key.json",
+      "family": "Verifying provider conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "conformance/provider/vectors/attestation-wrong-typ.json",
+      "family": "Verifying provider conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "conformance/provider/vectors/body-altered-after-signing.json",
+      "family": "Verifying provider conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "conformance/provider/vectors/body-not-i-json.json",
+      "family": "Verifying provider conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "conformance/provider/vectors/copied-headers-unsigned.json",
+      "family": "Verifying provider conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "conformance/provider/vectors/covered-header-altered-after-signing.json",
+      "family": "Verifying provider conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "conformance/provider/vectors/created-outside-window.json",
+      "family": "Verifying provider conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "conformance/provider/vectors/dispatch-attested-accepts.json",
+      "family": "Verifying provider conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "conformance/provider/vectors/dispatch-hmac-attested-accepts.json",
+      "family": "Verifying provider conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "conformance/provider/vectors/dispatch-hmac-wrong-material.json",
+      "family": "Verifying provider conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "conformance/provider/vectors/dispatch-replayed-within-lease.json",
+      "family": "Verifying provider conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "conformance/provider/vectors/payload-changed-after-claim.json",
+      "family": "Verifying provider conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "conformance/provider/vectors/read-base-components-accepts-for-read.json",
+      "family": "Verifying provider conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "conformance/provider/vectors/read-base-components-refused-by-effecting-provider.json",
+      "family": "Verifying provider conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "conformance/provider/vectors/signature-omits-grant-components.json",
+      "family": "Verifying provider conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "conformance/provider/vectors/unknown-keyid.json",
+      "family": "Verifying provider conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "conformance/vectors/composed-vs-decomposed.json",
       "family": "Intent conformance vector",
       "source": "synthetic",
@@ -760,6 +904,12 @@
     },
     {
       "path": "packages/agentsafe/test/verify/VerifyEvidenceBundle.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/verify/VerifyingProvider.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false

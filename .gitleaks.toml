@@ -25,3 +25,20 @@ regexes = [
   '''^synthetic-req-0001$''',
   '''^synthetic-req-0002$''',
 ]
+
+# The Verifying Provider Profile vectors under conformance/provider/vectors carry
+# claim attestations: compact JWS values the profile requires a provider to
+# verify, which the jwt detector reads as tokens. They are signed by a key
+# generated for the vectors and discarded, and an attestation is a bearer for
+# nothing by design: it carries a digest of the claim token, never the token.
+# The exemption is the narrowest the values allow: a JWS whose protected
+# header, the same base64 in every regeneration, opens with
+# {"alg":"EdDSA","kid":"vector-execution-grant-1", the vectors' own key. A JWS
+# under any other header, one the authority's live keys signed included, is
+# still reported wherever it appears.
+[[allowlists]]
+description = "Claim attestations signed with the conformance vectors' own key"
+regexTarget = "secret"
+regexes = [
+  '''^eyJhbGciOiJFZERTQSIsImtpZCI6InZlY3Rvci1leGVjdXRpb24tZ3JhbnQtMSI[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$''',
+]

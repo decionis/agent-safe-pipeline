@@ -252,6 +252,12 @@ describe("public surface", () => {
       "verdictFor",
       "verifyAuditChain",
       "verifyEvidenceBundle",
+      "verifyProviderRequest",
+      "parseIJson",
+      "refusalBody",
+      "MemoryReplayStore",
+      "ATTESTATION_TYPE",
+      "JCS_PROFILE",
       "watchDirectory",
       "writeCredentials",
     ];

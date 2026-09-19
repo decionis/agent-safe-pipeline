@@ -46,3 +46,25 @@ updates:
       time: "06:45"
       timezone: Europe/Stockholm
     open-pull-requests-limit: 5
+
+  # The verifying provider for Envoy is a Go module with one dependency, the
+  # RFC 8785 canonicaliser; its go.sum pins it.
+  - package-ecosystem: gomod
+    directory: "/verifiers/envoy"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:00"
+      timezone: Europe/Stockholm
+    open-pull-requests-limit: 5
+
+  # The verifying provider for Spring is a Maven module; its pom pins its
+  # dependencies.
+  - package-ecosystem: maven
+    directory: "/verifiers/spring"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:15"
+      timezone: Europe/Stockholm
+    open-pull-requests-limit: 5

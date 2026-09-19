@@ -13,6 +13,8 @@ export default [
       "**/.stryker-tmp/**",
       "packaging/sea/out/**",
       "packaging/sea/cache/**",
+      // Maven's build output of the Java verifier, test reports included.
+      "verifiers/spring/target/**",
     ],
   },
   eslint.configs.recommended,
