@@ -19,7 +19,7 @@ tower = ["dep:tower", "dep:http", "dep:http-body", "dep:http-body-util", "dep:by
 # the canonicaliser and the JSON reading are this crate's own over serde_json's
 # value type, and Ed25519 is ed25519-compact, which depends on nothing.
 [dependencies]
-base64 = "0.22"
+base64 = "0.23"
 ed25519-compact = { version = "2", default-features = false, features = ["std", "pem"] }
 hmac = "0.12"
 ryu-js = "0.2"
