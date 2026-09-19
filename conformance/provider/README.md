@@ -1,9 +1,11 @@
 # agent-safe.verifying-provider/1 — conformance vectors
 
-Vectors for the [Verifying Provider Profile](../../docs/authority/verifying-provider.md), one JSON
-file per case under `vectors/`. Each is self-contained, so an implementation in any language runs
-it with nothing else: the provider's settings, the executor keys it knows, the authority's JWKS,
-and a sequence of requests with the outcome the procedure MUST reach for each.
+Vectors for the [Verifying Provider Profile](../../docs/authority/verifying-provider.md): one JSON
+file per case under `vectors/` for the procedure (VP-1 and VP-2), and one per case under
+`receipts/` for the effect receipt (VP-3). Each is self-contained, so an implementation in any
+language runs it with nothing else. A request vector carries the provider's settings, the executor
+keys it knows, the authority's JWKS, and a sequence of requests with the outcome the procedure MUST
+reach for each.
 
 ```json
 {
@@ -51,12 +53,53 @@ and a sequence of requests with the outcome the procedure MUST reach for each.
 - `expect.outcome` is `ACCEPT` or `REFUSE`; a refusal names its `reason_code`, one of the four the
   profile defines.
 
+A receipt vector carries what a provider signs after effecting and what every implementation MUST
+produce from it:
+
+```json
+{
+  "profile": "agent-safe.verifying-provider/1",
+  "version": "0.1",
+  "vector": "receipt-effected-with-digest",
+  "level": "VP-3",
+  "description": "…",
+  "input": {
+    "kid": "vector-provider-receipts-1",
+    "issuer": "https://provider.example",
+    "audience": "https://authority.example",
+    "attestation": { "sub": "…", "decision_id": "…", "dossier_id": "…", "…": "…" },
+    "idempotency_key": "vpp-wire-0001",
+    "effect": { "status": "EFFECTED", "reference": "…", "digest": "sha256:…", "effected_at": "…" },
+    "iat": 1789819202,
+    "jti": "…"
+  },
+  "expect": {
+    "protected_header": { "alg": "EdDSA", "kid": "…", "typ": "decionis-effect-receipt+jwt" },
+    "claims": { "…": "…" },
+    "signing_input": "<base64url header>.<base64url claims>",
+    "provider_jwk": { "kty": "OKP", "crv": "Ed25519", "x": "…", "kid": "…" },
+    "token": "<signing_input>.<signature>"
+  }
+}
+```
+
+- `input.attestation` is the attestation the provider verified, as the procedure returned it; the
+  receipt copies the grant, the decision, the dossier, the claim-token digest and the attestation's
+  own id from it. `input.effect` is what the provider did; `reference`, `digest` and
+  `idempotency_key` are optional and absent in the minimal vector.
+- `expect.signing_input` is the pass criterion: the header and the claims in RFC 8785 canonical
+  form, base64url, joined by a dot. An implementation builds the receipt from `input`, produces
+  exactly this string, and signs it with a key of its own; its signature must verify under its own
+  public key. `expect.token` is the same input signed with a key made for the generation, whose
+  public half is `expect.provider_jwk`, so an authority-side reader has a receipt to verify too.
+
 ## Running them
 
-Five implementations in this repository run every vector, and must agree:
+Five implementations in this repository run every vector, request and receipt, and must agree:
 
-- the reference in `@decionis/agentsafe`, `verifyProviderRequest`, through
-  `packages/agentsafe/test/verify/VerifyingProvider.test.ts`, which discovers every file here;
+- the reference in `@decionis/agentsafe`, `verifyProviderRequest` and `signEffectReceipt`,
+  through `packages/agentsafe/test/verify/VerifyingProvider.test.ts` and
+  `packages/agentsafe/test/verify/EffectReceipt.test.ts`, which discover every file here;
 - the independent Go implementation in [`verifiers/envoy`](../../verifiers/envoy/README.md),
   through `go test ./...` in that module, which the [Kong plugin](../../verifiers/kong/README.md)
   imports unchanged;
@@ -74,14 +117,15 @@ each names, and says so in the terms of the profile's section 8.
 
 ```bash
 node scripts/GenerateProviderVectors.mjs
+node scripts/GenerateReceiptVectors.mjs
 ```
 
 The requests are signed by the executor's own credential, `SignedRequestCredential`, so a vector
 is what `@decionis/agentsafe` actually sends; the attestations are signed with `node:crypto`
-alone, the way the authority signs one, so the two signers are independent. Keys are fresh on
-every run, and only the public halves are written: a vector holds nothing that was ever a
-credential. Regenerate when the executor's wire format or the profile changes, never to make a
-failing implementation pass.
+alone, the way the authority signs one, so the two signers are independent. The receipts are
+built by the reference builder, `signEffectReceipt`. Keys are fresh on every run, and only the
+public halves are written: a vector holds nothing that was ever a credential. Regenerate when the
+executor's wire format or the profile changes, never to make a failing implementation pass.
 
 ## What the cases cover
 
@@ -104,6 +148,7 @@ failing implementation pass.
 | `attestation-wrong-typ`                              | VP-2  | `ATTESTATION_INVALID`                        |
 | `attestation-payload-tampered`                       | VP-2  | `ATTESTATION_INVALID`                        |
 | `attestation-issuer-differs`                         | VP-2  | `ATTESTATION_INVALID`                        |
+| `attestation-lacks-claim-token-digest`               | VP-2  | `ATTESTATION_INVALID`                        |
 | `attestation-for-another-grant`                      | VP-2  | `ATTESTATION_DOES_NOT_DESCRIBE_THIS_REQUEST` |
 | `attestation-for-another-decision`                   | VP-2  | `ATTESTATION_DOES_NOT_DESCRIBE_THIS_REQUEST` |
 | `attestation-intent-hash-differs`                    | VP-2  | `ATTESTATION_DOES_NOT_DESCRIBE_THIS_REQUEST` |
@@ -115,3 +160,12 @@ failing implementation pass.
 `payload-changed-after-claim` is the case the profile exists for: the amount raised after the
 claim, the executor's signature valid over the changed body, the authority's attestation valid
 over the original parameters, and the two digests disagreeing at the provider.
+
+The receipt vectors:
+
+| Vector                           | What it pins                                                               |
+| -------------------------------- | -------------------------------------------------------------------------- |
+| `receipt-effected-with-digest`   | everything a receipt can carry: reference, effect digest, idempotency key  |
+| `receipt-refused-reference-only` | a signed refusal, with a reference and no digest                           |
+| `receipt-indeterminate-minimal`  | the smallest receipt the profile allows: nothing optional                  |
+| `receipt-reference-unicode`      | a reference outside ASCII, written as UTF-8 and left unescaped by RFC 8785 |

@@ -1,9 +1,11 @@
+import { generateKeyPairSync } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { JsonObjectSchema } from "@decionis/agent-safe-pipeline";
 import {
   LOCAL_AUTHORITY_API_KEY,
+  LOCAL_AUTHORITY_ISSUER,
   LocalAuthority,
   LocalPresence,
 } from "@decionis/agent-safe-pipeline/testing";
@@ -179,6 +181,54 @@ describe("enforcement without an escalation shape", () => {
     expect(dispatch?.headers["authorization"]).toBe(DOWNSTREAM_CREDENTIAL);
     expect(dispatch?.headers["x-agent-safe-intent-hash"]).toBe(allowed.intent_hash);
     expect(dispatch?.headers["x-agent-safe-decision-id"]).toBe(allowed.decision_id);
+  });
+
+  it("forwards a verifying provider's effect receipt, which the authority verifies and records", async () => {
+    // The provider signs receipts with a key the organisation registered with
+    // the authority; the executor forwards the receipt unread; the authority
+    // verifies it against that key and records it with the commit.
+    const keys = generateKeyPairSync("ed25519");
+    authority.registerProviderKey({
+      kid: "provider-receipts-1",
+      issuer: "https://provider.example",
+      publicJwk: keys.publicKey.export({ format: "jwk" }),
+    });
+    provider.receipts = {
+      kid: "provider-receipts-1",
+      issuer: "https://provider.example",
+      audience: LOCAL_AUTHORITY_ISSUER,
+      privateKey: keys.privateKey,
+    };
+    try {
+      const allowed = await service().propose(proposal(5_000).body);
+      expect(allowed).toMatchObject({ outcome: "COMPLETED", finalization: "RECORDED" });
+      const finalize = [...authority.requests]
+        .reverse()
+        .find((request) => request.path === "/v1/execution/finalize-token");
+      const body = finalize?.body as { effect_receipt?: string };
+      expect(body.effect_receipt).toMatch(/^[\w-]+\.[\w-]+\.[\w-]+$/);
+      expect(finalize?.response?.body).toMatchObject({
+        finalized: true,
+        effect_receipt: {
+          verified: true,
+          verification_code: "EFFECT_RECEIPT_VERIFIED",
+          provider_key_id: "provider-receipts-1",
+          recorded: true,
+        },
+      });
+      const grant = [...authority.grants.values()].find(
+        (record) => record.jti === allowed.authorization?.grant_id,
+      );
+      expect(grant?.receipt).toMatchObject({
+        verified: true,
+        issuer: "https://provider.example",
+        effect_status: "EFFECTED",
+      });
+      // The executor reads nothing in the receipt, and keeps nothing of it.
+      expect(lines.join("\n")).not.toContain(body.effect_receipt);
+    } finally {
+      provider.receipts = null;
+    }
   });
 
   it("returns an ESCALATE as the hold itself and a BLOCK as a refusal", async () => {

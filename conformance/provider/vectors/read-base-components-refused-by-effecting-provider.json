@@ -14,7 +14,7 @@
     {
       "keyid": "vector-executor-ed25519-1",
       "alg": "ed25519",
-      "public_pem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAbkjxBZPWwJXBEPL4wiH5JZGLV8gzT61G81J7fa7/MEE=\n-----END PUBLIC KEY-----\n"
+      "public_pem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA+Xzbach0qa9so096LCMPEne4fzm7gQwesCMXdJhObjk=\n-----END PUBLIC KEY-----\n"
     },
     {
       "keyid": "vector-executor-hmac-1",
@@ -26,7 +26,7 @@
     "keys": [
       {
         "crv": "Ed25519",
-        "x": "bXMw8L6Hqmksn3A0_Yx8FtLBE4U9lCWsH2-pICjcYU8",
+        "x": "wUGq0QyYp6RL_lHp__eI4MbaLWO7H86jHtrl6f8-5fY",
         "kty": "OKP",
         "kid": "vector-execution-grant-1",
         "alg": "EdDSA",
@@ -43,7 +43,7 @@
         "x-agent-safe-intent-hash": "sha256:ee63dec7a6a0e76825bcd4e033b409e27074416ef6b5c5a6bc09e881591c2211",
         "content-digest": "sha-256=:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=:",
         "signature-input": "agentsafe=(\"@method\" \"@path\" \"content-digest\" \"idempotency-key\" \"x-agent-safe-intent-hash\");created=1789819195;keyid=\"vector-executor-ed25519-1\";alg=\"ed25519\"",
-        "signature": "agentsafe=:ajD/7Eg0cnPvgqHC4A6S8zBzeiWF+S/RuomxY+bCPRm0nZMrXdeW8e1Bk+fxI8KMhKpp9W1PB/UZfe4z/5X2Ag==:"
+        "signature": "agentsafe=:WtK4ucSfcrpOne5Quxk1fjlZP/AwArkRf5qGbo9Mk0IdP4xj7Je9LqXCInNs042mbm3LR6MfN/5YYJ7aayX9Aw==:"
       },
       "body": null,
       "expect": {

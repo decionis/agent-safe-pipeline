@@ -357,6 +357,31 @@ vector(
     ),
   ],
 );
+{
+  // The claims a receipt is built from are required of every attestation:
+  // without them a provider could verify the claim yet have nothing to
+  // answer it with, so their absence is a malformed attestation, not a
+  // well-formed one that happens to be short.
+  const { claim_token_digest: _digest, ...withoutClaimTokenDigest } = claimsFor();
+  void _digest;
+  vector(
+    "attestation-lacks-claim-token-digest",
+    "VP-2",
+    "A signed attestation from the trusted issuer that omits claim_token_digest, the claim a receipt is built from: a required claim is missing, and the attestation is invalid.",
+    [
+      request(
+        await signed({
+          grant: {
+            id: GRANT_ID,
+            decisionId: DECISION_ID,
+            claimAttestation: attest(withoutClaimTokenDigest),
+          },
+        }),
+        refuse("ATTESTATION_INVALID"),
+      ),
+    ],
+  );
+}
 vector(
   "attestation-for-another-grant",
   "VP-2",

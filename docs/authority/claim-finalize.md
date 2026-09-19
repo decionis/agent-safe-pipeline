@@ -44,6 +44,12 @@ never changes the outcome, and the report says `Finalized PENDING` so an operato
 [execution outcomes](../execution-outcomes.md) page is the vocabulary; the gateway adds the HTTP
 mapping in [HTTP interception](../gateway/http-interception.md#what-each-outcome-means).
 
+When the upstream is a verifying provider that answered with its own signed receipt of the effect
+(`x-agent-safe-effect-receipt`, the [profile's](./verifying-provider.md) VP-3), the finalization
+carries it as `effect_receipt`, whatever the outcome above: the executor reads nothing in it, and
+the authority verifies it against the key the organisation registered for the provider, records
+it with the commit evidence verified or not, and never refuses a finalization for it.
+
 ## Never twice
 
 One grant, one dispatch: `dispatch.run` refuses a second call inside one attempt, and a grant

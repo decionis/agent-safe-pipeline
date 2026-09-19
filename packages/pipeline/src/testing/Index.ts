@@ -32,6 +32,7 @@ export {
 export {
   AUTONOMOUS_LIMIT_MINOR,
   CLAIM_ATTESTATION_TYPE,
+  EFFECT_RECEIPT_TYPE,
   HUMAN_LIMIT_MINOR,
   LocalAuthority,
   LOCAL_AUTHORITY_API_KEY,
@@ -41,6 +42,9 @@ export {
   stableStringify,
   type LocalAuthorityOptions,
   type LocalClaimAttestationClaims,
+  type LocalEffectReceiptCode,
+  type LocalEffectReceiptRecord,
+  type LocalProviderKey,
   type LocalAuthorityPolicy,
   type LocalAuthorityRequestRecord,
   type LocalGrantRecord,

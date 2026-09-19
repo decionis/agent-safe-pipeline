@@ -26,7 +26,9 @@ export default {
   // is a provider that effects what the authority never claimed. The verifying
   // provider is the rest of that provider's procedure, the attestation and
   // the single presentation of a grant, and a mutant there is the same
-  // failure from the same side.
+  // failure from the same side. The receipt builder is here because a receipt
+  // that copies the wrong claim binds the provider's signature to the wrong
+  // grant or claim, and the authority would record it as such.
   mutate: [
     "src/http/ExecutorHttpServer.ts",
     "src/identity/PrincipalRegistry.ts",
@@ -43,6 +45,7 @@ export default {
     "src/containment/ContainmentProbe.ts",
     "src/credential/SignedRequestCredential.ts",
     "src/verify/VerifyingProvider.ts",
+    "src/verify/EffectReceipt.ts",
   ],
   reporters: ["clear-text", "progress"],
   coverageAnalysis: "perTest",

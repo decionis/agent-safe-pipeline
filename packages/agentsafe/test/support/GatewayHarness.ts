@@ -24,6 +24,9 @@ export interface SeenRequest {
  * `/hang` never; anything else with 201 for a write and 200 for a read,
  * echoing what it received so a test can check the bytes.
  */
+/** The shape of a receipt: three base64url segments. The double signs nothing. */
+export const RECEIPT = "eyJhbGciOiJFZERTQSJ9.eyJzdWIiOiJnMSJ9.c2ln";
+
 export class UpstreamDouble {
   public readonly seen: SeenRequest[] = [];
   private server: Server | null = null;
@@ -72,7 +75,7 @@ export class UpstreamDouble {
     }
     const status = path.startsWith("/fail")
       ? 500
-      : path.startsWith("/refuse")
+      : path.startsWith("/refuse") || path.startsWith("/receipt/refuse")
         ? 422
         : request.method === "GET"
           ? 200
@@ -83,6 +86,8 @@ export class UpstreamDouble {
       "set-cookie": ["a=1; Path=/", "b=2; Path=/"],
       // An upstream's own spelling of the gateway's headers, which the relay must drop.
       "agentsafe-decision": "FORGED",
+      // A verifying provider's receipt of the effect, on the paths that model one.
+      ...(path.startsWith("/receipt") ? { "x-agent-safe-effect-receipt": RECEIPT } : {}),
       connection: "close",
     });
     response.end(JSON.stringify({ ok: status < 400, method: request.method, url, body }));

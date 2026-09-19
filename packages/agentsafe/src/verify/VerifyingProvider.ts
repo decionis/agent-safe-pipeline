@@ -33,16 +33,24 @@ export type ExecutorKey =
   | { readonly keyId: string; readonly algorithm: "ed25519"; readonly publicKeyPem: string }
   | { readonly keyId: string; readonly algorithm: "hmac-sha256"; readonly secret: Uint8Array };
 
-/** The claims of an attestation, as far as the provider reads them; the authority's schema has more. */
+/**
+ * The claims of an attestation, as far as the provider reads them; the
+ * authority's schema has more. The dossier, the claim-token digest and the
+ * attestation's own id are what a receipt (VP-3) is built from, so a
+ * provider that effects has them in hand.
+ */
 export interface ClaimAttestationClaims {
   readonly iss: string;
   readonly sub: string;
   readonly decision_id: string;
+  readonly dossier_id: string;
   readonly binding: {
     readonly intent_hash: string;
     readonly execution_payload_digest: string;
     readonly execution_payload_canonicalization_profile: string;
   };
+  readonly claim_token_digest: string;
+  readonly jti: string;
   readonly exp: number;
 }
 
@@ -102,17 +110,23 @@ const ProtectedHeader = z.looseObject({
   typ: z.literal(ATTESTATION_TYPE),
   kid: z.string(),
 });
+// The claims an attestation must carry to be one at all: what step 7 compares
+// and what a receipt (section 7) is built from. Their values are step 7's.
 const Claims = z.looseObject({
   iss: z.string(),
   sub: z.string(),
   decision_id: z.string(),
+  dossier_id: z.string(),
   binding: z.looseObject({
     intent_hash: z.string(),
     execution_payload_digest: z.string(),
-    execution_payload_canonicalization_profile: z.literal(JCS_PROFILE),
+    execution_payload_canonicalization_profile: z.string(),
   }),
+  claim_token_digest: z.string(),
+  jti: z.string(),
   exp: z.number(),
 });
+type ParsedClaims = z.infer<typeof Claims>;
 
 const REFUSE = (reasonCode: ProviderRefusalCode): ProviderVerdict => ({
   accepted: false,
@@ -152,7 +166,7 @@ function signatureRefusal(
  * that is not JSON, a kid that names no key, a key that is not one, is the
  * same refusal, and the caller makes it so.
  */
-function attestationOf(compact: string, options: VerifyingProviderOptions): unknown {
+function attestationOf(compact: string, options: VerifyingProviderOptions): ParsedClaims | null {
   const parts = compact.split(".");
   if (parts.length !== 3) return null;
   const [header, payload, signature] = parts as [string, string, string];
@@ -167,10 +181,8 @@ function attestationOf(compact: string, options: VerifyingProviderOptions): unkn
     Buffer.from(signature, "base64url"),
   );
   if (!signed) return null;
-  const claims = decode(payload);
-  return (claims as Readonly<Record<string, unknown>>)["iss"] === options.authorityIssuer
-    ? claims
-    : null;
+  const claims = Claims.parse(decode(payload));
+  return claims.iss === options.authorityIssuer ? claims : null;
 }
 
 const DELIMITER = /[{}[\]:,"\s]/g;
@@ -258,15 +270,14 @@ export function parseIJson(body: string): JsonValue | null {
 
 /**
  * Step 7: whether the attestation describes this request; the claims when it
- * does. Claims of the wrong shape and a body that is not I-JSON throw, and
- * the caller refuses.
+ * does. A body that is not I-JSON throws, and the caller refuses.
  */
 function described(
-  claims: unknown,
+  claims: ParsedClaims,
   received: ReceivedRequest,
   nowSeconds: number,
 ): ClaimAttestationClaims | null {
-  const { iss, sub, decision_id, binding, exp } = Claims.parse(claims);
+  const { iss, sub, decision_id, dossier_id, binding, claim_token_digest, jti, exp } = claims;
   // No body reads as the text `null`, which describes no parameters; nor
   // does anything that is not an object, since parameters are one.
   const value = parseIJson(String(received.body));
@@ -276,6 +287,7 @@ function described(
     sub !== received.headers["x-agent-safe-grant-id"] ||
     decision_id !== received.headers["x-agent-safe-decision-id"] ||
     binding.intent_hash !== received.headers["x-agent-safe-intent-hash"] ||
+    binding.execution_payload_canonicalization_profile !== JCS_PROFILE ||
     binding.execution_payload_digest !== digest ||
     exp <= nowSeconds
   ) {
@@ -285,12 +297,15 @@ function described(
     iss,
     sub,
     decision_id,
+    dossier_id,
     binding: {
       intent_hash: binding.intent_hash,
       execution_payload_digest: binding.execution_payload_digest,
       execution_payload_canonicalization_profile:
         binding.execution_payload_canonicalization_profile,
     },
+    claim_token_digest,
+    jti,
     exp,
   };
 }
@@ -312,7 +327,7 @@ export function verifyProviderRequest(
   // An effecting provider required the attestation covered, and a covered
   // header is present: the signature step proved it.
   const compact = received.headers["x-agent-safe-claim-attestation"] as string;
-  let claims: unknown;
+  let claims: ParsedClaims | null;
   try {
     claims = attestationOf(compact, options);
   } catch {

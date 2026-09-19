@@ -142,6 +142,9 @@ function finalizeBodies(fetchMock: ReturnType<typeof fetchScript>) {
     );
 }
 
+/** The shape of a receipt: three base64url segments. The verifier reads nothing in it. */
+const RECEIPT = "eyJhbGciOiJFZERTQSJ9.eyJzdWIiOiJnMSJ9.c2ln";
+
 describe("DecionisGrantVerifier", () => {
   it("claims a grant through the contract route with the exact binding and evidence", async () => {
     const { captured, decision, claimResponse } = setup();
@@ -607,6 +610,9 @@ describe("DecionisGrantVerifier", () => {
       effectEvidenceRefused: false,
       effectEvidenceRecorded: true,
       effectConfirmation: "UNCONFIRMED",
+      effectReceiptSent: false,
+      effectReceiptVerified: false,
+      effectReceiptVerification: null,
     });
   });
 
@@ -714,6 +720,9 @@ describe("DecionisGrantVerifier", () => {
       effectEvidenceRefused: true,
       effectEvidenceRecorded: false,
       effectConfirmation: "UNCONFIRMED",
+      effectReceiptSent: false,
+      effectReceiptVerified: false,
+      effectReceiptVerification: null,
     });
   });
 
@@ -876,6 +885,9 @@ describe("DecionisGrantVerifier", () => {
       effectEvidenceRefused: false,
       effectEvidenceRecorded: false,
       effectConfirmation: "UNCONFIRMED",
+      effectReceiptSent: false,
+      effectReceiptVerified: false,
+      effectReceiptVerification: null,
     });
   });
 
@@ -912,6 +924,9 @@ describe("DecionisGrantVerifier", () => {
       effectEvidenceRefused: true,
       effectEvidenceRecorded: false,
       effectConfirmation: "UNCONFIRMED",
+      effectReceiptSent: false,
+      effectReceiptVerified: false,
+      effectReceiptVerification: null,
     });
   });
 
@@ -1030,6 +1045,193 @@ describe("DecionisGrantVerifier", () => {
       effectEvidenceRefused: false,
       effectEvidenceRecorded: true,
       effectConfirmation: "CONFIRMED",
+      effectReceiptSent: false,
+      effectReceiptVerified: false,
+      effectReceiptVerification: null,
+    });
+  });
+
+  it("forwards the provider's effect receipt verbatim on finalize, and reports the authority's verdict", async () => {
+    const { captured, decision, claimResponse } = setup();
+    const fetchMock = fetchScript(claimResponse, [
+      () =>
+        json(
+          finalizeResponseBody({
+            effect_receipt: {
+              verified: true,
+              verification_code: "EFFECT_RECEIPT_VERIFIED",
+              provider_key_id: "core-receipts-1",
+              recorded: true,
+            },
+          }),
+        ),
+    ]);
+    const verifier = verifierWith(fetchMock);
+    const authorization = await verifier.verifyAndConsume(captured, decision);
+    if (authorization === null) throw new Error("TEST_EXPECTED_AUTHORIZATION");
+
+    const status = await verifier.finalize({
+      captured,
+      decision,
+      authorization,
+      outcome: "COMMITTED",
+      effectReceipt: RECEIPT,
+    });
+
+    expect(status).toBe("RECORDED");
+    // No expected effect was bound, so no evidence travels; the receipt does.
+    expect(finalizeBodies(fetchMock)).toEqual([
+      {
+        execution_token: "token-1",
+        claim_token: CLAIM_TOKEN,
+        outcome: "COMMITTED",
+        commit_correlation_id: captured.intent.intentId,
+        effect_receipt: RECEIPT,
+      },
+    ]);
+    expect(verifier.effectReport(authorization)).toEqual({
+      effectEvidenceSent: false,
+      effectEvidenceRefused: false,
+      effectEvidenceRecorded: false,
+      effectConfirmation: "UNCONFIRMED",
+      effectReceiptSent: true,
+      effectReceiptVerified: true,
+      effectReceiptVerification: "EFFECT_RECEIPT_VERIFIED",
+    });
+  });
+
+  it("reports a receipt the authority could not verify as sent and unverified, with its code", async () => {
+    const { captured, decision, claimResponse } = setup();
+    const fetchMock = fetchScript(claimResponse, [
+      () =>
+        json(
+          finalizeResponseBody({
+            effect_receipt: { verified: false, verification_code: "EFFECT_RECEIPT_KEY_UNKNOWN" },
+          }),
+        ),
+    ]);
+    const verifier = verifierWith(fetchMock);
+    const authorization = await verifier.verifyAndConsume(captured, decision);
+    if (authorization === null) throw new Error("TEST_EXPECTED_AUTHORIZATION");
+    await verifier.finalize({
+      captured,
+      decision,
+      authorization,
+      outcome: "COMMITTED",
+      effectReceipt: RECEIPT,
+    });
+    expect(verifier.effectReport(authorization)).toMatchObject({
+      effectReceiptSent: true,
+      effectReceiptVerified: false,
+      effectReceiptVerification: "EFFECT_RECEIPT_KEY_UNKNOWN",
+    });
+  });
+
+  it("drops a receipt that is not a compact JWS within the contract's bound, sending nothing else differently", async () => {
+    for (const malformed of [
+      "",
+      "not.a.jws!",
+      "two.parts",
+      "a.b.c.d",
+      `${"a".repeat(19_990)}.b.${"c".repeat(20)}`,
+      "eyJ.eyJ.c2ln ",
+    ]) {
+      const { captured, decision, claimResponse } = setup();
+      const fetchMock = fetchScript(claimResponse, [() => json(finalizeResponseBody())]);
+      const verifier = verifierWith(fetchMock);
+      const authorization = await verifier.verifyAndConsume(captured, decision);
+      if (authorization === null) throw new Error("TEST_EXPECTED_AUTHORIZATION");
+      const status = await verifier.finalize({
+        captured,
+        decision,
+        authorization,
+        outcome: "COMMITTED",
+        effectReceipt: malformed,
+      });
+      expect(status, JSON.stringify(malformed.slice(0, 20))).toBe("RECORDED");
+      expect(finalizeBodies(fetchMock)[0]).not.toHaveProperty("effect_receipt");
+      expect(verifier.effectReport(authorization)).toMatchObject({
+        effectReceiptSent: false,
+        effectReceiptVerified: false,
+        effectReceiptVerification: null,
+      });
+    }
+    // The longest receipt the contract accepts is forwarded.
+    const longest = `${"a".repeat(19_990)}.b.${"c".repeat(7)}`;
+    expect(longest).toHaveLength(20_000);
+    const { captured, decision, claimResponse } = setup();
+    const fetchMock = fetchScript(claimResponse, [() => json(finalizeResponseBody())]);
+    const verifier = verifierWith(fetchMock);
+    const authorization = await verifier.verifyAndConsume(captured, decision);
+    if (authorization === null) throw new Error("TEST_EXPECTED_AUTHORIZATION");
+    await verifier.finalize({
+      captured,
+      decision,
+      authorization,
+      outcome: "COMMITTED",
+      effectReceipt: longest,
+    });
+    expect(finalizeBodies(fetchMock)[0]).toHaveProperty("effect_receipt", longest);
+  });
+
+  it("keeps the receipt on the evidence-free retry, because a receipt is never what the authority refused", async () => {
+    const { captured, decision, claimResponse } = setup(EFFECT_DIGEST);
+    const fetchMock = fetchScript(claimResponse, [
+      () =>
+        json({ finalized: false, reason_codes: ["EFFECT_OBSERVER_PROVENANCE_UNAVAILABLE"] }, 409),
+      () => json(finalizeResponseBody({ effect_receipt: { verified: true } })),
+    ]);
+    const verifier = verifierWith(fetchMock);
+    const authorization = await verifier.verifyAndConsume(captured, decision);
+    if (authorization === null) throw new Error("TEST_EXPECTED_AUTHORIZATION");
+    const status = await verifier.finalize({
+      captured,
+      decision,
+      authorization,
+      outcome: "COMMITTED",
+      effectEvidence: effectEvidence({ execution_correlation_id: captured.intent.intentId }),
+      effectReceipt: RECEIPT,
+    });
+    expect(status).toBe("RECORDED");
+    const bodies = finalizeBodies(fetchMock);
+    expect(bodies).toHaveLength(2);
+    expect(bodies[0]).toMatchObject({ effect_receipt: RECEIPT });
+    expect(bodies[0]).toHaveProperty("effect_evidence");
+    expect(bodies[1]).toEqual({
+      execution_token: "token-1",
+      claim_token: CLAIM_TOKEN,
+      outcome: "COMMITTED",
+      commit_correlation_id: captured.intent.intentId,
+      effect_receipt: RECEIPT,
+    });
+    expect(verifier.effectReport(authorization)).toMatchObject({
+      effectEvidenceRefused: true,
+      effectReceiptSent: true,
+      effectReceiptVerified: true,
+      effectReceiptVerification: null,
+    });
+  });
+
+  it("reads a receipt verdict outside its contract as absent, never as PENDING", async () => {
+    const { captured, decision, claimResponse } = setup();
+    const fetchMock = fetchScript(claimResponse, [
+      () => json(finalizeResponseBody({ effect_receipt: "verified" })),
+    ]);
+    const verifier = verifierWith(fetchMock);
+    const authorization = await verifier.verifyAndConsume(captured, decision);
+    if (authorization === null) throw new Error("TEST_EXPECTED_AUTHORIZATION");
+    const status = await verifier.finalize({
+      captured,
+      decision,
+      authorization,
+      outcome: "COMMITTED",
+      effectReceipt: RECEIPT,
+    });
+    expect(status).toBe("RECORDED");
+    expect(verifier.effectReport(authorization)).toMatchObject({
+      effectReceiptSent: true,
+      effectReceiptVerified: false,
+      effectReceiptVerification: null,
     });
   });
 

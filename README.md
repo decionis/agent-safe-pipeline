@@ -249,7 +249,11 @@ record or the hop in front of it refuses what the authority never claimed, is th
 that run them, for [Envoy `ext_authz`](./verifiers/envoy/README.md) and
 [Kong](./verifiers/kong/README.md), for [Spring and Apigee](./verifiers/spring/README.md), for
 [Rust services with a tower layer](./verifiers/rust/README.md), and for
-[ASP.NET Core](./verifiers/dotnet/README.md).
+[ASP.NET Core](./verifiers/dotnet/README.md). A provider that verified the claim can answer with
+its own signed receipt of the effect (VP-3): the executor forwards it unread at finalization, and
+Decionis verifies it against the key the organisation registered for the provider and records it
+with the commit, so the dossier carries the provider's signature over what happened and not only
+the executor's report of it.
 
 ### Production invariants
 

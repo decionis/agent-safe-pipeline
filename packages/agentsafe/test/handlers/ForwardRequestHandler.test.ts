@@ -69,7 +69,11 @@ describe("forward_request handler", () => {
     ).seal();
     const intent = captured();
     const attempt = await registry.executeTracked(intent, authorization(intent));
-    expect(attempt).toEqual({ status: "COMPLETED", result: { status: 202, accepted: true } });
+    expect(attempt).toEqual({
+      status: "COMPLETED",
+      result: { status: 202, accepted: true },
+      receipt: null,
+    });
     const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
     expect(url).toBe(downstream.url);
     expect(init.method).toBe("POST");
@@ -100,7 +104,31 @@ describe("forward_request handler", () => {
     expect(await registry.executeTracked(intent, authorization(intent))).toEqual({
       status: "COMPLETED",
       result: { status: 500, accepted: false },
+      receipt: null,
     });
+  });
+
+  it("carries the provider's effect receipt on the attempt, unread, whatever the status", async () => {
+    const RECEIPT = "eyJhbGciOiJFZERTQSJ9.eyJzdWIiOiJnMSJ9.c2ln";
+    for (const status of [202, 422]) {
+      const fetchImpl = vi
+        .fn()
+        .mockResolvedValue(
+          new Response(null, { status, headers: { "x-agent-safe-effect-receipt": RECEIPT } }),
+        );
+      const registry = registerHandlers(
+        new ActionRegistry(),
+        downstream,
+        credential,
+        fetchImpl,
+      ).seal();
+      const intent = captured();
+      expect(await registry.executeTracked(intent, authorization(intent))).toEqual({
+        status: "COMPLETED",
+        result: { status, accepted: status === 202 },
+        receipt: RECEIPT,
+      });
+    }
   });
 
   it("reports a transport failure after dispatch as unknown", async () => {
@@ -114,6 +142,7 @@ describe("forward_request handler", () => {
     const intent = captured();
     expect(await registry.executeTracked(intent, authorization(intent))).toEqual({
       status: "UNKNOWN_AFTER_DISPATCH",
+      receipt: null,
     });
   });
 

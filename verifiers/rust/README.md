@@ -48,6 +48,30 @@ match verify(&Request { method, path, body, headers: &lower_case_headers }, &opt
 `verify` is the whole procedure for one received request; header names are lower case, and a
 covered header received twice is the caller's to refuse before it collapses the map.
 
+After effecting, a service at VP-3 answers with its receipt, built from the attestation `verify`
+returned and signed with the service's own Ed25519 key, the public half of which the organisation
+registered at `POST /v1/execution/provider-keys`:
+
+```rust
+use decionis_verifying_provider::{Effect, EffectStatus, Receipt, RECEIPT_HEADER};
+
+let token = Receipt {
+    kid: "core-receipts-1".into(),
+    issuer: "https://core.example".into(),
+    audience: "https://decionis.com".into(),
+    attestation: *attestation,                // from Verdict::Accepted(Some(attestation))
+    idempotency_key: Some(idempotency_key),
+    effect: Effect { status: EffectStatus::Effected, reference: Some(reference), digest: Some(digest), effected_at },
+    issued_at: now,
+    jti: receipt_id,
+}
+.sign(&secret_key)?;
+response.headers_mut().insert(RECEIPT_HEADER, token.parse()?);
+```
+
+The header and the claims are RFC 8785 canonical before signing, so the receipt vectors hold every
+implementation to the same bytes.
+
 ## The tower layer
 
 ```toml
@@ -83,7 +107,7 @@ profile's section 9 says.
 cargo test --all-features
 ```
 
-runs every vector in [`conformance/provider`](../../conformance/provider/README.md) through the
+runs every vector in [`conformance/provider`](../../conformance/provider/README.md), request and receipt, through the
 library and, with the `tower` feature, through the layer, and the crate's own cases for what the
 vectors cannot express: the RFC 8785 examples, the pipeline's own canonicalization notes, and the
 bodies another parser would read differently.

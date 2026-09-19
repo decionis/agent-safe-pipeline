@@ -448,6 +448,18 @@ export {
   type VerifyingProviderOptions,
 } from "./verify/VerifyingProvider.js";
 export {
+  EFFECT_RECEIPT_HEADER,
+  EFFECT_RECEIPT_TYPE,
+  EffectReceiptError,
+  effectReceiptClaims,
+  effectReceiptSigningInput,
+  signEffectReceipt,
+  type AttestedClaim,
+  type EffectReceiptEffect,
+  type EffectReceiptInput,
+  type EffectStatus,
+} from "./verify/EffectReceipt.js";
+export {
   createTrustedExecutor,
   type TrustedExecutor,
   type TrustedExecutorDependencies,

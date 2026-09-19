@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { describe, expect, it, vi } from "vitest";
-import { ActionRegistry } from "../../src/execution/ActionRegistry.js";
+import {
+  ActionRegistry,
+  ProviderRefusal,
+  type ProviderDispatch,
+} from "../../src/execution/ActionRegistry.js";
 import { IntentCapture } from "../../src/intent/IntentCapture.js";
 
 function captured(action = "refund_order") {
@@ -102,6 +106,60 @@ describe("ActionRegistry", () => {
     });
     expect(operation).toHaveBeenCalledTimes(1);
     expect(operation).toHaveBeenCalledWith(intent.intent.idempotencyKey);
+  });
+
+  it("carries the provider's receipt on every attempt after the dispatch, and refuses one before it", async () => {
+    const RECEIPT = "eyJhbGciOiJFZERTQSJ9.eyJzdWIiOiJnMSJ9.c2ln";
+    const attempts = async (body: (dispatch: ProviderDispatch) => Promise<unknown>) => {
+      const registry = new ActionRegistry()
+        .register("refund_order", {
+          parametersSchema: z.object({ amount: z.number() }),
+          execute: async ({ dispatch }) => await body(dispatch),
+        })
+        .seal();
+      return await registry.executeTracked(captured(), authorization);
+    };
+    await expect(
+      attempts(async (dispatch) =>
+        dispatch.run(() => {
+          dispatch.receipt(RECEIPT);
+          return "done";
+        }),
+      ),
+    ).resolves.toEqual({ status: "COMPLETED", result: "done", receipt: RECEIPT });
+    await expect(attempts(async (dispatch) => dispatch.run(() => "done"))).resolves.toEqual({
+      status: "COMPLETED",
+      result: "done",
+      receipt: null,
+    });
+    await expect(
+      attempts(async (dispatch) =>
+        dispatch.run(() => {
+          dispatch.receipt(RECEIPT);
+          throw new ProviderRefusal("INSUFFICIENT_FUNDS");
+        }),
+      ),
+    ).resolves.toEqual({
+      status: "REFUSED_AFTER_DISPATCH",
+      reason: "INSUFFICIENT_FUNDS",
+      receipt: RECEIPT,
+    });
+    await expect(
+      attempts(async (dispatch) =>
+        dispatch.run(() => {
+          dispatch.receipt(RECEIPT);
+          throw new Error("lost");
+        }),
+      ),
+    ).resolves.toEqual({ status: "UNKNOWN_AFTER_DISPATCH", receipt: RECEIPT });
+    // Before the dispatch there is nothing a receipt could describe; the
+    // handler's mistake is a failure before dispatch, never a receipt.
+    await expect(
+      attempts(async (dispatch) => {
+        dispatch.receipt(RECEIPT);
+        return "never";
+      }),
+    ).resolves.toEqual({ status: "FAILED_BEFORE_DISPATCH" });
   });
 
   it("converts malformed or rejected reconciliation into UNKNOWN", async () => {

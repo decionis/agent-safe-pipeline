@@ -5,6 +5,7 @@ import {
   type ActionHandler,
   type ActionRegistry,
 } from "@decionis/agent-safe-pipeline";
+import { EFFECT_RECEIPT_HEADER } from "../verify/EffectReceipt.js";
 import { dispatchBudgetMs, MonotonicDeadline } from "../time/MonotonicClock.js";
 import { CONSEQUENTIAL_METHODS } from "./GatewayConfig.js";
 import {
@@ -134,6 +135,12 @@ export function httpForwardHandler(
           };
           throw error;
         }
+        // The upstream's signed receipt of the effect, when it is a verifying
+        // provider, whichever way it answered: it accompanies the finalization
+        // and the authority verifies it. The relay carries it to the caller
+        // like any other upstream header.
+        const receipt = response.headers.find(([name]) => name === EFFECT_RECEIPT_HEADER);
+        if (receipt !== undefined) dispatch.receipt(receipt[1]);
         if (response.status >= 500) {
           held.outcome = { response, failure: "UPSTREAM_ERROR" };
           throw new UpstreamIndeterminate();

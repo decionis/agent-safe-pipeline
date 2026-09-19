@@ -258,6 +258,12 @@ describe("public surface", () => {
       "MemoryReplayStore",
       "ATTESTATION_TYPE",
       "JCS_PROFILE",
+      "EFFECT_RECEIPT_HEADER",
+      "EFFECT_RECEIPT_TYPE",
+      "EffectReceiptError",
+      "effectReceiptClaims",
+      "effectReceiptSigningInput",
+      "signEffectReceipt",
       "watchDirectory",
       "writeCredentials",
     ];

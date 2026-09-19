@@ -10,6 +10,7 @@
  * All tenants, actors, orders, grants, and receipts are synthetic.
  */
 import assert from "node:assert/strict";
+import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -28,7 +29,9 @@ import {
   ShadowPipeline,
 } from "@decionis/agent-safe-pipeline";
 import {
+  EFFECT_RECEIPT_TYPE,
   LOCAL_AUTHORITY_API_KEY as STUB_API_KEY,
+  LOCAL_AUTHORITY_ISSUER,
   LOCAL_PRESENCE_API_KEY as PRESENCE_API_KEY,
   LocalAuthority as AuthorityStub,
   LocalPresence as PresenceStub,
@@ -1027,8 +1030,122 @@ test("expected-effect commitment and effect evidence", TEST_OPTIONS, async () =>
     effectEvidenceRefused: false,
     effectEvidenceRecorded: true,
     effectConfirmation: "UNCONFIRMED",
+    effectReceiptSent: false,
+    effectReceiptVerified: false,
+    effectReceiptVerification: null,
   });
 });
+
+test(
+  "a verifying provider's effect receipt travels to the authority and is verified there",
+  TEST_OPTIONS,
+  async () => {
+    // The provider's key, registered with the authority as the organisation
+    // would register it; the private half stays with the provider.
+    const provider = generateKeyPairSync("ed25519");
+    authority.registerProviderKey({
+      kid: "contract-provider-1",
+      issuer: "https://provider.example",
+      publicJwk: provider.publicKey.export({ format: "jwk" }),
+    });
+    const expectedEffectDigest = `sha256:${"3".repeat(64)}`;
+    const from = authority.requests.length;
+    const captured = new IntentCapture().capture(
+      {
+        action: "refund_order",
+        target: "shopify:order:synthetic-receipt-1",
+        parameters: { amountMinor: 5_000, currency: "USD", orderId: "synthetic-receipt-1" },
+      },
+      {
+        tenantId: TENANT_ID,
+        actor: { id: ACTOR_ID, type: "AI_AGENT", runtime: "contract-harness" },
+        downstreamTarget: { system: "shopify", operation: "refund", environment: "synthetic" },
+        idempotencyKey: "refund-receipt-1",
+        context: { source: "contract-harness" },
+        expectedEffectDigest,
+      },
+    );
+    const decision = await gate().evaluate(captured);
+    assert.equal(decision.verdict, "ALLOW");
+    const grantVerifier = verifier();
+    const authorization = await grantVerifier.verifyAndConsume(captured, decision);
+    assert.ok(authorization);
+    const grant = authority.grants.get(decision.authorization.token);
+
+    // What the provider does after effecting: it read the attestation the
+    // executor forwarded, and signs what it did under the claim it answered.
+    const attestation = JSON.parse(
+      Buffer.from(authorization.claimAttestation.split(".")[1], "base64url").toString("utf8"),
+    );
+    assert.equal(
+      attestation.claim_token_digest,
+      `sha256:${createHash("sha256").update(grant.claimToken, "utf8").digest("hex")}`,
+    );
+    const encode = (value) => Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
+    const header = encode({ alg: "EdDSA", typ: EFFECT_RECEIPT_TYPE, kid: "contract-provider-1" });
+    const payload = encode({
+      iss: "https://provider.example",
+      aud: LOCAL_AUTHORITY_ISSUER,
+      sub: attestation.sub,
+      decision_id: attestation.decision_id,
+      dossier_id: attestation.dossier_id,
+      claim_token_digest: attestation.claim_token_digest,
+      attestation_jti: attestation.jti,
+      intent_hash: attestation.binding.intent_hash,
+      idempotency_key: captured.intent.idempotencyKey,
+      effect: {
+        status: "EFFECTED",
+        reference: "shopify:refund:synthetic-receipt-1",
+        digest: expectedEffectDigest,
+        effected_at: new Date().toISOString(),
+      },
+      iat: Math.floor(Date.now() / 1_000),
+      jti: "contract-receipt-1",
+    });
+    const signature = sign(null, Buffer.from(`${header}.${payload}`, "ascii"), provider.privateKey);
+    const receipt = `${header}.${payload}.${signature.toString("base64url")}`;
+
+    const finalization = await grantVerifier.finalize({
+      captured,
+      decision,
+      authorization,
+      outcome: "COMMITTED",
+      effectReceipt: receipt,
+    });
+    assert.equal(finalization, "RECORDED");
+    const finalize = requestsSince(from, FINALIZE_PATH).at(-1);
+    // The receipt travels verbatim, beside nothing else new; no evidence of the
+    // executor's own, since it observed nothing itself.
+    assert.deepEqual(finalize.body, {
+      execution_token: decision.authorization.token,
+      claim_token: grant.claimToken,
+      outcome: "COMMITTED",
+      commit_correlation_id: captured.intent.intentId,
+      effect_receipt: receipt,
+    });
+    // The authority verified it, recorded it, and read it as the provider's
+    // confirmation of the effect the grant expected.
+    assert.deepEqual(finalize.response.body.effect_receipt, {
+      verified: true,
+      verification_code: "EFFECT_RECEIPT_VERIFIED",
+      provider_key_id: "contract-provider-1",
+      recorded: true,
+    });
+    assert.equal(finalize.response.body.effect_evidence_recorded, true);
+    assert.equal(finalize.response.body.effect_confirmation, "CONFIRMED");
+    assert.equal(grant.receipt.verified, true);
+    assert.equal(grant.receipt.effect_digest, expectedEffectDigest);
+    assert.deepEqual(grantVerifier.effectReport(authorization), {
+      effectEvidenceSent: false,
+      effectEvidenceRefused: false,
+      effectEvidenceRecorded: false,
+      effectConfirmation: "UNCONFIRMED",
+      effectReceiptSent: true,
+      effectReceiptVerified: true,
+      effectReceiptVerification: "EFFECT_RECEIPT_VERIFIED",
+    });
+  },
+);
 
 test("The stub bounds request bodies", TEST_OPTIONS, async () => {
   const oversized = JSON.stringify({ padding: "x".repeat(300 * 1024) });

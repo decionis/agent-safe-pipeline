@@ -79,4 +79,9 @@ internal static class Base64Url
         var standard = text.TrimEnd('=').Replace('-', '+').Replace('_', '/');
         return Convert.FromBase64String(standard.PadRight(standard.Length + (4 - standard.Length % 4) % 4, '='));
     }
+
+    public static string Encode(byte[] bytes)
+    {
+        return Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+    }
 }

@@ -100,6 +100,16 @@ export interface AuthorityEffectReport {
   readonly effectEvidenceRefused: boolean;
   readonly effectEvidenceRecorded: boolean;
   readonly effectConfirmation: "CONFIRMED" | "UNCONFIRMED";
+  /** The finalization that was recorded carried the provider's effect receipt. */
+  readonly effectReceiptSent: boolean;
+  /**
+   * The authority verified the receipt it was sent: the provider's signature
+   * under a key the organisation registered, describing this grant and this
+   * claim. Only ever true for a finalization that carried one.
+   */
+  readonly effectReceiptVerified: boolean;
+  /** The authority's code for what it found in the receipt, when it was sent one. */
+  readonly effectReceiptVerification: string | null;
 }
 
 export interface AuthorizationFinalizationInput {
@@ -117,6 +127,16 @@ export interface AuthorizationFinalizationInput {
    * dropped when it does not conform to the contract's own bounded shape.
    */
   readonly effectEvidence?: AuthorityEffectEvidence;
+  /**
+   * The provider's signed effect receipt, as it returned it with its answer:
+   * a compact JWS the authority verifies against the keys the organisation
+   * registered and records with the commit evidence. Forwarded verbatim when
+   * it has the shape of a compact JWS and is no longer than the contract
+   * allows; otherwise dropped, because the authority refuses a malformed
+   * body and the commit outcome would be lost with it. It is never a reason
+   * for the authority to refuse a finalization it would otherwise record.
+   */
+  readonly effectReceipt?: string;
 }
 
 export interface AuthorizationVerifier {
@@ -245,7 +265,17 @@ const FinalizeResponseSchema = z.looseObject({
   reason_codes: z.array(boundedIdentifier).max(50).optional(),
   effect_evidence_recorded: z.boolean().optional().catch(undefined),
   effect_confirmation: z.enum(["CONFIRMED", "UNCONFIRMED"]).optional().catch(undefined),
+  effect_receipt: z
+    .looseObject({
+      verified: z.boolean(),
+      verification_code: boundedIdentifier.nullable().optional().catch(undefined),
+    })
+    .optional()
+    .catch(undefined),
 });
+
+/** The contract's bound on a forwarded receipt: three base64url segments, at most this long. */
+const MAX_RECEIPT_LENGTH = 20_000;
 
 const MAX_RESPONSE_BYTES = 100 * 1024;
 
@@ -412,16 +442,17 @@ export class DecionisGrantVerifier implements AuthorizationVerifier {
     const claim = this.claims.get(input.authorization);
     if (claim === undefined) return "PENDING";
     const evidence = DecionisGrantVerifier.bindableEffectEvidence(input, claim);
-    const first = await this.post(input, claim, evidence, false);
+    const receipt = DecionisGrantVerifier.bindableEffectReceipt(input);
+    const first = await this.post(input, claim, evidence, receipt, false);
     if (first === "RECORDED") return "RECORDED";
     if (first === "PENDING" || evidence === undefined) return "PENDING";
     // The authority answered with the one status an effect refusal uses, and
     // every effect rejection precedes the commit transition, so the commit
     // record is still recoverable by reporting the same outcome without the
     // observation. This retries no side effect and sends nothing it has not
-    // already sent: the second body is byte-identical to the body this package
-    // sent before effect evidence existed.
-    const second = await this.post(input, claim, undefined, true);
+    // already sent: the second body is the first without the observation.
+    // The receipt stays, because the authority never refuses for a receipt.
+    const second = await this.post(input, claim, undefined, receipt, true);
     return second === "RECORDED" ? "RECORDED" : "PENDING";
   }
 
@@ -444,6 +475,7 @@ export class DecionisGrantVerifier implements AuthorizationVerifier {
     input: AuthorizationFinalizationInput,
     claim: ClaimRecord,
     evidence: AuthorityEffectEvidence | undefined,
+    receipt: string | undefined,
     evidenceRefused: boolean,
   ): Promise<"RECORDED" | "PENDING" | "REFUSED"> {
     const controller = new AbortController();
@@ -461,6 +493,7 @@ export class DecionisGrantVerifier implements AuthorizationVerifier {
           outcome: input.outcome,
           commit_correlation_id: claim.commitCorrelationId,
           ...(evidence === undefined ? {} : { effect_evidence: evidence }),
+          ...(receipt === undefined ? {} : { effect_receipt: receipt }),
         }),
         signal: controller.signal,
       });
@@ -473,12 +506,18 @@ export class DecionisGrantVerifier implements AuthorizationVerifier {
       // finalization that carried one. What was not sent cannot have been
       // recorded, whatever the response says.
       const sent = evidence !== undefined;
+      const receiptSent = receipt !== undefined;
       this.reports.set(input.authorization, {
         effectEvidenceSent: sent,
         effectEvidenceRefused: evidenceRefused,
         effectEvidenceRecorded: sent && parsed.effect_evidence_recorded === true,
         effectConfirmation:
           sent && parsed.effect_confirmation === "CONFIRMED" ? "CONFIRMED" : "UNCONFIRMED",
+        effectReceiptSent: receiptSent,
+        effectReceiptVerified: receiptSent && parsed.effect_receipt?.verified === true,
+        effectReceiptVerification: receiptSent
+          ? (parsed.effect_receipt?.verification_code ?? null)
+          : null,
       });
       this.claims.delete(input.authorization);
       return "RECORDED";
@@ -515,6 +554,18 @@ export class DecionisGrantVerifier implements AuthorizationVerifier {
     if (evidence.expected_effect_digest !== claim.expectedEffectDigest) return undefined;
     if (evidence.execution_correlation_id !== claim.commitCorrelationId) return undefined;
     return Object.freeze(evidence);
+  }
+
+  /**
+   * A receipt is forwarded as the provider returned it, and only when it has
+   * the shape the contract accepts: anything else would be refused as a
+   * malformed body, and the commit outcome with it. Its signature and claims
+   * are the authority's to verify; this package reads nothing in it.
+   */
+  private static bindableEffectReceipt(input: AuthorizationFinalizationInput): string | undefined {
+    const receipt = input.effectReceipt;
+    if (typeof receipt !== "string" || receipt.length > MAX_RECEIPT_LENGTH) return undefined;
+    return COMPACT_JWS_PATTERN.test(receipt) ? receipt : undefined;
   }
 }
 

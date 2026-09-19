@@ -10,6 +10,7 @@ import type {
   DownstreamRequest,
 } from "../credential/DownstreamCredential.js";
 import { grantOf } from "../credential/GrantOf.js";
+import { EFFECT_RECEIPT_HEADER } from "../verify/EffectReceipt.js";
 import { SignedRequestCredential } from "../credential/SignedRequestCredential.js";
 import { dispatchBudgetMs, MonotonicDeadline } from "../time/MonotonicClock.js";
 import type { FetchLike, HandlerRegistration } from "./HandlerRegistration.js";
@@ -86,6 +87,11 @@ export function registerHandlers(
         signal: deadline.signal(),
       });
       await response.body?.cancel();
+      // A verifying provider answers with its signed receipt of the effect,
+      // whatever the status: a refusal it signed is evidence too. It rides
+      // on the attempt to the finalization, unread.
+      const receipt = response.headers.get(EFFECT_RECEIPT_HEADER);
+      if (receipt !== null) dispatch.receipt(receipt);
       return { status: response.status, accepted: response.ok };
     });
   };

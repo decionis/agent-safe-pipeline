@@ -145,15 +145,21 @@ function attestation(
   return `${head}.${payload}.${signature.toString("base64url")}`;
 }
 
+const DOSSIER = "test-dossier-1";
+const CLAIM_TOKEN_DIGEST = `sha256:${"c".repeat(64)}`;
+const ATTESTATION_JTI = "test-attestation-1";
 const claims = {
   iss: "https://authority.example",
   sub: GRANT,
   decision_id: DECISION,
+  dossier_id: DOSSIER,
   binding: {
     intent_hash: INTENT,
     execution_payload_digest: bodyDigest,
     execution_payload_canonicalization_profile: JCS_PROFILE,
   },
+  claim_token_digest: CLAIM_TOKEN_DIGEST,
+  jti: ATTESTATION_JTI,
   exp: NOW / 1_000 + 25,
 };
 
@@ -218,11 +224,14 @@ describe("verifyProviderRequest", () => {
         iss: "https://authority.example",
         sub: GRANT,
         decision_id: DECISION,
+        dossier_id: DOSSIER,
         binding: {
           intent_hash: INTENT,
           execution_payload_digest: bodyDigest,
           execution_payload_canonicalization_profile: JCS_PROFILE,
         },
+        claim_token_digest: CLAIM_TOKEN_DIGEST,
+        jti: ATTESTATION_JTI,
         exp: NOW / 1_000 + 25,
       },
     } satisfies ProviderVerdict);
@@ -347,19 +356,43 @@ describe("verifyProviderRequest", () => {
     ).toBe("ATTESTATION_INVALID");
   });
 
-  it("refuses claims of the wrong shape, or of another request, under the authority's own signature", async () => {
+  it("refuses claims of the wrong shape as no attestation at all, under the authority's own signature", async () => {
+    // Step 6: the claims a provider compares, and the ones a receipt is built
+    // from, must be there in the right type before anything is compared.
     for (const wrong of [
       { ...claims, binding: "none" },
       { ...claims, binding: null },
       { ...claims, sub: 7 },
       { ...claims, decision_id: null },
+      { ...claims, dossier_id: undefined },
+      { ...claims, claim_token_digest: 5 },
+      { ...claims, jti: undefined },
       { ...claims, binding: { ...claims.binding, intent_hash: 1 } },
       { ...claims, binding: { ...claims.binding, execution_payload_digest: undefined } },
       {
         ...claims,
-        binding: { ...claims.binding, execution_payload_canonicalization_profile: "JCS" },
+        binding: { ...claims.binding, execution_payload_canonicalization_profile: 1 },
       },
       { ...claims, exp: "later" },
+    ]) {
+      expect(
+        code(
+          verifyProviderRequest(
+            await dispatch({ claimAttestation: attestation(wrong) }),
+            options(),
+          ),
+        ),
+        JSON.stringify(wrong),
+      ).toBe("ATTESTATION_INVALID");
+    }
+  });
+
+  it("refuses well-formed claims of another request, or another profile, or another time", async () => {
+    for (const wrong of [
+      {
+        ...claims,
+        binding: { ...claims.binding, execution_payload_canonicalization_profile: "JCS" },
+      },
       { ...claims, exp: NOW / 1_000 },
     ]) {
       expect(

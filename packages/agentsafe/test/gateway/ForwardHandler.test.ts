@@ -14,7 +14,7 @@ import {
 } from "../../src/gateway/ForwardHandler.js";
 import { bodyDigest, type InterceptedRequest } from "../../src/gateway/InterceptedRequest.js";
 import { Upstream } from "../../src/gateway/Upstream.js";
-import { UpstreamDouble } from "../support/GatewayHarness.js";
+import { RECEIPT, UpstreamDouble } from "../support/GatewayHarness.js";
 
 const body = Buffer.from('{"amount": 5}', "utf8");
 const request = (overrides: Partial<InterceptedRequest> = {}): InterceptedRequest => ({
@@ -45,11 +45,15 @@ const authorization: VerifiedAuthorization = {
 };
 const parameters = { method: "POST" as const, path: "/payments", query: {} };
 let dispatched = 0;
+let receipts: string[] = [];
 const dispatch: ProviderDispatch = {
   idempotencyKey: "k",
   run: async <T>(operation: (idempotencyKey: string) => Promise<T> | T): Promise<T> => {
     dispatched += 1;
     return await operation("k");
+  },
+  receipt: (token) => {
+    receipts.push(token);
   },
 };
 
@@ -171,6 +175,29 @@ describe("the exact-forward handler", () => {
       response: null,
       failure: "TRANSPORT",
     });
+  });
+
+  it("hands the upstream's effect receipt to the dispatch, on a commit and on a refusal alike", async () => {
+    const holder = new RequestHolder();
+    const handler = httpForwardHandler(upstream, holder);
+    const at = (path: string) => ({
+      intent: intent(),
+      parameters: { ...parameters, path },
+      authorization,
+      dispatch,
+    });
+    receipts = [];
+    holder.hold("00000000-0000-4000-8000-000000000001", request({ path: "/payments" }), {});
+    await handler.execute(at("/payments"));
+    expect(receipts).toEqual([]);
+    holder.hold("00000000-0000-4000-8000-000000000001", request({ path: "/receipt" }), {});
+    const result = await handler.execute(at("/receipt"));
+    expect(receipts).toEqual([RECEIPT]);
+    // The relay carries it to the caller like any other upstream header.
+    expect(result.headers).toContainEqual(["x-agent-safe-effect-receipt", RECEIPT]);
+    holder.hold("00000000-0000-4000-8000-000000000001", request({ path: "/receipt/refuse" }), {});
+    await expect(handler.execute(at("/receipt/refuse"))).rejects.toBeInstanceOf(ProviderRefusal);
+    expect(receipts).toEqual([RECEIPT, RECEIPT]);
   });
 
   it("registers the one handler under every name and seals the registry", () => {

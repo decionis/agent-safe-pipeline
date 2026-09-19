@@ -84,4 +84,8 @@ go test ./...
 
 drives the plugin, through go-pdk's test harness, with requests from
 [`conformance/provider`](../../conformance/provider/README.md), and the verifier package's own
-suite runs every vector.
+suite runs every vector, request and receipt.
+
+The plugin runs in Kong's access phase, before the upstream effects anything, so it signs no
+receipt (VP-3); the upstream does, with the verifier package's `Receipt`, or a response-phase
+plugin does on its behalf once the upstream reports its effect to it, which is a follow-up.
