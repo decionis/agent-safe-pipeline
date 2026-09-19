@@ -167,6 +167,9 @@ describe("LocalAuthority effect commitment and evidence", () => {
       effectEvidenceRefused: false,
       effectEvidenceRecorded: true,
       effectConfirmation: "UNCONFIRMED",
+      effectReceiptSent: false,
+      effectReceiptVerified: false,
+      effectReceiptVerification: null,
     });
   });
 
@@ -285,6 +288,9 @@ describe("LocalAuthority effect commitment and evidence", () => {
       effectEvidenceRefused: true,
       effectEvidenceRecorded: false,
       effectConfirmation: "UNCONFIRMED",
+      effectReceiptSent: false,
+      effectReceiptVerified: false,
+      effectReceiptVerification: null,
     });
   });
 
@@ -331,6 +337,9 @@ describe("LocalAuthority effect commitment and evidence", () => {
         effectEvidenceRefused: false,
         effectEvidenceRecorded: true,
         effectConfirmation: "CONFIRMED",
+        effectReceiptSent: false,
+        effectReceiptVerified: false,
+        effectReceiptVerification: null,
       });
     } finally {
       await trusting.stop();

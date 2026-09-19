@@ -60,14 +60,34 @@ shared secret for `hmac-sha256`. `Jwks.parse` reads the authority's execution-gr
 its well-known path serves it; fetch it from the authority's API origin, cache it, and refresh on
 an unknown `kid` at most once per bounded interval, as the profile's section 9 says.
 
+## The receipt (VP-3)
+
+After effecting, a service at VP-3 answers with its receipt, built from the attestation the
+verifier returned and signed with the service's own Ed25519 key, the public half of which the
+organisation registered at `POST /v1/execution/provider-keys`:
+
+```java
+String token = new EffectReceipt(
+    "core-receipts-1", "https://core.example", "https://decionis.com",
+    verdict.attestation(), Optional.of(idempotencyKey),
+    new EffectReceipt.Effect(EffectReceipt.Status.EFFECTED, Optional.of("ledger:9081"),
+        Optional.of(effectDigest), Instant.now().toString()),
+    Instant.now().getEpochSecond(), UUID.randomUUID().toString())
+    .sign(privateKey);
+response.setHeader(EffectReceipt.HEADER, token);
+```
+
+The header and the claims are RFC 8785 canonical before signing, so the receipt vectors hold every
+implementation to the same bytes.
+
 ## The vectors
 
 ```bash
 mvn -B test
 ```
 
-runs every vector in [`conformance/provider`](../../conformance/provider/README.md) through the
-library, and the module's own cases for what the vectors cannot express. The one dependency
+runs every vector in [`conformance/provider`](../../conformance/provider/README.md), request and
+receipt, through the library, and the module's own cases for what the vectors cannot express. The one dependency
 beyond Jackson is `io.github.erdtman:java-json-canonicalization`, the RFC 8785 canonicaliser;
 it, Jackson and the TestNG the tests run on are Apache-2.0, and the servlet API the filter
 compiles against is the container's, in `provided` scope.

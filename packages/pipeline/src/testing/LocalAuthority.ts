@@ -17,10 +17,12 @@
  */
 import {
   createHash,
+  createPublicKey,
   generateKeyPairSync,
   randomBytes,
   randomUUID,
   sign,
+  verify,
   type KeyObject,
 } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
@@ -42,6 +44,9 @@ export const LOCAL_AUTHORITY_ISSUER = "synthetic-authority";
 /** Where the fixture publishes its attestation key, at the path Decionis documents. */
 export const LOCAL_AUTHORITY_JWKS_PATH = "/.well-known/decionis-execution-grant-jwks.json";
 export const CLAIM_ATTESTATION_TYPE = "decionis-claim-attestation+jwt";
+/** The protected header `typ` of a verifying provider's effect receipt (VP-3). */
+export const EFFECT_RECEIPT_TYPE = "decionis-effect-receipt+jwt";
+const COMPACT_JWS = /^[\w-]+\.[\w-]+\.[\w-]+$/;
 /** The profile the fixture digests parameters under; the only one the pipeline reproduces. */
 const JCS_PROFILE = "RFC8785/JCS";
 
@@ -194,6 +199,26 @@ const FinalizeRequestSchema = z.strictObject({
   // evidence with a 409 and a reason code, not with a 400 request rejection,
   // so the shape is checked where that answer is produced.
   effect_evidence: z.unknown().optional(),
+  // The provider's receipt: only its shape is a request error. What it says
+  // is verified and recorded, never a reason to refuse the finalization.
+  effect_receipt: z.string().min(1).max(20_000).regex(COMPACT_JWS).optional(),
+});
+
+/** `ExecutionProviderKeyRegistrationRequest`: the public half of an Ed25519 key. */
+const ProviderKeyRegistrationSchema = z.strictObject({
+  org_id: z.uuid().optional(),
+  kid: boundedId,
+  issuer: z.string().trim().min(1).max(500),
+  algorithm: z.literal("EdDSA"),
+  public_jwk: z.strictObject({
+    kty: z.literal("OKP"),
+    crv: z.literal("Ed25519"),
+    x: z.string().regex(/^[\w-]{43}$/),
+    kid: z.string().optional(),
+    alg: z.literal("EdDSA").optional(),
+    use: z.literal("sig").optional(),
+  }),
+  label: z.string().max(200).optional(),
 });
 
 const BINDING_KEYS = Object.keys(IntentBindingSchema.shape);
@@ -269,6 +294,40 @@ export interface LocalGrantRecord {
   correlationId: string | null;
   consumedBy: string | null;
   finalized: "COMMITTED" | "FAILED" | "INDETERMINATE" | null;
+  /** The provider's effect receipt as this authority read it at finalization, when one came. */
+  receipt: LocalEffectReceiptRecord | null;
+}
+
+/** The verdict codes the hosted authority records for a receipt, and this double with it. */
+export type LocalEffectReceiptCode =
+  | "EFFECT_RECEIPT_VERIFIED"
+  | "EFFECT_RECEIPT_MALFORMED"
+  | "EFFECT_RECEIPT_KEY_UNKNOWN"
+  | "EFFECT_RECEIPT_SIGNATURE_INVALID"
+  | "EFFECT_RECEIPT_BINDING_MISMATCH";
+
+export interface LocalEffectReceiptRecord {
+  readonly token: string;
+  readonly verified: boolean;
+  readonly verification_code: LocalEffectReceiptCode;
+  readonly provider_key_id: string | null;
+  readonly issuer: string | null;
+  readonly effect_status: "EFFECTED" | "REFUSED" | "INDETERMINATE" | null;
+  readonly effect_digest: string | null;
+  readonly effect_reference: string | null;
+  readonly effected_at: string | null;
+}
+
+function effectStatus(value: unknown): LocalEffectReceiptRecord["effect_status"] {
+  return value === "EFFECTED" || value === "REFUSED" || value === "INDETERMINATE" ? value : null;
+}
+
+/** A verifying provider's registered receipt key: the public half, its `kid`, the `iss` it signs as. */
+export interface LocalProviderKey {
+  readonly kid: string;
+  readonly issuer: string;
+  readonly publicKey: KeyObject;
+  readonly label: string | null;
 }
 
 export interface LocalManagedEscalationRecord {
@@ -391,6 +450,8 @@ export class LocalAuthority {
   public readonly grants = new Map<string, LocalGrantRecord>();
   /** Managed escalations keyed by their opaque identifier. */
   public readonly escalations = new Map<string, LocalManagedEscalationRecord>();
+  /** The verifying providers' receipt keys, by `kid`, as `/v1/execution/provider-keys` registers them. */
+  public readonly providerKeys = new Map<string, LocalProviderKey>();
   private readonly apiKey: string;
   private readonly presence: LocalPresence | undefined;
   private readonly legacyVerifyReceipt: LocalAuthorityOptions["verifyReceipt"];
@@ -507,6 +568,125 @@ export class LocalAuthority {
     return `${header}.${payload}.${signature.toString("base64url")}`;
   }
 
+  /**
+   * Registers the public half of a provider's receipt key, as the hosted
+   * `POST /v1/execution/provider-keys` does; a test or a demo provider calls
+   * it directly rather than over HTTP.
+   */
+  public registerProviderKey(input: {
+    readonly kid: string;
+    readonly issuer: string;
+    readonly publicJwk: JsonWebKey;
+    readonly label?: string;
+  }): void {
+    this.providerKeys.set(input.kid, {
+      kid: input.kid,
+      issuer: input.issuer,
+      publicKey: createPublicKey({ key: input.publicJwk, format: "jwk" }),
+      label: input.label ?? null,
+    });
+  }
+
+  /**
+   * Reads a receipt the way the hosted authority does: the protected header
+   * names an Ed25519 key the organisation registered; the signature verifies
+   * under it; the issuer is the one registered with the key and the audience
+   * is this authority; and the claims describe this grant and this claim,
+   * through `sub`, the decision and dossier ids and the digest of the claim
+   * token being finalized. Anything else is recorded with its code, and the
+   * finalization proceeds regardless.
+   */
+  private readEffectReceipt(
+    token: string,
+    grant: LocalGrantRecord,
+    claimToken: string,
+  ): LocalEffectReceiptRecord {
+    const record = (
+      code: LocalEffectReceiptCode,
+      partial: Partial<LocalEffectReceiptRecord> = {},
+    ): LocalEffectReceiptRecord => ({
+      token,
+      verified: code === "EFFECT_RECEIPT_VERIFIED",
+      verification_code: code,
+      provider_key_id: null,
+      issuer: null,
+      effect_status: null,
+      effect_digest: null,
+      effect_reference: null,
+      effected_at: null,
+      ...partial,
+    });
+    const [encodedHeader = "", encodedPayload = "", encodedSignature = ""] = token.split(".");
+    let header: Record<string, unknown>;
+    let payload: Record<string, unknown>;
+    try {
+      header = JSON.parse(Buffer.from(encodedHeader, "base64url").toString("utf8"));
+      payload = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8"));
+    } catch {
+      return record("EFFECT_RECEIPT_MALFORMED");
+    }
+    if (
+      header.alg !== "EdDSA" ||
+      header.typ !== EFFECT_RECEIPT_TYPE ||
+      typeof header.kid !== "string" ||
+      header.kid.length === 0
+    ) {
+      return record("EFFECT_RECEIPT_MALFORMED");
+    }
+    const key = this.providerKeys.get(header.kid);
+    if (key === undefined) {
+      return record("EFFECT_RECEIPT_KEY_UNKNOWN", { provider_key_id: header.kid });
+    }
+    const known = { provider_key_id: key.kid, issuer: key.issuer };
+    const signed = Buffer.from(`${encodedHeader}.${encodedPayload}`, "ascii");
+    if (
+      !verify(null, signed, key.publicKey, Buffer.from(encodedSignature, "base64url")) ||
+      payload.iss !== key.issuer ||
+      payload.aud !== LOCAL_AUTHORITY_ISSUER
+    ) {
+      return record("EFFECT_RECEIPT_SIGNATURE_INVALID", known);
+    }
+    const effect =
+      typeof payload.effect === "object" && payload.effect !== null
+        ? (payload.effect as Record<string, unknown>)
+        : null;
+    const status = effectStatus(effect?.status);
+    const digest = effect?.digest;
+    const effectedAt = effect?.effected_at;
+    if (
+      typeof payload.sub !== "string" ||
+      typeof payload.decision_id !== "string" ||
+      typeof payload.dossier_id !== "string" ||
+      typeof payload.claim_token_digest !== "string" ||
+      typeof payload.jti !== "string" ||
+      typeof payload.iat !== "number" ||
+      status === null ||
+      (digest !== undefined && !sha256Digest.safeParse(digest).success) ||
+      typeof effectedAt !== "string" ||
+      Number.isNaN(Date.parse(effectedAt))
+    ) {
+      return record("EFFECT_RECEIPT_MALFORMED", known);
+    }
+    const described = {
+      ...known,
+      effect_status: status,
+      effect_digest: typeof digest === "string" ? digest : null,
+      effect_reference: typeof effect?.reference === "string" ? effect.reference : null,
+      effected_at: new Date(effectedAt).toISOString(),
+    };
+    const claimTokenDigest = `sha256:${createHash("sha256").update(claimToken, "utf8").digest("hex")}`;
+    if (
+      payload.sub !== grant.jti ||
+      payload.decision_id !== grant.decisionId ||
+      payload.dossier_id !== grant.dossierId ||
+      payload.claim_token_digest !== claimTokenDigest ||
+      (typeof payload.intent_hash === "string" && payload.intent_hash !== grant.intentHash)
+    ) {
+      return record("EFFECT_RECEIPT_BINDING_MISMATCH", described);
+    }
+    return record("EFFECT_RECEIPT_VERIFIED", described);
+  }
+
   public get baseUrl(): string {
     return `${LOOPBACK_ORIGIN}:${this.port}`;
   }
@@ -619,6 +799,8 @@ export class LocalAuthority {
     }
 
     switch (url.pathname) {
+      case "/v1/execution/provider-keys":
+        return this.send(res, record, ...this.registerProviderKeyRoute(record));
       case "/v1/authority/enforce-and-bind":
         return this.respond(res, record, "enforce", this.enforceAndBind(record));
       case "/v1/execution/claim-token":
@@ -629,6 +811,31 @@ export class LocalAuthority {
       default:
         return this.send(res, record, 404, { error: "NOT_FOUND" });
     }
+  }
+
+  /** `POST /v1/execution/provider-keys`: the public half only, or a 400 naming why. */
+  private registerProviderKeyRoute(record: LocalAuthorityRequestRecord): [number, unknown] {
+    const parsed = ProviderKeyRegistrationSchema.safeParse(record.body);
+    if (!parsed.success) return [400, { error: "INVALID_BODY" }];
+    const body = parsed.data;
+    this.registerProviderKey({
+      kid: body.kid,
+      issuer: body.issuer,
+      publicJwk: { kty: body.public_jwk.kty, crv: body.public_jwk.crv, x: body.public_jwk.x },
+      ...(body.label === undefined ? {} : { label: body.label }),
+    });
+    return [
+      201,
+      {
+        service: "decionis",
+        kid: body.kid,
+        issuer: body.issuer,
+        algorithm: "EdDSA",
+        label: body.label ?? null,
+        created_at: new Date(this.clock()).toISOString(),
+        revoked_at: null,
+      },
+    ];
   }
 
   private enforceAndBind(record: LocalAuthorityRequestRecord): Computed {
@@ -833,6 +1040,7 @@ export class LocalAuthority {
       receiptDossierId: approval?.receiptDossierId ?? null,
       claimed: false,
       claimToken: null,
+      receipt: null,
       correlationId: null,
       consumedBy: null,
       finalized: null,
@@ -1208,9 +1416,41 @@ export class LocalAuthority {
       return rejected("EXECUTION_CORRELATION_MISMATCH");
     }
     if (grant.finalized !== null) return rejected("NONCE_REPLAY_DETECTED");
+    // The receipt is read first and recorded whatever it says; when the grant
+    // named the effect it expected and the executor supplied no observation of
+    // its own, a verified receipt with a digest stands in as SIGNED_RECEIPT
+    // evidence by the provider's key, exactly as the hosted route reads it.
+    const receipt =
+      parsed.data.effect_receipt === undefined
+        ? null
+        : this.readEffectReceipt(parsed.data.effect_receipt, grant, parsed.data.claim_token);
+    let supplied = parsed.data.effect_evidence;
+    if (
+      supplied === undefined &&
+      receipt?.verified === true &&
+      grant.expectedEffectDigest !== null &&
+      receipt.effect_digest !== null
+    ) {
+      supplied = {
+        version: "1.0",
+        status:
+          receipt.effect_status === "EFFECTED" &&
+          receipt.effect_digest === grant.expectedEffectDigest &&
+          parsed.data.outcome === "COMMITTED"
+            ? "CONFIRMED"
+            : "UNCONFIRMED",
+        observation_method: "SIGNED_RECEIPT",
+        observer: { id: receipt.provider_key_id, version: EFFECT_RECEIPT_TYPE },
+        expected_effect_digest: grant.expectedEffectDigest,
+        observed_effect_digest: receipt.effect_digest,
+        observed_at: receipt.effected_at,
+        evidence_digest: `sha256:${createHash("sha256").update(receipt.token, "utf8").digest("hex")}`,
+        evidence_reference: receipt.effect_reference,
+        execution_correlation_id: parsed.data.commit_correlation_id,
+      };
+    }
     // The hosted authority refuses the whole finalization for evidence it
     // cannot bind, in exactly this order, before the commit transition.
-    const supplied = parsed.data.effect_evidence;
     let evidence: z.infer<typeof EffectEvidenceSchema> | undefined;
     if (supplied !== undefined) {
       const parsedEvidence = EffectEvidenceSchema.safeParse(supplied);
@@ -1229,7 +1469,13 @@ export class LocalAuthority {
         return rejected("EFFECT_EVIDENCE_OUTCOME_MISMATCH");
       }
       if (evidence.status === "CONFIRMED") {
-        const trusted = this.effectObserverIds();
+        // A verified receipt's key is an observer for this finalization only.
+        const trusted = [
+          ...this.effectObserverIds(),
+          ...(receipt?.verified === true && receipt.provider_key_id !== null
+            ? [receipt.provider_key_id]
+            : []),
+        ];
         if (trusted.length === 0) {
           return rejected("EFFECT_OBSERVER_PROVENANCE_UNAVAILABLE");
         }
@@ -1239,6 +1485,7 @@ export class LocalAuthority {
       }
     }
     grant.finalized = parsed.data.outcome;
+    grant.receipt = receipt;
     // Byte-for-byte the hosted success body: the commit's own decision-chain
     // evidence is queued, not yet recorded, so a successful finalization still
     // carries `COMMIT_EVIDENCE_PENDING`.
@@ -1252,6 +1499,16 @@ export class LocalAuthority {
         evidence_recorded: false,
         effect_evidence_recorded: evidence !== undefined,
         effect_confirmation: evidence?.status === "CONFIRMED" ? "CONFIRMED" : "UNCONFIRMED",
+        ...(receipt === null
+          ? {}
+          : {
+              effect_receipt: {
+                verified: receipt.verified,
+                verification_code: receipt.verification_code,
+                provider_key_id: receipt.provider_key_id,
+                recorded: true,
+              },
+            }),
         reason_codes: ["COMMIT_EVIDENCE_PENDING"],
       },
     };

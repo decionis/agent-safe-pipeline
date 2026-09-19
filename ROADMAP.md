@@ -52,9 +52,12 @@ not imply a release date.
   and [Kong](./verifiers/kong/README.md) in Go, for
   [Spring and an Apigee callout](./verifiers/spring/README.md) in Java, for
   [Rust services](./verifiers/rust/README.md) with a tower layer, and for
-  [ASP.NET Core](./verifiers/dotnet/README.md). Still to come, in its own pull request: the
-  effect receipt the profile reserves as VP-3, once the Decionis OpenAPI carries it, so the
-  effect plane becomes provider-attested rather than executor-reconciled.
+  [ASP.NET Core](./verifiers/dotnet/README.md); and, now that the Decionis OpenAPI carries it,
+  the effect receipt (VP-3): each verifier builds one, the executor forwards it at finalization,
+  and the authority verifies and records it, so the effect plane is provider-attested rather than
+  executor-reconciled. Still to come: a receipt signed in a hop's response phase for a system of
+  record that reports its effect to the hop, and the executor's effect plane comparing a receipt's
+  digest with its own observation.
 
 The open issue tracker is the source of truth for scope, acceptance criteria, and progress. An item
 leaves this section when it is released, rejected with rationale, or explicitly moved back to

@@ -241,7 +241,13 @@ export class SafeExecutor {
       // The provider said no. That is an outcome, so it is finalized `FAILED`
       // rather than left indeterminate, and `executed` is false rather than
       // null: nothing about it is unknown.
-      const finalization = await this.finalize(captured, decision, authorization, "FAILED");
+      const finalization = await this.finalize(
+        captured,
+        decision,
+        authorization,
+        "FAILED",
+        attempt.receipt,
+      );
       const result: SafeExecutionResult<TResult> = {
         outcome: "DEFINITELY_NOT_EXECUTED",
         executed: false,
@@ -264,7 +270,13 @@ export class SafeExecutor {
       return result;
     }
     if (attempt.status === "UNKNOWN_AFTER_DISPATCH") {
-      const finalization = await this.finalize(captured, decision, authorization, "INDETERMINATE");
+      const finalization = await this.finalize(
+        captured,
+        decision,
+        authorization,
+        "INDETERMINATE",
+        attempt.receipt,
+      );
       const result: SafeExecutionResult<TResult> = {
         outcome: "UNKNOWN_AFTER_DISPATCH",
         executed: null,
@@ -286,7 +298,13 @@ export class SafeExecutor {
       // Stryker restore all
       return result;
     }
-    const finalization = await this.finalize(captured, decision, authorization, "COMMITTED");
+    const finalization = await this.finalize(
+      captured,
+      decision,
+      authorization,
+      "COMMITTED",
+      attempt.receipt,
+    );
     const result: SafeExecutionResult<TResult> = {
       outcome: "COMPLETED",
       executed: true,
@@ -309,7 +327,8 @@ export class SafeExecutor {
   }
 
   /**
-   * Reports the attempt outcome to the verifier's authority. A missing,
+   * Reports the attempt outcome to the verifier's authority, with the
+   * provider's effect receipt when the attempt brought one back. A missing,
    * failing, or malformed finalization can never alter the execution result.
    */
   private async finalize(
@@ -317,6 +336,7 @@ export class SafeExecutor {
     decision: GateDecision,
     authorization: VerifiedAuthorization,
     outcome: ExecutionCommitOutcome,
+    receipt: string | null = null,
   ): Promise<ExecutionFinalization> {
     const finalize = this.verifier.finalize;
     if (finalize === undefined) return "UNSUPPORTED";
@@ -326,6 +346,7 @@ export class SafeExecutor {
         decision,
         authorization,
         outcome,
+        ...(receipt === null ? {} : { effectReceipt: receipt }),
       });
       return status === "RECORDED" ? "RECORDED" : "PENDING";
     } catch {

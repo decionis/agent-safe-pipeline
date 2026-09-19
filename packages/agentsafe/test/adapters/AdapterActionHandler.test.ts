@@ -128,6 +128,7 @@ const dispatch = (run: { count: number }) => ({
     run.count += 1;
     return await operation("synthetic-key-7");
   },
+  receipt: (): void => {},
 });
 
 async function execute(

@@ -74,19 +74,20 @@ public final class VerifyingProvider {
     if (!options.effects()) {
       return new Verdict(true, null, null);
     }
-    JsonNode claims;
+    ClaimAttestation attestation;
     try {
-      claims = attestationOf(request.headers().get("x-agent-safe-claim-attestation"));
+      attestation = attestationOf(request.headers().get("x-agent-safe-claim-attestation"));
     } catch (Exception e) {
       return Verdict.refuse(Verdict.ATTESTATION_INVALID);
     }
-    ClaimAttestation attestation;
     try {
-      attestation = described(claims, request, nowSeconds);
+      described(attestation, request, nowSeconds);
     } catch (Exception e) {
       return Verdict.refuse(Verdict.ATTESTATION_DOES_NOT_DESCRIBE_THIS_REQUEST);
     }
-    if (!options.replay().record(attestation.sub(), Instant.ofEpochSecond(attestation.exp()))) {
+    // The record is kept to the end of the second `exp` falls in, never shorter than `exp`.
+    Instant expiresAt = Instant.ofEpochSecond((long) Math.ceil(attestation.exp()));
+    if (!options.replay().record(attestation.sub(), expiresAt)) {
       return Verdict.refuse(Verdict.GRANT_REPLAYED);
     }
     return new Verdict(true, null, attestation);
@@ -215,8 +216,9 @@ public final class VerifyingProvider {
     return String.join("\n", lines).getBytes(StandardCharsets.UTF_8);
   }
 
-  // Step 6: the attestation by form, key, signature and issuer; its claims.
-  private JsonNode attestationOf(String compact) throws Exception {
+  // Step 6: the attestation by form, key, signature, issuer and the shape of its claims; the
+  // claims when it is the authority's.
+  private ClaimAttestation attestationOf(String compact) throws Exception {
     String[] parts = compact == null ? new String[0] : compact.split("\\.", -1);
     if (parts.length != 3) {
       throw new IllegalArgumentException("form");
@@ -236,40 +238,46 @@ public final class VerifyingProvider {
       throw new IllegalArgumentException("signature");
     }
     JsonNode claims = JSON.readTree(base64url.decode(parts[1]));
-    if (!options.authorityIssuer().equals(claims.path("iss").asText(null))) {
-      throw new IllegalArgumentException("issuer");
-    }
-    return claims;
-  }
-
-  // Step 7: whether the attestation describes this request.
-  private static ClaimAttestation described(JsonNode claims, ProviderRequest request, long nowSeconds)
-      throws Exception {
+    // The claims a provider compares, and the ones a receipt is built from, must be there in the
+    // right type: an attestation without them is not one.
     JsonNode binding = claims.path("binding");
-    String sub = text(claims, "sub");
-    String decisionId = text(claims, "decision_id");
-    String intentHash = text(binding, "intent_hash");
-    String payloadDigest = text(binding, "execution_payload_digest");
-    String profile = text(binding, "execution_payload_canonicalization_profile");
     JsonNode exp = claims.path("exp");
     if (!exp.isNumber()) {
       throw new IllegalArgumentException("exp");
     }
+    ClaimAttestation attestation = new ClaimAttestation(
+        text(claims, "iss"),
+        text(claims, "sub"),
+        text(claims, "decision_id"),
+        text(claims, "dossier_id"),
+        text(binding, "intent_hash"),
+        text(binding, "execution_payload_digest"),
+        text(binding, "execution_payload_canonicalization_profile"),
+        text(claims, "claim_token_digest"),
+        text(claims, "jti"),
+        exp.asDouble());
+    if (!options.authorityIssuer().equals(attestation.iss())) {
+      throw new IllegalArgumentException("issuer");
+    }
+    return attestation;
+  }
+
+  // Step 7: whether the attestation describes this request.
+  private static void described(ClaimAttestation attestation, ProviderRequest request, long nowSeconds)
+      throws Exception {
     if (request.body() == null) {
       throw new IllegalArgumentException("no body");
     }
     String digest = CanonicalDigest.of(request.body());
     Map<String, String> headers = request.headers();
-    if (!sub.equals(headers.get("x-agent-safe-grant-id"))
-        || !decisionId.equals(headers.get("x-agent-safe-decision-id"))
-        || !intentHash.equals(headers.get("x-agent-safe-intent-hash"))
-        || !JCS_PROFILE.equals(profile)
-        || !payloadDigest.equals(digest)
-        || !(exp.asDouble() > nowSeconds)) {
+    if (!attestation.sub().equals(headers.get("x-agent-safe-grant-id"))
+        || !attestation.decisionId().equals(headers.get("x-agent-safe-decision-id"))
+        || !attestation.intentHash().equals(headers.get("x-agent-safe-intent-hash"))
+        || !JCS_PROFILE.equals(attestation.executionPayloadCanonicalizationProfile())
+        || !attestation.executionPayloadDigest().equals(digest)
+        || !(attestation.exp() > nowSeconds)) {
       throw new IllegalArgumentException("describes another request");
     }
-    return new ClaimAttestation(text(claims, "iss"), sub, decisionId, intentHash, payloadDigest, profile,
-        exp.asLong());
   }
 
   private static String text(JsonNode node, String field) {

@@ -42,3 +42,15 @@ regexTarget = "secret"
 regexes = [
   '''^eyJhbGciOiJFZERTQSIsImtpZCI6InZlY3Rvci1leGVjdXRpb24tZ3JhbnQtMSI[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$''',
 ]
+
+# The receipt vectors under conformance/provider/receipts carry effect receipts
+# the same way: compact JWS values signed by a key generated for the vectors and
+# discarded, under the protected header {"alg":"EdDSA","kid":"vector-provider-receipts-1".
+# A receipt is the provider's statement of what it did, verifiable by anyone
+# holding the public half the vector itself carries, and a bearer for nothing.
+[[allowlists]]
+description = "Effect receipts signed with the receipt vectors' own key"
+regexTarget = "secret"
+regexes = [
+  '''^eyJhbGciOiJFZERTQSIsImtpZCI6InZlY3Rvci1wcm92aWRlci1yZWNlaXB0cy0xI[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$''',
+]

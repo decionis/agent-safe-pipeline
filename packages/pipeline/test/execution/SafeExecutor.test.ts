@@ -9,6 +9,7 @@ import {
   type ActionExecutionContext,
 } from "../../src/execution/ActionRegistry.js";
 import type {
+  AuthorizationFinalizationInput,
   AuthorizationVerifier,
   VerifiedAuthorization,
 } from "../../src/execution/AuthorizationVerifier.js";
@@ -565,6 +566,86 @@ describe("SafeExecutor", () => {
       const terminal = events.at(-1);
       expect(terminal?.eventType).toBe(scenario.eventType);
       expect(terminal?.reasonCodes).toEqual(scenario.reasonCodes);
+    }
+  });
+
+  it("forwards the provider's effect receipt to the finalization, whichever way the attempt ended", async () => {
+    // A receipt is the provider's own signed word about the effect. It rides
+    // on the attempt: the commit, the provider's refusal and the unknown
+    // outcome can each carry one, a failure before dispatch never can, and an
+    // attempt that brought none back finalizes exactly as before.
+    const RECEIPT = "eyJhbGciOiJFZERTQSJ9.eyJzdWIiOiJnMSJ9.c2ln";
+    const scenarios: Array<{
+      readonly execute: (context: ActionExecutionContext<{ amount: number }>) => Promise<unknown>;
+      readonly commit: "COMMITTED" | "FAILED" | "INDETERMINATE";
+      readonly receipt: string | null;
+    }> = [
+      {
+        execute: async ({ dispatch }) =>
+          await dispatch.run(async () => {
+            dispatch.receipt(RECEIPT);
+            return "done";
+          }),
+        commit: "COMMITTED",
+        receipt: RECEIPT,
+      },
+      {
+        execute: async ({ dispatch }) => await dispatch.run(async () => "done"),
+        commit: "COMMITTED",
+        receipt: null,
+      },
+      {
+        execute: async ({ dispatch }) =>
+          await dispatch.run(async () => {
+            dispatch.receipt(RECEIPT);
+            throw new ProviderRefusal("INSUFFICIENT_FUNDS");
+          }),
+        commit: "FAILED",
+        receipt: RECEIPT,
+      },
+      {
+        execute: async ({ dispatch }) =>
+          await dispatch.run(async () => {
+            dispatch.receipt(RECEIPT);
+            throw new Error("after dispatch");
+          }),
+        commit: "INDETERMINATE",
+        receipt: RECEIPT,
+      },
+    ];
+    for (const scenario of scenarios) {
+      const pair = createFixtureAuthorityPair(() => "ALLOW", {
+        unsafeAllowDevelopmentFixture: true,
+      });
+      const finalize = vi.fn<(input: AuthorizationFinalizationInput) => Promise<"RECORDED">>(
+        async () => "RECORDED",
+      );
+      const verifier: AuthorizationVerifier = {
+        verifyAndConsume: (c, d) => pair.verifier.verifyAndConsume(c, d),
+        finalize,
+      };
+      const registry = new ActionRegistry()
+        .register("refund_order", {
+          parametersSchema: z.object({ amount: z.number(), currency: z.string() }),
+          execute: scenario.execute as never,
+        })
+        .seal();
+      const intent = captured();
+      const decision = await pair.authority.evaluate(intent);
+      const result = await new SafeExecutor(
+        registry,
+        verifier,
+        new AuditRecorder({ sink: { write: () => {} } }),
+      ).run(intent, decision);
+      if (result.outcome === "BLOCKED") throw new Error("TEST_EXPECTED_CONSUMED_GRANT");
+      expect(finalize).toHaveBeenCalledTimes(1);
+      expect(finalize.mock.calls[0]?.[0]).toEqual({
+        captured: intent,
+        decision,
+        authorization: result.authorization,
+        outcome: scenario.commit,
+        ...(scenario.receipt === null ? {} : { effectReceipt: scenario.receipt }),
+      });
     }
   });
 

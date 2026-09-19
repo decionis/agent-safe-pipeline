@@ -15,6 +15,30 @@
       "containsCustomerData": false
     },
     {
+      "path": "conformance/provider/receipts/receipt-effected-with-digest.json",
+      "family": "Verifying provider receipt vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "conformance/provider/receipts/receipt-indeterminate-minimal.json",
+      "family": "Verifying provider receipt vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "conformance/provider/receipts/receipt-reference-unicode.json",
+      "family": "Verifying provider receipt vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "conformance/provider/receipts/receipt-refused-reference-only.json",
+      "family": "Verifying provider receipt vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "conformance/provider/vectors/attestation-canonicalization-profile-unknown.json",
       "family": "Verifying provider conformance vector",
       "source": "synthetic",
@@ -52,6 +76,12 @@
     },
     {
       "path": "conformance/provider/vectors/attestation-issuer-differs.json",
+      "family": "Verifying provider conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "conformance/provider/vectors/attestation-lacks-claim-token-digest.json",
       "family": "Verifying provider conformance vector",
       "source": "synthetic",
       "containsCustomerData": false
@@ -909,6 +939,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/verify/EffectReceipt.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/verify/VerifyingProvider.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
@@ -1084,6 +1120,12 @@
     },
     {
       "path": "packages/pipeline/test/testing/LocalEffectEvidence.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/pipeline/test/testing/LocalEffectReceipt.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false

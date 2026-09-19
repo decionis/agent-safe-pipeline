@@ -46,7 +46,10 @@ make the authority attest to something it did not claim, because the attestation
 the executor. The [Verifying Provider Profile](./authority/verifying-provider.md) is the full
 verification procedure stated normatively, with vectors any implementation runs to claim it;
 `packages/agentsafe/README.md` carries the executor's side of it, and the offline proof's strict
-provider double runs it against nothing but the authority's public keys.
+provider double runs it against nothing but the authority's public keys. A provider at the
+profile's VP-3 also answers with its own signed receipt of the effect, which the executor forwards
+and the authority records: the first row of the table then holds in both directions, the provider
+refusing what was never claimed and saying under its own key what it did with what was.
 
 ### The credential is the strongest thing under this repository's control
 

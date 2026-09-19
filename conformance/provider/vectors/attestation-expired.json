@@ -14,7 +14,7 @@
     {
       "keyid": "vector-executor-ed25519-1",
       "alg": "ed25519",
-      "public_pem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAbkjxBZPWwJXBEPL4wiH5JZGLV8gzT61G81J7fa7/MEE=\n-----END PUBLIC KEY-----\n"
+      "public_pem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA+Xzbach0qa9so096LCMPEne4fzm7gQwesCMXdJhObjk=\n-----END PUBLIC KEY-----\n"
     },
     {
       "keyid": "vector-executor-hmac-1",
@@ -26,7 +26,7 @@
     "keys": [
       {
         "crv": "Ed25519",
-        "x": "bXMw8L6Hqmksn3A0_Yx8FtLBE4U9lCWsH2-pICjcYU8",
+        "x": "wUGq0QyYp6RL_lHp__eI4MbaLWO7H86jHtrl6f8-5fY",
         "kty": "OKP",
         "kid": "vector-execution-grant-1",
         "alg": "EdDSA",
@@ -44,10 +44,10 @@
         "x-agent-safe-intent-hash": "sha256:ee63dec7a6a0e76825bcd4e033b409e27074416ef6b5c5a6bc09e881591c2211",
         "x-agent-safe-grant-id": "11111111-1111-4111-8111-000000000001",
         "x-agent-safe-decision-id": "vector-decision-0001",
-        "x-agent-safe-claim-attestation": "eyJhbGciOiJFZERTQSIsImtpZCI6InZlY3Rvci1leGVjdXRpb24tZ3JhbnQtMSIsInR5cCI6ImRlY2lvbmlzLWNsYWltLWF0dGVzdGF0aW9uK2p3dCJ9.eyJpc3MiOiJodHRwczovL2F1dGhvcml0eS5leGFtcGxlIiwic3ViIjoiMTExMTExMTEtMTExMS00MTExLTgxMTEtMDAwMDAwMDAwMDAxIiwib3JnX2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDA4IiwiZG9zc2llcl9pZCI6IjIyMjIyMjIyLTIyMjItNDIyMi04MjIyLTAwMDAwMDAwMDAwMSIsImRlY2lzaW9uX2lkIjoidmVjdG9yLWRlY2lzaW9uLTAwMDEiLCJiaW5kaW5nIjp7ImludGVudF9oYXNoIjoic2hhMjU2OmVlNjNkZWM3YTZhMGU3NjgyNWJjZDRlMDMzYjQwOWUyNzA3NDQxNmVmNmI1YzVhNmJjMDllODgxNTkxYzIyMTEiLCJleGVjdXRpb25fcGF5bG9hZF9kaWdlc3QiOiJzaGEyNTY6MTk2ZmYwY2VjNjhmZTBhNjM3NGRhOWQ3OGJkNTc5NTNlZTM3NDJmZmYxMzIxOTNkOWZiNWEyMjQ2NDU5MGY5ZSIsImV4ZWN1dGlvbl9wYXlsb2FkX2Nhbm9uaWNhbGl6YXRpb25fcHJvZmlsZSI6IlJGQzg3ODUvSkNTIiwiZXhlY3V0aW9uX25vbmNlIjoiMHdManliUGFMQlYxQ2NIV0tweXhHQTNfMElRakxBemxwNldnTW9mejJxayIsImV4ZWN1dGlvbl9jb3JyZWxhdGlvbl9pZCI6InZlY3Rvci1jb3JyZWxhdGlvbi0xIn0sImNsYWltX3Rva2VuX2RpZ2VzdCI6InNoYTI1Njo5NTVmOGFlZmZhMGU4ZWY5Y2JmN2FmZjQyYTFhNjU1ZjUyY2ZkOGI4ZWRkNDVhZTBjN2VkNGRkOGZlNWUxODUwIiwiY2xhaW1fdmFsaWRhdGVkX2F0IjoiMjAyNi0wOS0xOVQxMTo1OTo1NS4wMDBaIiwianRpIjoiMzMzMzMzMzMtMzMzMy00MzMzLTgzMzMtMDAwMDAwMDAwMDAxIiwiaWF0IjoxNzg5ODE5MTk1LCJuYmYiOjE3ODk4MTkxOTUsImV4cCI6MTc4OTgxOTE5OX0.9fXSMkB54TEjIWaXIc3Fc2ActtM-uNBiHILd3R0weXdgrsqzN9waJj22KjgSL4NwGsG2jectqMpQHz7FwvtmDg",
+        "x-agent-safe-claim-attestation": "eyJhbGciOiJFZERTQSIsImtpZCI6InZlY3Rvci1leGVjdXRpb24tZ3JhbnQtMSIsInR5cCI6ImRlY2lvbmlzLWNsYWltLWF0dGVzdGF0aW9uK2p3dCJ9.eyJpc3MiOiJodHRwczovL2F1dGhvcml0eS5leGFtcGxlIiwic3ViIjoiMTExMTExMTEtMTExMS00MTExLTgxMTEtMDAwMDAwMDAwMDAxIiwib3JnX2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDA4IiwiZG9zc2llcl9pZCI6IjIyMjIyMjIyLTIyMjItNDIyMi04MjIyLTAwMDAwMDAwMDAwMSIsImRlY2lzaW9uX2lkIjoidmVjdG9yLWRlY2lzaW9uLTAwMDEiLCJiaW5kaW5nIjp7ImludGVudF9oYXNoIjoic2hhMjU2OmVlNjNkZWM3YTZhMGU3NjgyNWJjZDRlMDMzYjQwOWUyNzA3NDQxNmVmNmI1YzVhNmJjMDllODgxNTkxYzIyMTEiLCJleGVjdXRpb25fcGF5bG9hZF9kaWdlc3QiOiJzaGEyNTY6MTk2ZmYwY2VjNjhmZTBhNjM3NGRhOWQ3OGJkNTc5NTNlZTM3NDJmZmYxMzIxOTNkOWZiNWEyMjQ2NDU5MGY5ZSIsImV4ZWN1dGlvbl9wYXlsb2FkX2Nhbm9uaWNhbGl6YXRpb25fcHJvZmlsZSI6IlJGQzg3ODUvSkNTIiwiZXhlY3V0aW9uX25vbmNlIjoiMHdManliUGFMQlYxQ2NIV0tweXhHQTNfMElRakxBemxwNldnTW9mejJxayIsImV4ZWN1dGlvbl9jb3JyZWxhdGlvbl9pZCI6InZlY3Rvci1jb3JyZWxhdGlvbi0xIn0sImNsYWltX3Rva2VuX2RpZ2VzdCI6InNoYTI1Njo5NTVmOGFlZmZhMGU4ZWY5Y2JmN2FmZjQyYTFhNjU1ZjUyY2ZkOGI4ZWRkNDVhZTBjN2VkNGRkOGZlNWUxODUwIiwiY2xhaW1fdmFsaWRhdGVkX2F0IjoiMjAyNi0wOS0xOVQxMTo1OTo1NS4wMDBaIiwianRpIjoiMzMzMzMzMzMtMzMzMy00MzMzLTgzMzMtMDAwMDAwMDAwMDAxIiwiaWF0IjoxNzg5ODE5MTk1LCJuYmYiOjE3ODk4MTkxOTUsImV4cCI6MTc4OTgxOTE5OX0.rwjff-iNFg0599DuKrVA4M-vUwP-z3yKbWtPG_9Wd5IC-IJ51WuEBaEFv7Pa_vfTWCZ3dg5WFg797Gu_UvAnAQ",
         "content-digest": "sha-256=:p5gDPC/uFWmhXV97u81K1g7MwavEaak3b25R7rrr5MY=:",
         "signature-input": "agentsafe=(\"@method\" \"@path\" \"content-digest\" \"idempotency-key\" \"x-agent-safe-intent-hash\" \"x-agent-safe-grant-id\" \"x-agent-safe-decision-id\" \"x-agent-safe-claim-attestation\");created=1789819195;keyid=\"vector-executor-ed25519-1\";alg=\"ed25519\"",
-        "signature": "agentsafe=:zS4cyCQkQYCneQgcv7x5Ao6IbLbXQ6K2kTSPmh5ny98QEyH9g+2HmErykC1oFp6Gb7CCZpuPR94546UUBMFsAQ==:"
+        "signature": "agentsafe=:R3DdhcE1sMC63Ot0Pbnq8ONwG32rAK+lsA1CGON9dJ29eu1zmOkNRJV7RBav5D9cZvcidsHOlHaB6hA8cYxUAQ==:"
       },
       "body": "{\"amountMinor\":250000,\"currency\":\"USD\",\"beneficiary\":\"synthetic-vendor-7781\",\"reference\":\"vector-wire-1\"}",
       "expect": {

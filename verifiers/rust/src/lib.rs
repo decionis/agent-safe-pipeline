@@ -19,10 +19,12 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 pub mod canonical;
+pub mod receipt;
 #[cfg(feature = "tower")]
 pub mod tower;
 
 pub use canonical::{canonical_digest, canonical_json, NotIJson};
+pub use receipt::{Effect, EffectStatus, Receipt, ReceiptError, RECEIPT_HEADER, RECEIPT_TYPE};
 
 /// The protected header `typ` of a claim attestation.
 pub const ATTESTATION_TYPE: &str = "decionis-claim-attestation+jwt";
@@ -245,23 +247,29 @@ pub struct Request<'a> {
     pub headers: &'a HashMap<String, String>,
 }
 
-/// The part of the attestation the provider reads; the authority's schema has more.
+/// The part of the attestation the provider reads; the authority's schema has
+/// more. The dossier, the claim-token digest and the attestation's own id are
+/// what a receipt ([`receipt::Receipt`], VP-3) is built from.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClaimAttestation {
     pub iss: String,
     pub sub: String,
     pub decision_id: String,
+    pub dossier_id: String,
     pub intent_hash: String,
     pub execution_payload_digest: String,
     pub execution_payload_canonicalization_profile: String,
+    pub claim_token_digest: String,
+    pub jti: String,
     pub exp: f64,
 }
 
 /// The outcome of the procedure for one request. `Accepted(None)` is a read
-/// a non-effecting provider verified at VP-1 alone.
+/// a non-effecting provider verified at VP-1 alone. The attestation is boxed
+/// so a refusal, the common small value, is not sized by the rare large one.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Verdict {
-    Accepted(Option<ClaimAttestation>),
+    Accepted(Option<Box<ClaimAttestation>>),
     Refused(Refusal),
 }
 
@@ -283,22 +291,22 @@ pub fn verify(request: &Request<'_>, options: &Options) -> Verdict {
     if !options.effects {
         return Verdict::Accepted(None);
     }
-    let Some(claims) = attestation_of(
+    let Some(attestation) = attestation_of(
         request.headers.get("x-agent-safe-claim-attestation"),
         options,
     ) else {
         return Verdict::Refused(Refusal::AttestationInvalid);
     };
-    let Some(attestation) = described(&claims, request, now) else {
+    if !described(&attestation, request, now) {
         return Verdict::Refused(Refusal::AttestationDoesNotDescribeThisRequest);
-    };
+    }
     if !options
         .replay
         .record(&attestation.sub, attestation.exp as u64)
     {
         return Verdict::Refused(Refusal::GrantReplayed);
     }
-    Verdict::Accepted(Some(attestation))
+    Verdict::Accepted(Some(Box::new(attestation)))
 }
 
 // Steps 0 to 5.
@@ -433,8 +441,9 @@ fn base64url(text: &str) -> Result<Vec<u8>, base64::DecodeError> {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(text.trim_end_matches('='))
 }
 
-// Step 6: the attestation by form, key, signature and issuer; its claims.
-fn attestation_of(compact: Option<&String>, options: &Options) -> Option<Value> {
+// Step 6: the attestation by form, key, signature, issuer and the shape of
+// its claims; the claims when it is the authority's.
+fn attestation_of(compact: Option<&String>, options: &Options) -> Option<ClaimAttestation> {
     let compact = compact?;
     let mut parts = compact.split('.');
     let (header, payload, signature) = (parts.next()?, parts.next()?, parts.next()?);
@@ -451,41 +460,47 @@ fn attestation_of(compact: Option<&String>, options: &Options) -> Option<Value> 
     key.verify(format!("{header}.{payload}").as_bytes(), &signature)
         .ok()?;
     let claims: Value = serde_json::from_slice(&base64url(payload).ok()?).ok()?;
-    if claims.get("iss").and_then(Value::as_str) != Some(options.authority_issuer.as_str()) {
-        return None;
-    }
-    Some(claims)
-}
-
-// Step 7: whether the attestation describes this request.
-fn described(claims: &Value, request: &Request<'_>, now: u64) -> Option<ClaimAttestation> {
+    // The claims a provider compares, and the ones a receipt is built from,
+    // must be there in the right type: an attestation without them is not one.
     let text =
         |value: &Value, name: &str| value.get(name).and_then(Value::as_str).map(str::to_owned);
     let binding = claims.get("binding")?;
     let attestation = ClaimAttestation {
-        iss: text(claims, "iss")?,
-        sub: text(claims, "sub")?,
-        decision_id: text(claims, "decision_id")?,
+        iss: text(&claims, "iss")?,
+        sub: text(&claims, "sub")?,
+        decision_id: text(&claims, "decision_id")?,
+        dossier_id: text(&claims, "dossier_id")?,
         intent_hash: text(binding, "intent_hash")?,
         execution_payload_digest: text(binding, "execution_payload_digest")?,
         execution_payload_canonicalization_profile: text(
             binding,
             "execution_payload_canonicalization_profile",
         )?,
+        claim_token_digest: text(&claims, "claim_token_digest")?,
+        jti: text(&claims, "jti")?,
         exp: claims.get("exp").and_then(Value::as_f64)?,
     };
-    let digest = canonical_digest(request.body?).ok()?;
-    let header = |name: &str| request.headers.get(name).map(String::as_str);
-    if Some(attestation.sub.as_str()) != header("x-agent-safe-grant-id")
-        || Some(attestation.decision_id.as_str()) != header("x-agent-safe-decision-id")
-        || Some(attestation.intent_hash.as_str()) != header("x-agent-safe-intent-hash")
-        || attestation.execution_payload_canonicalization_profile != JCS_PROFILE
-        || attestation.execution_payload_digest != digest
-        || attestation.exp.partial_cmp(&(now as f64)) != Some(std::cmp::Ordering::Greater)
-    {
+    if attestation.iss != options.authority_issuer {
         return None;
     }
     Some(attestation)
+}
+
+// Step 7: whether the attestation describes this request.
+fn described(attestation: &ClaimAttestation, request: &Request<'_>, now: u64) -> bool {
+    let Some(body) = request.body else {
+        return false;
+    };
+    let Ok(digest) = canonical_digest(body) else {
+        return false;
+    };
+    let header = |name: &str| request.headers.get(name).map(String::as_str);
+    Some(attestation.sub.as_str()) == header("x-agent-safe-grant-id")
+        && Some(attestation.decision_id.as_str()) == header("x-agent-safe-decision-id")
+        && Some(attestation.intent_hash.as_str()) == header("x-agent-safe-intent-hash")
+        && attestation.execution_payload_canonicalization_profile == JCS_PROFILE
+        && attestation.execution_payload_digest == digest
+        && attestation.exp.partial_cmp(&(now as f64)) == Some(std::cmp::Ordering::Greater)
 }
 
 #[cfg(test)]

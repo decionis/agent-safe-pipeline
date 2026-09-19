@@ -113,13 +113,17 @@ type Binding struct {
 }
 
 // Claims is the part of the attestation the provider reads; the authority's
-// schema has more.
+// schema has more. The dossier, the claim-token digest and the attestation's
+// own id are what a receipt (VP-3, receipt.go) is built from.
 type Claims struct {
-	Iss        string  `json:"iss"`
-	Sub        string  `json:"sub"`
-	DecisionID string  `json:"decision_id"`
-	Binding    Binding `json:"binding"`
-	Exp        float64 `json:"exp"`
+	Iss              string  `json:"iss"`
+	Sub              string  `json:"sub"`
+	DecisionID       string  `json:"decision_id"`
+	DossierID        string  `json:"dossier_id"`
+	Binding          Binding `json:"binding"`
+	ClaimTokenDigest string  `json:"claim_token_digest"`
+	JTI              string  `json:"jti"`
+	Exp              float64 `json:"exp"`
 }
 
 // Verdict is the outcome of the procedure for one request. Attestation is
@@ -146,12 +150,11 @@ func Verify(request Request, options Options) Verdict {
 	if !options.Effects {
 		return Verdict{Accepted: true}
 	}
-	raw, err := attestationOf(request.Headers["x-agent-safe-claim-attestation"], options)
+	claims, err := attestationOf(request.Headers["x-agent-safe-claim-attestation"], options)
 	if err != nil {
 		return refuse(AttestationInvalid)
 	}
-	claims, err := described(raw, request, nowSeconds)
-	if err != nil {
+	if err := described(claims, request, nowSeconds); err != nil {
 		return refuse(AttestationDoesNotDescribeThisRequest)
 	}
 	if !options.Replay.Record(claims.Sub, time.Unix(int64(claims.Exp), 0)) {
@@ -295,9 +298,9 @@ type protectedHeader struct {
 	Kid string `json:"kid"`
 }
 
-// Step 6: the attestation by form, key, signature and issuer; its claims as
-// raw JSON when it is the authority's.
-func attestationOf(compact string, options Options) (json.RawMessage, error) {
+// Step 6: the attestation by form, key, signature, issuer and the shape of
+// its claims; the claims when it is the authority's.
+func attestationOf(compact string, options Options) (*Claims, error) {
 	parts := strings.Split(compact, ".")
 	if len(parts) != 3 {
 		return nil, errors.New("form")
@@ -338,56 +341,59 @@ func attestationOf(compact string, options Options) (json.RawMessage, error) {
 	if err != nil {
 		return nil, err
 	}
-	var issued struct {
-		Iss *string `json:"iss"`
-	}
-	if err := json.Unmarshal(payload, &issued); err != nil {
-		return nil, err
-	}
-	if issued.Iss == nil || *issued.Iss != options.AuthorityIssuer {
-		return nil, errors.New("issuer")
-	}
-	return json.RawMessage(payload), nil
-}
-
-// Step 7: whether the attestation describes this request.
-func described(raw json.RawMessage, request Request, nowSeconds int64) (*Claims, error) {
+	// The claims a provider compares, and the ones a receipt is built from,
+	// must be there in the right type: an attestation without them is not one.
 	var shape struct {
 		Iss        *string `json:"iss"`
 		Sub        *string `json:"sub"`
 		DecisionID *string `json:"decision_id"`
+		DossierID  *string `json:"dossier_id"`
 		Binding    *struct {
 			IntentHash                              *string `json:"intent_hash"`
 			ExecutionPayloadDigest                  *string `json:"execution_payload_digest"`
 			ExecutionPayloadCanonicalizationProfile *string `json:"execution_payload_canonicalization_profile"`
 		} `json:"binding"`
-		Exp *float64 `json:"exp"`
+		ClaimTokenDigest *string  `json:"claim_token_digest"`
+		JTI              *string  `json:"jti"`
+		Exp              *float64 `json:"exp"`
 	}
-	if err := json.Unmarshal(raw, &shape); err != nil {
+	if err := json.Unmarshal(payload, &shape); err != nil {
 		return nil, err
 	}
-	if shape.Iss == nil || shape.Sub == nil || shape.DecisionID == nil || shape.Binding == nil ||
-		shape.Binding.IntentHash == nil || shape.Binding.ExecutionPayloadDigest == nil ||
-		shape.Binding.ExecutionPayloadCanonicalizationProfile == nil || shape.Exp == nil {
+	if shape.Iss == nil || shape.Sub == nil || shape.DecisionID == nil || shape.DossierID == nil ||
+		shape.Binding == nil || shape.Binding.IntentHash == nil ||
+		shape.Binding.ExecutionPayloadDigest == nil ||
+		shape.Binding.ExecutionPayloadCanonicalizationProfile == nil ||
+		shape.ClaimTokenDigest == nil || shape.JTI == nil || shape.Exp == nil {
 		return nil, errors.New("shape")
 	}
-	if request.Body == nil {
-		return nil, errors.New("no body")
+	if *shape.Iss != options.AuthorityIssuer {
+		return nil, errors.New("issuer")
 	}
-	digest, err := CanonicalDigest(request.Body)
-	if err != nil {
-		return nil, err
-	}
-	claims := &Claims{
+	return &Claims{
 		Iss:        *shape.Iss,
 		Sub:        *shape.Sub,
 		DecisionID: *shape.DecisionID,
+		DossierID:  *shape.DossierID,
 		Binding: Binding{
 			IntentHash:                              *shape.Binding.IntentHash,
 			ExecutionPayloadDigest:                  *shape.Binding.ExecutionPayloadDigest,
 			ExecutionPayloadCanonicalizationProfile: *shape.Binding.ExecutionPayloadCanonicalizationProfile,
 		},
-		Exp: *shape.Exp,
+		ClaimTokenDigest: *shape.ClaimTokenDigest,
+		JTI:              *shape.JTI,
+		Exp:              *shape.Exp,
+	}, nil
+}
+
+// Step 7: whether the attestation describes this request.
+func described(claims *Claims, request Request, nowSeconds int64) error {
+	if request.Body == nil {
+		return errors.New("no body")
+	}
+	digest, err := CanonicalDigest(request.Body)
+	if err != nil {
+		return err
 	}
 	if claims.Sub != request.Headers["x-agent-safe-grant-id"] ||
 		claims.DecisionID != request.Headers["x-agent-safe-decision-id"] ||
@@ -395,9 +401,9 @@ func described(raw json.RawMessage, request Request, nowSeconds int64) (*Claims,
 		claims.Binding.ExecutionPayloadCanonicalizationProfile != JCSProfile ||
 		claims.Binding.ExecutionPayloadDigest != digest ||
 		!(claims.Exp > float64(nowSeconds)) {
-		return nil, errors.New("describes another request")
+		return errors.New("describes another request")
 	}
-	return claims, nil
+	return nil
 }
 
 // CanonicalDigest is "sha256:" and the hex SHA-256 over the RFC 8785

@@ -1,7 +1,8 @@
 # Verifying Provider Profile
 
-`agent-safe.verifying-provider/1`, version 0.1, status **draft**. Section 7, the effect receipt, is
-**proposed**: reserved names, nothing that produces or consumes one yet.
+`agent-safe.verifying-provider/1`, version 0.2, status **draft**. Section 7, the effect receipt, is
+normative as of this version: the Decionis OpenAPI document carries it, the executor forwards it,
+and five implementations build one from the same vectors.
 
 A system of record is the only party that can _refuse_ an instruction rather than merely fail to
 receive it. [Bypass resistance](../bypass-resistance.md) ranks the three chokepoints an execution
@@ -26,7 +27,7 @@ The key words MUST, MUST NOT, SHOULD, MAY are to be read as in RFC 2119.
 
 | Tier              | Who runs the procedure                                                                                                                                | What it binds                           | What it covers                                                         |
 | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- | ---------------------------------------------------------------------- |
-| **Vendor-native** | the system of record's own transaction layer                                                                                                          | the bytes; with section 7, the effect   | every path into the system: its API, batch, console, people            |
+| **Vendor-native** | the system of record's own transaction layer                                                                                                          | the bytes; at VP-3, the effect          | every path into the system: its API, batch, console, people            |
 | **Owner-native**  | the last hop its owner controls in front of the system of record (an API layer, a gateway, a sidecar), holding the only credential the system accepts | the bytes; the effect by reconciliation | the paths routed through it                                            |
 | **Executor-only** | nobody downstream: the executor forwards on a bearer                                                                                                  | the bytes, at the executor              | agents that hold no other credential, for as long as containment holds |
 
@@ -73,8 +74,9 @@ vectors demonstrates the procedure; the tier's conditions are the operator's.
   describes (grant, decision, intent hash, canonical parameter digest, expiry), and refuses a
   second presentation of the grant within the lease. A provider at VP-2 refuses what the authority
   never claimed. **This is the level a system of record needs.**
-- **VP-3, effect receipt (proposed).** VP-2, and the provider signs what it effected, keyed by the
-  grant, so the effect plane becomes provider-attested rather than executor-reconciled. Section 7.
+- **VP-3, effect receipt.** VP-2, and the provider signs what it effected, or refused, keyed by the
+  grant and the claim, and returns it with its answer, so the effect plane becomes
+  provider-attested rather than executor-reconciled. Section 7.
 
 The invariant behind the levels, stated so that it cannot be misread: verification proves what the
 authority issued; the authority's claim is what consumes it; only the attestation of that claim,
@@ -164,8 +166,12 @@ base64url parts. Decode the first as a JSON object: `alg` MUST be `EdDSA`, `typ`
 `decionis-claim-attestation+jwt`, and `kid` MUST name a key in the authority's execution-grant JWKS
 (section 9 says how to hold that document). Verify the Ed25519 signature, the third part, over the
 ASCII bytes of the first part, a dot, and the second part, with that key. Decode the second part as
-a JSON object, the claims; `iss` MUST equal the issuer of the authority the provider trusts,
-`https://decionis.com` for Decionis. Any failure is `ATTESTATION_INVALID`.
+a JSON object, the claims. It MUST carry strings `iss`, `sub`, `decision_id`, `dossier_id`,
+`claim_token_digest` and `jti`, a number `exp`, and an object `binding` with strings
+`intent_hash`, `execution_payload_digest` and `execution_payload_canonicalization_profile`: the
+claims step 7 compares and the ones a receipt (section 7) is built from; an attestation without them
+is not one. `iss` MUST equal the issuer of the authority the provider trusts, `https://decionis.com`
+for Decionis. Any failure is `ATTESTATION_INVALID`.
 
 **Step 7, the attestation describes this request.** All of the following MUST hold, else the
 refusal is `ATTESTATION_DOES_NOT_DESCRIBE_THIS_REQUEST`:
@@ -196,7 +202,8 @@ the attestation was issued; the step guards the one thing an attestation cannot,
 presentation of that one consumption inside its lease, which is why the record needs no life beyond
 `exp`.
 
-**Accept.** Effect exactly once and answer `2xx`.
+**Accept.** Effect exactly once and answer `2xx`. A provider at VP-3 answers with its receipt
+(section 7), on a `2xx` and on a `4xx` of its own alike.
 
 **Refuse.** Effect nothing and answer `4xx`, `409` in the reference implementations, with the body
 `{"status":"REJECTED","reason_code":"<code>"}`. A refusal MUST NOT be a `5xx`: the executor reads
@@ -226,52 +233,90 @@ bypass-resistance table names.
 
 **What VP-2 does not give.** That the effect matched the parameters. The provider is trusted for
 that; the executor's effect plane ([BEAP conformance](../beap-conformance.md)) reconciles its
-observation afterwards. Section 7 has the provider say it under its own signature.
+observation afterwards.
 
-## 7. Effect receipt, proposed (VP-3)
+**VP-3.** The party that effected says what it effected, under its own signature, bound to the
+grant it effected it under and to the claim it answered, and the authority records that statement
+with the commit. A dossier at VP-3 carries the provider's signature over the effect, not only the
+executor's report of it, and when the grant named the effect it expected, a receipt whose digest
+agrees confirms the effect by the provider's key.
 
-Status: **proposed**. `@decionis/agentsafe` does not produce or forward one; the authority's
-`finalize-token` does not accept one. The names here are reserved so an early implementation and
-the eventual protocol do not collide. This section becomes normative when the Decionis OpenAPI
-document carries it; that document is the contract's source of truth, and this profile adapts to
-it.
+## 7. Effect receipt (VP-3)
 
-Today the exactly-once and the effect are the executor's word, checked by reconciliation. With a
-receipt, the party that effected says what it effected, bound to the grant it effected it under.
+The attestation lets the provider refuse what the authority never claimed. The receipt closes the
+other direction: after effecting, or refusing, a request it accepted at step 8, the provider signs
+what it did, bound to the grant it acted under and the claim it answered, and the authority
+records it with the commit. Until this existed, the exactly-once and the effect were the
+executor's word, checked by reconciliation; with it, the party that effected says so.
 
-A receipt is a compact JWS: `alg` `EdDSA`, `typ` `decionis-effect-receipt+jwt`, `kid` naming a
-key the provider registered with the authority for the organisation, and with the executor's
-registry. Its claims:
+The contract's source of truth is the Decionis OpenAPI document: the schema `EffectReceiptClaims`,
+the `effect_receipt` field of `ExecutionFinalizeRequest` and `ExecutionFinalizeResponse`, and the
+operations under `/v1/execution/provider-keys`. This section states what a provider does.
 
-| Claim                       | Meaning                                                                                                                                                 |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `iss`                       | the provider: an origin, or an identifier registered with the authority                                                                                 |
-| `aud`                       | the authority's issuer, `https://decionis.com` for Decionis                                                                                             |
-| `sub`                       | the grant id: the attestation's `sub`                                                                                                                   |
-| `decision_id`, `dossier_id` | copied from the attestation                                                                                                                             |
-| `attestation_jti`           | the attestation's `jti`: which claim this receipt answers                                                                                               |
-| `intent_hash`               | copied from the attestation                                                                                                                             |
-| `idempotency_key`           | the request's                                                                                                                                           |
-| `effect.status`             | `EFFECTED`, `REFUSED`, or `INDETERMINATE`                                                                                                               |
-| `effect.reference`          | the provider's own record: a ledger entry, a transaction id                                                                                             |
-| `effect.digest`             | `sha256:` over the RFC 8785 canonical form of the provider's effect record, in the shape the grant's `expected_effect_digest` names when it carries one |
-| `effect.effected_at`        | RFC 3339                                                                                                                                                |
-| `iat`, `jti`                | as in RFC 7519                                                                                                                                          |
+**Key.** The provider signs receipts with an Ed25519 key of its own. The organisation registers
+the public half with the authority (`POST /v1/execution/provider-keys`: `kid`, `issuer`,
+`algorithm` `EdDSA`, the OKP JWK), and the private half never leaves the provider. Revocation is a
+timestamp at the authority, never a deletion, so a receipt recorded under a retired key stays
+explicable. Rotation is a new `kid`.
 
-Transport: the response header `x-agent-safe-effect-receipt`, on every response to a request the
-provider accepted at step 8, including one whose effect was refused or is unknown.
+**Receipt.** A compact JWS whose protected header is exactly `alg` `EdDSA`, `kid` the registered
+key id, `typ` `decionis-effect-receipt+jwt`, and whose claims are:
 
-Consumption, as proposed: the executor forwards the receipt in `finalize-token` as
-`effect_receipt`. The authority verifies the provider's signature with the registered key, requires
-`sub`, `decision_id`, `dossier_id` and `attestation_jti` to be the claim it attested, compares
-`effect.digest` with `expected_effect_digest` when the grant carried one, and records the receipt
-in the Decision Dossier as a signed artifact. The executor's effect plane compares `effect.digest`
-with its own observation and reports `RECONCILIATION_BINDING_MISMATCH` on disagreement. A
-finalization with a verified `EFFECTED` receipt is provider-attested commit evidence; one without
-stays what it is today.
+| Claim                       | Meaning                                                                                                                                                       |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `iss`                       | the provider, exactly as registered with the key: a receipt under a key with another issuer does not verify                                                   |
+| `aud`                       | the authority's issuer, `https://decionis.com` for Decionis                                                                                                   |
+| `sub`                       | the grant id: the attestation's `sub`                                                                                                                         |
+| `decision_id`, `dossier_id` | copied from the attestation                                                                                                                                   |
+| `claim_token_digest`        | copied from the attestation: which claim of the grant this receipt answers, which the authority ties to the claim token being finalized                       |
+| `attestation_jti`           | the attestation's `jti`                                                                                                                                       |
+| `intent_hash`               | the attestation's `binding.intent_hash`                                                                                                                       |
+| `idempotency_key`           | the request's, when the provider records it; MAY be omitted                                                                                                   |
+| `effect.status`             | `EFFECTED`, `REFUSED`, or `INDETERMINATE`                                                                                                                     |
+| `effect.reference`          | the provider's own record: a ledger entry, a transaction id; MAY be omitted                                                                                   |
+| `effect.digest`             | `sha256:` over the effect in the terms the grant's `expected_effect_digest` names, when the grant carries one and the provider can compute it; MAY be omitted |
+| `effect.effected_at`        | RFC 3339                                                                                                                                                      |
+| `iat`, `jti`                | as in RFC 7519; `jti` unique per receipt                                                                                                                      |
 
-A receipt authorises nothing. A receipt for a grant the authority never claimed is refused at the
-authority like any other unattested claim.
+The claims the receipt binds are the attestation's, which is the point: the provider copies
+`sub`, `decision_id`, `dossier_id`, `claim_token_digest` and `jti` from the attestation it
+verified at step 6 and cannot have obtained them any other way, since the claim token itself never
+reaches it. `claim_token_digest` is what the authority compares with the claim token the executor
+finalizes with, so a receipt answers one claim of one grant and no other.
+
+**Canonical form.** The header and the claims MUST be serialised in RFC 8785 canonical form before
+base64url encoding, so that every implementation signs the same bytes for the same receipt and the
+vectors can hold them to it. The signature is Ed25519 over the ASCII bytes of the first part, a
+dot, and the second part.
+
+**Transport.** The response header `x-agent-safe-effect-receipt`, on every response to a request
+the provider accepted at step 8: the `2xx` of an effect and the `4xx` of the provider's own refusal
+alike. A signed refusal is evidence too. A response to a request refused at steps 0 to 8 carries no
+receipt: nothing was claimed of the provider.
+
+**What the executor does.** `@decionis/agentsafe` reads nothing in the receipt. It forwards the
+header's value verbatim as `effect_receipt` in `finalize-token`, whatever the attempt's outcome,
+when the value has the shape of a compact JWS and is at most 20000 characters; otherwise it drops
+it, since the authority refuses a malformed body and the commit outcome would be lost with it.
+
+**What the authority does.** It verifies the signature under the key the organisation registered
+for `kid`, requires `iss` to be the issuer registered with that key and `aud` to be itself, and
+checks that the receipt describes the finalization in hand: `sub` is the grant's `jti`,
+`decision_id` and `dossier_id` are the grant's, `claim_token_digest` is the digest of the claim
+token being finalized, and `intent_hash`, when present, is the one the grant bound. It records the
+receipt in the commit evidence as presented, verified or not, with one of six verification codes
+(`EFFECT_RECEIPT_VERIFIED`, `_MALFORMED`, `_KEY_UNKNOWN`, `_SIGNATURE_INVALID`,
+`_BINDING_MISMATCH`, `_KEYS_UNAVAILABLE`), and reports the verdict in the finalize response. When
+the grant carried `expected_effect_digest` and the verified receipt carries `effect.digest`, the
+receipt is read as Protocol 1.1 `SIGNED_RECEIPT` effect evidence with the provider key as
+observer, `CONFIRMED` only when the digests agree, the status is `EFFECTED` and the outcome is
+`COMMITTED`. **A receipt is never a reason to refuse a finalization**: what it changes is the
+evidence, not the commit.
+
+**What a receipt is not.** A receipt authorises nothing and consumes nothing. A receipt for a grant
+the authority never claimed is recorded as a binding mismatch, and a receipt cannot be presented in
+place of an attestation. The executor's effect plane keeps reconciling its own observation; the
+receipt is the provider's statement beside it, not a replacement for it.
 
 ## 8. Test vectors and claiming conformance
 
@@ -283,7 +328,12 @@ executor's own signer and an independent signer for the attestation, and is run,
 repository, by the reference verifier in `@decionis/agentsafe` (`verifyProviderRequest`), by the
 Go implementation in `verifiers/envoy`, by the Java implementation in `verifiers/spring`, by the
 Rust implementation in `verifiers/rust`, and by the .NET implementation in `verifiers/dotnet`,
-five implementations that must agree.
+five implementations that must agree. The receipt vectors in
+[`conformance/provider/receipts`](../../conformance/provider/README.md) pin the other half: for
+each, the claims, the canonical `header.payload` every implementation MUST produce before signing,
+and a token signed by a key made for that generation whose public half the vector carries. An
+implementation of VP-3 passes them by producing that exact signing input and a signature its own
+key verifies; each of the five does.
 
 To claim conformance, an implementation states the profile identifier and version, the level, and
 that every vector at that level passes with the outcomes the vectors name. It SHOULD state the
@@ -309,6 +359,13 @@ tier (section 1) at which it is deployed, since the vectors cannot.
   answers the check with the refusal status and body above, which Envoy returns to the executor.
   In Kong, the plugin in `verifiers/kong` reads the body itself and runs the same Go verifier.
 - **Paths.** Verify with the path as received, before any rewrite the hop applies.
+- **Receipt keys.** Keep the receipt key with the same care as the credential the system of record
+  accepts: a receipt is the provider's signature. Register the public half with the authority
+  before the first receipt is signed, since a receipt under an unregistered `kid` is recorded as
+  `EFFECT_RECEIPT_KEY_UNKNOWN` and confirms nothing. An authorization hop that runs the procedure
+  in front of the system of record (Envoy, Kong) cannot sign a receipt: it answers before the
+  effect; the receipt is the effecting layer's, or the hop's own response phase when the system of
+  record reports the effect to it.
 
 ## 10. Security considerations
 
@@ -328,6 +385,9 @@ tier (section 1) at which it is deployed, since the vectors cannot.
   is the intended division: the executor vouches for the bytes, the authority for the parameters.
 - **Refusals are informative.** The reason code is for the executor's record; the response carries
   nothing else from the request.
+- **A receipt is public too.** It is verifiable by anyone who holds the registered public key and a
+  bearer for nothing: it names identifiers and digests, never parameters or the claim token. What
+  it commits the provider to is what it says it did.
 
 ## 11. Status, versioning and citation
 

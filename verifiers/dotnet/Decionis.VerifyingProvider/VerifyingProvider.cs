@@ -58,28 +58,26 @@ public sealed class VerifyingProvider
         {
             return new Verdict(true, null, null);
         }
-        JsonDocument claims;
+        ClaimAttestation attestation;
         try
         {
-            claims = AttestationOf(request.Headers.TryGetValue("x-agent-safe-claim-attestation", out var compact) ? compact : null);
+            attestation = AttestationOf(request.Headers.TryGetValue("x-agent-safe-claim-attestation", out var compact) ? compact : null);
         }
         catch (Exception e) when (e is FormatException or JsonException or ArgumentException or InvalidOperationException)
         {
             return Verdict.Refuse(Verdict.AttestationInvalid);
         }
-        ClaimAttestation attestation;
-        using (claims)
+        try
         {
-            try
-            {
-                attestation = Described(claims.RootElement, request, nowSeconds);
-            }
-            catch (Exception e) when (e is ArgumentException or CanonicalDigest.NotIJsonException or InvalidOperationException or FormatException)
-            {
-                return Verdict.Refuse(Verdict.AttestationDoesNotDescribeThisRequest);
-            }
+            Described(attestation, request, nowSeconds);
         }
-        if (!options.Replay.Record(attestation.Sub, DateTimeOffset.FromUnixTimeSeconds(attestation.Exp)))
+        catch (Exception e) when (e is ArgumentException or CanonicalDigest.NotIJsonException or InvalidOperationException or FormatException)
+        {
+            return Verdict.Refuse(Verdict.AttestationDoesNotDescribeThisRequest);
+        }
+        // The record is kept to the end of the second `exp` falls in, never shorter than `exp`.
+        var expiresAt = DateTimeOffset.FromUnixTimeSeconds((long)Math.Ceiling(attestation.Exp));
+        if (!options.Replay.Record(attestation.Sub, expiresAt))
         {
             return Verdict.Refuse(Verdict.GrantReplayed);
         }
@@ -262,8 +260,9 @@ public sealed class VerifyingProvider
         return end < 0 ? null : rest[..end];
     }
 
-    // Step 6: the attestation by form, key, signature and issuer; its claims.
-    private JsonDocument AttestationOf(string? compact)
+    // Step 6: the attestation by form, key, signature, issuer and the shape of
+    // its claims; the claims when it is the authority's.
+    private ClaimAttestation AttestationOf(string? compact)
     {
         var parts = (compact ?? "").Split('.');
         if (parts.Length != 3)
@@ -285,47 +284,58 @@ public sealed class VerifyingProvider
         {
             throw new ArgumentException("signature");
         }
-        var claims = JsonDocument.Parse(Base64Url.Decode(parts[1]));
-        if (claims.RootElement.ValueKind != JsonValueKind.Object || Text(claims.RootElement, "iss") != options.AuthorityIssuer)
+        using var document = JsonDocument.Parse(Base64Url.Decode(parts[1]));
+        var claims = document.RootElement;
+        if (claims.ValueKind != JsonValueKind.Object)
         {
-            claims.Dispose();
-            throw new ArgumentException("issuer");
+            throw new ArgumentException("claims");
         }
-        return claims;
-    }
-
-    // Step 7: whether the attestation describes this request.
-    private static ClaimAttestation Described(JsonElement claims, ProviderRequest request, long nowSeconds)
-    {
+        // The claims a provider compares, and the ones a receipt is built from,
+        // must be there in the right type: an attestation without them is not one.
         if (!claims.TryGetProperty("binding", out var binding) || binding.ValueKind != JsonValueKind.Object)
         {
             throw new ArgumentException("binding");
         }
-        var sub = Required(claims, "sub");
-        var decisionId = Required(claims, "decision_id");
-        var intentHash = Required(binding, "intent_hash");
-        var payloadDigest = Required(binding, "execution_payload_digest");
-        var profile = Required(binding, "execution_payload_canonicalization_profile");
         if (!claims.TryGetProperty("exp", out var exp) || exp.ValueKind != JsonValueKind.Number)
         {
             throw new ArgumentException("exp");
         }
+        var attestation = new ClaimAttestation(
+            Required(claims, "iss"),
+            Required(claims, "sub"),
+            Required(claims, "decision_id"),
+            Required(claims, "dossier_id"),
+            Required(binding, "intent_hash"),
+            Required(binding, "execution_payload_digest"),
+            Required(binding, "execution_payload_canonicalization_profile"),
+            Required(claims, "claim_token_digest"),
+            Required(claims, "jti"),
+            exp.GetDouble());
+        if (attestation.Iss != options.AuthorityIssuer)
+        {
+            throw new ArgumentException("issuer");
+        }
+        return attestation;
+    }
+
+    // Step 7: whether the attestation describes this request.
+    private static void Described(ClaimAttestation attestation, ProviderRequest request, long nowSeconds)
+    {
         if (request.Body is null)
         {
             throw new ArgumentException("no body");
         }
         var digest = CanonicalDigest.Of(request.Body);
         var headers = request.Headers;
-        if (!(headers.TryGetValue("x-agent-safe-grant-id", out var grant) && grant == sub)
-            || !(headers.TryGetValue("x-agent-safe-decision-id", out var decision) && decision == decisionId)
-            || !(headers.TryGetValue("x-agent-safe-intent-hash", out var intent) && intent == intentHash)
-            || profile != JcsProfile
-            || payloadDigest != digest
-            || !(exp.GetDouble() > nowSeconds))
+        if (!(headers.TryGetValue("x-agent-safe-grant-id", out var grant) && grant == attestation.Sub)
+            || !(headers.TryGetValue("x-agent-safe-decision-id", out var decision) && decision == attestation.DecisionId)
+            || !(headers.TryGetValue("x-agent-safe-intent-hash", out var intent) && intent == attestation.IntentHash)
+            || attestation.ExecutionPayloadCanonicalizationProfile != JcsProfile
+            || attestation.ExecutionPayloadDigest != digest
+            || !(attestation.Exp > nowSeconds))
         {
             throw new ArgumentException("describes another request");
         }
-        return new ClaimAttestation(Required(claims, "iss"), sub, decisionId, intentHash, payloadDigest, profile, (long)exp.GetDouble());
     }
 
     private static string Required(JsonElement element, string name)

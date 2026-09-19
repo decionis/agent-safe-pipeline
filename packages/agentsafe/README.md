@@ -558,6 +558,20 @@ written against nothing but the authority's public keys. The normative statement
 procedure, with the vectors an implementation in any language passes to claim it, is the
 [Verifying Provider Profile](../../docs/authority/verifying-provider.md).
 
+A provider that verified the claim can answer with its own signed receipt of the effect, the
+profile's VP-3: a compact EdDSA JWS under the provider's key, returned in
+`x-agent-safe-effect-receipt`, naming the grant it acted under, the claim it answered (the
+attestation's `claim_token_digest`) and what it did. `signEffectReceipt` in this package builds
+one from the attestation `verifyProviderRequest` returned. The executor reads nothing in it: the
+handler hands the header's value to `dispatch.receipt`, the attempt carries it, and the verifier
+forwards it verbatim as `effect_receipt` in `finalize-token`, whatever the outcome, when it has the
+shape of a compact JWS within the contract's bound. The authority verifies it against the public
+key the organisation registered for the provider (`POST /v1/execution/provider-keys`), records it
+with the commit evidence whether or not it verified, and reads a verified receipt with an effect
+digest as `SIGNED_RECEIPT` effect evidence when the grant named the effect it expected. A receipt
+is never a reason for the authority to refuse a finalization; `effectReport` says what the
+authority made of it.
+
 ## The attempt journal
 
 An execution nobody could reconcile afterwards is worse than a refusal. So

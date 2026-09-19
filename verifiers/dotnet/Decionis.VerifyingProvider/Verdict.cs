@@ -1,14 +1,21 @@
 namespace Decionis.VerifyingProvider;
 
-/// <summary>The part of the attestation the provider reads; the authority's schema has more.</summary>
+/// <summary>
+/// The part of the attestation the provider reads; the authority's schema has
+/// more. The dossier, the claim-token digest and the attestation's own id are
+/// what a receipt (<see cref="EffectReceipt"/>, VP-3) is built from.
+/// </summary>
 public sealed record ClaimAttestation(
     string Iss,
     string Sub,
     string DecisionId,
+    string DossierId,
     string IntentHash,
     string ExecutionPayloadDigest,
     string ExecutionPayloadCanonicalizationProfile,
-    long Exp);
+    string ClaimTokenDigest,
+    string Jti,
+    double Exp);
 
 /// <summary>
 /// The outcome of the procedure for one request. <see cref="Attestation"/> is

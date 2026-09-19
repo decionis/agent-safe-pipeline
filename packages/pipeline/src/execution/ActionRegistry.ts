@@ -17,6 +17,14 @@ export interface ActionExecutionContext<TParameters> {
 export interface ProviderDispatch {
   readonly idempotencyKey: string;
   run<TResult>(operation: (idempotencyKey: string) => Promise<TResult> | TResult): Promise<TResult>;
+  /**
+   * The provider's signed effect receipt, when it returned one with its
+   * answer, verbatim. It is carried on the attempt to the finalization, where
+   * the verifier forwards it to the authority to verify and record; this
+   * package never reads it. Only meaningful inside `run`: a receipt before
+   * the dispatch describes nothing.
+   */
+  receipt(token: string): void;
 }
 
 export interface ActionReconciliationContext<TParameters> {
@@ -48,10 +56,14 @@ interface RegisteredAction {
 }
 
 export type ActionExecutionAttempt =
-  | { readonly status: "COMPLETED"; readonly result: unknown }
+  | { readonly status: "COMPLETED"; readonly result: unknown; readonly receipt: string | null }
   | { readonly status: "FAILED_BEFORE_DISPATCH" }
-  | { readonly status: "REFUSED_AFTER_DISPATCH"; readonly reason: string }
-  | { readonly status: "UNKNOWN_AFTER_DISPATCH" };
+  | {
+      readonly status: "REFUSED_AFTER_DISPATCH";
+      readonly reason: string;
+      readonly receipt: string | null;
+    }
+  | { readonly status: "UNKNOWN_AFTER_DISPATCH"; readonly receipt: string | null };
 
 /**
  * What a handler throws when the provider refused, definitively, after the
@@ -137,6 +149,7 @@ export class ActionRegistry {
     const result = handler.parametersSchema.safeParse(captured.intent.parameters);
     if (!result.success) throw new Error("ACTION_PARAMETERS_INVALID");
     let dispatched = false;
+    let receipt: string | null = null;
     const dispatch: ProviderDispatch = Object.freeze({
       idempotencyKey: captured.intent.idempotencyKey,
       run: async <TResult>(
@@ -145,6 +158,10 @@ export class ActionRegistry {
         if (dispatched) throw new Error("PROVIDER_DISPATCH_ALREADY_STARTED");
         dispatched = true;
         return await operation(captured.intent.idempotencyKey);
+      },
+      receipt: (token: string): void => {
+        if (!dispatched) throw new Error("PROVIDER_RECEIPT_BEFORE_DISPATCH");
+        receipt = token;
       },
     });
 
@@ -157,15 +174,19 @@ export class ActionRegistry {
           authorization,
           dispatch,
         }),
+        receipt,
       };
     } catch (error) {
       // A refusal the provider made is only a refusal if the request reached
       // it. Before the dispatch it is a handler failure, because nothing was
-      // sent for anyone to refuse.
+      // sent for anyone to refuse. A receipt can accompany either answer
+      // after the dispatch: a provider's signed refusal is evidence too.
       if (dispatched && error instanceof ProviderRefusal) {
-        return { status: "REFUSED_AFTER_DISPATCH", reason: error.reason };
+        return { status: "REFUSED_AFTER_DISPATCH", reason: error.reason, receipt };
       }
-      return { status: dispatched ? "UNKNOWN_AFTER_DISPATCH" : "FAILED_BEFORE_DISPATCH" };
+      return dispatched
+        ? { status: "UNKNOWN_AFTER_DISPATCH", receipt }
+        : { status: "FAILED_BEFORE_DISPATCH" };
     }
   }
 

@@ -52,14 +52,33 @@ shared secret for `hmac-sha256`. `Jwks.Parse` reads the authority's execution-gr
 its well-known path serves it; fetch it from the authority's API origin, cache it, and refresh on
 an unknown `kid` at most once per bounded interval, as the profile's section 9 says.
 
+## The receipt (VP-3)
+
+After effecting, a service at VP-3 answers with its receipt, built from the attestation the
+verifier returned and signed with the service's own Ed25519 key, the public half of which the
+organisation registered at `POST /v1/execution/provider-keys`:
+
+```csharp
+var token = new EffectReceipt(
+    "core-receipts-1", "https://core.example", "https://decionis.com",
+    verdict.Attestation!, idempotencyKey,
+    new Effect(EffectStatus.Effected, "ledger:9081", effectDigest, DateTimeOffset.UtcNow.ToString("O")),
+    DateTimeOffset.UtcNow.ToUnixTimeSeconds(), Guid.NewGuid().ToString())
+    .Sign(privateKey);
+context.Response.Headers[EffectReceipt.Header] = token;
+```
+
+The header and the claims are RFC 8785 canonical before signing, so the receipt vectors hold every
+implementation to the same bytes.
+
 ## The vectors
 
 ```bash
 dotnet test
 ```
 
-runs every vector in [`conformance/provider`](../../conformance/provider/README.md) through the
-library and, for a sample, through the middleware, and the library's own cases for what the
+runs every vector in [`conformance/provider`](../../conformance/provider/README.md), request and
+receipt, through the library and, for a sample, through the middleware, and the library's own cases for what the
 vectors cannot express: the RFC 8785 examples, ECMAScript's number forms, and the bodies another
 parser would read differently. The test dependencies are xunit (Apache-2.0) and the test SDK
 (MIT).

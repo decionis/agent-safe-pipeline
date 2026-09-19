@@ -83,11 +83,34 @@ verifier refuses, it never waves through. Verify with the path as Envoy received
 rewrite: put this filter ahead of rewrites in the chain, or hand it the same `path_prefix` you
 set here.
 
+## The receipt (VP-3)
+
+`ext_authz` answers before the upstream effects anything, so the check itself cannot sign a
+receipt. The package carries the builder for the layer that can, the upstream service or a
+response-phase filter it reports its effect to:
+
+```go
+token, err := verifier.Receipt{
+    KeyID:       "core-receipts-1",              // registered at POST /v1/execution/provider-keys
+    Issuer:      "https://core.example",
+    Audience:    "https://decionis.com",
+    Attestation: verdict.Attestation,            // what Verify returned
+    Effect:      verifier.Effect{Status: verifier.Effected, Reference: "ledger:9081", Digest: effectDigest, EffectedAt: time.Now()},
+    IssuedAt:    time.Now().Unix(),
+    JTI:         uuid.NewString(),
+}.Sign(privateKey)
+w.Header().Set(verifier.ReceiptHeader, token)
+```
+
+The header and the claims are RFC 8785 canonical before signing, so the receipt vectors hold every
+implementation to the same bytes.
+
 ## The vectors
 
 ```bash
 go test ./...
 ```
 
-runs every vector in [`conformance/provider`](../../conformance/provider/README.md) through the
-package and the handler, and the package's own cases for what the vectors cannot express.
+runs every vector in [`conformance/provider`](../../conformance/provider/README.md), request and
+receipt, through the package and the handler, and the package's own cases for what the vectors
+cannot express.
