@@ -54,7 +54,7 @@ agentsafe proxy --upstream http://localhost:3000 --port 8080
 ```
 
 ```text
-AgentSafe 0.1.0
+AgentSafe 0.2.0
 
 Gateway      http://127.0.0.1:8080
 Upstream     http://localhost:3000

@@ -51,6 +51,7 @@ import { RequestContext } from "../http/RequestContext.js";
 import type { PostureReport, PostureState } from "../posture/HostPosture.js";
 import type { ReloadReport, SecretName, SecretStore } from "../secrets/SecretStore.js";
 import { AuthorityClients } from "./AuthorityClients.js";
+import { packageVersion } from "../Version.js";
 import {
   EscalationHandoffSchema,
   type EscalationDependencies,
@@ -128,8 +129,8 @@ export interface Readiness {
  * token, the API keys, the caller token and the downstream credential never
  * appear in a response or an audit line.
  */
-/** This package's own version, for a bundle to name what produced it. */
-const PACKAGE_VERSION = "0.1.0";
+/** This package's own version, for a bundle to name what produced it: the manifest's, never a copy of it. */
+const PACKAGE_VERSION = packageVersion();
 
 /** The posture as reported, or an empty report when a test injected only a state. */
 function reportOf(posture: PostureState | undefined): PostureReport {
