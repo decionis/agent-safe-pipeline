@@ -49,12 +49,12 @@ not imply a release date.
   [Verifying Provider Profile](./docs/authority/verifying-provider.md) states the provider's half
   of the boundary normatively, with [vectors](./conformance/provider/README.md) any implementation
   runs and independent verifiers that run them, for [Envoy `ext_authz`](./verifiers/envoy/README.md)
-  in Go, for [Spring and an Apigee callout](./verifiers/spring/README.md) in Java, for
+  and [Kong](./verifiers/kong/README.md) in Go, for
+  [Spring and an Apigee callout](./verifiers/spring/README.md) in Java, for
   [Rust services](./verifiers/rust/README.md) with a tower layer, and for
-  [ASP.NET Core](./verifiers/dotnet/README.md). Still to come, in their own pull requests: a Kong
-  plugin held to the same vectors; and the effect receipt the profile reserves as VP-3, once the
-  Decionis OpenAPI carries it, so the effect plane becomes provider-attested rather than
-  executor-reconciled.
+  [ASP.NET Core](./verifiers/dotnet/README.md). Still to come, in its own pull request: the
+  effect receipt the profile reserves as VP-3, once the Decionis OpenAPI carries it, so the
+  effect plane becomes provider-attested rather than executor-reconciled.
 
 The open issue tracker is the source of truth for scope, acceptance criteria, and progress. An item
 leaves this section when it is released, rejected with rationale, or explicitly moved back to

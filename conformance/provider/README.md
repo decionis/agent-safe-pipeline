@@ -58,7 +58,8 @@ Five implementations in this repository run every vector, and must agree:
 - the reference in `@decionis/agentsafe`, `verifyProviderRequest`, through
   `packages/agentsafe/test/verify/VerifyingProvider.test.ts`, which discovers every file here;
 - the independent Go implementation in [`verifiers/envoy`](../../verifiers/envoy/README.md),
-  through `go test ./...` in that module;
+  through `go test ./...` in that module, which the [Kong plugin](../../verifiers/kong/README.md)
+  imports unchanged;
 - the independent Java implementation in [`verifiers/spring`](../../verifiers/spring/README.md),
   through `mvn -B test` in that module;
 - the independent Rust implementation in [`verifiers/rust`](../../verifiers/rust/README.md),

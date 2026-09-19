@@ -104,11 +104,20 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: verifiers/envoy/go.mod
-          cache-dependency-path: verifiers/envoy/go.sum
+          cache-dependency-path: |
+            verifiers/envoy/go.sum
+            verifiers/kong/go.sum
       # The independent implementation of the Verifying Provider Profile must
-      # pass the same vectors the reference in @decionis/agentsafe passes.
+      # pass the same vectors the reference in @decionis/agentsafe passes, and
+      # the Kong plugin that imports it must map Kong's request onto it.
       - name: Format, vet and test the verifier against the profile's vectors
         working-directory: verifiers/envoy
+        run: |
+          test -z "$(gofmt -l .)"
+          go vet ./...
+          go test ./...
+      - name: Format, vet and test the Kong plugin
+        working-directory: verifiers/kong
         run: |
           test -z "$(gofmt -l .)"
           go vet ./...
