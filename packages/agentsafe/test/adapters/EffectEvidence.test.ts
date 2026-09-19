@@ -47,6 +47,12 @@ const record = (result: ProviderResult | null, indeterminate?: { reason: string 
     observedAt: "2026-03-02T10:00:00.000Z",
   });
 
+/** A receipt's shape, unsigned, saying what the payload says. */
+const receiptSaying = (effect: Record<string, unknown>): string =>
+  `${Buffer.from('{"alg":"EdDSA"}').toString("base64url")}.${Buffer.from(
+    JSON.stringify({ sub: "fixture_grant_1", effect }),
+  ).toString("base64url")}.c2ln`;
+
 describe("confirmationFor", () => {
   it("never turns an acknowledgement into a confirmation", () => {
     expect(confirmationFor("COMMITTED", "MATCH", "DOWNSTREAM_ACK")).toBe("PENDING");
@@ -55,6 +61,21 @@ describe("confirmationFor", () => {
     expect(confirmationFor("COMMITTED", "MISMATCH", "READ_AFTER_WRITE")).toBe("UNKNOWN");
     expect(confirmationFor("FAILED", "PENDING", "DOWNSTREAM_ACK")).toBe("NOT_EFFECTED");
     expect(confirmationFor("INDETERMINATE", "PENDING", "DOWNSTREAM_ACK")).toBe("UNKNOWN");
+  });
+
+  it("lets a receipt that agrees, or says nothing, leave the confirmation as the observation had it", () => {
+    expect(confirmationFor("COMMITTED", "MATCH", "READ_AFTER_WRITE", "MATCH")).toBe("CONFIRMED");
+    expect(confirmationFor("COMMITTED", "MATCH", "READ_AFTER_WRITE", "SILENT")).toBe("CONFIRMED");
+    expect(confirmationFor("COMMITTED", "MATCH", "DOWNSTREAM_ACK", "MATCH")).toBe("PENDING");
+    expect(confirmationFor("FAILED", "PENDING", "DOWNSTREAM_ACK", "MATCH")).toBe("NOT_EFFECTED");
+  });
+
+  it("makes a receipt that contradicts the account unknown, whatever the observation said", () => {
+    expect(confirmationFor("COMMITTED", "MATCH", "READ_AFTER_WRITE", "MISMATCH")).toBe("UNKNOWN");
+    expect(confirmationFor("FAILED", "PENDING", "DOWNSTREAM_ACK", "MISMATCH")).toBe("UNKNOWN");
+    expect(confirmationFor("INDETERMINATE", "PENDING", "DOWNSTREAM_ACK", "MISMATCH")).toBe(
+      "UNKNOWN",
+    );
   });
 });
 
@@ -119,6 +140,70 @@ describe("buildEffectRecord", () => {
     expect(text).not.toContain("Bearer");
     expect(text).not.toContain("fixture_account");
     expect(text).toContain("sha256:");
+  });
+
+  it("records what the provider's receipt states beside the observation, and agreement between them", () => {
+    const without = record(committed());
+    expect(without.receipt).toEqual({ comparison: "ABSENT", status: null, digest: null });
+    expect(without.evidence["effect"]).not.toHaveProperty("receipt");
+    const agreeing = record(
+      committed({
+        receipt: receiptSaying({
+          status: "EFFECTED",
+          digest: prepared.expectedEffectDigest,
+          effected_at: "2026-03-02T10:00:01Z",
+        }),
+      }),
+    );
+    expect(agreeing.receipt).toEqual({
+      comparison: "MATCH",
+      status: "EFFECTED",
+      digest: prepared.expectedEffectDigest,
+    });
+    expect(agreeing.confirmation).toBe("CONFIRMED");
+    expect(agreeing.reasonCodes).toEqual([]);
+    expect((agreeing.evidence["effect"] as Record<string, unknown>)["receipt"]).toEqual({
+      comparison: "MATCH",
+      status: "EFFECTED",
+      digest: prepared.expectedEffectDigest,
+    });
+    // A record without a receipt is byte for byte what it was before receipts existed.
+    expect(agreeing.evidenceDigest).not.toBe(without.evidenceDigest);
+    const silent = record(committed({ receipt: receiptSaying({ status: "EFFECTED" }) }));
+    expect(silent.receipt).toEqual({ comparison: "SILENT", status: "EFFECTED", digest: null });
+    expect(silent.confirmation).toBe("CONFIRMED");
+  });
+
+  it("names a receipt that contradicts the account as a mismatch nobody can confirm", () => {
+    const contradicted = record(
+      committed({
+        receipt: receiptSaying({ status: "EFFECTED", digest: `sha256:${"9".repeat(64)}` }),
+      }),
+    );
+    expect(contradicted.comparison).toBe("MATCH");
+    expect(contradicted.receipt.comparison).toBe("MISMATCH");
+    expect(contradicted.confirmation).toBe("UNKNOWN");
+    expect(contradicted.reasonCodes).toEqual(["EFFECT_MISMATCH"]);
+    // The provider refused in its answer and says it effected in its receipt.
+    const refusedYetEffected = record(
+      committed({
+        status: "FAILED",
+        observed: null,
+        failureReason: "POLICY_STATE_CHANGED",
+        receipt: receiptSaying({ status: "EFFECTED" }),
+      }),
+    );
+    expect(refusedYetEffected.receipt.comparison).toBe("MISMATCH");
+    expect(refusedYetEffected.confirmation).toBe("UNKNOWN");
+    expect(refusedYetEffected.reasonCodes).toEqual(["EFFECT_MISMATCH", "POLICY_STATE_CHANGED"]);
+    // An observation that mismatched and a receipt that mismatched name the code once.
+    const both = record(
+      committed({
+        observed: { ...expectedEffect, amount: "1.00" },
+        receipt: receiptSaying({ status: "REFUSED" }),
+      }),
+    );
+    expect(both.reasonCodes).toEqual(["EFFECT_MISMATCH"]);
   });
 });
 

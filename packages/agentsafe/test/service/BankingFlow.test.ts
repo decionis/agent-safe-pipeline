@@ -1,4 +1,6 @@
-import { LocalAuthority } from "@decionis/agent-safe-pipeline/testing";
+import { generateKeyPairSync } from "node:crypto";
+import type { IncomingMessage } from "node:http";
+import { LOCAL_AUTHORITY_ISSUER, LocalAuthority } from "@decionis/agent-safe-pipeline/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { bankingHandlers } from "../../src/adapters/banking/BankingHandlers.js";
 import { BankingAdapter } from "../../src/adapters/banking/BankingAdapter.js";
@@ -10,6 +12,7 @@ import { InMemoryExecutionJournal } from "../../src/journal/InMemoryExecutionJou
 import type { ActionResponse } from "../../src/service/Requests.js";
 import { ServiceError } from "../../src/service/ServiceError.js";
 import { TrustedExecutorService } from "../../src/service/TrustedExecutorService.js";
+import { signEffectReceipt } from "../../src/verify/EffectReceipt.js";
 import { collectedEvents, loopbackEnvironment, openSecrets } from "../support/Environment.js";
 import { BankingDouble } from "../support/BankingDouble.js";
 import { bankingAction } from "../support/BankingFixtures.js";
@@ -226,6 +229,104 @@ describe("a BEAP action through the whole boundary", () => {
     const refused = await refusal(service.propose(beapProposal().body));
     expect([refused.status, refused.code]).toEqual([503, "EXECUTOR_HALTED"]);
     expect(authority.requests.length).toBe(requests);
+    service.close();
+  });
+
+  it("forwards a verifying provider's receipt to the authority and records its agreement with the observation", async () => {
+    // The provider signs receipts with a key the organisation registered with
+    // the authority; the executor forwards them unread and compares only what
+    // they state with what it observed.
+    const keys = generateKeyPairSync("ed25519");
+    authority.registerProviderKey({
+      kid: "core-receipts-1",
+      issuer: "https://core.example",
+      publicJwk: keys.publicKey.export({ format: "jwk" }),
+    });
+    const receiptFor =
+      (effect: (expected: string) => Record<string, unknown>) =>
+      (headers: IncomingMessage["headers"]): string => {
+        const attestation = String(headers["x-agent-safe-claim-attestation"] ?? "");
+        const claims = JSON.parse(
+          Buffer.from(attestation.split(".")[1] ?? "", "base64url").toString("utf8"),
+        ) as {
+          sub: string;
+          decision_id: string;
+          dossier_id: string;
+          claim_token_digest: string;
+          jti: string;
+          binding: { intent_hash: string; expected_effect_digest?: string };
+        };
+        return signEffectReceipt({
+          key: keys.privateKey,
+          kid: "core-receipts-1",
+          issuer: "https://core.example",
+          audience: LOCAL_AUTHORITY_ISSUER,
+          attestation: claims,
+          effect: {
+            ...effect(claims.binding.expected_effect_digest ?? ""),
+            effected_at: new Date().toISOString(),
+          } as never,
+          issuedAt: Math.floor(Date.now() / 1_000),
+          jti: `receipt-${Date.now()}`,
+        });
+      };
+    const { service, halt, securityLines } = build();
+    const proposal = beapProposal();
+    const prepared = prepareOnly.prepare(proposal.action);
+    provider.answer({
+      status: 200,
+      body: { status: "POSTED", reference: "fixture_ref_12" },
+      receipt: receiptFor((expected) => ({
+        status: "EFFECTED",
+        reference: "fixture_ref_12",
+        digest: expected,
+      })),
+    });
+    provider.readBack = {
+      status: 200,
+      body: { status: "POSTED", effect: prepared.expectedEffect },
+    };
+    const response = await service.propose(proposal.body);
+    expect(response.outcome).toBe("COMPLETED");
+    expect(effectOf(response)).toMatchObject({
+      confirmation: "CONFIRMED",
+      receipt_comparison: "MATCH",
+      receipt_status: "EFFECTED",
+    });
+    // The authority verified the receipt under the registered key and
+    // recorded it with the commit.
+    const finalize = authority.requests
+      .filter((request) => request.path.includes("finalize"))
+      .at(-1);
+    expect((finalize?.body as { effect_receipt?: string }).effect_receipt).toMatch(/^[\w-]+\./);
+    expect(finalize?.response?.body).toMatchObject({
+      effect_receipt: { verified: true, verification_code: "EFFECT_RECEIPT_VERIFIED" },
+    });
+    const observed = events(securityLines).filter((line) => line["event"] === "EFFECT_OBSERVED");
+    expect(observed.at(-1)).toMatchObject({ comparison: "MATCH", receipt: "MATCH" });
+    expect(halt.current.halted).toBe(false);
+
+    // The same provider, whose receipt names another effect than the one it
+    // let the executor read back: two witnesses disagree, and the boundary
+    // treats that as the institution's exception.
+    provider.answer({
+      status: 200,
+      body: { status: "POSTED", reference: "fixture_ref_13" },
+      receipt: receiptFor(() => ({ status: "EFFECTED", digest: `sha256:${"7".repeat(64)}` })),
+    });
+    const contradicted = await service.propose(beapProposal().body);
+    expect(contradicted.outcome).toBe("COMPLETED");
+    expect(contradicted.reason_codes).toContain("EFFECT_MISMATCH");
+    expect(effectOf(contradicted)).toMatchObject({
+      comparison: "MATCH",
+      confirmation: "UNKNOWN",
+      receipt_comparison: "MISMATCH",
+    });
+    const mismatch = events(securityLines).find(
+      (line) => line["event"] === "EFFECT_RECEIPT_MISMATCH",
+    );
+    expect(mismatch).toMatchObject({ receipt_status: "EFFECTED" });
+    expect(halt.current).toMatchObject({ halted: true, trigger: "EFFECT_MISMATCH" });
     service.close();
   });
 

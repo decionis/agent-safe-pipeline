@@ -562,7 +562,7 @@ A provider that verified the claim can answer with its own signed receipt of the
 profile's VP-3: a compact EdDSA JWS under the provider's key, returned in
 `x-agent-safe-effect-receipt`, naming the grant it acted under, the claim it answered (the
 attestation's `claim_token_digest`) and what it did. `signEffectReceipt` in this package builds
-one from the attestation `verifyProviderRequest` returned. The executor reads nothing in it: the
+one from the attestation `verifyProviderRequest` returned. The executor verifies nothing in it: the
 handler hands the header's value to `dispatch.receipt`, the attempt carries it, and the verifier
 forwards it verbatim as `effect_receipt` in `finalize-token`, whatever the outcome, when it has the
 shape of a compact JWS within the contract's bound. The authority verifies it against the public
@@ -571,6 +571,18 @@ with the commit evidence whether or not it verified, and reads a verified receip
 digest as `SIGNED_RECEIPT` effect evidence when the grant named the effect it expected. A receipt
 is never a reason for the authority to refuse a finalization; `effectReport` says what the
 authority made of it.
+
+The effect plane reads what a receipt _states_, and only to compare it. An adapter's transport
+carries the header's value on its `ProviderResult` (`CoreBankingHttpAdapter` does), and the effect
+record then holds the receipt's status and digest against the executor's own account: the outcome
+the provider answered with, the effect the grant authorised, and the effect the adapter observed.
+The response's `effect` block reports it as `receipt_comparison`: `MATCH`, `SILENT` for a receipt
+that names no digest, `ABSENT` for none, and `MISMATCH` when the receipt's status contradicts the
+outcome or its digest differs from the authorised effect or the observation. A mismatch is the
+same exception as an observation that did not match: `EFFECT_MISMATCH` in the reason codes, the
+confirmation `UNKNOWN`, an `EFFECT_RECEIPT_MISMATCH` security event, and a halt under the default
+`EXECUTOR_ON_EFFECT_MISMATCH=HALT`. Two witnesses disagreeing is something an operator reconciles,
+not something the boundary confirms.
 
 ## The attempt journal
 

@@ -1,5 +1,6 @@
 import type { VerifiedAuthorization } from "@decionis/agent-safe-pipeline";
 import type { JsonObject } from "@decionis/agent-safe-pipeline";
+import type { ReceiptComparison, ReceiptStatus } from "./EffectComparison.js";
 
 /** What the handler observed, waiting for the verifier that finalizes the grant. */
 export interface RegisteredEffect {
@@ -15,6 +16,12 @@ export interface RegisteredEffect {
   readonly observationMethod: string;
   readonly evidenceDigest: string;
   readonly reasonCodes: readonly string[];
+  /** The provider's receipt against this account: absent, silent, agreeing or contradicting. */
+  readonly receipt: {
+    readonly comparison: ReceiptComparison;
+    readonly status: ReceiptStatus | null;
+    readonly digest: string | null;
+  };
 }
 
 /**

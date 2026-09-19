@@ -1,6 +1,12 @@
 import type { AuthorityEffectEvidence, JsonObject } from "@decionis/agent-safe-pipeline";
 import { jcsDigest, type Sha256 } from "./JcsDigest.js";
-import { compareEffect, type Comparison } from "./EffectComparison.js";
+import {
+  compareEffect,
+  compareReceipt,
+  receiptStatement,
+  type Comparison,
+  type ReceiptComparison,
+} from "./EffectComparison.js";
 import type { PreparedAction, ProviderResult } from "./EffectAdapter.js";
 import type { RegisteredEffect } from "./EffectEvidenceRegister.js";
 
@@ -32,14 +38,18 @@ export interface EvidenceInput {
  * the request, not that the effect exists, so the confirmation stays
  * `PENDING` until something read the effect back and it matched. A
  * mismatch is `UNKNOWN`, not `NOT_EFFECTED`: something happened, and what
- * it was is exactly what nobody can yet say.
+ * it was is exactly what nobody can yet say. A receipt that contradicts this
+ * account is the same unknown from the other side: two witnesses disagree,
+ * and neither confirms anything until someone reconciles them.
  */
 export function confirmationFor(
   outcome: EffectOutcome,
   comparison: Comparison,
   method: string,
+  receipt: ReceiptComparison = "ABSENT",
 ): ConfirmationStatus {
   if (outcome === "INDETERMINATE") return "UNKNOWN";
+  if (receipt === "MISMATCH") return "UNKNOWN";
   if (outcome === "FAILED") return "NOT_EFFECTED";
   if (comparison === "MISMATCH") return "UNKNOWN";
   if (comparison === "PENDING") return "PENDING";
@@ -61,11 +71,24 @@ export function buildEffectRecord(input: EvidenceInput): RegisteredEffect {
   const observed = outcome === "COMMITTED" ? (result?.observed ?? null) : null;
   const { comparison, mismatched } = compareEffect(prepared.expectedEffect, observed);
   const observationMethod = result?.observationMethod ?? "DOWNSTREAM_ACK";
-  const confirmation = confirmationFor(outcome, comparison, observationMethod);
   const observedEffectDigest: Sha256 | null = observed === null ? null : jcsDigest(observed);
+  // The provider's own statement of the effect, when its answer carried a
+  // receipt, against the outcome, the authorised effect and the observation.
+  const statement = receiptStatement(result?.receipt);
+  const receipt = {
+    comparison: compareReceipt(
+      outcome,
+      prepared.expectedEffectDigest,
+      observedEffectDigest,
+      statement,
+    ),
+    status: statement?.status ?? null,
+    digest: statement?.digest ?? null,
+  };
+  const confirmation = confirmationFor(outcome, comparison, observationMethod, receipt.comparison);
   const reasonCodes = [
     ...(indeterminate === undefined ? [] : ["INDETERMINATE_OUTCOME"]),
-    ...(comparison === "MISMATCH" ? ["EFFECT_MISMATCH"] : []),
+    ...(comparison === "MISMATCH" || receipt.comparison === "MISMATCH" ? ["EFFECT_MISMATCH"] : []),
     ...(result?.failureReason === null || result?.failureReason === undefined
       ? []
       : [result.failureReason]),
@@ -98,6 +121,17 @@ export function buildEffectRecord(input: EvidenceInput): RegisteredEffect {
       observation_method: observationMethod,
       comparison,
       ...(mismatched.length === 0 ? {} : { mismatched_fields: [...mismatched] }),
+      // Present only when the provider answered with a receipt: a record
+      // without one is byte for byte what it was before receipts existed.
+      ...(receipt.comparison === "ABSENT"
+        ? {}
+        : {
+            receipt: {
+              comparison: receipt.comparison,
+              status: receipt.status,
+              digest: receipt.digest,
+            },
+          }),
     },
     confirmation: { status: confirmation },
     provenance: {
@@ -121,6 +155,7 @@ export function buildEffectRecord(input: EvidenceInput): RegisteredEffect {
     observationMethod,
     evidenceDigest: jcsDigest(evidence),
     reasonCodes,
+    receipt,
   };
 }
 

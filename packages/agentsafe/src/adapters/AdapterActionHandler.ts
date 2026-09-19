@@ -25,6 +25,10 @@ export interface AdapterExecutionResult {
   readonly providerReference: string | null;
   readonly evidenceDigest: string;
   readonly reasonCodes: readonly string[];
+  /** How the provider's receipt, when it gave one, relates to this account. */
+  readonly receiptComparison: "MATCH" | "MISMATCH" | "SILENT" | "ABSENT";
+  /** What the receipt said it did, when it gave one. */
+  readonly receiptStatus: "EFFECTED" | "REFUSED" | "INDETERMINATE" | null;
 }
 
 export interface AdapterHandlerOptions<TAction> {
@@ -85,6 +89,9 @@ export function adapterActionHandler<TAction>(
       if (!(error instanceof IndeterminateOutcome)) throw error;
       indeterminate = { reason: error.reason, providerStatus: error.providerStatus };
     }
+    // The provider's receipt rides on the attempt to the finalization, where
+    // the authority verifies it; this layer only compares what it states.
+    if (typeof result?.receipt === "string") context.dispatch.receipt(result.receipt);
     const observed = result === null ? null : options.adapter.observeEffect(result, prepared);
     const record = buildEffectRecord({
       prepared,
@@ -96,7 +103,9 @@ export function adapterActionHandler<TAction>(
       observedAt: clock().toISOString(),
     });
     options.register.attach(context.authorization, record);
-    if (record.comparison === "MISMATCH") options.onMismatch?.(record.mismatched);
+    if (record.comparison === "MISMATCH" || record.receipt.comparison === "MISMATCH") {
+      options.onMismatch?.(record.mismatched);
+    }
     // An outcome nobody can determine stays undetermined: the throw is
     // re-raised so the pipeline reports an unknown outcome rather than a
     // failure or a success.
@@ -123,6 +132,8 @@ export function adapterActionHandler<TAction>(
       providerReference: record.providerReference,
       evidenceDigest: record.evidenceDigest,
       reasonCodes: record.reasonCodes,
+      receiptComparison: record.receipt.comparison,
+      receiptStatus: record.receipt.status,
     };
   };
 
@@ -163,6 +174,8 @@ export function adapterActionHandler<TAction>(
         providerReference: record.providerReference,
         evidenceDigest: record.evidenceDigest,
         reasonCodes: record.reasonCodes,
+        receiptComparison: record.receipt.comparison,
+        receiptStatus: record.receipt.status,
       },
     };
   };
@@ -187,5 +200,7 @@ export function effectBlock(result: unknown): JsonObject | null {
     provider_reference: candidate.providerReference ?? null,
     evidence_digest: candidate.evidenceDigest,
     reason_codes: [...(candidate.reasonCodes ?? [])],
+    receipt_comparison: candidate.receiptComparison ?? null,
+    receipt_status: candidate.receiptStatus ?? null,
   };
 }

@@ -39,8 +39,13 @@ export {
 } from "./adapters/EffectAwareGrantVerifier.js";
 export {
   compareEffect,
+  compareReceipt,
+  receiptStatement,
   type Comparison,
   type EffectComparisonResult,
+  type ReceiptComparison,
+  type ReceiptStatement,
+  type ReceiptStatus,
 } from "./adapters/EffectComparison.js";
 export {
   EFFECT_EVIDENCE_PROFILE,

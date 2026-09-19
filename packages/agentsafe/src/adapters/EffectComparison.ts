@@ -2,6 +2,27 @@ import type { JsonObject, JsonValue } from "@decionis/agent-safe-pipeline";
 
 export type Comparison = "MATCH" | "MISMATCH" | "PENDING";
 
+/**
+ * How the provider's receipt (the Verifying Provider Profile, VP-3) relates to
+ * this executor's own account of the attempt. `ABSENT` is no receipt, or one
+ * whose statement could not be read; `SILENT` is a receipt whose status
+ * agrees with the outcome but that names no effect digest to compare;
+ * `MISMATCH` is a receipt that contradicts the outcome, the authorised
+ * effect, or what this executor observed; `MATCH` is agreement on all three.
+ */
+export type ReceiptComparison = "MATCH" | "MISMATCH" | "SILENT" | "ABSENT";
+
+export type ReceiptStatus = "EFFECTED" | "REFUSED" | "INDETERMINATE";
+
+/** What a receipt says it did, read without verifying it. */
+export interface ReceiptStatement {
+  readonly status: ReceiptStatus;
+  readonly digest: string | null;
+}
+
+const SHA256 = /^sha256:[0-9a-f]{64}$/;
+const MAX_RECEIPT_LENGTH = 20_000;
+
 export interface EffectComparisonResult {
   readonly comparison: Comparison;
   /** The projected fields that differ, in the projection's own order. */
@@ -60,4 +81,60 @@ function sameValue(expected: JsonValue | undefined, observed: JsonValue | undefi
     keys.length === Object.keys(right).length &&
     keys.every((key) => sameValue(left[key], right[key]))
   );
+}
+
+/**
+ * The provider's statement in its receipt: the `effect` block's status and
+ * digest, and nothing else. The signature is not verified here and the
+ * claims are not trusted; the authority does that at finalization. What this
+ * reads is what the provider *says*, so the executor can record whether the
+ * provider's account of the effect agrees with its own, which neither party
+ * can tell alone. Null when there is no receipt, or when the value is not a
+ * compact JWS whose payload carries an effect with a status the profile
+ * defines and, when present, a digest in the profile's form.
+ */
+export function receiptStatement(receipt: string | null | undefined): ReceiptStatement | null {
+  if (typeof receipt !== "string" || receipt.length > MAX_RECEIPT_LENGTH) return null;
+  const parts = receipt.split(".");
+  if (parts.length !== 3) return null;
+  try {
+    // A payload that is not an object with an effect object reads as no
+    // statement: the property reads give undefined, or throw on null, and
+    // both end here.
+    const payload = JSON.parse(
+      Buffer.from(parts[1] as string, "base64url").toString("utf8"),
+    ) as Record<string, unknown>;
+    const { status, digest } = payload["effect"] as Record<string, unknown>;
+    if (status !== "EFFECTED" && status !== "REFUSED" && status !== "INDETERMINATE") return null;
+    if (digest === undefined || digest === null) return { status, digest: null };
+    return typeof digest === "string" && SHA256.test(digest) ? { status, digest } : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The receipt's statement against this executor's account: the outcome the
+ * provider answered with, the effect the grant authorised, and the effect
+ * the adapter observed. A status that contradicts the outcome is a mismatch
+ * whatever the digest says; a digest is compared with the authorised effect
+ * and, when there is one, with the observation; a receipt that names no
+ * digest can agree with nothing and disagree with nothing, and is `SILENT`.
+ */
+export function compareReceipt(
+  outcome: "COMMITTED" | "FAILED" | "INDETERMINATE",
+  expectedDigest: string,
+  observedDigest: string | null,
+  statement: ReceiptStatement | null,
+): ReceiptComparison {
+  if (statement === null) return "ABSENT";
+  const agreed =
+    (outcome === "COMMITTED" && statement.status === "EFFECTED") ||
+    (outcome === "FAILED" && statement.status === "REFUSED") ||
+    (outcome === "INDETERMINATE" && statement.status === "INDETERMINATE");
+  if (!agreed) return "MISMATCH";
+  if (statement.digest === null) return "SILENT";
+  if (statement.digest !== expectedDigest) return "MISMATCH";
+  if (observedDigest !== null && statement.digest !== observedDigest) return "MISMATCH";
+  return "MATCH";
 }

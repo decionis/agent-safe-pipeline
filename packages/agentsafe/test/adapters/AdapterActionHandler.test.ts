@@ -122,14 +122,22 @@ function handlerFor(
   };
 }
 
-const dispatch = (run: { count: number }) => ({
+const dispatch = (run: { count: number; receipts: string[] }) => ({
   idempotencyKey: "synthetic-key-7",
   run: async <T>(operation: (key: string) => Promise<T> | T): Promise<T> => {
     run.count += 1;
     return await operation("synthetic-key-7");
   },
-  receipt: (): void => {},
+  receipt: (token: string): void => {
+    run.receipts.push(token);
+  },
 });
+
+/** A receipt's shape, unsigned: the executor reads its statement and verifies nothing. */
+const receiptSaying = (effect: Record<string, unknown>): string =>
+  `${Buffer.from('{"alg":"EdDSA"}').toString("base64url")}.${Buffer.from(
+    JSON.stringify({ sub: "synthetic-grant-1", effect }),
+  ).toString("base64url")}.c2ln`;
 
 async function execute(
   adapter: EffectAdapter<FakeAction>,
@@ -138,11 +146,12 @@ async function execute(
 ): Promise<{
   readonly result: unknown;
   readonly runs: number;
+  readonly receipts: readonly string[];
   readonly register: EffectEvidenceRegister;
   readonly error: unknown;
 }> {
   const wired = handlerFor(adapter, register, onMismatch);
-  const runs = { count: 0 };
+  const runs = { count: 0, receipts: [] as string[] };
   let result: unknown = null;
   let error: unknown = null;
   try {
@@ -155,7 +164,7 @@ async function execute(
   } catch (thrown) {
     error = thrown;
   }
-  return { result, runs: runs.count, register: wired.register, error };
+  return { result, runs: runs.count, receipts: runs.receipts, register: wired.register, error };
 }
 
 describe("adapterActionHandler", () => {
@@ -233,6 +242,57 @@ describe("adapterActionHandler", () => {
     expect((result as { readonly reasonCodes: string[] }).reasonCodes).toContain("EFFECT_MISMATCH");
   });
 
+  it("hands the provider's receipt to the dispatch and records its agreement with the observation", async () => {
+    const receipt = receiptSaying({
+      status: "EFFECTED",
+      digest: prepared.expectedEffectDigest,
+      effected_at: "2026-09-19T12:00:01Z",
+    });
+    const adapter = fakeAdapter({
+      execute: async () => await Promise.resolve(answer({ receipt })),
+    });
+    const { result, receipts, register } = await execute(adapter);
+    expect(receipts).toEqual([receipt]);
+    expect(result).toMatchObject({
+      confirmation: "CONFIRMED",
+      receiptComparison: "MATCH",
+      receiptStatus: "EFFECTED",
+    });
+    expect(register.take(authorization)?.receipt).toEqual({
+      comparison: "MATCH",
+      status: "EFFECTED",
+      digest: prepared.expectedEffectDigest,
+    });
+  });
+
+  it("treats a receipt that contradicts the observation as a mismatch nobody can confirm", async () => {
+    const seen: string[][] = [];
+    const receipt = receiptSaying({
+      status: "EFFECTED",
+      digest: `sha256:${"f".repeat(64)}`,
+      effected_at: "2026-09-19T12:00:01Z",
+    });
+    const adapter = fakeAdapter({
+      execute: async () => await Promise.resolve(answer({ receipt })),
+    });
+    const { result } = await execute(adapter, undefined, (fields) => seen.push([...fields]));
+    // The observation itself matched; the watcher is told anyway, because
+    // the provider's own signed statement says something else happened.
+    expect(seen).toEqual([[]]);
+    expect(result).toMatchObject({
+      comparison: "MATCH",
+      confirmation: "UNKNOWN",
+      receiptComparison: "MISMATCH",
+    });
+    expect((result as { readonly reasonCodes: string[] }).reasonCodes).toEqual(["EFFECT_MISMATCH"]);
+  });
+
+  it("records no receipt when the provider gave none, and hands the dispatch nothing", async () => {
+    const { result, receipts } = await execute(fakeAdapter());
+    expect(receipts).toEqual([]);
+    expect(result).toMatchObject({ receiptComparison: "ABSENT", receiptStatus: null });
+  });
+
   it("re-raises an indeterminate outcome after registering what it knows", async () => {
     const adapter = fakeAdapter({
       execute: () => Promise.reject(new IndeterminateOutcome("PROVIDER_UNREACHABLE", "504")),
@@ -305,7 +365,7 @@ describe("adapterActionHandler", () => {
       },
     });
     const wired = handlerFor(adapter);
-    const runs = { count: 0 };
+    const runs = { count: 0, receipts: [] as string[] };
     await wired.handler.execute({
       intent: captured(),
       parameters: { amount: "10.00" },
@@ -329,7 +389,7 @@ describe("adapterActionHandler", () => {
       intent: captured(),
       parameters: { amount: "10.00" },
       authorization,
-      dispatch: dispatch({ count: 0 }),
+      dispatch: dispatch({ count: 0, receipts: [] }),
     });
     expect(register.take(authorization)?.evidence["observed_at"]).toBe("2026-03-02T10:00:00.000Z");
   });
@@ -352,6 +412,8 @@ describe("effectBlock", () => {
       providerReference: "fixture_provider_ref_9",
       evidenceDigest: "sha256:c",
       reasonCodes: ["EFFECT_MISMATCH"],
+      receiptComparison: "MATCH",
+      receiptStatus: "EFFECTED",
     });
     expect(block).toEqual({
       outcome: "COMMITTED",
@@ -365,6 +427,8 @@ describe("effectBlock", () => {
       provider_reference: "fixture_provider_ref_9",
       evidence_digest: "sha256:c",
       reason_codes: ["EFFECT_MISMATCH"],
+      receipt_comparison: "MATCH",
+      receipt_status: "EFFECTED",
     });
   });
 
@@ -381,6 +445,8 @@ describe("effectBlock", () => {
       provider_reference: null,
       evidence_digest: "sha256:c",
       reason_codes: [],
+      receipt_comparison: null,
+      receipt_status: null,
     });
   });
 });

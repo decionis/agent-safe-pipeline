@@ -104,6 +104,16 @@ describe("CoreBankingHttpAdapter.execute", () => {
     }
   });
 
+  it("carries the provider's effect receipt with the result, unread, and none when there is none", async () => {
+    const receipt = "eyJhbGciOiJFZERTQSJ9.eyJzdWIiOiJnMSJ9.c2ln";
+    provider.answer({ status: 202, body: { status: "ACCEPTED" }, receipt });
+    expect((await transport().execute(execution())).receipt).toBe(receipt);
+    provider.answer({ status: 422, body: { status: "REJECTED" }, receipt });
+    expect((await transport().execute(execution())).receipt).toBe(receipt);
+    provider.answer({ status: 202, body: { status: "ACCEPTED" } });
+    expect((await transport().execute(execution())).receipt).toBeNull();
+  });
+
   it("reads the effect back after a posted status, and only then observes it", async () => {
     const run = execution();
     provider.answer({ status: 200, body: { status: "POSTED", reference: "fixture_ref_2" } });

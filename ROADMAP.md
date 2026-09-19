@@ -56,8 +56,9 @@ not imply a release date.
   the effect receipt (VP-3): each verifier builds one, the executor forwards it at finalization,
   and the authority verifies and records it, so the effect plane is provider-attested rather than
   executor-reconciled; the Kong plugin signs one in its response phase for a system of record that
-  reports its effect to the hop. Still to come: the executor's effect plane comparing a receipt's
-  digest with its own observation.
+  reports its effect to the hop, and the executor's effect plane compares what a receipt states
+  with what it observed itself, so two witnesses' disagreement is an exception rather than a
+  silence.
 
 The open issue tracker is the source of truth for scope, acceptance criteria, and progress. An item
 leaves this section when it is released, rejected with rationale, or explicitly moved back to

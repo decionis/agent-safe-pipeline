@@ -31,6 +31,12 @@ export interface ProviderResult {
   readonly observationMethod: ObservationMethod;
   readonly providerGenerated: boolean;
   readonly source: string;
+  /**
+   * The provider's effect receipt (VP-3), verbatim, when its answer carried
+   * one in `x-agent-safe-effect-receipt`. Forwarded to the authority
+   * unread; its statement is compared with this executor's own account.
+   */
+  readonly receipt?: string | null;
 }
 
 export type ObservationMethod =
