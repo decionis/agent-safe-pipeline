@@ -25,7 +25,7 @@
 
   <ItemGroup>
     <!-- Ed25519, which .NET 8 does not carry itself. MIT. -->
-    <PackageReference Include="BouncyCastle.Cryptography" Version="2.6.2" />
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.7.0" />
   </ItemGroup>
 
 </Project>
