@@ -37,8 +37,11 @@ jobs:
           # jakarta.servlet-api is the compile-time servlet API of verifiers/spring, provided
           # scope: the application's container supplies it and nothing under it ships with the
           # module; Jakarta's EPL-2.0 / GPL-2.0-with-Classpath-exception dual licence is why it
-          # is named here rather than in the allow list.
-          allow-dependencies-licenses: pkg:npm/caniuse-lite, pkg:npm/node-forge, pkg:npm/type-fest, pkg:maven/jakarta.servlet/jakarta.servlet-api
+          # is named here rather than in the allow list. google.golang.org/protobuf, an indirect
+          # dependency of Kong's plugin development kit in verifiers/kong, is BSD-3-Clause with
+          # Google's Go patent grant, the PATENTS file Go itself ships under: a grant of rights
+          # the review reads as an unknown licence, not a restriction.
+          allow-dependencies-licenses: pkg:npm/caniuse-lite, pkg:npm/node-forge, pkg:npm/type-fest, pkg:maven/jakarta.servlet/jakarta.servlet-api, pkg:golang/google.golang.org/protobuf
           fail-on-severity: low
           fail-on-scopes: runtime
       - name: Review toolchain dependency changes
@@ -48,8 +51,11 @@ jobs:
           # jakarta.servlet-api is the compile-time servlet API of verifiers/spring, provided
           # scope: the application's container supplies it and nothing under it ships with the
           # module; Jakarta's EPL-2.0 / GPL-2.0-with-Classpath-exception dual licence is why it
-          # is named here rather than in the allow list.
-          allow-dependencies-licenses: pkg:npm/caniuse-lite, pkg:npm/node-forge, pkg:npm/type-fest, pkg:maven/jakarta.servlet/jakarta.servlet-api
+          # is named here rather than in the allow list. google.golang.org/protobuf, an indirect
+          # dependency of Kong's plugin development kit in verifiers/kong, is BSD-3-Clause with
+          # Google's Go patent grant, the PATENTS file Go itself ships under: a grant of rights
+          # the review reads as an unknown licence, not a restriction.
+          allow-dependencies-licenses: pkg:npm/caniuse-lite, pkg:npm/node-forge, pkg:npm/type-fest, pkg:maven/jakarta.servlet/jakarta.servlet-api, pkg:golang/google.golang.org/protobuf
           fail-on-severity: moderate
           fail-on-scopes: development
 

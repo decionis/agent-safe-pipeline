@@ -8,15 +8,18 @@ external interfaces consumed by Agent-Safe Pipeline.
 `package.json` files declare direct npm dependencies, `pnpm-lock.yaml` is the resolved transitive
 inventory for every package in `pnpm-workspace.yaml`, and the release workflow publishes separate
 production-package and complete-workspace license inventories. GitHub Actions are dependencies too:
-every `uses:` reference is pinned to a full commit SHA. The Go module under `verifiers/envoy`
-declares its one dependency in `go.mod`, pins it in `go.sum`, and has its own weekly Dependabot
-entry; the Maven module under `verifiers/spring` pins its dependencies in `pom.xml` and has one
+every `uses:` reference is pinned to a full commit SHA. The Go modules under `verifiers/envoy` and
+`verifiers/kong` declare their dependencies in `go.mod`, pin them in `go.sum`, and have their own
+weekly Dependabot entry; the Maven module under `verifiers/spring` pins its dependencies in `pom.xml` and has one
 too; the Rust crate under `verifiers/rust` is a library that names its dependencies in
 `Cargo.toml`, every one MIT, Apache-2.0 or BSD, and leaves the lockfile to its consumers, as
 library crates do; the .NET solution under `verifiers/dotnet` pins its packages in its project
 files. Its one non-permissive dependency, `jakarta.servlet:jakarta.servlet-api`, is a compile-time
 API in `provided` scope that the application's container supplies and nothing distributes; the
-dependency-review passes name it as a package-scoped exception for that reason.
+dependency-review passes name it as a package-scoped exception for that reason. The Kong
+plugin's `google.golang.org/protobuf`, indirect through Kong's plugin development kit, is
+BSD-3-Clause with Google's Go patent grant, the PATENTS file Go itself ships under; the passes
+name it too, because the review reads the grant as an unknown licence.
 
 The project monitors this inventory through:
 

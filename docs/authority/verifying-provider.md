@@ -307,6 +307,7 @@ tier (section 1) at which it is deployed, since the vectors cannot.
   MUST buffer up to a bound it sets and refuse beyond it. In Envoy, `ext_authz` needs
   `with_request_body` with `allow_partial_message: false`; the reference in `verifiers/envoy`
   answers the check with the refusal status and body above, which Envoy returns to the executor.
+  In Kong, the plugin in `verifiers/kong` reads the body itself and runs the same Go verifier.
 - **Paths.** Verify with the path as received, before any rewrite the hop applies.
 
 ## 10. Security considerations
