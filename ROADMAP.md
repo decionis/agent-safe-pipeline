@@ -55,8 +55,8 @@ not imply a release date.
   [ASP.NET Core](./verifiers/dotnet/README.md); and, now that the Decionis OpenAPI carries it,
   the effect receipt (VP-3): each verifier builds one, the executor forwards it at finalization,
   and the authority verifies and records it, so the effect plane is provider-attested rather than
-  executor-reconciled. Still to come: a receipt signed in a hop's response phase for a system of
-  record that reports its effect to the hop, and the executor's effect plane comparing a receipt's
+  executor-reconciled; the Kong plugin signs one in its response phase for a system of record that
+  reports its effect to the hop. Still to come: the executor's effect plane comparing a receipt's
   digest with its own observation.
 
 The open issue tracker is the source of truth for scope, acceptance criteria, and progress. An item

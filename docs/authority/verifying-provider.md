@@ -363,9 +363,11 @@ tier (section 1) at which it is deployed, since the vectors cannot.
   accepts: a receipt is the provider's signature. Register the public half with the authority
   before the first receipt is signed, since a receipt under an unregistered `kid` is recorded as
   `EFFECT_RECEIPT_KEY_UNKNOWN` and confirms nothing. An authorization hop that runs the procedure
-  in front of the system of record (Envoy, Kong) cannot sign a receipt: it answers before the
-  effect; the receipt is the effecting layer's, or the hop's own response phase when the system of
-  record reports the effect to it.
+  in front of the system of record answers before the effect, so its access phase cannot sign a
+  receipt; the receipt is the effecting layer's, or the hop's response phase signs one from what
+  the system of record reports about the effect in its answer, as the Kong plugin in
+  `verifiers/kong` does with `receipt_key_file`. Envoy's `ext_authz` has no response phase and
+  signs none.
 
 ## 10. Security considerations
 
