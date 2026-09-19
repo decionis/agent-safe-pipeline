@@ -31,3 +31,8 @@ packaging/linux/build/
 
 # Maven build output of the Java verifier
 verifiers/spring/target/
+
+# Cargo build output of the Rust verifier; the crate is a library, so its
+# lockfile is the consumer's, not this repository's.
+verifiers/rust/target/
+verifiers/rust/Cargo.lock

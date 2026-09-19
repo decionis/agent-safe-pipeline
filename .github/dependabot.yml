@@ -68,3 +68,14 @@ updates:
       time: "07:15"
       timezone: Europe/Stockholm
     open-pull-requests-limit: 5
+
+  # The verifying provider in Rust is a library crate; its manifest names the
+  # dependencies, and the consumer's lockfile pins them.
+  - package-ecosystem: cargo
+    directory: "/verifiers/rust"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:30"
+      timezone: Europe/Stockholm
+    open-pull-requests-limit: 5

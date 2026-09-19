@@ -11,7 +11,9 @@ production-package and complete-workspace license inventories. GitHub Actions ar
 every `uses:` reference is pinned to a full commit SHA. The Go module under `verifiers/envoy`
 declares its one dependency in `go.mod`, pins it in `go.sum`, and has its own weekly Dependabot
 entry; the Maven module under `verifiers/spring` pins its dependencies in `pom.xml` and has one
-too. Its one non-permissive dependency, `jakarta.servlet:jakarta.servlet-api`, is a compile-time
+too; the Rust crate under `verifiers/rust` is a library that names its dependencies in
+`Cargo.toml`, every one MIT, Apache-2.0 or BSD, and leaves the lockfile to its consumers, as
+library crates do. Its one non-permissive dependency, `jakarta.servlet:jakarta.servlet-api`, is a compile-time
 API in `provided` scope that the application's container supplies and nothing distributes; the
 dependency-review passes name it as a package-scoped exception for that reason.
 

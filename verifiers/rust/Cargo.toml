@@ -1,0 +1,40 @@
+[package]
+name = "decionis-verifying-provider"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "Apache-2.0"
+description = "An independent Rust implementation of the Verifying Provider Profile (agent-safe.verifying-provider/1): how a system of record, or the hop in front of it, verifies the executor's signed request and the authority's claim attestation and refuses what the authority never claimed."
+repository = "https://github.com/decionis/agent-safe-pipeline"
+readme = "README.md"
+keywords = ["execution-authority", "agent-security", "authorization", "decionis"]
+categories = ["authentication", "web-programming::http-server"]
+
+[features]
+default = []
+# A tower layer for axum, hyper and anything else that speaks http::Request.
+tower = ["dep:tower", "dep:http", "dep:http-body", "dep:http-body-util", "dep:bytes"]
+
+# Every dependency is MIT, Apache-2.0 or BSD, and none is a procedural macro:
+# the canonicaliser and the JSON reading are this crate's own over serde_json's
+# value type, and Ed25519 is ed25519-compact, which depends on nothing.
+[dependencies]
+base64 = "0.22"
+ed25519-compact = { version = "2", default-features = false, features = ["std", "pem"] }
+hmac = "0.12"
+ryu-js = "0.2"
+# float_roundtrip: correctly rounded parsing, which a canonicaliser must have.
+serde_json = { version = "1", features = ["float_roundtrip"] }
+sha2 = "0.10"
+tower = { version = "0.5", optional = true, features = ["util"] }
+http = { version = "1", optional = true }
+http-body = { version = "1", optional = true }
+http-body-util = { version = "0.1", optional = true }
+bytes = { version = "1", optional = true }
+
+[dev-dependencies]
+tokio = { version = "1", default-features = false, features = ["rt"] }
+tower = { version = "0.5", features = ["util"] }
+http = "1"
+http-body-util = "0.1"
+bytes = "1"

@@ -9,3 +9,4 @@ packaging/sea/cache
 Formula/*.rb
 charts/*/templates
 verifiers/spring/target
+verifiers/rust/target
