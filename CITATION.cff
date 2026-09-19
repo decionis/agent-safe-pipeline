@@ -11,8 +11,8 @@ authors:
     given-names: Festus B.
     affiliation: Decionis, Inc.
     orcid: https://orcid.org/0009-0006-4895-6046
-version: 0.2.0
-date-released: 2026-09-18
+version: 0.3.0
+date-released: 2026-09-19
 license: Apache-2.0
 repository-code: https://github.com/decionis/agent-safe-pipeline
 url: https://github.com/decionis/agent-safe-pipeline
@@ -21,7 +21,14 @@ abstract: >-
   cannot authorize their own execution. The release includes an independently
   reproducible synthetic Decision Dossier corpus with canonical bytes,
   SHA-256 digests, Ed25519 signatures, a deliberately published corpus key,
-  execution-bound proof vectors, and negative tamper cases.
+  execution-bound proof vectors, and negative tamper cases; the Verifying
+  Provider Profile (agent-safe.verifying-provider/1, version 0.2), the
+  procedure by which a system of record verifies the executor's signed
+  request and the authority's claim attestation, refuses what the authority
+  never claimed, and answers with its own signed effect receipt, with
+  conformance vectors and five independent implementations that pass them;
+  and the self-checking adversarial corpus, including the Compromised
+  Principal Test, in which a valid identity proposes an unauthorized action.
 keywords:
   - execution authority
   - agentic AI
@@ -31,3 +38,6 @@ keywords:
   - Ed25519
   - RFC 8785
   - reproducible corpus
+  - verifying provider
+  - effect receipt
+  - HTTP message signatures
