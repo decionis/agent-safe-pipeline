@@ -13,7 +13,8 @@ declares its one dependency in `go.mod`, pins it in `go.sum`, and has its own we
 entry; the Maven module under `verifiers/spring` pins its dependencies in `pom.xml` and has one
 too; the Rust crate under `verifiers/rust` is a library that names its dependencies in
 `Cargo.toml`, every one MIT, Apache-2.0 or BSD, and leaves the lockfile to its consumers, as
-library crates do. Its one non-permissive dependency, `jakarta.servlet:jakarta.servlet-api`, is a compile-time
+library crates do; the .NET solution under `verifiers/dotnet` pins its packages in its project
+files. Its one non-permissive dependency, `jakarta.servlet:jakarta.servlet-api`, is a compile-time
 API in `provided` scope that the application's container supplies and nothing distributes; the
 dependency-review passes name it as a package-scoped exception for that reason.
 

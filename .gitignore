@@ -36,3 +36,7 @@ verifiers/spring/target/
 # lockfile is the consumer's, not this repository's.
 verifiers/rust/target/
 verifiers/rust/Cargo.lock
+
+# .NET build output of the .NET verifier
+verifiers/dotnet/**/bin/
+verifiers/dotnet/**/obj/

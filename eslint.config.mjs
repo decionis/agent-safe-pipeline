@@ -17,6 +17,8 @@ export default [
       // Cargo's of the Rust one, generated documentation included.
       "verifiers/spring/target/**",
       "verifiers/rust/target/**",
+      "verifiers/dotnet/**/bin/**",
+      "verifiers/dotnet/**/obj/**",
     ],
   },
   eslint.configs.recommended,

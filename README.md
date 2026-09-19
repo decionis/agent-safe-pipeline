@@ -247,8 +247,9 @@ record or the hop in front of it refuses what the authority never claimed, is th
 [Verifying Provider Profile](./docs/authority/verifying-provider.md), with
 [vectors](./conformance/provider/README.md) any implementation can run and independent verifiers
 that run them, for [Envoy `ext_authz`](./verifiers/envoy/README.md), for
-[Spring and Apigee](./verifiers/spring/README.md), and for
-[Rust services with a tower layer](./verifiers/rust/README.md).
+[Spring and Apigee](./verifiers/spring/README.md), for
+[Rust services with a tower layer](./verifiers/rust/README.md), and for
+[ASP.NET Core](./verifiers/dotnet/README.md).
 
 ### Production invariants
 

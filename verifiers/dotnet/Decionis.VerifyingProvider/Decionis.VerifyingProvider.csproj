@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>12</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- The members that need words have them; a comment on every constant is noise. -->
+    <NoWarn>CS1591</NoWarn>
+    <RootNamespace>Decionis.VerifyingProvider</RootNamespace>
+    <PackageId>Decionis.VerifyingProvider</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>Decionis, Inc.</Authors>
+    <Description>An independent .NET implementation of the Verifying Provider Profile (agent-safe.verifying-provider/1): how a system of record, or the hop in front of it, verifies the executor's signed request and the authority's claim attestation and refuses what the authority never claimed. With ASP.NET Core middleware.</Description>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/decionis/agent-safe-pipeline</RepositoryUrl>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The middleware is for the ASP.NET Core the application already runs; a shared framework, not a package. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Ed25519, which .NET 8 does not carry itself. MIT. -->
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.6.2" />
+  </ItemGroup>
+
+</Project>

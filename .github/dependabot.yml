@@ -79,3 +79,13 @@ updates:
       time: "07:30"
       timezone: Europe/Stockholm
     open-pull-requests-limit: 5
+
+  # The verifying provider for .NET; its project files pin the packages.
+  - package-ecosystem: nuget
+    directory: "/verifiers/dotnet"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:45"
+      timezone: Europe/Stockholm
+    open-pull-requests-limit: 5
