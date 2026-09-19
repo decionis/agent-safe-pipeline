@@ -195,6 +195,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "conformance/vectors/compromised-principal.json",
+      "family": "Intent conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "conformance/vectors/fractional-exponent.json",
       "family": "Intent conformance vector",
       "source": "synthetic",
@@ -280,6 +286,12 @@
     },
     {
       "path": "examples/golden-adversarial-demo/src/Index.ts",
+      "family": "Runnable example",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "examples/infra-scale-demo/src/Index.ts",
       "family": "Runnable example",
       "source": "synthetic",
       "containsCustomerData": false

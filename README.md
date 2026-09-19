@@ -60,6 +60,15 @@ two are the services it talks to, and neither is in this repository.
   chained evidence. It is Apache-2.0 and it decides nothing; [`OPEN-CORE.md`](./OPEN-CORE.md)
   states the seam between it and what Decionis operates.
 
+One sentence separates the two systems agents are usually given: decision intelligence determines
+what an AI wants to do; execution authority determines whether it is permitted to happen. The
+boundary here binds the second to the exact action, never to the identity that proposed it,
+because the realistic adversary is not a forged credential but a valid one: an agent whose identity
+is real, whose credential is current, and whose request is not what anyone authorised. As agents
+get faster and more autonomous, identity becomes a weaker proxy for authority; the
+[Compromised Principal Test](./THREAT-MODEL.md#the-compromised-principal-test) is that failure
+stated as a test the boundary passes on every pull request.
+
 ## Test your boundary
 
 Before putting the gateway in front of anything, see what it changes. `agentsafe test` sends the
@@ -223,6 +232,20 @@ pnpm --filter @decionis/agent-safe-example-golden-adversarial demo
 ```
 
 A treasury agent proposes a USD 250,000 wire, a remote Chief Risk Officer completes a FIDO2 plus liveness ceremony, and exactly one wire executes. Injected authorization fields, a fabricated ALLOW, an asserted approval, a swapped receipt, a post-approval amount change, a replayed grant, 25 concurrent claims, a shadow observation, and an expired grant all fail to execute. The run exits 0 only when that holds. See [`examples/golden-adversarial-demo`](./examples/golden-adversarial-demo), the bank-audience walkthrough in [`docs/remote-cro-authorization.md`](./docs/remote-cro-authorization.md), and the receipt semantics in [`docs/presence-evidence.md`](./docs/presence-evidence.md).
+
+The same proof for infrastructure, and for the adversary a credential check cannot catch:
+
+```bash
+pnpm --filter @decionis/agent-safe-example-infra-scale demo
+```
+
+An infrastructure agent with a valid identity and a valid credential proposes `deployment.scale`
+for `inference` in `prod-eu` at 96 replicas and is allowed. The same agent, with nothing forged,
+then proposes 960 replicas, a service outside its remit, another cluster, the 96 decision with 960
+substituted after authorization, an approval for 256 presented for 512, a replayed grant, and a
+direct call to the cluster: nothing executes, because authority was bound to the exact action and
+not to the identity. See [`examples/infra-scale-demo`](./examples/infra-scale-demo) and the
+[Compromised Principal Test](./THREAT-MODEL.md#the-compromised-principal-test).
 
 ## Execution lifecycle
 
@@ -454,7 +477,7 @@ you ask for, `ENFORCEMENT` included.
 
 Which examples do what: `basic-agent`, `shopify-refund-agent`, `github-deploy-agent`,
 `mcp-tool-gate` and `procurement-agent` evaluate their one proposal beside the fixture;
-`golden-adversarial-demo`, `whisper-boundary-demo`, `crm-outreach-demo` and `local-escalation` run
+`golden-adversarial-demo`, `whisper-boundary-demo`, `crm-outreach-demo`, `infra-scale-demo` and `local-escalation` run
 their adversarial attempts locally by design and end with the golden proposal evaluated by
 Decionis; `trusted-executor` runs the executor process once more in shadow against Decionis; the
 two Presence examples need an owned organization with an enrolled approver, and say so when given
@@ -554,6 +577,7 @@ Companion notes on the Execution Authority model, the authorization protocol, Pr
 - [`examples/golden-adversarial-demo`](./examples/golden-adversarial-demo) — the self-checking proof: one golden path, eight attacks, zero unauthorized executions.
 - [`examples/whisper-boundary-demo`](./examples/whisper-boundary-demo) — the same proof for a shopping agent: merchant-text steering, a cross-session credential lookup, a cart changed after signing, constraints lost in context compaction, and principal loss across a delegation hop — six attacks, zero unauthorized effects.
 - [`examples/crm-outreach-demo`](./examples/crm-outreach-demo) — the same proof for a sales-development agent: who can approve a CRM update or an outbound message, a recipient changed after approval, an off-template message, an opted-out contact, an expired approval, and a provider response lost after dispatch that is reconciled once and never re-sent — six attacks, zero unauthorized effects.
+- [`examples/infra-scale-demo`](./examples/infra-scale-demo) — the Compromised Principal Test: an infrastructure agent whose identity, credential and API are all valid proposes a `deployment.scale` it is not authorised for — 960 replicas, another service, another cluster, a post-authorization mutation, a swapped approval, a replayed grant, a direct call to the cluster — seven attacks, zero unauthorized effects.
 - [`examples/basic-agent`](./examples/basic-agent) — the smallest BLOCK flow.
 - [`examples/shopify-refund-agent`](./examples/shopify-refund-agent) — amount-based ALLOW / ESCALATE / BLOCK.
 - [`examples/github-deploy-agent`](./examples/github-deploy-agent) — environment and force-push controls.
@@ -568,7 +592,7 @@ Companion notes on the Execution Authority model, the authorization protocol, Pr
 - [`OPEN-CORE.md`](./OPEN-CORE.md) — what is Apache-2.0 here, what Decionis operates, and the seam between them.
 - [`docs/`](./docs) — concepts, execution intent, outcomes, human approval, [Presence Evidence semantics](./docs/presence-evidence.md), the [remote CRO sequence](./docs/remote-cro-authorization.md), shadow mode, Decision Dossiers, trust boundary, the [executor's chained evidence](./docs/executor-evidence.md), [what the executor implements of the BEAP v0.1 banking profile](./docs/beap-conformance.md), [incident response for the executor](./docs/incident-response.md), [where a bypass of the executor is actually stopped](./docs/bypass-resistance.md), and assurance notes.
 - [`conformance/agent-safe-intent-v1.json`](./conformance/agent-safe-intent-v1.json) — portable canonical-hash test vector.
-- [`conformance/vectors/`](./conformance/vectors/) — edge-case canonical-hash vectors (Unicode/astral, NFC vs NFD, negative zero, fractional/exponent numbers, nested arrays, UTF-16 key sort order), auto-discovered by the conformance test.
+- [`conformance/vectors/`](./conformance/vectors/) — edge-case canonical-hash vectors (Unicode/astral, NFC vs NFD, negative zero, fractional/exponent numbers, nested arrays, UTF-16 key sort order) and the Compromised Principal Test as a vector (one intent, eight single-field mutations, nine distinct hashes), auto-discovered by the conformance test.
 - [`dossiers/`](./dossiers/) — reproducible synthetic Decision Dossier corpus with canonical bytes, SHA-256 digests, Ed25519 signatures, and a deliberately published corpus key.
 - [`tests/integration/contract/`](./tests/integration/contract/) — loopback Decionis and Presence stubs that exercise the packed package's complete wire contract over real HTTP.
 - [`FIXTURE-PROVENANCE.md`](./FIXTURE-PROVENANCE.md) — origin and permitted use of every fixture family.
