@@ -62,6 +62,11 @@ export interface GatewayConfig {
     readonly tenantId: string;
     readonly timeoutMs: number;
     readonly allowInsecureLoopback: boolean;
+    /**
+     * The key is a workspace an example provisioned without an account, which
+     * the authority evaluates in shadow only; enforcement needs an owned key.
+     */
+    readonly provisional: boolean;
   };
   readonly interception: {
     readonly http: boolean;
@@ -199,6 +204,8 @@ export interface StoredCredentials {
   readonly apiKey: string;
   readonly tenantId: string | null;
   readonly endpoint: string | null;
+  /** True for a workspace an example provisioned without an account; absent for a login. */
+  readonly provisional?: boolean;
 }
 
 export interface GatewayConfigInput {
@@ -457,6 +464,10 @@ export class GatewayConfigLoader {
     );
     const upstreamUrl = GatewayConfigLoader.upstreamUrl(upstreamRaw, upstreamInsecure);
 
+    const keyFromCredentials =
+      credentials !== null &&
+      env[ENVIRONMENT.apiKey] === undefined &&
+      env[`${ENVIRONMENT.apiKey}_FILE`] === undefined;
     const apiKeyPresent =
       env[ENVIRONMENT.apiKey] !== undefined ||
       env[`${ENVIRONMENT.apiKey}_FILE`] !== undefined ||
@@ -473,13 +484,7 @@ export class GatewayConfigLoader {
         },
         { source: "file", raw: authoritySection?.endpoint === "local" ? "LOCAL" : undefined },
         {
-          source: apiKeyPresent
-            ? credentials !== null &&
-              env[ENVIRONMENT.apiKey] === undefined &&
-              env[`${ENVIRONMENT.apiKey}_FILE`] === undefined
-              ? "credentials"
-              : "environment"
-            : "file",
+          source: apiKeyPresent ? (keyFromCredentials ? "credentials" : "environment") : "file",
           raw: apiKeyPresent || endpointGiven ? "DECIONIS" : undefined,
         },
       ],
@@ -508,6 +513,18 @@ export class GatewayConfigLoader {
       ],
       kind === "LOCAL" ? "ENFORCEMENT" : "SHADOW",
     );
+    // A workspace an example provisioned without an account holds a key the
+    // authority accepts in shadow only; starting it in enforcement would fail
+    // every action closed, so the refusal is at start, by name.
+    const provisional =
+      kind === "DECIONIS" && keyFromCredentials && credentials.provisional === true;
+    if (provisional && mode === "ENFORCEMENT") {
+      throw new GatewayConfigError(
+        "CONFIG_INVALID",
+        "authority.mode",
+        "the stored login is a provisional workspace, which evaluates in shadow only; run agentsafe login with a key from your Decionis organization to enforce",
+      );
+    }
     const failurePolicy = resolve<FailurePolicy>(
       "authority.failurePolicy",
       [
@@ -738,6 +755,7 @@ export class GatewayConfigLoader {
         tenantId,
         timeoutMs,
         allowInsecureLoopback,
+        provisional,
       },
       interception: {
         http: resolve(

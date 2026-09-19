@@ -1,14 +1,22 @@
 # agent-safe.intent/1 — conformance vectors
 
-Cross-implementation hash vectors for `CanonicalIntentHasher`. Each file
+Cross-implementation hash vectors for `CanonicalIntentHasher`, under the
+[Agent-Safe Intent v1](../../spec/intent/v1/README.md) specification. Each file
 contains a `binding`, the expected canonical JSON bytes (`canonical_json`),
-and the SHA-256 digest (`intent_hash`) over those bytes.
+and the SHA-256 digest (`intent_hash`) over those bytes. A `binding` that is
+a whole intent binding (`protocol_version` present) must also parse under the
+published [schema](../../spec/intent/v1/schema.json); the others are
+canonicalization cases over any JSON object and pin the bytes and the digest
+alone.
 
 `IntentConformance.test.ts` discovers **every** vector in this directory and
-validates both the canonicalization and the digest. A vector may also carry
-`mutations`: single-field changes to its binding, each with its own
-`canonical_json` and `intent_hash`, which the test holds to be distinct from
-the base and from one another.
+validates both the canonicalization and the digest, and the installed runtime
+does the same offline: `agentsafe verify intent conformance/vectors`. A vector
+may also carry `mutations`: single-field changes to its binding, each with its
+own `canonical_json` and `intent_hash`, which the test holds to be distinct
+from the base and from one another. The framework coverage vectors under
+[`../frameworks/`](../frameworks) are bindings in the same shape, each
+produced from a framework's own tool-call record.
 
 ## The Compromised Principal Test
 

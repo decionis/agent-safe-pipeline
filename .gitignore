@@ -13,6 +13,8 @@ release/
 # Local-only planning material
 brief.pipeline.md
 brief.host.md
+brief.growth.md
+brief.growth.plan.md
 gtm/
 
 # Private keys, certificates, and machine-local credentials

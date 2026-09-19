@@ -77,6 +77,9 @@ LABEL org.opencontainers.image.source="https://github.com/decionis/agent-safe-pi
       org.opencontainers.image.licenses="Apache-2.0"
 WORKDIR /app
 ENV NODE_ENV=production
+# The surface a hosted call names beside the version: this image. The chart
+# overrides it with `kubernetes`; nothing about the host is derived from it.
+ENV AGENTSAFE_SURFACE=docker
 COPY --from=builder /app/deploy ./
 # The gateway listens on 8080 in plain HTTP behind the platform's TLS; the
 # executor's listener is TLS on 8443 with its certificate and key mounted.

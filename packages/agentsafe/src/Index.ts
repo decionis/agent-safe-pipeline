@@ -438,6 +438,13 @@ export {
   type StreamSummary,
 } from "./verify/VerifyAuditChain.js";
 export {
+  INTENT_PROTOCOL,
+  verifyIntentVector,
+  type IntentVectorFinding,
+  type IntentVectorFindingCode,
+  type IntentVectorReport,
+} from "./verify/VerifyIntentVector.js";
+export {
   ATTESTATION_TYPE,
   JCS_PROFILE,
   MemoryReplayStore,
@@ -507,11 +514,21 @@ export {
 } from "./gateway/GatewayConfig.js";
 export {
   ACTIVATION_MILESTONES,
+  ACTIVATION_PATH,
   ActivationFunnel,
   type ActivationContext,
   type ActivationMilestone,
   type ActivationReport,
+  type ActivationStep,
 } from "./gateway/Activation.js";
+export {
+  INSTALL_SURFACES,
+  SURFACE_ENVIRONMENT,
+  installSurface,
+  processSurface,
+  type InstallSurface,
+  type SurfaceFacts,
+} from "./gateway/InstallSurface.js";
 export {
   DEMO_AUTONOMOUS_LIMIT_MINOR,
   DEMO_HUMAN_LIMIT_MINOR,
@@ -553,6 +570,15 @@ export {
   type NormalizedAction,
 } from "./gateway/InterceptedRequest.js";
 export { RouteTable, derivedAction, type RoutePlan } from "./gateway/RouteTable.js";
+export {
+  ShadowLedger,
+  enforcementSwitch,
+  renderShadowReport,
+  type ShadowCounts,
+  type ShadowReport,
+  type ShadowSummary,
+  type ShadowVerdict,
+} from "./gateway/ShadowLedger.js";
 export {
   Upstream,
   UpstreamResponseTooLarge,
@@ -617,3 +643,10 @@ export {
   type ResolvedGateway,
 } from "./cli/Proxy.js";
 export { runStatus } from "./cli/Status.js";
+export {
+  VERIFY_INTENT_ARGUMENTS,
+  renderVerifyIntentReport,
+  runVerifyIntent,
+  type IntentFileReport,
+  type VerifyIntentReport,
+} from "./cli/VerifyIntent.js";

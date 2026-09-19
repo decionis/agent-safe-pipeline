@@ -733,6 +733,9 @@ export class LocalAuthority {
         authorization: headerString(req.headers.authorization),
         "content-type": headerString(req.headers["content-type"]),
         "idempotency-key": headerString(req.headers["idempotency-key"]),
+        // What the client says about itself, so a test can see the version
+        // and the surface a call carried; the double never acts on it.
+        "user-agent": headerString(req.headers["user-agent"]),
       },
       body: null,
       recomputedHash: null,

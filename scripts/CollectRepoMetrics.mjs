@@ -2,10 +2,14 @@
  * What the repository's path looks like in numbers, collected once a day and
  * kept where a question can be answered later: how many clones and unique
  * cloners, views and unique visitors, stars, forks and watchers the
- * repository had on each day, where the visitors came from, and how many
- * times each package was installed from npm. GitHub keeps traffic for
- * fourteen days and nothing else keeps it at all, which is why this appends
- * to files on the `metrics` branch instead of reading the API when asked.
+ * repository had on each day, where the visitors came from, how many times
+ * each package was installed from npm, and how many times each release asset
+ * was downloaded, which is what Homebrew, the installer and the Linux
+ * packages fetch and therefore the install side of the runtime's funnel.
+ * GitHub keeps traffic for fourteen days and nothing else keeps it at all,
+ * which is why this appends to files on the `metrics` branch instead of
+ * reading the API when asked. Image pulls from GHCR and a tap's Homebrew
+ * installs have no public counter and are not pretended to.
  *
  *   node scripts/CollectRepoMetrics.mjs [--dir metrics]
  *
@@ -38,7 +42,10 @@ export const FILES = {
   referrers: "github-referrers.jsonl",
   paths: "github-paths.jsonl",
   npm: "npm-downloads.jsonl",
+  releases: "github-releases.jsonl",
 };
+/** The most releases read in one collection; the runtime's archives ride on the newest few. */
+const RELEASE_PAGE = 100;
 
 /** One GET, bounded and timed, as JSON; null on a 4xx/5xx so a missing permission is a row not written, not a crash. */
 async function getJson(fetchImpl, url, headers) {
@@ -136,6 +143,30 @@ export function popularRows(date, entries, nameOf) {
   });
 }
 
+/**
+ * Every published release's assets with their download count to date, dated
+ * by the collection day. The counts are cumulative, so a day's downloads are
+ * the difference between two rows; keeping the running total rather than the
+ * difference means a missed day loses nothing.
+ */
+export function releaseRows(date, releases) {
+  return (Array.isArray(releases) ? releases : []).flatMap((release) => {
+    if (typeof release?.tag_name !== "string" || release.draft === true) return [];
+    return (Array.isArray(release.assets) ? release.assets : []).flatMap((asset) =>
+      typeof asset?.name === "string" && asset.name.length > 0 && asset.name.length <= 500
+        ? [
+            {
+              date,
+              tag: release.tag_name,
+              asset: asset.name,
+              downloads: count(asset.download_count),
+            },
+          ]
+        : [],
+    );
+  });
+}
+
 /** npm's daily downloads for one package, as one row per day. */
 export function npmRows(name, range) {
   return (range?.downloads ?? []).flatMap((entry) => {
@@ -160,7 +191,7 @@ export async function collectRepoMetrics({
   const today = clock().toISOString().slice(0, 10);
   await mkdir(dir, { recursive: true });
   const notes = [];
-  const summary = { date: today, traffic: null, repository: null, npm: {} };
+  const summary = { date: today, traffic: null, repository: null, npm: {}, releases: null };
 
   // The repository's public counts need no token at all.
   const repo = await getJson(fetchImpl, `${GITHUB_API}/repos/${repository}`, {});
@@ -221,6 +252,29 @@ export async function collectRepoMetrics({
     }
   }
 
+  // Release assets are public too: what the formula, the installer and the
+  // packages download, counted to date per asset.
+  const releases = await getJson(
+    fetchImpl,
+    `${GITHUB_API}/repos/${repository}/releases?per_page=${String(RELEASE_PAGE)}`,
+    {},
+  );
+  if (releases.body === null) {
+    notes.push(`release downloads unavailable (${releases.status})`);
+  } else {
+    const rows = releaseRows(today, releases.body);
+    const path = join(dir, FILES.releases);
+    await writeRows(
+      path,
+      upsert(await readRows(path), rows, (row) => `${row.date} ${row.tag} ${row.asset}`),
+    );
+    summary.releases = {
+      releases: new Set(rows.map((row) => row.tag)).size,
+      assets: rows.length,
+      downloads: rows.reduce((sum, row) => sum + row.downloads, 0),
+    };
+  }
+
   // npm's counts are public; a package not yet published answers 404 and is noted, not written.
   const npmPath = join(dir, FILES.npm);
   let npmStored = await readRows(npmPath);
@@ -254,6 +308,11 @@ export async function collectRepoMetrics({
   }
   for (const [name, counts] of Object.entries(summary.npm)) {
     lines.push(`- npm ${name}: ${counts.last_week} downloads in the last 7 days`);
+  }
+  if (summary.releases !== null) {
+    lines.push(
+      `- Release assets: ${summary.releases.downloads} downloads to date across ${summary.releases.assets} assets in ${summary.releases.releases} releases`,
+    );
   }
   for (const note of notes) lines.push(`- Note: ${note}`);
   lines.push("");

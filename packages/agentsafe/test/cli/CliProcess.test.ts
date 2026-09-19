@@ -21,6 +21,9 @@ describe("the real process seam", () => {
     expect(statSync(path).mode & 0o777).toBe(0o600);
     files.write(path, "{ }");
     expect(files.read(path)).toBe("{ }");
+    expect(files.list(nested)).toEqual(["credentials.json"]);
+    expect(files.list(path)).toBeNull();
+    expect(files.list(join(directory, "absent"))).toBeNull();
     files.remove(path);
     files.remove(path);
     expect(files.exists(path)).toBe(false);

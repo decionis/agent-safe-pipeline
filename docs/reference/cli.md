@@ -45,7 +45,10 @@ the exit status is `0`. A refusal to start names the setting and never its value
 ### `agentsafe status`
 
 Asks the gateway that the same configuration would start, at `/_agentsafe/status`, and prints its
-mode, authority, counts and evidence head. `--json` prints the answer as it came.
+mode, authority, install surface, counts and evidence head. For a gateway in shadow it goes on to
+print the [shadow report](../shadow-mode.md#from-shadow-to-enforcement): what the authority would
+have allowed, held and refused so far, by action, and the switch that turns enforcement on for
+this configuration. `--json` prints the answer as it came, the report inside it as `shadow`.
 
 ### `agentsafe doctor`
 
@@ -76,7 +79,11 @@ from this machine, as `probe-containment` does, and reported as `REACHABLE`, `CO
 `--json` prints the report as one object, `agent-safe.boundary-test/1`: `cases[]` with `direct`,
 `shadow`, `enforcement` (and `failOpen` for the outage case), `exposure`, `workFlowed`,
 `evidence`, `verdict` (`BOUNDARY_HOLDS` or `BOUNDARY_BROKEN`), `containment` (null without
-targets) and `exit`.
+targets), `exit`, and `activation` (`boundary_tested`, the step of the
+[adoption path](./telemetry.md#activation-milestones) the run is; on a terminal it is the last
+line, `✓ boundary tested`). The `Caller` line above the verdict says what the table shows: the
+same caller on every row, never the reason anything was refused
+([the Compromised Principal Test](../compromised-principal-test.md)).
 
 ### `agentsafe config`
 
@@ -109,6 +116,27 @@ Walks the chained lines of a file, or of standard input, and exits `1` on any br
 Verifies an evidence bundle offline: every file's digest against the manifest, both chains, and the
 signature when `AGENTSAFE_EVIDENCE_PUBLIC_KEY` holds the public key. Also spelled
 `agentsafe verify-bundle`.
+
+### `agentsafe verify intent <file|dir>... [--json]`
+
+Agent-Safe Intent conformance, offline ([the specification](../../spec/intent/v1/README.md#7-conformance)).
+Each file is a vector from [`conformance/`](../../conformance) or a binding of your own; a
+directory is every `.json` file in it. For a vector the canonical bytes and the hash are
+recomputed with the runtime's own canonicalizer and compared, a whole binding is held to the
+strict schema, and every mutation the vector carries must reproduce and hash differently from the
+base and from the others. For a bare binding (no `intent_hash`) the bytes and the hash are
+printed, so another implementation can compare its own.
+
+| Exit | Meaning                                                                            |
+| ---- | ---------------------------------------------------------------------------------- |
+| `0`  | every pinned hash reproduced (or, with nothing pinned, every binding was computed) |
+| `1`  | a vector did not reproduce; each finding names the expected and the computed value |
+| `2`  | no path, an unknown option, or a named file that is not there or not JSON          |
+
+`--json` prints the report as one object, `agent-safe.intent-conformance/1`: `files[]` with
+`kind` (`binding`, `canonical` or `unrecognised`), `ok`, `pinned`, `canonical_json`,
+`intent_hash`, `mutations`, `hashes` and `findings[]`, then `unreadable[]`, `reproduced`,
+`computed`, `failed` and `exit`.
 
 Decision Dossiers are verified with `@decionis/verify`, which uses only Node's built-in crypto:
 `npx @decionis/verify --file dossier.json --jwks https://api.decionis.com/.well-known/decision-dossier-jwks.json`

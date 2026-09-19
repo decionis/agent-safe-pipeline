@@ -27,6 +27,7 @@ Environment=DECIONIS_API_KEY_FILE=%d/decionis-api-key
 Environment=NODE_ENV=production
 Environment=AGENTSAFE_EVIDENCE_DIR=/var/lib/agentsafe/evidence
 Environment=AGENTSAFE_LOG_FORMAT=json
+Environment=AGENTSAFE_SURFACE=linux
 Restart=on-failure
 RestartSec=2
 KillSignal=SIGTERM

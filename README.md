@@ -66,8 +66,10 @@ boundary here binds the second to the exact action, never to the identity that p
 because the realistic adversary is not a forged credential but a valid one: an agent whose identity
 is real, whose credential is current, and whose request is not what anyone authorised. As agents
 get faster and more autonomous, identity becomes a weaker proxy for authority; the
-[Compromised Principal Test](./THREAT-MODEL.md#the-compromised-principal-test) is that failure
-stated as a test the boundary passes on every pull request.
+[Compromised Principal Test](./docs/compromised-principal-test.md) is that failure stated as a
+test the boundary passes on every pull request, with three ways to run it in under a minute and
+what each proves; [THREAT-MODEL.md](./THREAT-MODEL.md#the-compromised-principal-test) states it
+as a threat.
 
 ## Test your boundary
 
@@ -96,14 +98,22 @@ Exposure    6 of 6 adversarial actions reached the target directly, 6 of 6 in sh
 Work        routine actions went through under enforcement, once each
 Evidence    26 chained lines, verified
 
+Caller      the same on every row, and never the reason: the target took every direct request; the boundary decided on the action
 Verdict     BOUNDARY HOLDS
+
+Next: agentsafe proxy --upstream <your service> --mode shadow, then --mode enforcement.
+✓ boundary tested
 ```
 
 The gateways under test are the ones `agentsafe proxy` runs, behind the same listener; the
 authority is the local demo policy. `agentsafe test ledger=ledger.internal:443` also dials a real
 system of record from where you stand and says whether it answers without the gateway, which is
 what an agent could reach by going around. Exit `0` is a boundary that holds; `1` is exposure;
-`--json` is the report as one line. The release smoke test runs it on every packaged binary.
+`--json` is the report as one line. The release smoke test runs it on every packaged binary. The
+`Caller` line is the point: nothing above was refused for who asked, only for what was asked,
+which is the [Compromised Principal Test](./docs/compromised-principal-test.md) in one table; the
+last line is the step of the [adoption path](./docs/reference/telemetry.md#activation-milestones)
+the run is.
 
 ## Five-minute quickstart
 
@@ -154,7 +164,10 @@ once, byte for byte, with the dossier id beside the upstream's own answer. `{"am
 and, with a terminal, its own color: `ALLOW`, `BLOCK`, `ESCALATE`, `SHADOW`, `AUTHORITY
 UNAVAILABLE`. `--verbose` shows the chained evidence lines; `agentsafe init` writes the
 configuration file; `agentsafe doctor` says what would stop it from governing; `agentsafe login`
-connects a Decionis key, after which the same gateway asks Decionis, in shadow first. The
+connects a Decionis key, after which the same gateway asks Decionis, in shadow first. A gateway in
+shadow keeps its own [shadow report](./docs/shadow-mode.md#from-shadow-to-enforcement): what
+enforcement would have held or refused so far, by action, which `agentsafe status` prints and the
+gateway prints when it stops, ending with the one switch that turns enforcement on. The
 [quickstart](./docs/quickstart/README.md) is the full walk, and the
 [CLI reference](./docs/reference/cli.md) every command.
 
@@ -356,6 +369,15 @@ npx -y @decionis/verify@0.3.0 \
 See the [corpus README](./dossiers/README.md) for regeneration, provenance, expected failures, and
 the trust boundary between synthetic conformance and production verification.
 
+The intent side of the same offline check is `agentsafe verify intent`: every vector under
+[`conformance/`](./conformance) reproduced from its bytes by the installed runtime, or the
+canonical bytes and hash of a binding of your own, printed to compare with another
+implementation's ([Agent-Safe Intent v1](./spec/intent/v1/README.md#7-conformance)):
+
+```bash
+agentsafe verify intent conformance/vectors conformance/agent-safe-intent-v1.json
+```
+
 ## Architecture
 
 ```text
@@ -553,20 +575,22 @@ Profiles of the protocol: the [Banking Execution Authority Profile (BEAP)](https
 
 Proof-of-human infrastructure: the [proof-of-human infrastructure page](https://decionis.com/proof-of-human-infrastructure) on the platform site says what the human-authority layer is — a verified, present person on their own device, bound to one exact action, sealed in a signed Presence Record the authority re-checks before commit — and the [Presence property](https://presence.decionis.com) is where it runs; this repository's `PresenceApprovalCoordinator` and the `examples/local-escalation`, `examples/presence-live-approval` and `examples/presence-managed-approval` examples are the reference for resolving an ESCALATE with it. Production enforcement is sales-assisted; the loopback double simulates the ceremony and proves nothing about a real one.
 
+The execution intent itself is published as [Agent-Safe Intent v1](./spec/intent/v1/README.md) (`agent-safe.intent/1`): the binding, its canonical form and hash, the requirement that every single-field change is another intent, conformance against the vectors under [`conformance/`](./conformance), a JSON Schema generated from the reference implementation, a [changelog](./spec/intent/v1/CHANGELOG.md), and the change process. It is the profile Decionis publishes and implements, not a standard approved by any body. `agentsafe verify intent <file|dir>` runs the corpus offline, or prints the bytes and hash of a binding of your own to compare; [`spec/intent/v1/frameworks.md`](./spec/intent/v1/frameworks.md) says what the OpenAI Responses API and Agents SDK, the Vercel AI SDK and LangChain tool-call records carry of a binding and what the adapter adds, from vectors the reference test reproduces.
+
 Companion notes on the Execution Authority model, the authorization protocol, Presence-verified human approval, and Decision Dossiers are in preparation. Following this repository's discovery rules, a publication link is added here only after its canonical article resolves publicly.
 
-| Research concept              | Implementation in this repository                                                                                                                                                                  |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Execution Authority boundary  | `IntentCapture` -> `DecionisGate` -> `SafeExecutor`                                                                                                                                                |
-| Protocol contract             | Exactly the Decionis `ExecutionAuthorityRequest` and `ExecutionIntentBinding` contract on the wire; `DecionisGate` and `DecionisGrantVerifier` claim and finalize against the published OpenAPI    |
-| Intent integrity              | `CanonicalIntentHasher` plus the [`conformance/`](./conformance) hash vectors                                                                                                                      |
-| Human approval evidence       | DIRECT `PresenceApprovalCoordinator` or MANAGED `DecionisGate` polling; both require Presence receipt verification and Decionis re-evaluation                                                      |
-| Trusted execution             | Sealed `ActionRegistry` and atomic single-use grant consumption in `SafeExecutor`                                                                                                                  |
-| Decision evidence             | `decisionId` and `dossierId` on every gate decision; executed results retain the consumed-grant binding                                                                                            |
-| Failure semantics             | Fail-closed production invariants and [`THREAT-MODEL.md`](./THREAT-MODEL.md)                                                                                                                       |
-| Observation without authority | `ShadowPipeline` over a `SHADOW`-mode gate: failure-isolated, bounded, grant-free, and rejected by `SafeExecutor`; see [`docs/shadow-mode.md`](./docs/shadow-mode.md)                              |
-| MCP governance                | [`examples/mcp-tool-gate`](./examples/mcp-tool-gate)                                                                                                                                               |
-| Operational patterns          | [`examples/shopify-refund-agent`](./examples/shopify-refund-agent), [`examples/github-deploy-agent`](./examples/github-deploy-agent), [`examples/procurement-agent`](./examples/procurement-agent) |
+| Research concept              | Implementation in this repository                                                                                                                                                                                          |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Execution Authority boundary  | `IntentCapture` -> `DecionisGate` -> `SafeExecutor`                                                                                                                                                                        |
+| Protocol contract             | Exactly the Decionis `ExecutionAuthorityRequest` and `ExecutionIntentBinding` contract on the wire; `DecionisGate` and `DecionisGrantVerifier` claim and finalize against the published OpenAPI                            |
+| Intent integrity              | [Agent-Safe Intent v1](./spec/intent/v1/README.md): `CanonicalIntentHasher`, the [`conformance/`](./conformance) hash vectors, the published [schema](./spec/intent/v1/schema.json), and `agentsafe verify intent` offline |
+| Human approval evidence       | DIRECT `PresenceApprovalCoordinator` or MANAGED `DecionisGate` polling; both require Presence receipt verification and Decionis re-evaluation                                                                              |
+| Trusted execution             | Sealed `ActionRegistry` and atomic single-use grant consumption in `SafeExecutor`                                                                                                                                          |
+| Decision evidence             | `decisionId` and `dossierId` on every gate decision; executed results retain the consumed-grant binding                                                                                                                    |
+| Failure semantics             | Fail-closed production invariants and [`THREAT-MODEL.md`](./THREAT-MODEL.md)                                                                                                                                               |
+| Observation without authority | `ShadowPipeline` over a `SHADOW`-mode gate: failure-isolated, bounded, grant-free, and rejected by `SafeExecutor`; see [`docs/shadow-mode.md`](./docs/shadow-mode.md)                                                      |
+| MCP governance                | [`examples/mcp-tool-gate`](./examples/mcp-tool-gate)                                                                                                                                                                       |
+| Operational patterns          | [`examples/shopify-refund-agent`](./examples/shopify-refund-agent), [`examples/github-deploy-agent`](./examples/github-deploy-agent), [`examples/procurement-agent`](./examples/procurement-agent)                         |
 
 ## Repository map
 
@@ -590,9 +614,11 @@ Companion notes on the Execution Authority model, the authorization protocol, Pr
 - [`deploy/`](./deploy) — the deployment kit: the executor image, conformance-tested Kubernetes manifests for the agent zone and the executor zone with Secrets referenced and never written, and the runbook from shadow to enforcement.
 - [`ARCHITECTURE.md`](./ARCHITECTURE.md) and [`THREAT-MODEL.md`](./THREAT-MODEL.md) — trust boundary and abuse analysis.
 - [`OPEN-CORE.md`](./OPEN-CORE.md) — what is Apache-2.0 here, what Decionis operates, and the seam between them.
-- [`docs/`](./docs) — concepts, execution intent, outcomes, human approval, [Presence Evidence semantics](./docs/presence-evidence.md), the [remote CRO sequence](./docs/remote-cro-authorization.md), shadow mode, Decision Dossiers, trust boundary, the [executor's chained evidence](./docs/executor-evidence.md), [what the executor implements of the BEAP v0.1 banking profile](./docs/beap-conformance.md), [incident response for the executor](./docs/incident-response.md), [where a bypass of the executor is actually stopped](./docs/bypass-resistance.md), and assurance notes.
+- [`docs/`](./docs) — concepts, execution intent, [the Compromised Principal Test](./docs/compromised-principal-test.md), outcomes, human approval, [Presence Evidence semantics](./docs/presence-evidence.md), the [remote CRO sequence](./docs/remote-cro-authorization.md), shadow mode, Decision Dossiers, trust boundary, the [executor's chained evidence](./docs/executor-evidence.md), [what the executor implements of the BEAP v0.1 banking profile](./docs/beap-conformance.md), [incident response for the executor](./docs/incident-response.md), [where a bypass of the executor is actually stopped](./docs/bypass-resistance.md), and assurance notes.
+- [`spec/intent/v1`](./spec/intent/v1) — Agent-Safe Intent v1: the specification, the JSON Schema generated from the reference implementation, the changelog, and the framework coverage matrix.
 - [`conformance/agent-safe-intent-v1.json`](./conformance/agent-safe-intent-v1.json) — portable canonical-hash test vector.
 - [`conformance/vectors/`](./conformance/vectors/) — edge-case canonical-hash vectors (Unicode/astral, NFC vs NFD, negative zero, fractional/exponent numbers, nested arrays, UTF-16 key sort order) and the Compromised Principal Test as a vector (one intent, eight single-field mutations, nine distinct hashes), auto-discovered by the conformance test.
+- [`conformance/frameworks/`](./conformance/frameworks/) — the same refund proposal as an OpenAI `function_call` item, a Vercel AI SDK `tool-call` part and a LangChain `ToolCall`, each with the proposal, the trusted context, the binding, the hash, and a coverage row over the eight producer capabilities.
 - [`dossiers/`](./dossiers/) — reproducible synthetic Decision Dossier corpus with canonical bytes, SHA-256 digests, Ed25519 signatures, and a deliberately published corpus key.
 - [`tests/integration/contract/`](./tests/integration/contract/) — loopback Decionis and Presence stubs that exercise the packed package's complete wire contract over real HTTP.
 - [`FIXTURE-PROVENANCE.md`](./FIXTURE-PROVENANCE.md) — origin and permitted use of every fixture family.

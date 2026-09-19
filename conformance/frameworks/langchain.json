@@ -1,0 +1,93 @@
+{
+  "description": "A LangChain ToolCall, as an AIMessage carries it in tool_calls (LangGraph agents pass the same object to a ToolNode). The args are already an object and the id is optional; everything but the name and the args is the trusted runtime's to add.",
+  "framework": "langchain",
+  "record": {
+    "type": "tool_call",
+    "id": "call_synthetic_3",
+    "name": "refund_order",
+    "args": {
+      "orderId": "synthetic-1",
+      "amountMinor": 35000,
+      "currency": "USD"
+    }
+  },
+  "proposal": {
+    "action": "refund_order",
+    "target": "shopify:order:synthetic-1",
+    "parameters": {
+      "orderId": "synthetic-1",
+      "amountMinor": 35000,
+      "currency": "USD"
+    }
+  },
+  "trusted_context": {
+    "tenantId": "00000000-0000-4000-8000-000000000002",
+    "actor": {
+      "id": "synthetic-support-agent",
+      "type": "AI_AGENT",
+      "runtime": "langchain"
+    },
+    "downstreamTarget": {
+      "system": "shopify",
+      "operation": "refund",
+      "endpoint": "POST /refunds"
+    },
+    "context": {
+      "source": "conformance",
+      "tool_call_id": "call_synthetic_3"
+    },
+    "idempotencyKey": "refund-synthetic-1-langchain-v1"
+  },
+  "capture": {
+    "intent_id": "33333333-3333-4333-8333-333333333333",
+    "captured_at": "2026-09-19T12:00:00.000Z",
+    "ttl_seconds": 60
+  },
+  "binding": {
+    "protocol_version": "agent-safe.intent/1",
+    "tenant_id": "00000000-0000-4000-8000-000000000002",
+    "intent_id": "33333333-3333-4333-8333-333333333333",
+    "captured_at": "2026-09-19T12:00:00.000Z",
+    "expires_at": "2026-09-19T12:01:00.000Z",
+    "actor": {
+      "id": "synthetic-support-agent",
+      "type": "AI_AGENT",
+      "runtime": "langchain"
+    },
+    "action": {
+      "type": "refund_order",
+      "resource": "shopify:order:synthetic-1",
+      "parameters": {
+        "orderId": "synthetic-1",
+        "amountMinor": 35000,
+        "currency": "USD"
+      }
+    },
+    "context": {
+      "source": "conformance",
+      "tool_call_id": "call_synthetic_3",
+      "idempotency_key": "refund-synthetic-1-langchain-v1"
+    },
+    "downstream_target": {
+      "system": "shopify",
+      "operation": "refund",
+      "endpoint": "POST /refunds"
+    }
+  },
+  "canonical_json": "{\"action\":{\"parameters\":{\"amountMinor\":35000,\"currency\":\"USD\",\"orderId\":\"synthetic-1\"},\"resource\":\"shopify:order:synthetic-1\",\"type\":\"refund_order\"},\"actor\":{\"id\":\"synthetic-support-agent\",\"runtime\":\"langchain\",\"type\":\"AI_AGENT\"},\"captured_at\":\"2026-09-19T12:00:00.000Z\",\"context\":{\"idempotency_key\":\"refund-synthetic-1-langchain-v1\",\"source\":\"conformance\",\"tool_call_id\":\"call_synthetic_3\"},\"downstream_target\":{\"endpoint\":\"POST /refunds\",\"operation\":\"refund\",\"system\":\"shopify\"},\"expires_at\":\"2026-09-19T12:01:00.000Z\",\"intent_id\":\"33333333-3333-4333-8333-333333333333\",\"protocol_version\":\"agent-safe.intent/1\",\"tenant_id\":\"00000000-0000-4000-8000-000000000002\"}",
+  "intent_hash": "sha256:72e34c9754c82b3cfa820410a470874f7a364dd113cf3be82ed829aebccb8673",
+  "coverage": {
+    "action_identity": "native",
+    "parameters": "native",
+    "target_identity": "adapter",
+    "principal": "adapter",
+    "expiry": "adapter",
+    "idempotency": "adapter",
+    "intent_digest": "adapter",
+    "effect_correlation": "native"
+  },
+  "notes": {
+    "effect_correlation": "the ToolMessage carries the same id as tool_call_id; the id is optional on the call",
+    "idempotency": "id identifies the model's call, not a retry boundary; the runtime chooses the key"
+  }
+}

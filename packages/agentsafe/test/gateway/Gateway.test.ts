@@ -267,6 +267,8 @@ describe("the gateway in enforcement with the demo authority", () => {
     const events = io.out.map((line) => (JSON.parse(line) as { event: string }).event);
     expect(events).toContain("GATEWAY_STARTED");
     expect(events.at(-1)).toBe("GATEWAY_STOPPED");
+    expect(events).not.toContain("SHADOW_REPORT");
+    expect(gateway.status().shadow).toBeNull();
     const milestones = io.out
       .map((line) => JSON.parse(line) as { event: string; milestone?: string })
       .filter((line) => line.event === "ACTIVATION")
@@ -369,6 +371,28 @@ describe("the gateway in shadow", () => {
     const failed = await gateway.govern(request("POST", "/hang", { amount: 1 }), "http.post");
     expect(failed.status).toBe(502);
     expect(json(failed.body)["reason_codes"]).toEqual(["UPSTREAM_UNREACHABLE"]);
+    // The ledger counts every settled observation by verdict and action (the
+    // upstream that hung was still observed: the authority would have allowed
+    // it), and the status carries it; in enforcement there is no ledger.
+    await gateway.govern(request("POST", "/payments", { amount: 5 }), "http.post");
+    await settle();
+    const status = gateway.status();
+    expect(status.shadow).toMatchObject({
+      observed: 3,
+      would: { ALLOW: 2, ESCALATE: 0, BLOCK: 1, NONE: 0 },
+      by_action: { "http.post": { ALLOW: 2, ESCALATE: 0, BLOCK: 1, NONE: 0 } },
+    });
+    expect(status.shadow?.since).not.toBeNull();
+    // Stopping a shadow gateway prints its report, then the stop line.
+    gateway.stopped("SIGINT");
+    const tail = io.out.slice(-2).map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(tail[0]).toMatchObject({
+      event: "SHADOW_REPORT",
+      shadow: { observed: 3 },
+      enforce: expect.stringContaining("--mode enforcement") as unknown,
+    });
+    expect(tail[1]).toMatchObject({ event: "GATEWAY_STOPPED", signal: "SIGINT" });
+    expect(gateway.enforcementSwitch).toContain("AGENTSAFE_MODE=enforcement");
     await gateway.close();
   }, 20_000);
 });
@@ -500,6 +524,67 @@ describe("the gateway with a managed escalation", () => {
     });
     await gateway.close();
   }, 30_000);
+});
+
+describe("what a hosted call says about where the runtime came from", () => {
+  const upstream = new UpstreamDouble();
+  const authority = new LocalAuthority({ policy: demoPolicy });
+  afterAll(async () => {
+    await authority.stop();
+    await upstream.stop();
+  });
+
+  it("carries the runtime, its version and the install surface in the User-Agent, and nothing of the machine", async () => {
+    await upstream.start();
+    await authority.start();
+    const env = {
+      DECIONIS_API_KEY: LOCAL_AUTHORITY_API_KEY,
+      DECIONIS_API_URL: authority.baseUrl,
+      DECIONIS_ALLOW_INSECURE_LOOPBACK: "true",
+      DECIONIS_TENANT_ID: TENANT_ID,
+    };
+    const io = collectedIo();
+    const named = await Gateway.create(testConfig(upstream.baseUrl, { env }), {
+      env,
+      io,
+      version: "9.9.9",
+      surface: "homebrew",
+    });
+    expect(named.config.authority.mode).toBe("SHADOW");
+    expect(named.status().surface).toBe("homebrew");
+    await named.govern(request("POST", "/payments", { amount: 5 }), "http.post");
+    await settle();
+    const call = authority.requests.find((seen) => seen.path.endsWith("/enforce-and-bind"));
+    expect(call?.headers["user-agent"]).toMatch(
+      /^agent-safe-pipeline\/[\w.-]+ \(example=agentsafe-gateway@9\.9\.9; surface=homebrew\)$/,
+    );
+    await named.close();
+    // With no surface known, the token is absent rather than guessed.
+    const unnamed = await Gateway.create(testConfig(upstream.baseUrl, { env }), {
+      env,
+      io,
+      version: "9.9.9",
+      surface: null,
+    });
+    expect(unnamed.status().surface).toBeNull();
+    const before = authority.requests.length;
+    await unnamed.govern(request("POST", "/payments", { amount: 5 }), "http.post");
+    await settle();
+    const later = authority.requests
+      .slice(before)
+      .find((seen) => seen.path.endsWith("/enforce-and-bind"));
+    expect(later?.headers["user-agent"]).toBe(
+      `${String(call?.headers["user-agent"]).split(" (")[0]} (example=agentsafe-gateway@9.9.9)`,
+    );
+    // The environment names the surface when the process is asked to derive it.
+    const derived = await Gateway.create(testConfig(upstream.baseUrl, { env }), {
+      env: { ...env, AGENTSAFE_SURFACE: "kubernetes" },
+      io,
+    });
+    expect(derived.status().surface).toBe("kubernetes");
+    await unnamed.close();
+    await derived.close();
+  }, 20_000);
 });
 
 describe("the forwarded bytes are the bytes the intent bound", () => {

@@ -51,6 +51,8 @@
     "precommit": "node scripts/PreCommit.mjs && pnpm metadata:check && pnpm fixture:check && pnpm dossiers:check && pnpm license:check && pnpm lint && pnpm security && pnpm performance",
     "prepare": "simple-git-hooks",
     "reproducible:compare": "node scripts/ComparePackageBuilds.mjs",
+    "spec:schema": "node scripts/GenerateIntentSchema.mjs",
+    "spec:check": "node scripts/GenerateIntentSchema.mjs --check",
     "security": "pnpm security:production && pnpm security:toolchain",
     "security:production": "pnpm audit --prod --audit-level low",
     "security:toolchain": "pnpm audit --audit-level moderate",
@@ -58,7 +60,7 @@
     "test:automation": "node --test test/automation/*.test.mjs",
     "test:contract": "pnpm --filter @decionis/agent-safe-contract-tests test",
     "typecheck": "pnpm --filter @decionis/agent-safe-pipeline build && pnpm --filter @decionis/agentsafe build && pnpm -r typecheck",
-    "verify": "pnpm format && pnpm lint && pnpm metadata:check && pnpm fixture:check && pnpm dossiers:check && pnpm license:check && pnpm security && pnpm dependabot:check && pnpm discovery && pnpm performance && pnpm typecheck && pnpm test:automation && pnpm test && pnpm build",
+    "verify": "pnpm format && pnpm lint && pnpm metadata:check && pnpm fixture:check && pnpm dossiers:check && pnpm license:check && pnpm security && pnpm dependabot:check && pnpm discovery && pnpm performance && pnpm typecheck && pnpm spec:check && pnpm test:automation && pnpm test && pnpm build",
     "executable": "node scripts/BuildExecutable.mjs",
     "executable:smoke": "packaging/smoke/Smoke.sh packaging/sea/out/agentsafe \"$(node -p \"require('./packages/agentsafe/package.json').version\")\"",
     "examples:prove": "pnpm --filter @decionis/agent-safe-example-golden-adversarial demo && pnpm --filter @decionis/agent-safe-example-whisper-boundary demo && pnpm --filter @decionis/agent-safe-example-crm-outreach demo && pnpm --filter @decionis/agent-safe-example-infra-scale demo && pnpm --filter @decionis/agent-safe-example-trusted-executor demo"

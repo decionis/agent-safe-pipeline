@@ -268,6 +268,20 @@ describe("public surface", () => {
       "signEffectReceipt",
       "watchDirectory",
       "writeCredentials",
+      // The adoption path, the install surface, the shadow report and intent conformance.
+      "ACTIVATION_PATH",
+      "INSTALL_SURFACES",
+      "SURFACE_ENVIRONMENT",
+      "installSurface",
+      "processSurface",
+      "ShadowLedger",
+      "enforcementSwitch",
+      "renderShadowReport",
+      "INTENT_PROTOCOL",
+      "verifyIntentVector",
+      "VERIFY_INTENT_ARGUMENTS",
+      "renderVerifyIntentReport",
+      "runVerifyIntent",
     ];
     expect(Object.keys(surface).sort()).toEqual([...expected].sort());
   });

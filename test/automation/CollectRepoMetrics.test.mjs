@@ -8,6 +8,7 @@ import {
   collectRepoMetrics,
   npmRows,
   popularRows,
+  releaseRows,
   trafficRows,
   upsert,
 } from "../../scripts/CollectRepoMetrics.mjs";
@@ -62,6 +63,19 @@ const routes = {
   [`https://api.github.com/repos/${REPOSITORY}/traffic/popular/paths`]: [
     { path: "/synthetic-owner/synthetic-repo", title: "root", count: 50, uniques: 30 },
   ],
+  [`https://api.github.com/repos/${REPOSITORY}/releases?per_page=100`]: [
+    {
+      tag_name: "v0.2.0",
+      draft: false,
+      assets: [
+        { name: "agentsafe-0.1.0-darwin-arm64.tar.gz", download_count: 12 },
+        { name: "agentsafe-0.1.0-linux-x64.tar.gz", download_count: 7 },
+        { name: "", download_count: 99 },
+      ],
+    },
+    { tag_name: "v0.3.0", draft: true, assets: [{ name: "draft.tar.gz", download_count: 1 }] },
+    { name: "no tag", assets: [] },
+  ],
   "https://api.npmjs.org/downloads/range/last-month/%40decionis%2Fagent-safe-pipeline": {
     downloads: [
       { day: "2026-09-17", downloads: 3 },
@@ -95,6 +109,31 @@ describe("the metrics rows", () => {
       [{ date: "2026-09-18", package: "pkg", downloads: 0 }],
     );
     assert.deepEqual(npmRows("pkg", null), []);
+  });
+
+  it("shape release assets by collection day, skipping drafts and nameless assets", () => {
+    assert.deepEqual(
+      releaseRows(
+        "2026-09-18",
+        routes[`https://api.github.com/repos/${REPOSITORY}/releases?per_page=100`],
+      ),
+      [
+        {
+          date: "2026-09-18",
+          tag: "v0.2.0",
+          asset: "agentsafe-0.1.0-darwin-arm64.tar.gz",
+          downloads: 12,
+        },
+        {
+          date: "2026-09-18",
+          tag: "v0.2.0",
+          asset: "agentsafe-0.1.0-linux-x64.tar.gz",
+          downloads: 7,
+        },
+      ],
+    );
+    assert.deepEqual(releaseRows("2026-09-18", { message: "rate limited" }), []);
+    assert.deepEqual(releaseRows("2026-09-18", [{ tag_name: "v1", assets: "none" }]), []);
   });
 
   it("upserts by key, fresh rows winning, sorted", () => {
@@ -149,6 +188,7 @@ describe("collectRepoMetrics", () => {
       unique_visitors: 20,
     });
     assert.deepEqual(summary.npm, { "@decionis/agent-safe-pipeline": { days: 2, last_week: 7 } });
+    assert.deepEqual(summary.releases, { releases: 1, assets: 2, downloads: 19 });
     assert.deepEqual(notes, ["npm downloads unavailable for @decionis/agentsafe (404)"]);
     for (const call of calls) {
       const authorized = "authorization" in call.headers;
@@ -180,11 +220,26 @@ describe("collectRepoMetrics", () => {
       { date: "2026-09-17", package: "@decionis/agent-safe-pipeline", downloads: 3 },
       { date: "2026-09-18", package: "@decionis/agent-safe-pipeline", downloads: 4 },
     ]);
+    assert.deepEqual(written[FILES.releases], [
+      {
+        date: "2026-09-18",
+        tag: "v0.2.0",
+        asset: "agentsafe-0.1.0-darwin-arm64.tar.gz",
+        downloads: 12,
+      },
+      {
+        date: "2026-09-18",
+        tag: "v0.2.0",
+        asset: "agentsafe-0.1.0-linux-x64.tar.gz",
+        downloads: 7,
+      },
+    ]);
     const text = chunks.join("");
     assert.match(text, /^## Repository metrics, 2026-09-18\n/);
     assert.match(text, /Stars 41, forks 57, watchers 6/);
     assert.match(text, /12 clones by 9 unique cloners; 40 views by 20 unique visitors/);
     assert.match(text, /npm @decionis\/agent-safe-pipeline: 7 downloads in the last 7 days/);
+    assert.match(text, /Release assets: 19 downloads to date across 2 assets in 1 releases/);
     assert.match(text, /Note: npm downloads unavailable for @decionis\/agentsafe \(404\)/);
   });
 
@@ -249,6 +304,7 @@ describe("collectRepoMetrics", () => {
     assert.deepEqual(forbidden.notes, [
       "repository counts unavailable (404)",
       "traffic unavailable (403); the token needs administration read",
+      "release downloads unavailable (404)",
     ]);
   });
 

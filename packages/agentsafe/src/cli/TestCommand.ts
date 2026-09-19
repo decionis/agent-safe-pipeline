@@ -35,6 +35,12 @@ export interface TestReport extends BoundaryTestReport {
   readonly containment: ContainmentReport | null;
   /** 0 when the boundary holds and no named target answered; 1 otherwise. */
   readonly exit: 0 | 1;
+  /**
+   * The step of the adoption path this command is: the test ran, whatever
+   * it found. Reported here because the gateway cannot see a test that ran
+   * before it, as the installer reports `installation`; nothing is sent.
+   */
+  readonly activation: { readonly milestone: "boundary_tested"; readonly at: string };
 }
 
 export interface TestOptions {
@@ -181,6 +187,10 @@ export function renderTestReport(report: TestReport, options: { readonly color: 
         : "BOUNDARY HOLDS";
   lines.push(
     "",
+    row(
+      "Caller",
+      "the same on every row, and never the reason: the target took every direct request; the boundary decided on the action",
+    ),
     row("Verdict", options.color ? `${BOLD}${holds ? GREEN : RED}${verdict}${RESET}` : verdict),
     "",
     dim(
@@ -190,6 +200,7 @@ export function renderTestReport(report: TestReport, options: { readonly color: 
           ? "This is a defect in the runtime, not in your service; please report it with agentsafe test --json."
           : "Put the gateway where the agent must pass through it, and the target where only the gateway reaches it.",
     ),
+    dim(`✓ ${report.activation.milestone.replace(/_/g, " ")}`),
     "",
   );
   return lines.join("\n");
@@ -246,7 +257,12 @@ export async function runTest(
     boundary.verdict === "BOUNDARY_HOLDS" && (containment === null || containment.noneReachable)
       ? 0
       : 1;
-  const report: TestReport = { ...boundary, containment, exit };
+  const report: TestReport = {
+    ...boundary,
+    containment,
+    exit,
+    activation: { milestone: "boundary_tested", at: boundary.at },
+  };
   io.stdout(json ? `${JSON.stringify(report)}\n` : renderTestReport(report, { color: io.color }));
   io.exit(exit);
   return report;
