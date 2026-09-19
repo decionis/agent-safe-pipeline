@@ -1,5 +1,9 @@
 # Execution intent
 
+The binding this page describes is published as [Agent-Safe Intent v1](../spec/intent/v1/README.md):
+the specification, a JSON Schema generated from this package's validator, the changelog, the
+conformance requirements, and the framework coverage matrix. This page is how the runtime uses it.
+
 The versioned `agent-safe.intent/1` authority binding is the Decionis `ExecutionIntentBinding`
 contract: `protocol_version`, `tenant_id`, `intent_id`, `captured_at`, `expires_at`, `actor`,
 `action` (type, resource, parameters), `context`, `downstream_target` (system, operation, optional

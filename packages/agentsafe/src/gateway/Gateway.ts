@@ -39,6 +39,7 @@ import {
 } from "./ForwardHandler.js";
 import type { GatewayConfig } from "./GatewayConfig.js";
 import { gatewayMetrics, type GatewayMetrics } from "./GatewayMetrics.js";
+import { processSurface, type InstallSurface } from "./InstallSurface.js";
 import {
   renderHuman,
   renderJson,
@@ -49,6 +50,7 @@ import {
 } from "./GatewayReport.js";
 import { normalizeRequest, type InterceptedRequest } from "./InterceptedRequest.js";
 import { RouteTable, type RoutePlan } from "./RouteTable.js";
+import { enforcementSwitch, ShadowLedger, type ShadowSummary } from "./ShadowLedger.js";
 import { Upstream, type UpstreamResult } from "./Upstream.js";
 
 /** The gateway's own evidence stream: what it did that the pipeline's audit contract has no event for. */
@@ -84,6 +86,12 @@ export interface GatewayDependencies {
   readonly demoAuthority?: () => Promise<DemoAuthorityHandle>;
   readonly clock?: () => number;
   readonly version?: string;
+  /**
+   * The distribution this process was installed from, carried as `surface`
+   * in the `User-Agent` of hosted calls; derived from the process when
+   * absent, and `null` when it is not one of the named surfaces.
+   */
+  readonly surface?: InstallSurface | null;
 }
 
 /** What `/_agentsafe/status` reports: identifiers and counts, never a value. */
@@ -100,6 +108,10 @@ export interface GatewayStatus {
   readonly evidence: { readonly seq: number; readonly hash: string };
   /** The adoption milestones this process has reached, with when; never a payload. */
   readonly activation: Readonly<Record<ActivationMilestone, string | null>>;
+  /** The distribution this process came from, as sent on hosted calls; null when unknown. */
+  readonly surface: InstallSurface | null;
+  /** In shadow, what the authority would have decided so far, by verdict and action; null in enforcement. */
+  readonly shadow: ShadowSummary | null;
 }
 
 interface HeldEscalation {
@@ -130,6 +142,7 @@ export class Gateway {
   private readonly stopFollowing: readonly (() => void)[];
   private readonly counts: Record<string, number> = {};
   private readonly activation: ActivationFunnel;
+  private readonly ledger = new ShadowLedger();
 
   private constructor(
     public readonly config: GatewayConfig,
@@ -149,6 +162,7 @@ export class Gateway {
     private readonly chain: HashChain,
     private readonly clock: () => number,
     private readonly version: string,
+    private readonly surface: InstallSurface | null,
   ) {
     this.capture = new IntentCapture({ audit, ttlSeconds: config.intentTtlSeconds });
     this.activation = new ActivationFunnel(
@@ -192,6 +206,7 @@ export class Gateway {
     const env = dependencies.env ?? process.env;
     const clock = dependencies.clock ?? (() => Date.now());
     const version = dependencies.version ?? "0.0.0";
+    const surface = dependencies.surface === undefined ? processSurface(env) : dependencies.surface;
     const io: GatewayIo = dependencies.io ?? {
       stdout: (line) => {
         process.stdout.write(`${line}\n`);
@@ -259,10 +274,15 @@ export class Gateway {
       timeoutMs: config.authority.timeoutMs,
       fetch: egress.fetch,
     };
+    // What a hosted call says about where it came from: the runtime and its
+    // version, and the surface it was installed from; never the machine.
     const gate = new DecionisGate({
       ...connection,
       mode: config.authority.mode,
-      source: { example: `agentsafe-gateway@${version}` },
+      source: {
+        example: `agentsafe-gateway@${version}`,
+        ...(surface === null ? {} : { surface }),
+      },
     });
     const verifier = new DecionisGrantVerifier(connection);
     const metrics = gatewayMetrics();
@@ -312,6 +332,7 @@ export class Gateway {
       chain,
       clock,
       version,
+      surface,
     );
     return gateway;
   }
@@ -357,7 +378,18 @@ export class Gateway {
   }
 
   public stopped(signal: string): void {
-    this.report({ event: "GATEWAY_STOPPED", at: new Date(this.clock()).toISOString(), signal });
+    const at = new Date(this.clock()).toISOString();
+    // A shadow run ends with its report: what enforcement would have changed,
+    // and the one switch that turns it on for this configuration.
+    if (this.shadow !== null) {
+      this.report({
+        event: "SHADOW_REPORT",
+        at,
+        shadow: this.ledger.summary(),
+        enforce: enforcementSwitch(this.config),
+      });
+    }
+    this.report({ event: "GATEWAY_STOPPED", at, signal });
   }
 
   public plan(method: string, path: string): RoutePlan {
@@ -388,7 +420,14 @@ export class Gateway {
       counts: { ...this.counts },
       evidence: this.evidence.head,
       activation: this.activation.snapshot(),
+      surface: this.surface,
+      shadow: this.shadow === null ? null : this.ledger.summary(),
     };
+  }
+
+  /** The switch the shadow report ends with, for whoever renders the status elsewhere. */
+  public get enforcementSwitch(): string {
+    return enforcementSwitch(this.config);
   }
 
   public metricsText(): string {
@@ -578,6 +617,11 @@ export class Gateway {
     void run.observation.then((observation: ShadowObservation) => {
       this.metrics.shadowDecisions.inc({ verdict: observation.verdict ?? "NONE" });
       this.count("shadow");
+      this.ledger.record(
+        captured.intent.action,
+        observation.verdict,
+        new Date(this.clock()).toISOString(),
+      );
       this.report({
         ...this.interception(request, captured, startedAt),
         state: "SHADOW",

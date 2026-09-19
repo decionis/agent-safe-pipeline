@@ -46,6 +46,43 @@ describe("agentsafe status", () => {
     expect(wide.out.join("")).toContain("Gateway       http://127.0.0.1:8091");
     expect(wide.out.join("")).toContain("none yet");
     expect(wide.out.join("")).toContain("fail-open");
+    expect(wide.out.join("")).toContain("Surface       not named; set AGENTSAFE_SURFACE");
+    expect(wide.out.join("")).not.toContain("Shadow report");
+  });
+
+  it("prints the shadow report of a gateway in shadow, ending with the switch", async () => {
+    const shadow = {
+      ...status,
+      mode: "SHADOW",
+      surface: "homebrew",
+      shadow: {
+        since: "2026-09-19T10:00:00.000Z",
+        until: "2026-09-19T12:00:00.000Z",
+        observed: 184,
+        would: { ALLOW: 171, ESCALATE: 9, BLOCK: 4, NONE: 0 },
+        by_action: {
+          "http.post": { ALLOW: 150, ESCALATE: 7, BLOCK: 3, NONE: 0 },
+          "payments.refund": { ALLOW: 21, ESCALATE: 2, BLOCK: 1, NONE: 0 },
+        },
+      },
+    };
+    const io = fakeProcess({
+      env: { AGENTSAFE_MODE: "shadow" },
+      fetch: (async () => new Response(JSON.stringify(shadow))) as typeof fetch,
+    });
+    await runStatus(io, ["--upstream", "http://localhost:3000"]);
+    const text = io.out.join("");
+    expect(text).toContain("Surface       homebrew");
+    expect(text).toContain("Shadow report");
+    expect(text).toContain("Observed     184 consequential actions, every one forwarded unchanged");
+    expect(text).toContain("Would hold   9");
+    expect(text).toContain("By action    http.post          160");
+    expect(text).toContain("payments.refund     24");
+    expect(text).toContain(
+      "Enforcement would have held 9 and refused 4 of 184; 171 would have gone through as they did.",
+    );
+    // The mode came from the environment, so the switch is the variable.
+    expect(text).toContain("Turn it on   set `AGENTSAFE_MODE=enforcement` and restart");
   });
 
   it("says when nothing answers, and when the configuration cannot say where to ask", async () => {

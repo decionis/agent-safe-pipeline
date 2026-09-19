@@ -19,6 +19,7 @@ export function usage(version: string): string {
     "Evidence",
     "  verify chain [file]  Verify a log's hash chains offline",
     "  verify bundle <dir>  Verify an evidence bundle offline",
+    "  verify intent <path> Check Agent-Safe Intent vectors, or hash a binding, offline",
     "",
     "Trusted executor",
     "  serve                Run the proposal executor from the environment",

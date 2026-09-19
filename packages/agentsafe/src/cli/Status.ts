@@ -1,4 +1,5 @@
 import { GATEWAY_PREFIX, type GatewayStatus } from "../gateway/Gateway.js";
+import { enforcementSwitch, renderShadowReport } from "../gateway/ShadowLedger.js";
 import { parseArguments, ArgumentError } from "./Arguments.js";
 import type { CliProcess } from "./CliProcess.js";
 import { explainRefusal, resolveGateway, PROXY_ARGUMENTS } from "./Proxy.js";
@@ -13,9 +14,12 @@ const MAX_STATUS_BYTES = 64 * 1024;
 export async function runStatus(io: CliProcess, argv: readonly string[]): Promise<void> {
   let parsed;
   let listen: { host: string; port: number };
+  let enforce: string;
   try {
     parsed = parseArguments(argv, PROXY_ARGUMENTS);
-    listen = resolveGateway(io, parsed).config.listen;
+    const { config } = resolveGateway(io, parsed);
+    listen = config.listen;
+    enforce = enforcementSwitch(config);
   } catch (error) {
     io.stderr(
       explainRefusal(error).replace("refused to start", "cannot resolve where the gateway listens"),
@@ -56,6 +60,7 @@ export async function runStatus(io: CliProcess, argv: readonly string[]): Promis
         `Authority     ${status.authority}`,
         `Failure       ${status.failure_policy === "FAIL_CLOSED" ? "fail-closed" : "fail-open (explicit)"}`,
         `Routes        ${status.routes}`,
+        `Surface       ${status.surface ?? "not named; set AGENTSAFE_SURFACE"}`,
         `Held          ${status.held}`,
         `Counts        ${counts === "" ? "none yet" : counts}`,
         `Evidence      seq ${status.evidence.seq}`,
@@ -63,6 +68,18 @@ export async function runStatus(io: CliProcess, argv: readonly string[]): Promis
         "",
       ].join("\n"),
     );
+    // A gateway in shadow carries its report: what enforcement would have
+    // changed so far, and the switch that turns it on. An older gateway
+    // answers without the field, which reads as no report.
+    const shadow = status.shadow ?? null;
+    if (shadow !== null) {
+      io.stdout(
+        `\n${renderShadowReport(
+          { event: "SHADOW_REPORT", at: new Date().toISOString(), shadow, enforce },
+          { color: io.color },
+        )}`,
+      );
+    }
   }
   io.exit(0);
 }

@@ -126,6 +126,36 @@ describe("the gateway configuration", () => {
     });
     expect(production.setting).toBe("authority");
     expect(production.message).toContain("production");
+    expect(config.authority.provisional).toBe(false);
+  });
+
+  it("knows a provisional workspace, runs it in shadow, and refuses to enforce with it", () => {
+    const credentials = {
+      apiKey: "synthetic-provisional-key",
+      tenantId: TENANT_ID,
+      endpoint: null,
+      provisional: true,
+    };
+    const shadow = load({ flags: { upstream: "https://api.example" }, credentials });
+    expect(shadow.authority).toMatchObject({ kind: "DECIONIS", mode: "SHADOW", provisional: true });
+    const enforcing = refusal({
+      flags: { upstream: "https://api.example", mode: "enforcement" },
+      credentials,
+    });
+    expect(enforcing.setting).toBe("authority.mode");
+    expect(enforcing.message).toContain("provisional workspace");
+    // A key in the environment is the operator's own; the stored login is not read for it.
+    const owned = load({
+      flags: { upstream: "https://api.example", mode: "enforcement" },
+      env: { DECIONIS_API_KEY: "synthetic-owned-key", DECIONIS_TENANT_ID: TENANT_ID },
+      credentials,
+    });
+    expect(owned.authority).toMatchObject({ mode: "ENFORCEMENT", provisional: false });
+    // The demo authority never has a workspace at all.
+    expect(
+      load({ flags: { upstream: "https://api.example", authority: "local" }, credentials })
+        .authority.provisional,
+    ).toBe(false);
   });
 
   it("applies precedence: flags over environment over file over defaults, per setting", () => {

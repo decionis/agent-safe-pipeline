@@ -12,3 +12,5 @@ verifiers/spring/target
 verifiers/rust/target
 verifiers/dotnet/**/bin
 verifiers/dotnet/**/obj
+# Generated from the pipeline by scripts/GenerateIntentSchema.mjs; a test holds it byte for byte
+spec/intent/v1/schema.json

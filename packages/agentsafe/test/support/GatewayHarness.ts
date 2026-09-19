@@ -164,6 +164,14 @@ export function fakeProcess(
   const files: CliFiles = {
     exists: (path) => stored.has(path),
     read: (path) => stored.get(path)?.text ?? null,
+    list: (path) => {
+      const prefix = path.endsWith("/") ? path : `${path}/`;
+      const names = [...stored.keys()]
+        .filter((key) => key.startsWith(prefix))
+        .map((key) => key.slice(prefix.length).split("/")[0] ?? "")
+        .filter((name) => name !== "");
+      return names.length === 0 ? null : [...new Set(names)].sort();
+    },
     write: (path, text, mode) => {
       stored.set(path, { text, mode });
     },

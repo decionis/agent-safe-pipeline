@@ -124,6 +124,7 @@ describe("the Helm chart", { skip: available ? false : "helm is not installed" }
     assert.equal(env.DECIONIS_API_KEY_FILE, "/var/run/agent-safe/secrets/api-key");
     assert.equal(env.AGENTSAFE_CONFIG, "/etc/agentsafe/agentsafe.yaml");
     assert.equal(env.AGENTSAFE_LOG_FORMAT, "json");
+    assert.equal(env.AGENTSAFE_SURFACE, "kubernetes");
     assert.ok(!("DECIONIS_API_KEY" in env));
     const secret = pod.volumes.find((volume) => volume.name === "secrets").secret;
     assert.equal(secret.secretName, "decionis");
