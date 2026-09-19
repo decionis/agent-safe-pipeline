@@ -10,3 +10,5 @@ Formula/*.rb
 charts/*/templates
 verifiers/spring/target
 verifiers/rust/target
+verifiers/dotnet/**/bin
+verifiers/dotnet/**/obj

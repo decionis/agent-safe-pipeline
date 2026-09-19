@@ -53,7 +53,7 @@ and a sequence of requests with the outcome the procedure MUST reach for each.
 
 ## Running them
 
-Four implementations in this repository run every vector, and must agree:
+Five implementations in this repository run every vector, and must agree:
 
 - the reference in `@decionis/agentsafe`, `verifyProviderRequest`, through
   `packages/agentsafe/test/verify/VerifyingProvider.test.ts`, which discovers every file here;
@@ -62,7 +62,9 @@ Four implementations in this repository run every vector, and must agree:
 - the independent Java implementation in [`verifiers/spring`](../../verifiers/spring/README.md),
   through `mvn -B test` in that module;
 - the independent Rust implementation in [`verifiers/rust`](../../verifiers/rust/README.md),
-  through `cargo test --all-features` in that crate.
+  through `cargo test --all-features` in that crate;
+- the independent .NET implementation in [`verifiers/dotnet`](../../verifiers/dotnet/README.md),
+  through `dotnet test` in that solution.
 
 An implementation elsewhere claims a level by passing every vector at that level with the outcome
 each names, and says so in the terms of the profile's section 8.
