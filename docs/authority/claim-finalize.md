@@ -46,9 +46,11 @@ mapping in [HTTP interception](../gateway/http-interception.md#what-each-outcome
 
 When the upstream is a verifying provider that answered with its own signed receipt of the effect
 (`x-agent-safe-effect-receipt`, the [profile's](./verifying-provider.md) VP-3), the finalization
-carries it as `effect_receipt`, whatever the outcome above: the executor reads nothing in it, and
-the authority verifies it against the key the organisation registered for the provider, records
-it with the commit evidence verified or not, and never refuses a finalization for it.
+carries it as `effect_receipt`, whatever the outcome above: the executor verifies nothing in it,
+and the authority verifies it against the key the organisation registered for the provider, records
+it with the commit evidence verified or not, and never refuses a finalization for it. The
+executor's effect plane compares what the receipt states with what it observed itself, and reports
+a disagreement as `EFFECT_MISMATCH` ([BEAP conformance](../beap-conformance.md)).
 
 ## Never twice
 

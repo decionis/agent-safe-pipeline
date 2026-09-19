@@ -294,10 +294,19 @@ the provider accepted at step 8: the `2xx` of an effect and the `4xx` of the pro
 alike. A signed refusal is evidence too. A response to a request refused at steps 0 to 8 carries no
 receipt: nothing was claimed of the provider.
 
-**What the executor does.** `@decionis/agentsafe` reads nothing in the receipt. It forwards the
+**What the executor does.** `@decionis/agentsafe` verifies nothing in the receipt. It forwards the
 header's value verbatim as `effect_receipt` in `finalize-token`, whatever the attempt's outcome,
 when the value has the shape of a compact JWS and is at most 20000 characters; otherwise it drops
-it, since the authority refuses a malformed body and the commit outcome would be lost with it.
+it, since the authority refuses a malformed body and the commit outcome would be lost with it. Its
+effect plane does read what the receipt _states_, the `effect` block's status and digest, and
+compares that statement with its own account: the outcome the provider answered with, the effect
+the grant authorised, and the effect the adapter observed. Agreement is recorded; a receipt that
+names no digest is recorded as silent; a receipt whose status contradicts the outcome, or whose
+digest differs from the authorised effect or from the observation, is a mismatch the executor
+reports as `EFFECT_MISMATCH`, confirms nothing from, and treats as the same exception as an
+observation that did not match. A statement is not a verification: the authority's verdict on the
+signature is the one that counts, and the executor's comparison is what lets two witnesses'
+disagreement be seen at all.
 
 **What the authority does.** It verifies the signature under the key the organisation registered
 for `kid`, requires `iss` to be the issuer registered with that key and `aud` to be itself, and
@@ -316,7 +325,7 @@ evidence, not the commit.
 **What a receipt is not.** A receipt authorises nothing and consumes nothing. A receipt for a grant
 the authority never claimed is recorded as a binding mismatch, and a receipt cannot be presented in
 place of an attestation. The executor's effect plane keeps reconciling its own observation; the
-receipt is the provider's statement beside it, not a replacement for it.
+receipt is the provider's statement beside it, compared with it, not a replacement for it.
 
 ## 8. Test vectors and claiming conformance
 

@@ -5,6 +5,8 @@ const LOOPBACK_ORIGIN = "http://127.0.0.1";
 export interface ScriptedAnswer {
   readonly status: number;
   readonly body: unknown;
+  /** The provider's effect receipt to answer with, when it is a verifying provider; built from the request when a function. */
+  readonly receipt?: string | ((headers: IncomingMessage["headers"]) => string);
 }
 
 /**
@@ -72,8 +74,12 @@ export class BankingDouble {
           headers: request.headers,
           body: Buffer.concat(chunks).toString("utf8"),
         });
-        const reply = (status: number, body: unknown): void => {
-          response.writeHead(status, { "content-type": "application/json" });
+        const reply = (
+          status: number,
+          body: unknown,
+          headers: Record<string, string> = {},
+        ): void => {
+          response.writeHead(status, { "content-type": "application/json", ...headers });
           response.end(typeof body === "string" ? body : JSON.stringify(body));
         };
         if (method === "POST" && path === "/actions") {
@@ -83,7 +89,14 @@ export class BankingDouble {
             return;
           }
           const next = this.answers.length > 1 ? this.answers.shift() : this.answers[0];
-          return reply(next?.status ?? 202, next?.body ?? { status: "ACCEPTED" });
+          // A verifying provider's receipt of the effect, when the script names one.
+          const receipt =
+            typeof next?.receipt === "function" ? next.receipt(request.headers) : next?.receipt;
+          return reply(
+            next?.status ?? 202,
+            next?.body ?? { status: "ACCEPTED" },
+            receipt === undefined ? {} : { "x-agent-safe-effect-receipt": receipt },
+          );
         }
         if (method === "GET" && path.startsWith("/actions/")) {
           const answer = this.readBack;

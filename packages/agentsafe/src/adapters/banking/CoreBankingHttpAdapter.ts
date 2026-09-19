@@ -7,6 +7,7 @@ import type {
 } from "../../credential/DownstreamCredential.js";
 import { SignedRequestCredential } from "../../credential/SignedRequestCredential.js";
 import { grantOf } from "../../credential/GrantOf.js";
+import { EFFECT_RECEIPT_HEADER } from "../../verify/EffectReceipt.js";
 import type { FetchLike } from "../../handlers/HandlerRegistration.js";
 import { jcsDigest, type Sha256 } from "../JcsDigest.js";
 import {
@@ -100,6 +101,9 @@ export class CoreBankingHttpAdapter implements BankingTransport {
       throw new IndeterminateOutcome("PROVIDER_UNREACHABLE");
     }
     const text = await response.text();
+    // A verifying provider answers with its signed receipt of the effect;
+    // it rides with the result, unread here, for the authority to verify.
+    const receipt = response.headers.get(EFFECT_RECEIPT_HEADER);
     if (response.status >= 500)
       throw new IndeterminateOutcome("PROVIDER_SERVER_ERROR", String(response.status));
     let parsed: z.infer<typeof ResponseSchema>;
@@ -126,6 +130,7 @@ export class CoreBankingHttpAdapter implements BankingTransport {
         observationMethod: "DOWNSTREAM_ACK",
         providerGenerated: true,
         source: this.options.source,
+        receipt,
       };
     }
     if (POSTED.has(status)) {
@@ -140,6 +145,7 @@ export class CoreBankingHttpAdapter implements BankingTransport {
         observationMethod: observed.method,
         providerGenerated: true,
         source: this.options.source,
+        receipt,
       };
     }
     if (ACCEPTED.has(status)) {
@@ -154,6 +160,7 @@ export class CoreBankingHttpAdapter implements BankingTransport {
         observationMethod: "DOWNSTREAM_ACK",
         providerGenerated: true,
         source: this.options.source,
+        receipt,
       };
     }
     throw new IndeterminateOutcome("PROVIDER_STATUS_UNKNOWN", status);

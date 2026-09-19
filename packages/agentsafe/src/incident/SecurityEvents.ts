@@ -79,12 +79,21 @@ export const SecurityEventSchema = z.discriminatedUnion("event", [
     intent_id: identifier,
     comparison: z.enum(["MATCH", "MISMATCH", "PENDING"]),
     confirmation: code,
+    // The provider's receipt against this account; ABSENT when its answer carried none.
+    receipt: z.enum(["MATCH", "MISMATCH", "SILENT", "ABSENT"]),
   }),
   z.strictObject({
     event: z.literal("EFFECT_MISMATCH"),
     intent_id: identifier,
     // Field names from the family's own projection, never their values.
     fields: z.array(name).max(16),
+  }),
+  z.strictObject({
+    // The provider's signed receipt contradicts what this executor observed
+    // or answered: two witnesses disagree, and someone must reconcile them.
+    event: z.literal("EFFECT_RECEIPT_MISMATCH"),
+    intent_id: identifier,
+    receipt_status: code,
   }),
   z.strictObject({
     event: z.literal("EFFECT_PENDING_CONFIRMATION"),

@@ -1049,12 +1049,32 @@ export class TrustedExecutorService {
     const fields = Array.isArray(block["mismatched_fields"])
       ? block["mismatched_fields"].filter((field): field is string => typeof field === "string")
       : [];
+    const receipt = block["receipt_comparison"];
     this.events.emit({
       event: "EFFECT_OBSERVED",
       intent_id: captured.intent.intentId,
       comparison: comparison === "MATCH" || comparison === "MISMATCH" ? comparison : "PENDING",
       confirmation: typeof block["confirmation"] === "string" ? block["confirmation"] : "UNKNOWN",
+      receipt:
+        receipt === "MATCH" || receipt === "MISMATCH" || receipt === "SILENT" ? receipt : "ABSENT",
     });
+    if (receipt === "MISMATCH") {
+      // The provider's own signed statement disagrees with this executor's
+      // account: the same exception as an observation that does not match,
+      // from the other witness.
+      this.events.emit({
+        event: "EFFECT_RECEIPT_MISMATCH",
+        intent_id: captured.intent.intentId,
+        receipt_status:
+          typeof block["receipt_status"] === "string" ? block["receipt_status"] : "UNKNOWN",
+      });
+      if (this.config.banking.onEffectMismatch === "HALT") {
+        this.haltSwitch.halt(
+          "EFFECT_MISMATCH",
+          "the provider's receipt contradicts the observation",
+        );
+      }
+    }
     if (comparison === "PENDING") {
       // Committed, and nothing has read the effect back. Worth alerting on:
       // a provider that is always pending is a read-back that is not wired.

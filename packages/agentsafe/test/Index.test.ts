@@ -164,6 +164,8 @@ describe("public surface", () => {
       "callerPrincipal",
       "clockSkewGuard",
       "compareEffect",
+      "compareReceipt",
+      "receiptStatement",
       "confirmationFor",
       "createTrustedExecutor",
       "credentialIdentity",

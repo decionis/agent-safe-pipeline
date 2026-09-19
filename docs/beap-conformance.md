@@ -69,6 +69,13 @@ executor never signed: BEAP-L3-ADP-03's "verified assurance of grant validity, i
 ... and claim status" reaches the adapter's provider, not just the adapter. The package README
 carries the verification procedure and the offline proof runs it.
 
+A provider that verified the claim can answer with its own **effect receipt**
+([Verifying Provider Profile](./authority/verifying-provider.md), VP-3): a compact JWS under the
+provider's key stating what it did under that grant. The transport carries it on the
+`ProviderResult`, the verifier forwards it to the authority, which verifies it against the key the
+organisation registered and records it with the commit, and the effect plane compares what it
+states with what the adapter observed (below).
+
 ## What is refused before the authority is asked
 
 The binder runs on capture, and every disagreement is a `422` that costs no dossier and no grant:
@@ -89,7 +96,7 @@ The binder runs on capture, and every disagreement is a `422` that costs no doss
 | §20 Adapter contract                     | Satisfied | `EffectAdapter` is prepare, execute, observe, reconcile; three of the four are pure and `reconcile` only reads                                                                                                          |
 | §21 Credential isolation                 | Satisfied | A handler never holds a credential value; headers are resolved at the moment of dispatch from the secret store                                                                                                          |
 | §22.7 Expected-effect projection         | Partial   | The registry's fields are mirrored exactly; the **path** each field is read from is this executor's own rule                                                                                                            |
-| §22.8 Effect comparison and mismatch     | Satisfied | Field by field over the projection; a mismatch is named, recorded, alerted, and by default halts the executor                                                                                                           |
+| §22.8 Effect comparison and mismatch     | Satisfied | Field by field over the projection, and the provider's receipt against the account when it gave one; a mismatch is named, recorded, alerted, and by default halts the executor                                          |
 | §22 Deterministic refusal                | Satisfied | A provider reached and refusing is reported as definitely not executed, carrying its own reason code                                                                                                                    |
 | §22 Observation methods                  | Satisfied | Only a method the registry marks sufficient can confirm; an acknowledgement never does                                                                                                                                  |
 | §19 Claim before commit                  | Satisfied | The grant is claimed before the dispatch and the claim is journaled before the side effect                                                                                                                              |
@@ -133,6 +140,15 @@ over its canonical form and reported in the response's `effect` block; it carrie
 digests, identifiers and codes, and never a provider body, a parameter, or a credential. The other
 is the Protocol 1.1 `AuthorityEffectEvidence` the verifier attaches to the finalization, bound to
 the grant by the expected-effect digest and the commit correlation id.
+
+When the provider answered with an effect receipt, the record also carries `effect.receipt`: the
+receipt's status and digest, and how they compare with the record's own account, `MATCH`, `SILENT`
+(a receipt naming no digest), or `MISMATCH` (a status that contradicts the outcome, or a digest
+that differs from the authorised effect or from the observation). A receipt mismatch is
+`EFFECT_MISMATCH` like any other, makes the confirmation `UNKNOWN`, and halts the executor under
+the default policy: the provider's own signed statement and the executor's observation disagree,
+and neither confirms anything until someone reconciles them. A record without a receipt is byte
+for byte what it was before receipts existed.
 
 A mismatch is reported to the authority as `UNCONFIRMED` **with the digest that was observed**,
 not hidden. `CONFIRMED` in the executor's own record requires an observation method the registry
