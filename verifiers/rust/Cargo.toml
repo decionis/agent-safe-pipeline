@@ -22,7 +22,7 @@ tower = ["dep:tower", "dep:http", "dep:http-body", "dep:http-body-util", "dep:by
 base64 = "0.22"
 ed25519-compact = { version = "2", default-features = false, features = ["std", "pem"] }
 hmac = "0.12"
-ryu-js = "0.2"
+ryu-js = "1.0"
 # float_roundtrip: correctly rounded parsing, which a canonicaliser must have.
 serde_json = { version = "1", features = ["float_roundtrip"] }
 sha2 = "0.10"
