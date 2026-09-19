@@ -61,6 +61,10 @@ services:
 | `clock_window_seconds` | how far `created` may lie from now, each way                                                                                              | `300`                                                                     |
 | `effects`              | whether the route effects; `false` verifies reads at VP-1 alone                                                                           | `true`                                                                    |
 | `max_body_bytes`       | the body bound; a larger body is refused with `413`                                                                                       | `1048576`                                                                 |
+| `receipt_key_file`     | the PKCS#8 PEM of the Ed25519 key the hop signs effect receipts with (VP-3); unset, the hop signs none                                    | unset                                                                     |
+| `receipt_kid`          | the `kid` the key's public half is registered under at the authority (`POST /v1/execution/provider-keys`); required with the key          | —                                                                         |
+| `receipt_issuer`       | the `iss` registered with that key; required with the key                                                                                 | —                                                                         |
+| `receipt_audience`     | the authority the receipts are for                                                                                                        | `authority_issuer`                                                        |
 
 The executor names its key with `DOWNSTREAM_SIGNING_KEY_ID`; the file here carries that `keyid`
 with the public half of `DOWNSTREAM_SIGNING_KEY`.
@@ -76,6 +80,34 @@ a body, a header value or an attestation. Put the plugin ahead of any path rewri
 profile verifies the path as received; Kong's `request-transformer` runs at a lower priority
 than this plugin's `1000`, so it does.
 
+## The receipt (VP-3)
+
+The access phase runs before the upstream effects anything, so it cannot say what was effected.
+With `receipt_key_file` set, the plugin's response phase can: once the system of record has
+answered a dispatch the access phase accepted, the plugin signs the profile's effect receipt over
+the claim it verified, from what the system of record reports about the effect, and sets it on the
+answer as `x-agent-safe-effect-receipt`. The executor forwards it unread; Decionis verifies it
+under the key registered for `receipt_kid` and records it with the commit.
+
+The system of record reports its effect to the hop in four response headers, which are the hop's
+contract with its upstream and never leave the hop: the response phase clears them and the receipt
+stands in their place.
+
+| Header                          | Meaning                                                                           | When absent                                                                 |
+| ------------------------------- | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `x-agent-safe-effect-status`    | `EFFECTED`, `REFUSED` or `INDETERMINATE`                                          | from the status: `2xx` effected, `4xx` refused, anything else indeterminate |
+| `x-agent-safe-effect-reference` | the system of record's own reference: a ledger entry, a transaction id            | no reference in the receipt                                                 |
+| `x-agent-safe-effect-digest`    | `sha256:` over the effect in the terms the grant's `expected_effect_digest` names | no digest in the receipt, so the authority confirms nothing from it         |
+| `x-agent-safe-effected-at`      | when the effect took place, RFC 3339                                              | the plugin's clock                                                          |
+
+A dispatch the access phase refused, a read verified at VP-1 alone, and an answer the plugin
+produced itself carry no receipt: nothing was claimed of the hop. A receipt the hop could not stand
+behind (a malformed digest, for one) is not signed, and the log says so. Signing in the response
+phase means Kong buffers the response for this route, as any response-phase plugin does. A system
+of record that signs for itself needs no `receipt_key_file` here, and when one is set anyway its
+own `x-agent-safe-effect-receipt` passes through untouched: the system of record's signature beats
+the hop's.
+
 ## The vectors
 
 ```bash
@@ -83,9 +115,7 @@ go test ./...
 ```
 
 drives the plugin, through go-pdk's test harness, with requests from
-[`conformance/provider`](../../conformance/provider/README.md), and the verifier package's own
-suite runs every vector, request and receipt.
-
-The plugin runs in Kong's access phase, before the upstream effects anything, so it signs no
-receipt (VP-3); the upstream does, with the verifier package's `Receipt`, or a response-phase
-plugin does on its behalf once the upstream reports its effect to it, which is a follow-up.
+[`conformance/provider`](../../conformance/provider/README.md), including a dispatch through the
+access and response phases whose receipt verifies under the hop's key and answers exactly the
+attestation the access phase verified; the verifier package's own suite runs every vector,
+request and receipt.

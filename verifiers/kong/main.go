@@ -6,13 +6,21 @@
 // provider only when the system of record admits nothing but Kong
 // (docs/authority/verifying-provider.md, section 1).
 //
+// With a receipt key configured, the plugin also signs the profile's effect
+// receipt (VP-3) in its response phase, from what the system of record
+// reports about the effect in its answer, so a system of record that cannot
+// sign for itself still answers the executor with a receipt under the hop's
+// registered key.
+//
 // The procedure itself is the verifier package of verifiers/envoy, so the
 // two Go hops verify identically and pass the same vectors.
 package main
 
 import (
 	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -49,6 +57,20 @@ var covered = []string{
 	"signature", "signature-input",
 }
 
+// The headers a system of record reports its effect to the hop in, for the
+// hop to sign into a receipt. They are the hop's contract with its upstream
+// and never leave the hop: the response phase clears them and sets the
+// receipt in their place.
+const (
+	effectStatusHeader    = "x-agent-safe-effect-status"
+	effectReferenceHeader = "x-agent-safe-effect-reference"
+	effectDigestHeader    = "x-agent-safe-effect-digest"
+	effectedAtHeader      = "x-agent-safe-effected-at"
+	// What the access phase leaves for the response phase: the attestation
+	// it accepted and the idempotency key, as JSON, under this shared key.
+	acceptedContextKey = "verifying-provider.accepted"
+)
+
 // Config is the plugin's configuration, as Kong's declarative config or its
 // Admin API sets it. Every field but the keys file has a default.
 type Config struct {
@@ -67,13 +89,25 @@ type Config struct {
 	Effects *bool `json:"effects"`
 	// MaxBodyBytes is the body bound; a larger body is refused with 413.
 	MaxBodyBytes int `json:"max_body_bytes"`
+	// ReceiptKeyFile is the PKCS#8 PEM of the Ed25519 key the hop signs effect
+	// receipts with (VP-3); empty means the hop signs none. Its public half is
+	// what the organisation registers with the authority under ReceiptKid.
+	ReceiptKeyFile string `json:"receipt_key_file"`
+	// ReceiptKid is the kid the key is registered under at the authority.
+	ReceiptKid string `json:"receipt_kid"`
+	// ReceiptIssuer is the iss registered with that key.
+	ReceiptIssuer string `json:"receipt_issuer"`
+	// ReceiptAudience is the authority the receipts are for; defaults to authority_issuer.
+	ReceiptAudience string `json:"receipt_audience"`
 
-	once      sync.Once
-	loadError error
-	keys      []verifier.ExecutorKey
-	authority *keySet
-	replay    verifier.ReplayStore
-	now       func() time.Time
+	once       sync.Once
+	loadError  error
+	keys       []verifier.ExecutorKey
+	authority  *keySet
+	replay     verifier.ReplayStore
+	now        func() time.Time
+	receiptKey ed25519.PrivateKey
+	receiptJTI func() string
 }
 
 // New is the constructor Kong's plugin server calls.
@@ -110,8 +144,30 @@ func (conf *Config) load() error {
 			return
 		}
 		conf.authority = authority
+		if conf.ReceiptKeyFile != "" {
+			if conf.ReceiptKid == "" || conf.ReceiptIssuer == "" {
+				conf.loadError = errors.New("receipt_kid and receipt_issuer are required with receipt_key_file")
+				return
+			}
+			key, err := receiptKey(conf.ReceiptKeyFile)
+			if err != nil {
+				conf.loadError = err
+				return
+			}
+			conf.receiptKey = key
+		}
+		if conf.receiptJTI == nil {
+			conf.receiptJTI = randomJTI
+		}
 	})
 	return conf.loadError
+}
+
+// accepted is what the access phase hands the response phase: the claim the
+// receipt answers, and the request it was for.
+type accepted struct {
+	Attestation    verifier.Claims `json:"attestation"`
+	IdempotencyKey string          `json:"idempotency_key"`
 }
 
 func (conf *Config) options() verifier.Options {
@@ -192,10 +248,135 @@ func (conf *Config) Access(kong *pdk.PDK) {
 	grant := headers["x-agent-safe-grant-id"]
 	if verdict.Accepted {
 		_ = kong.Log.Info(fmt.Sprintf(`{"event":"PROVIDER_ACCEPTED","method":%q,"path":%q,"grant_id":%q}`, method, path, grant))
+		// A receipt answers an attested dispatch and nothing else: a read
+		// verified at VP-1 alone leaves nothing for the response phase.
+		if conf.receiptKey != nil && verdict.Attestation != nil {
+			encoded, _ := json.Marshal(accepted{Attestation: *verdict.Attestation, IdempotencyKey: headers["idempotency-key"]})
+			_ = kong.Ctx.SetShared(acceptedContextKey, string(encoded))
+		}
 		return
 	}
 	_ = kong.Log.Notice(fmt.Sprintf(`{"event":"PROVIDER_REFUSED","reason_code":%q,"method":%q,"path":%q,"grant_id":%q}`, verdict.ReasonCode, method, path, grant))
 	refuse(kong, http.StatusConflict, verdict.ReasonCode)
+}
+
+// Response signs the effect receipt (VP-3) once the upstream has answered a
+// dispatch the access phase accepted: the effect as the upstream reported it
+// in the report headers, or by its status alone, under the claim the access
+// phase verified. The report headers are cleared: what leaves the hop is the
+// receipt, and the receipt is the hop's own signature.
+func (conf *Config) Response(kong *pdk.PDK) {
+	if conf.receiptKey == nil {
+		return
+	}
+	encoded, err := kong.Ctx.GetSharedString(acceptedContextKey)
+	if err != nil || encoded == "" {
+		return
+	}
+	var claim accepted
+	if err := json.Unmarshal([]byte(encoded), &claim); err != nil {
+		return
+	}
+	// An answer the plugin itself produced, a refusal, is not the upstream's
+	// effect; only the service's answer is receipted.
+	if source, err := kong.Response.GetSource(); err != nil || source != "service" {
+		return
+	}
+	// A system of record that signs for itself has already answered with its
+	// own receipt, and its signature beats the hop's: it passes through.
+	if own, err := kong.Response.GetHeader(verifier.ReceiptHeader); err == nil && own != "" {
+		return
+	}
+	status, err := kong.Response.GetStatus()
+	if err != nil {
+		return
+	}
+	report := func(name string) string {
+		value, _ := kong.Response.GetHeader(name)
+		_ = kong.Response.ClearHeader(name)
+		return strings.TrimSpace(value)
+	}
+	effect := verifier.Effect{
+		Status:     effectStatus(report(effectStatusHeader), status),
+		Reference:  report(effectReferenceHeader),
+		Digest:     report(effectDigestHeader),
+		EffectedAt: effectedAt(report(effectedAtHeader), conf.now()),
+	}
+	audience := conf.ReceiptAudience
+	if audience == "" {
+		audience = conf.options().AuthorityIssuer
+	}
+	token, err := verifier.Receipt{
+		KeyID:          conf.ReceiptKid,
+		Issuer:         conf.ReceiptIssuer,
+		Audience:       audience,
+		Attestation:    &claim.Attestation,
+		IdempotencyKey: claim.IdempotencyKey,
+		Effect:         effect,
+		IssuedAt:       conf.now().Unix(),
+		JTI:            conf.receiptJTI(),
+	}.Sign(conf.receiptKey)
+	if err != nil {
+		// A receipt the hop could not stand behind is not signed; the answer
+		// goes back without one and the log says why.
+		_ = kong.Log.Notice(fmt.Sprintf(`{"event":"RECEIPT_NOT_SIGNED","grant_id":%q,"error":%q}`, claim.Attestation.Sub, err.Error()))
+		return
+	}
+	_ = kong.Response.SetHeader(verifier.ReceiptHeader, token)
+	_ = kong.Log.Info(fmt.Sprintf(`{"event":"RECEIPT_SIGNED","grant_id":%q,"effect_status":%q}`, claim.Attestation.Sub, effect.Status))
+}
+
+// The effect status the upstream reported, or the one its status code
+// implies: it effected on 2xx, refused on 4xx, and nothing is known on 5xx.
+func effectStatus(reported string, status int) string {
+	switch reported {
+	case verifier.Effected, verifier.Refused, verifier.Indeterminate:
+		return reported
+	}
+	switch {
+	case status >= 200 && status < 300:
+		return verifier.Effected
+	case status >= 400 && status < 500:
+		return verifier.Refused
+	default:
+		return verifier.Indeterminate
+	}
+}
+
+func effectedAt(reported string, now time.Time) time.Time {
+	if at, err := time.Parse(time.RFC3339Nano, reported); err == nil {
+		return at
+	}
+	return now
+}
+
+func receiptKey(path string) (ed25519.PrivateKey, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	block, _ := pem.Decode(raw)
+	if block == nil || block.Type != "PRIVATE KEY" {
+		return nil, errors.New("receipt_key_file: not a PKCS#8 PEM")
+	}
+	parsed, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("receipt_key_file: %w", err)
+	}
+	key, ok := parsed.(ed25519.PrivateKey)
+	if !ok {
+		return nil, errors.New("receipt_key_file: not an Ed25519 key")
+	}
+	return key, nil
+}
+
+// A receipt id nobody can predict: 128 random bits, as hex.
+func randomJTI() string {
+	var buffer [16]byte
+	if _, err := rand.Read(buffer[:]); err != nil {
+		panic(err)
+	}
+	return hex.EncodeToString(buffer[:])
 }
 
 func refuse(kong *pdk.PDK, status int, code string) {
