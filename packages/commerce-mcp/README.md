@@ -158,12 +158,15 @@ The API base must use HTTPS. HTTP is accepted only for loopback development.
 ## Run it as a remote server (Amazon Bedrock AgentCore Runtime)
 
 The same server speaks streamable HTTP for a container an agent runtime
-proxies to — the "Decionis Commerce Agent" delivery on AWS Marketplace for
+proxies to — the "AgentCore" delivery on AWS Marketplace for
 buyers who run their agents in Amazon Bedrock AgentCore Runtime. Start it with
 `--http` (or `MCP_TRANSPORT=http`): it listens on `0.0.0.0:8000`, answers
 `POST /mcp` with one JSON-RPC message or batch per request (stateless; the
 runtime's `Mcp-Session-Id` is echoed), and `GET /ping` with
 `{"status":"Healthy"}`. There is no server-initiated stream.
+
+The AgentCore container is free on Marketplace; service usage is billed
+through the AgentSaaS subscription, the API-based Marketplace product.
 
 ```sh
 docker buildx build -f packages/commerce-mcp/Dockerfile --platform linux/arm64 -t commercegate-mcp .

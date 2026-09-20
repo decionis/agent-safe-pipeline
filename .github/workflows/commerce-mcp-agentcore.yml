@@ -3,7 +3,7 @@ name: Commerce MCP AgentCore image
 # Builds the CommerceGate MCP image for Amazon Bedrock AgentCore Runtime
 # (packages/commerce-mcp/Dockerfile: linux/arm64, distroless, non-root,
 # streamable HTTP on :8000/mcp) and pushes it to the AWS Marketplace
-# repository of the "Decionis Commerce Agent" container product, then
+# repository of the "AgentCore" container product, then
 # attests the digest. Run by hand with the version to tag; "verify" builds
 # and smoke-tests without pushing.
 #
@@ -34,6 +34,7 @@ permissions:
 jobs:
   image:
     name: Build, smoke-test and publish
+    if: ${{ inputs.mode != 'publish' || github.ref == 'refs/heads/master' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     concurrency:
@@ -69,6 +70,7 @@ jobs:
           docker buildx build -f packages/commerce-mcp/Dockerfile \
             --platform linux/amd64 --load -t commercegate-mcp:smoke .
           docker run -d --name smoke -p 8000:8000 commercegate-mcp:smoke
+          trap 'docker rm -f smoke >/dev/null' EXIT
           for _ in $(seq 1 30); do
             curl -fsS http://127.0.0.1:8000/ping >/dev/null 2>&1 && break
             sleep 1
@@ -79,13 +81,34 @@ jobs:
             -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | jq -r '.result.tools[].name' | sort | tr '\n' ' ')
           echo "tools: $tools"
           grep -q commercegate_evaluate_action <<< "$tools"
-          docker rm -f smoke >/dev/null
+      - name: Verify the arm64 runtime image builds
+        if: ${{ inputs.mode == 'verify' }}
+        run: |
+          docker buildx build -f packages/commerce-mcp/Dockerfile \
+            --platform linux/arm64 --provenance=false --load -t commercegate-mcp:arm64 .
       - name: Authenticate to AWS (publisher role, through GitHub OIDC)
         if: ${{ inputs.mode == 'publish' }}
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ vars.AWS_MARKETPLACE_PUBLISH_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+      - name: Decionis Action Gate (shadow)
+        if: ${{ inputs.mode == 'publish' }}
+        continue-on-error: true
+        uses: decionis/govern@6bc8bd3fc0dab105703fe3dc8c6c7a1d738bcf29 # v1.9.3
+        with:
+          api-key: ${{ secrets.DECIONIS_API_KEY }}
+          org-id: ${{ secrets.DECIONIS_ORG_ID }}
+          workflow-key: github_deploy_approval
+          action: marketplace-publish-commerce-mcp-agentcore
+          mode: shadow
+          payload: |
+            {
+              "artifact": "@decionis/commerce",
+              "version": "${{ inputs.version }}",
+              "sha": "${{ github.sha }}",
+              "actor": "${{ github.actor }}"
+            }
       - name: Publish the arm64 image to the Marketplace repository
         if: ${{ inputs.mode == 'publish' }}
         id: publish
@@ -93,7 +116,10 @@ jobs:
           REPOSITORY: ${{ vars.AWS_MARKETPLACE_MCP_REPOSITORY }}
         run: |
           set -euo pipefail
-          test -n "$REPOSITORY"
+          if [[ ! "$REPOSITORY" =~ ^709825985650\.dkr\.ecr\.us-east-1\.amazonaws\.com/decionis/[a-z0-9._/-]+$ ]]; then
+            echo "::error::Expected the Marketplace repository under the Decionis seller prefix in us-east-1."
+            exit 1
+          fi
           registry="${REPOSITORY%%/*}"
           aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$registry"
           docker buildx build -f packages/commerce-mcp/Dockerfile \
@@ -102,7 +128,10 @@ jobs:
             --label "org.opencontainers.image.revision=$GITHUB_SHA" \
             -t "$REPOSITORY:$VERSION" .
           digest="$(docker buildx imagetools inspect "$REPOSITORY:$VERSION" --format '{{json .Manifest.Digest}}' | tr -d '"')"
-          test -n "$digest"
+          if [[ ! "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+            echo "::error::The registry did not return a valid image digest."
+            exit 1
+          fi
           {
             echo "name=$REPOSITORY"
             echo "digest=$digest"

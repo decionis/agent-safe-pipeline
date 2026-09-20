@@ -3,7 +3,7 @@
 #
 #   docker buildx build -f packages/commerce-mcp/Dockerfile --platform linux/arm64 -t commercegate-mcp .
 #
-# The container is the "Decionis Commerce Agent" delivery for buyers who run
+# The container is the "AgentCore" delivery for buyers who run
 # their agents in AgentCore: a stateless streamable-HTTP MCP server on
 # 0.0.0.0:8000/mcp, with /ping as its health check, exactly as the runtime
 # expects. It holds no credential: the buyer's workspace key and organization
@@ -27,7 +27,6 @@ RUN corepack enable && corepack prepare pnpm@9.15.3 --activate
 WORKDIR /app
 
 FROM base AS builder
-COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 # Every workspace manifest: pnpm resolves the whole graph before it installs
 # anything, so the frozen install needs each importer the lockfile names.
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
@@ -57,7 +56,7 @@ RUN pnpm --filter @decionis/commerce build \
 
 FROM ${RUNTIME_BASE_IMAGE} AS runner
 LABEL org.opencontainers.image.source="https://github.com/decionis/agent-safe-pipeline" \
-      org.opencontainers.image.title="Decionis Commerce Agent (CommerceGate MCP)" \
+      org.opencontainers.image.title="AgentCore (CommerceGate MCP)" \
       org.opencontainers.image.description="The CommerceGate MCP server for Amazon Bedrock AgentCore Runtime: an agent asks before it acts on commerce; allow or hold, the reason, a signed record." \
       org.opencontainers.image.licenses="Apache-2.0"
 WORKDIR /app

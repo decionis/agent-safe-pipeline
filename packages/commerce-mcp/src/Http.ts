@@ -99,7 +99,15 @@ export class CommerceGateHttpServer {
   /** The Node server, unbound; `listen()` binds it. Tests bind it to port 0. */
   create(): Server {
     const server = createServer((request, response) => {
-      void this.route(request, response);
+      void this.route(request, response).catch(() => {
+        // A disconnected request rejects its body stream. Never turn a
+        // transport failure into an unhandled rejection that stops the server.
+        if (!response.destroyed && !response.headersSent) {
+          send(response, 400, error(null, -32600, "Invalid request"));
+        } else {
+          response.destroy();
+        }
+      });
     });
     server.requestTimeout = 30_000;
     server.headersTimeout = 10_000;

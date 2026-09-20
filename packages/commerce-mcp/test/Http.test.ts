@@ -1,5 +1,5 @@
 import type { AddressInfo } from "node:net";
-import type { Server } from "node:http";
+import { request, type Server } from "node:http";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -74,9 +74,7 @@ describe("CommerceGateHttpServer (streamable HTTP for AgentCore Runtime)", () =>
     });
 
     const list = await post(base, { jsonrpc: "2.0", id: 2, method: "tools/list" });
-    expect((await list.json()).result.tools.map((tool: { name: string }) => tool.name)).toEqual([
-      "echo",
-    ]);
+    expect(await list.json()).toMatchObject({ result: { tools: [{ name: "echo" }] } });
 
     const call = await post(base, {
       jsonrpc: "2.0",
@@ -85,7 +83,9 @@ describe("CommerceGateHttpServer (streamable HTTP for AgentCore Runtime)", () =>
       params: { name: "echo", arguments: { hello: "agentcore" } },
     });
     expect(call.status).toBe(200);
-    expect((await call.json()).result.structuredContent).toEqual({ hello: "agentcore" });
+    expect(await call.json()).toMatchObject({
+      result: { structuredContent: { hello: "agentcore" } },
+    });
   });
 
   it("answers a batch as a batch, and a notification-only post with 202", async () => {
@@ -97,9 +97,14 @@ describe("CommerceGateHttpServer (streamable HTTP for AgentCore Runtime)", () =>
     ]);
     expect(batch.status).toBe(200);
     const answers = await batch.json();
-    expect(answers).toHaveLength(2);
-    expect(answers[0]).toEqual({ jsonrpc: "2.0", id: "a", result: {} });
-    expect(answers[1].error.code).toBe(-32601);
+    expect(answers).toEqual([
+      { jsonrpc: "2.0", id: "a", result: {} },
+      {
+        jsonrpc: "2.0",
+        id: "b",
+        error: expect.objectContaining({ code: -32601 }),
+      },
+    ]);
 
     const quiet = await post(base, { jsonrpc: "2.0", method: "notifications/initialized" });
     expect(quiet.status).toBe(202);
@@ -124,7 +129,7 @@ describe("CommerceGateHttpServer (streamable HTTP for AgentCore Runtime)", () =>
     ).toBe(415);
     const bad = await post(base, "{not json");
     expect(bad.status).toBe(400);
-    expect((await bad.json()).error.code).toBe(-32700);
+    expect(await bad.json()).toMatchObject({ error: { code: -32700 } });
     const big = await post(base, {
       jsonrpc: "2.0",
       id: 1,
@@ -147,8 +152,33 @@ describe("CommerceGateHttpServer (streamable HTTP for AgentCore Runtime)", () =>
     const second = await post(base, { jsonrpc: "2.0", id: 2, method: "ping" });
     expect(second.status).toBe(503);
     expect(second.headers.get("retry-after")).toBe("1");
-    expect((await second.json()).error.code).toBe(MCP_SERVER_BUSY_CODE);
+    expect(await second.json()).toMatchObject({ error: { code: MCP_SERVER_BUSY_CODE } });
     release();
     expect((await first).status).toBe(200);
+  });
+
+  it("keeps serving after malformed request targets and disconnected request bodies", async () => {
+    const base = await start();
+    const malformedStatus = await new Promise<number | undefined>((resolve, reject) => {
+      const malformed = request(base, { path: "//[" }, (response) => {
+        response.resume();
+        response.on("end", () => resolve(response.statusCode));
+      });
+      malformed.on("error", reject);
+      malformed.end();
+    });
+    expect(malformedStatus).toBe(400);
+
+    await new Promise<void>((resolve) => {
+      const interrupted = request(`${base}/mcp`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "content-length": "100" },
+      });
+      interrupted.on("error", () => {});
+      interrupted.on("close", resolve);
+      interrupted.write("{");
+      setTimeout(() => interrupted.destroy(), 20);
+    });
+    expect((await fetch(`${base}/ping`)).status).toBe(200);
   });
 });
