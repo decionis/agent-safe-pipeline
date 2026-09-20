@@ -94,6 +94,14 @@ describe("readDestination", () => {
     const unfinished = Buffer.concat([first, record(16_384), record(16_384), partial]);
     expect(unfinished.length).toBeGreaterThanOrEqual(MAX_PEEK_BYTES);
     expect(readDestination(unfinished.subarray(0, 40_000), 443)).toEqual({ kind: "NEED_MORE" });
+    expect(readDestination(unfinished.subarray(0, MAX_PEEK_BYTES - 1), 443)).toEqual({
+      kind: "NEED_MORE",
+    });
+    expect(readDestination(unfinished.subarray(0, MAX_PEEK_BYTES), 443)).toEqual({
+      kind: "REFUSED",
+      reason: "MALFORMED",
+      protocol: "TLS",
+    });
     expect(readDestination(unfinished, 443)).toEqual({
       kind: "REFUSED",
       reason: "MALFORMED",

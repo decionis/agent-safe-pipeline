@@ -120,13 +120,141 @@ describe("readClientHello", () => {
   it("asks for more while the hello is incomplete, across records too", () => {
     const handshake = clientHello([serverNameExtension([{ name: "a.example" }])]);
     const whole = records(handshake, [10, 40]);
-    for (const cut of [0, 3, 5, 12, 20, whole.length - 1]) {
-      expect(readClientHello(whole.subarray(0, cut))).toEqual({ kind: "NEED_MORE" });
+    // Cuts inside a record header, inside a body, and at every boundary.
+    for (const cut of [0, 3, 5, 12, 15, 17, 20, 44, whole.length - 1]) {
+      expect(readClientHello(whole.subarray(0, cut)), `${cut}`).toEqual({ kind: "NEED_MORE" });
     }
     expect(readClientHello(whole)).toEqual({
       kind: "CLIENT_HELLO",
       serverName: "a.example",
       alpn: [],
+    });
+    // The handshake header alone in the first record, the rest in the second.
+    expect(readClientHello(records(handshake, [4]))).toEqual({
+      kind: "CLIENT_HELLO",
+      serverName: "a.example",
+      alpn: [],
+    });
+    expect(readClientHello(records(handshake, [4]).subarray(0, 9))).toEqual({ kind: "NEED_MORE" });
+  });
+
+  it("accepts a record as large as TLS allows and refuses one larger", () => {
+    const largest = Buffer.concat([
+      Buffer.from([0x16, 0x03, 0x01, 0x40, 0x00]),
+      Buffer.alloc(16_384),
+    ]);
+    largest.set([0x01, 0x00, 0xff, 0x00], 5);
+    expect(readClientHello(largest)).toEqual({ kind: "NEED_MORE" });
+    const larger = Buffer.concat([
+      Buffer.from([0x16, 0x03, 0x01, 0x40, 0x01]),
+      Buffer.alloc(16_385),
+    ]);
+    expect(readClientHello(larger)).toEqual({ kind: "NOT_TLS" });
+  });
+
+  it("reads only the hello when a later record carries more after it", () => {
+    const handshake = clientHello([serverNameExtension([{ name: "a.example" }])]);
+    const trailing = Buffer.concat([handshake, Buffer.from([0x0b, 0, 0, 0, 1, 2, 3])]);
+    expect(readClientHello(records(trailing, [10, 30]))).toEqual({
+      kind: "CLIENT_HELLO",
+      serverName: "a.example",
+      alpn: [],
+    });
+  });
+
+  it("refuses a hello whose fields run past its bytes", () => {
+    const body = (fields: Buffer): Buffer =>
+      records(Buffer.concat([Buffer.from([0x01]), u24(fields.length), fields]));
+    const prefix = Buffer.concat([u16(0x0303), Buffer.alloc(32, 7)]);
+    const suites = Buffer.concat([Buffer.from([0]), u16(2), Buffer.from([0x13, 0x01])]);
+    const cases: Record<string, Buffer> = {
+      "a session id longer than the hello": body(
+        Buffer.concat([prefix, Buffer.from([32]), Buffer.alloc(10)]),
+      ),
+      "a cipher suite length cut in half": body(
+        Buffer.concat([prefix, Buffer.from([0]), Buffer.from([0x00])]),
+      ),
+      "no compression byte": body(Buffer.concat([prefix, suites])),
+      "an extension longer than the hello": body(
+        Buffer.concat([
+          prefix,
+          suites,
+          Buffer.from([1, 0]),
+          u16(8),
+          u16(0x0000),
+          u16(20),
+          Buffer.alloc(4),
+        ]),
+      ),
+      "a server name that claims more bytes than follow, which would otherwise read as a valid shorter one":
+        body(
+          Buffer.concat([
+            prefix,
+            suites,
+            Buffer.from([1, 0]),
+            u16(18),
+            u16(0x0000),
+            u16(14),
+            u16(12),
+            Buffer.from([0x00]),
+            u16(20),
+            Buffer.from("a.example", "latin1"),
+          ]),
+        ),
+      "a server name longer than its extension": body(
+        Buffer.concat([
+          prefix,
+          suites,
+          Buffer.from([1, 0]),
+          u16(9),
+          u16(0x0000),
+          u16(5),
+          u16(3),
+          Buffer.from([0x00]),
+          u16(40),
+        ]),
+      ),
+    };
+    for (const [name, bytes] of Object.entries(cases)) {
+      expect(readClientHello(bytes), name).toEqual({ kind: "MALFORMED" });
+    }
+  });
+
+  it("refuses a server name longer than a host name may be, and reads one at the limit", () => {
+    expect(readClientHello(records(clientHello([serverNameExtension([{ name: "a.b" }])])))).toEqual(
+      {
+        kind: "CLIENT_HELLO",
+        serverName: "a.b",
+        alpn: [],
+      },
+    );
+    const label = "a".repeat(63);
+    const longest = [label, label, label, "a".repeat(61)].join(".");
+    expect(longest).toHaveLength(253);
+    expect(
+      readClientHello(records(clientHello([serverNameExtension([{ name: longest }])]))),
+    ).toEqual({ kind: "CLIENT_HELLO", serverName: longest, alpn: [] });
+    const tooLong = [label, label, label, "a".repeat(62)].join(".");
+    expect(
+      readClientHello(records(clientHello([serverNameExtension([{ name: tooLong }])]))),
+    ).toEqual({ kind: "MALFORMED" });
+    const longLabel = `${"a".repeat(64)}.example`;
+    expect(
+      readClientHello(records(clientHello([serverNameExtension([{ name: longLabel }])]))),
+    ).toEqual({ kind: "MALFORMED" });
+  });
+
+  it("refuses an ALPN protocol name outside printable ASCII wherever the byte sits", () => {
+    for (const protocol of ["h2", "h2", "h 2", "h2"]) {
+      expect(
+        readClientHello(records(clientHello([alpnExtension([protocol])]))),
+        JSON.stringify(protocol),
+      ).toEqual({ kind: "MALFORMED" });
+    }
+    expect(readClientHello(records(clientHello([alpnExtension(["!", "~"])])))).toEqual({
+      kind: "CLIENT_HELLO",
+      serverName: null,
+      alpn: ["!", "~"],
     });
   });
 

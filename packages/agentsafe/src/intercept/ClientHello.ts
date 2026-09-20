@@ -28,81 +28,95 @@ export type ClientHelloReading =
     };
 
 const RECORD_HANDSHAKE = 0x16;
+const RECORD_VERSION_MAJOR = 0x03;
 const HANDSHAKE_CLIENT_HELLO = 0x01;
 const RECORD_HEADER_LENGTH = 5;
 const HANDSHAKE_HEADER_LENGTH = 4;
 const EXTENSION_SERVER_NAME = 0x0000;
 const EXTENSION_ALPN = 0x0010;
 const SERVER_NAME_HOST_NAME = 0x00;
-/** The largest record body TLS allows, plus the header. */
-const MAX_RECORD_LENGTH = 16_384 + 256;
+/** The largest plaintext record TLS allows (RFC 8446 section 5.1). */
+const MAX_RECORD_LENGTH = 16_384;
 /** The most handshake bytes read before a hello is called malformed; well beyond any real one. */
 export const MAX_CLIENT_HELLO_BYTES = 65_536;
 /** RFC 1123 host name: labels of letters, digits and hyphens, at most 253 characters. */
 const HOST_NAME =
   /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/;
+/** An ALPN protocol name as this interceptor will report it: printable ASCII, nothing else. */
+const ALPN_PROTOCOL = /^[\x21-\x7e]+$/;
+
+/** Thrown when a field claims more bytes than remain; the reader answers MALFORMED. */
+class Short extends RangeError {}
 
 class Cursor {
+  private readonly view: DataView;
   public offset = 0;
 
-  public constructor(private readonly bytes: Uint8Array) {}
+  public constructor(private readonly bytes: Uint8Array) {
+    this.view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  }
 
   public get remaining(): number {
     return this.bytes.length - this.offset;
   }
 
+  /** A read past the end throws from the view itself; the reader answers MALFORMED. */
   public u8(): number {
-    if (this.remaining < 1) throw new RangeError("short");
-    const value = this.bytes[this.offset] ?? 0;
+    const value = this.view.getUint8(this.offset);
     this.offset += 1;
     return value;
   }
 
   public u16(): number {
-    return (this.u8() << 8) | this.u8();
+    const value = this.view.getUint16(this.offset);
+    this.offset += 2;
+    return value;
   }
 
   public u24(): number {
-    return (this.u8() << 16) | (this.u8() << 8) | this.u8();
+    return (this.u8() << 16) | this.u16();
   }
 
+  /** Skipping past the end leaves nothing to read, and the next read throws. */
   public skip(length: number): void {
-    if (this.remaining < length) throw new RangeError("short");
     this.offset += length;
   }
 
+  /** Taking more than remains is refused here: a short slice would read as a shorter, valid field. */
   public take(length: number): Uint8Array {
-    if (this.remaining < length) throw new RangeError("short");
+    if (this.remaining < length) throw new Short();
     const slice = this.bytes.subarray(this.offset, this.offset + length);
     this.offset += length;
     return slice;
   }
 }
 
+type Refusal =
+  { readonly kind: "NOT_TLS" } | { readonly kind: "NEED_MORE" } | { readonly kind: "MALFORMED" };
+type Records = Refusal | { readonly fragments: readonly Uint8Array[] };
+
 /**
- * Collects the handshake bytes from consecutive handshake records: a
- * ClientHello may be fragmented across records, and a client may send the
- * first record of the next flight after it. Returns the handshake bytes read
- * so far and whether the records seen are handshake records.
+ * Walks the handshake records from the start of the bytes until at least
+ * `wanted` handshake bytes have been collected, or the bytes run out. A
+ * ClientHello may be fragmented across records, and a client may already have
+ * sent the first record of its next flight after it.
  */
-function handshakeBytes(
-  bytes: Uint8Array,
-):
-  | { readonly kind: "NOT_TLS" }
-  | { readonly kind: "NEED_MORE" }
-  | { readonly kind: "MALFORMED" }
-  | { readonly data: Uint8Array } {
+function handshakeRecords(bytes: Uint8Array, wanted: number): Records {
   const fragments: Uint8Array[] = [];
   let total = 0;
   let offset = 0;
-  // The hello's whole length, once its four-byte header has been read.
-  let needed = 0;
-  while (needed === 0 || total < needed) {
+  while (total < wanted) {
     if (bytes.length - offset < RECORD_HEADER_LENGTH) return { kind: "NEED_MORE" };
-    const type = bytes[offset] ?? 0;
-    const major = bytes[offset + 1] ?? 0;
-    const length = ((bytes[offset + 3] ?? 0) << 8) | (bytes[offset + 4] ?? 0);
-    if (type !== RECORD_HANDSHAKE || major !== 0x03 || length === 0 || length > MAX_RECORD_LENGTH) {
+    const header = new DataView(bytes.buffer, bytes.byteOffset + offset, RECORD_HEADER_LENGTH);
+    const type = header.getUint8(0);
+    const major = header.getUint8(1);
+    const length = header.getUint16(3);
+    if (
+      type !== RECORD_HANDSHAKE ||
+      major !== RECORD_VERSION_MAJOR ||
+      length === 0 ||
+      length > MAX_RECORD_LENGTH
+    ) {
       // Not a handshake record where one was due: not TLS at all before any
       // record, and a broken hello once one has begun.
       return fragments.length === 0 ? { kind: "NOT_TLS" } : { kind: "MALFORMED" };
@@ -113,20 +127,11 @@ function handshakeBytes(
     fragments.push(bytes.subarray(start, end));
     total += length;
     offset = end;
-    if (needed === 0 && total >= HANDSHAKE_HEADER_LENGTH) {
-      const head = concat(fragments, HANDSHAKE_HEADER_LENGTH);
-      needed =
-        HANDSHAKE_HEADER_LENGTH + (((head[1] ?? 0) << 16) | ((head[2] ?? 0) << 8) | (head[3] ?? 0));
-      // A hello that announces itself larger than any real one is refused now,
-      // not read for as long as the client cares to send.
-      if (needed > MAX_CLIENT_HELLO_BYTES) return { kind: "MALFORMED" };
-    }
   }
-  // Only the hello itself: a record may already carry the first bytes of the
-  // client's next message, which are not this parser's to read.
-  return { data: concat(fragments, needed) };
+  return { fragments };
 }
 
+/** The first `length` bytes of the fragments, in order: only the hello, never what follows it. */
 function concat(fragments: readonly Uint8Array[], length: number): Uint8Array {
   const out = new Uint8Array(length);
   let offset = 0;
@@ -134,9 +139,23 @@ function concat(fragments: readonly Uint8Array[], length: number): Uint8Array {
     const slice = fragment.subarray(0, Math.max(0, Math.min(fragment.length, length - offset)));
     out.set(slice, offset);
     offset += slice.length;
-    if (offset >= length) break;
   }
   return out;
+}
+
+/** The handshake message bytes of the ClientHello, exactly as long as its header says. */
+function handshakeBytes(bytes: Uint8Array): Refusal | { readonly data: Uint8Array } {
+  const head = handshakeRecords(bytes, HANDSHAKE_HEADER_LENGTH);
+  if ("kind" in head) return head;
+  const header = new Cursor(concat(head.fragments, HANDSHAKE_HEADER_LENGTH));
+  if (header.u8() !== HANDSHAKE_CLIENT_HELLO) return { kind: "MALFORMED" };
+  const needed = HANDSHAKE_HEADER_LENGTH + header.u24();
+  // A hello that announces itself larger than any real one is refused now,
+  // not read for as long as the client cares to send.
+  if (needed > MAX_CLIENT_HELLO_BYTES) return { kind: "MALFORMED" };
+  const whole = handshakeRecords(bytes, needed);
+  if ("kind" in whole) return whole;
+  return { data: concat(whole.fragments, needed) };
 }
 
 /** Reads a client's first bytes as a TLS ClientHello, or says why they are not one. */
@@ -145,9 +164,7 @@ export function readClientHello(bytes: Uint8Array): ClientHelloReading {
   if ("kind" in records) return records;
   const cursor = new Cursor(records.data);
   try {
-    if (cursor.u8() !== HANDSHAKE_CLIENT_HELLO) return { kind: "MALFORMED" };
-    const length = cursor.u24();
-    if (length !== cursor.remaining) return { kind: "MALFORMED" };
+    cursor.skip(HANDSHAKE_HEADER_LENGTH);
     cursor.u16(); // legacy_version
     cursor.skip(32); // random
     cursor.skip(cursor.u8()); // legacy_session_id
@@ -156,66 +173,58 @@ export function readClientHello(bytes: Uint8Array): ClientHelloReading {
     if (cursor.remaining === 0) return { kind: "CLIENT_HELLO", serverName: null, alpn: [] };
     const extensionsLength = cursor.u16();
     if (extensionsLength !== cursor.remaining) return { kind: "MALFORMED" };
+    // Each extension may appear once (RFC 8446 section 4.2); a repeat is a
+    // hello two parsers could read differently, and is refused.
     let serverName: string | null = null;
-    let alpn: string[] = [];
-    let sawServerName = false;
-    let sawAlpn = false;
+    let alpn: readonly string[] | null = null;
     while (cursor.remaining > 0) {
       const type = cursor.u16();
       const body = new Cursor(cursor.take(cursor.u16()));
       if (type === EXTENSION_SERVER_NAME) {
-        if (sawServerName) return { kind: "MALFORMED" };
-        sawServerName = true;
+        if (serverName !== null) return { kind: "MALFORMED" };
         serverName = readServerName(body);
         if (serverName === null) return { kind: "MALFORMED" };
       } else if (type === EXTENSION_ALPN) {
-        if (sawAlpn) return { kind: "MALFORMED" };
-        sawAlpn = true;
+        if (alpn !== null) return { kind: "MALFORMED" };
         alpn = readAlpn(body);
       }
     }
-    return { kind: "CLIENT_HELLO", serverName, alpn };
+    return { kind: "CLIENT_HELLO", serverName, alpn: alpn ?? [] };
   } catch {
+    // A field that ran past the bytes, or a length that disagreed with them:
+    // a hello this parser cannot place, whatever the cause.
     return { kind: "MALFORMED" };
   }
 }
 
 /** The one host_name entry the extension carries; null for anything else. */
 function readServerName(body: Cursor): string | null {
-  const listLength = body.u16();
-  if (listLength !== body.remaining) return null;
+  if (body.u16() !== body.remaining) return null;
   let host: string | null = null;
   while (body.remaining > 0) {
     const nameType = body.u8();
-    const name = body.take(body.u16());
+    const name = latin1(body.take(body.u16())).toLowerCase();
     if (nameType !== SERVER_NAME_HOST_NAME) continue;
-    if (host !== null) return null;
-    const text = asciiLowercase(name);
-    if (text === null || !HOST_NAME.test(text)) return null;
-    host = text;
+    if (host !== null || !HOST_NAME.test(name)) return null;
+    host = name;
   }
   return host;
 }
 
-function readAlpn(body: Cursor): string[] {
-  const listLength = body.u16();
-  if (listLength !== body.remaining) throw new RangeError("alpn");
+/** The protocol names in the order the client prefers them; a name outside printable ASCII is a refusal. */
+function readAlpn(body: Cursor): readonly string[] {
+  if (body.u16() !== body.remaining) throw new Short();
   const protocols: string[] = [];
   while (body.remaining > 0) {
-    const name = body.take(body.u8());
-    const text = asciiLowercase(name);
-    if (text === null || text.length === 0) throw new RangeError("alpn");
-    protocols.push(text);
+    const name = latin1(body.take(body.u8()));
+    if (!ALPN_PROTOCOL.test(name)) throw new Short();
+    protocols.push(name);
   }
   return protocols;
 }
 
-/** Printable ASCII only, lowercased; null when any byte is outside that. */
-function asciiLowercase(bytes: Uint8Array): string | null {
+function latin1(bytes: Uint8Array): string {
   let text = "";
-  for (const byte of bytes) {
-    if (byte < 0x21 || byte > 0x7e) return null;
-    text += String.fromCharCode(byte);
-  }
-  return text.toLowerCase();
+  for (const byte of bytes) text += String.fromCharCode(byte);
+  return text;
 }

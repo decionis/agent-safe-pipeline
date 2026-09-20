@@ -28,7 +28,12 @@ export default {
   // the single presentation of a grant, and a mutant there is the same
   // failure from the same side. The receipt builder is here because a receipt
   // that copies the wrong claim binds the provider's signature to the wrong
-  // grant or claim, and the authority would record it as such.
+  // grant or claim, and the authority would record it as such. The
+  // interceptor's two parsers and the reading built on them are here because
+  // they decide where a redirected connection's bytes are sent, from those
+  // bytes alone: a mutant that reads a host where there is none, or a
+  // different host than the client named, sends a workload's request to a
+  // destination the workload never addressed.
   mutate: [
     "src/http/ExecutorHttpServer.ts",
     "src/identity/PrincipalRegistry.ts",
@@ -46,6 +51,9 @@ export default {
     "src/credential/SignedRequestCredential.ts",
     "src/verify/VerifyingProvider.ts",
     "src/verify/EffectReceipt.ts",
+    "src/intercept/ClientHello.ts",
+    "src/intercept/RequestHead.ts",
+    "src/intercept/Destination.ts",
   ],
   reporters: ["clear-text", "progress"],
   coverageAnalysis: "perTest",
