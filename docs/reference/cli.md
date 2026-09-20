@@ -47,17 +47,24 @@ the exit status is `0`. A refusal to start names the setting and never its value
 The [transparent interceptor](../gateway/transparent-interception.md) as a process: the sidecar
 the redirect rules point at. It binds two loopback listeners, one for redirected port-80
 connections and one for redirected port-443 connections, reads each connection's destination from
-its first bytes (the TLS server name, or the HTTP host), places it there, and prints one line per
-placed or refused connection; `SIGTERM` prints the report of every destination the workload
-reached and exits `0`. It decrypts nothing, decides nothing, holds no key and asks no authority:
-this is the observe phase.
+its first bytes (the TLS server name, or the HTTP host), places, governs or refuses it, and prints
+one line per connection; `SIGTERM` prints the report of every destination the workload reached
+and exits `0`. With nothing to govern it decrypts nothing, decides nothing, holds no key and asks
+no authority. With `--govern`, connections to the listed hosts are taken by a gateway for that
+host, TLS terminated under the operator's authority, and the gateway's own options and environment
+apply as they do to `proxy`.
 
-| Option             | Meaning                                                           |
-| ------------------ | ----------------------------------------------------------------- |
-| `--http-port <n>`  | `AGENTSAFE_INTERCEPT_HTTP_PORT`, where redirected `:80` arrives   |
-| `--https-port <n>` | `AGENTSAFE_INTERCEPT_HTTPS_PORT`, where redirected `:443` arrives |
-| `--bind <address>` | `AGENTSAFE_INTERCEPT_BIND`, the listeners' address (`127.0.0.1`)  |
-| `--json`           | one JSON object per line instead of the human rendering           |
+| Option                                                               | Meaning                                                                                 |
+| -------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `--http-port <n>`                                                    | `AGENTSAFE_INTERCEPT_HTTP_PORT`, where redirected `:80` arrives                         |
+| `--https-port <n>`                                                   | `AGENTSAFE_INTERCEPT_HTTPS_PORT`, where redirected `:443` arrives                       |
+| `--bind <address>`                                                   | `AGENTSAFE_INTERCEPT_BIND`, the listeners' address (`127.0.0.1`)                        |
+| `--govern <hosts>`                                                   | `AGENTSAFE_INTERCEPT_GOVERN`, host names to govern, comma-separated                     |
+| `--unlisted <passthrough\|refuse>`                                   | `AGENTSAFE_INTERCEPT_UNLISTED`, what becomes of a destination not governed              |
+| `--ca-cert <file>`                                                   | `AGENTSAFE_INTERCEPT_CA_CERT_FILE`, the operator authority's certificate                |
+| `--ca-key <file>`                                                    | `AGENTSAFE_INTERCEPT_CA_KEY_FILE`, its private key; with the certificate, never without |
+| `--mode`, `--failure-policy`, `--authority`, `--config`, `--verbose` | the governed gateways' settings, as for `proxy`                                         |
+| `--json`                                                             | one JSON object per line instead of the human rendering                                 |
 
 ### `agentsafe status`
 

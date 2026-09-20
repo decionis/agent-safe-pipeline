@@ -9,6 +9,8 @@ export interface IssuedCertificate {
 }
 
 const ECDSA_WITH_SHA256 = "1.2.840.10045.4.3.2";
+const SHA256_WITH_RSA = "1.2.840.113549.1.1.11";
+const ED25519 = "1.3.101.112";
 const COMMON_NAME = "2.5.4.3";
 const BASIC_CONSTRAINTS = "2.5.29.19";
 const KEY_USAGE = "2.5.29.15";
@@ -105,13 +107,21 @@ interface Subject {
  */
 export class TestCertificateAuthority {
   public readonly certificate: string;
+  /** The authority's private key, PKCS#8 PEM, for a test that plays the operator holding it. */
+  public readonly privateKeyPem: string;
   private readonly privateKey: KeyObject;
   private readonly commonName: string;
 
-  public constructor(commonName = "Synthetic Test CA") {
+  public constructor(commonName = "Synthetic Test CA", keyType: "ec" | "rsa" | "ed25519" = "ec") {
     this.commonName = commonName;
-    const keys = generateKeyPairSync("ec", { namedCurve: "P-256" });
+    const keys =
+      keyType === "ec"
+        ? generateKeyPairSync("ec", { namedCurve: "P-256" })
+        : keyType === "rsa"
+          ? generateKeyPairSync("rsa", { modulusLength: 2048 })
+          : generateKeyPairSync("ed25519");
     this.privateKey = keys.privateKey;
+    this.privateKeyPem = keys.privateKey.export({ type: "pkcs8", format: "pem" }) as string;
     this.certificate = pem(
       "CERTIFICATE",
       TestCertificateAuthority.certificate(
@@ -191,17 +201,23 @@ export class TestCertificateAuthority {
           ]
         : []),
     ];
+    const algorithm =
+      signer.asymmetricKeyType === "rsa"
+        ? sequence(oid(SHA256_WITH_RSA), Buffer.from([0x05, 0x00]))
+        : signer.asymmetricKeyType === "ed25519"
+          ? sequence(oid(ED25519))
+          : sequence(oid(ECDSA_WITH_SHA256));
     const tbs = sequence(
       explicit(0, integer(Buffer.from([2]))),
       integer(serial),
-      sequence(oid(ECDSA_WITH_SHA256)),
+      algorithm,
       name(issuer),
       sequence(utcTime(new Date(now - DAY_MS)), utcTime(new Date(now + DAY_MS))),
       name(subject.commonName),
       publicKey.export({ type: "spki", format: "der" }),
       explicit(3, sequence(...extensions)),
     );
-    const signature = sign("sha256", tbs, signer);
-    return sequence(tbs, sequence(oid(ECDSA_WITH_SHA256)), bitString(signature));
+    const signature = sign(signer.asymmetricKeyType === "ed25519" ? null : "sha256", tbs, signer);
+    return sequence(tbs, algorithm, bitString(signature));
   }
 }

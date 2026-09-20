@@ -33,7 +33,15 @@ export default {
   // they decide where a redirected connection's bytes are sent, from those
   // bytes alone: a mutant that reads a host where there is none, or a
   // different host than the client named, sends a workload's request to a
-  // destination the workload never addressed.
+  // destination the workload never addressed. The leaf issuer and its DER are
+  // here because a certificate the governing interceptor presents is the
+  // boundary's own claim to be the destination: a leaf that names the wrong
+  // host, chains to the wrong issuer, or is not strict DER is one a workload's
+  // runtime accepts wrongly or refuses rightly, and a cache that returns a leaf
+  // about to expire fails a client at the handshake. The governor is the seam
+  // where that leaf is presented and the plaintext handed to the gateway: a
+  // mutant there hands bytes past the boundary, or holds a connection the
+  // client has left.
   mutate: [
     "src/http/ExecutorHttpServer.ts",
     "src/identity/PrincipalRegistry.ts",
@@ -54,6 +62,9 @@ export default {
     "src/intercept/ClientHello.ts",
     "src/intercept/RequestHead.ts",
     "src/intercept/Destination.ts",
+    "src/intercept/Der.ts",
+    "src/intercept/LeafIssuer.ts",
+    "src/http/InterceptGovernor.ts",
   ],
   reporters: ["clear-text", "progress"],
   coverageAnalysis: "perTest",

@@ -218,9 +218,10 @@ the configuration, one schema for every distribution with the precedence flags, 
 defaults, is [docs/gateway/configuration.md](./docs/gateway/configuration.md). The gateway is
 addressed: the workload is pointed at it. `agentsafe intercept` holds the same boundary without
 configuring the workload, by redirecting a pod's or a container's outbound 80 and 443 into
-AgentSafe at the network layer and reporting every destination it reaches;
+AgentSafe at the network layer, reporting every destination it reaches, and governing the ones the
+operator names under an authority the workload trusts;
 [docs/gateway/transparent-interception.md](./docs/gateway/transparent-interception.md) says what
-that observes today and what it will govern next.
+is observed, what is governed, and what the authority costs.
 
 ## Install
 

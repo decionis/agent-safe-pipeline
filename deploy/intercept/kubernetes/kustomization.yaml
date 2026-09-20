@@ -17,6 +17,10 @@
 # `restricted` and are not where this goes. And the redirect touches ports 80
 # and 443 only: a workload that reaches a system of record on another port is
 # not intercepted there, and says so in the interceptor's report by absence.
+#
+# The component observes. To govern the destinations the report names, add
+# GovernExample.yaml, edited to your hosts and container name, as a patch of
+# your own beside the component; it and the guide state what governing costs.
 apiVersion: kustomize.config.k8s.io/v1alpha1
 kind: Component
 patches:

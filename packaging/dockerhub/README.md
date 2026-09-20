@@ -76,12 +76,16 @@ runs.
 The gateway is addressed: a workload is pointed at it. `decionis/agentsafe:<version> intercept`
 holds the same boundary without configuring the workload: its outbound connections to ports 80 and
 443 are redirected into AgentSafe beside it, at the network layer, and every destination it reaches
-is reported by name and count. The redirect is the `decionis/agentsafe:<version>-init` tag, run
-once with `NET_ADMIN` and `NET_RAW` in the shared network namespace; the
+is reported by name and count. Name the destinations to govern in `AGENTSAFE_INTERCEPT_GOVERN`,
+with an authority the workload trusts in `AGENTSAFE_INTERCEPT_CA_CERT_FILE` and `_CA_KEY_FILE`, and
+the same hop terminates their TLS and runs the gateway's lifecycle on each request: intent,
+decision, one forwarded request, or held, or refused. The redirect is the
+`decionis/agentsafe:<version>-init` tag, run once with `NET_ADMIN` and `NET_RAW` in the shared
+network namespace; the
 [compose recipe](https://github.com/decionis/agent-safe-pipeline/blob/master/deploy/intercept/docker/compose.yaml)
 puts the three containers together, and
 [transparent interception](https://github.com/decionis/agent-safe-pipeline/blob/master/docs/gateway/transparent-interception.md)
-says what is observed today and what is governed next.
+says what is observed, what is governed, and what the operator authority costs.
 
 ## Send your first governed action
 

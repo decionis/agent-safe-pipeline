@@ -3,14 +3,14 @@
 What an adopter runs to put the execution boundary in front of one workflow, and how it gets from
 a shadow deployment to an enforced one. One image, one manifest, one runbook.
 
-| Piece                                                               | What it is                                                                                       |
-| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| [`packages/agentsafe`](../packages/agentsafe)                       | The executor as a process, `@decionis/agentsafe`: the wire contract, the configuration, the seam |
-| [`examples/trusted-executor`](../examples/trusted-executor)         | The proof over real HTTP against the loopback doubles, and the template an adopter starts from   |
-| [`packages/agentsafe/Dockerfile`](../packages/agentsafe/Dockerfile) | The image, built from the repository root                                                        |
-| [`kubernetes/`](./kubernetes)                                       | Two namespaces, a default deny in both, the executor, its egress, the agent zone, operator RBAC  |
-| [`intercept/`](./intercept)                                         | The transparent interceptor beside a workload of yours: a Kubernetes Component, a Docker recipe  |
-| [`Runbook.md`](./Runbook.md)                                        | Shadow, controlled enforcement, enforcement: what to compare and what changes between them       |
+| Piece                                                               | What it is                                                                                                                                          |
+| ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`packages/agentsafe`](../packages/agentsafe)                       | The executor as a process, `@decionis/agentsafe`: the wire contract, the configuration, the seam                                                    |
+| [`examples/trusted-executor`](../examples/trusted-executor)         | The proof over real HTTP against the loopback doubles, and the template an adopter starts from                                                      |
+| [`packages/agentsafe/Dockerfile`](../packages/agentsafe/Dockerfile) | The image, built from the repository root                                                                                                           |
+| [`kubernetes/`](./kubernetes)                                       | Two namespaces, a default deny in both, the executor, its egress, the agent zone, operator RBAC                                                     |
+| [`intercept/`](./intercept)                                         | The transparent interceptor beside a workload of yours: a Kubernetes Component, a Docker recipe, and the govern example with the operator authority |
+| [`Runbook.md`](./Runbook.md)                                        | Shadow, controlled enforcement, enforcement: what to compare and what changes between them                                                          |
 
 ## What the kit is for
 

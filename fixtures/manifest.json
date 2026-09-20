@@ -735,6 +735,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/http/InterceptGovernor.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/http/InterceptServer.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
@@ -837,7 +843,19 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/intercept/Der.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/intercept/Destination.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/intercept/LeafIssuer.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false

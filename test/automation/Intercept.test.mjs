@@ -181,4 +181,70 @@ describe("the sidecar shapes", () => {
     assert.match(agent.image, /^\$\{AGENT_IMAGE:\?/);
     assert.doesNotMatch(await read("deploy/intercept/docker/compose.yaml"), /privileged/);
   });
+
+  it("govern the listed hosts from the same sidecar, the authority in the sidecar and its certificate in the workload", async () => {
+    const sidecar = parse(await read("deploy/intercept/kubernetes/Sidecar.yaml"));
+    const example = parse(await read("deploy/intercept/kubernetes/GovernExample.yaml"));
+    const pod = example.spec.template.spec;
+    const env = (container) =>
+      Object.fromEntries(container.env.map(({ name, value }) => [name, value]));
+    const interceptName = sidecar.spec.template.spec.containers[0].name;
+    const intercept = pod.containers.find((container) => container.name === interceptName);
+    const agent = pod.containers.find((container) => container.name === "agent");
+    assert.ok(intercept, "the example patches the container the component adds, by its name");
+    assert.ok(agent);
+    // The example adds nothing the component already decided: no image, no
+    // args, no security context, so the merge cannot loosen either.
+    for (const container of pod.containers) {
+      assert.equal(container.image, undefined, container.name);
+      assert.equal(container.securityContext, undefined, container.name);
+      assert.equal(container.args, undefined, container.name);
+    }
+    const interceptEnv = env(intercept);
+    const mounts = (container) =>
+      Object.fromEntries(container.volumeMounts.map(({ name, mountPath }) => [name, mountPath]));
+    const volumes = Object.fromEntries(pod.volumes.map((volume) => [volume.name, volume]));
+    // The authority's key reaches the sidecar as a Secret, read-only, owner
+    // and group only; its certificate reaches the workload as a ConfigMap.
+    const caMount = mounts(intercept)["agentsafe-intercept-ca"];
+    assert.equal(interceptEnv.AGENTSAFE_INTERCEPT_CA_CERT_FILE, `${caMount}/ca.crt`);
+    assert.equal(interceptEnv.AGENTSAFE_INTERCEPT_CA_KEY_FILE, `${caMount}/ca.key`);
+    assert.equal(volumes["agentsafe-intercept-ca"].secret.defaultMode, 288);
+    assert.ok(volumes["agentsafe-intercept-ca-cert"].configMap);
+    const trustMount = mounts(agent)["agentsafe-intercept-ca-cert"];
+    const agentEnv = env(agent);
+    for (const variable of ["NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE"]) {
+      assert.equal(agentEnv[variable], `${trustMount}/ca.crt`, variable);
+    }
+    assert.equal(
+      mounts(agent)["agentsafe-intercept-ca"],
+      undefined,
+      "the key never reaches the workload",
+    );
+    for (const container of pod.containers) {
+      for (const mount of container.volumeMounts) assert.equal(mount.readOnly, true, mount.name);
+    }
+    // Governed hosts are names, and the example starts in shadow, in
+    // production, with the key from a file.
+    for (const host of interceptEnv.AGENTSAFE_INTERCEPT_GOVERN.split(",")) {
+      assert.match(host, /^[a-z0-9.-]+\.example$/, host);
+    }
+    assert.equal(interceptEnv.AGENTSAFE_INTERCEPT_UNLISTED, "passthrough");
+    assert.equal(interceptEnv.AGENTSAFE_MODE, "shadow");
+    assert.equal(interceptEnv.NODE_ENV, "production");
+    assert.equal(interceptEnv.DECIONIS_API_KEY, undefined);
+    assert.equal(interceptEnv.DECIONIS_API_KEY_FILE, `${mounts(intercept).decionis}/api-key`);
+    assert.equal(volumes.decionis.secret.defaultMode, 288);
+    // The Docker recipe says the same in its own words.
+    const compose = await read("deploy/intercept/docker/compose.yaml");
+    for (const variable of [
+      "AGENTSAFE_INTERCEPT_GOVERN",
+      "AGENTSAFE_INTERCEPT_CA_CERT_FILE",
+      "AGENTSAFE_INTERCEPT_CA_KEY_FILE",
+      "DECIONIS_API_KEY_FILE",
+      "NODE_EXTRA_CA_CERTS",
+    ]) {
+      assert.ok(compose.includes(variable), variable);
+    }
+  });
 });

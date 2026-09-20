@@ -8,11 +8,13 @@
  * the two sockets. A connection whose destination no byte names is refused:
  * the interceptor forwards to what the client asked for, or to nothing.
  *
- * This is the observe phase. Nothing is decrypted, nothing is decided and no
- * request is altered; what is kept is where the workload went, in the ledger,
- * so an operator learns what a workload reaches before governing it. The
- * govern phase terminates TLS for the destinations an operator lists and runs
- * the gateway's lifecycle over them; it is the same hop, and the same ledger.
+ * That is the observe phase, and every destination starts in it: nothing is
+ * decrypted, nothing is decided and no request is altered; what is kept is
+ * where the workload went, in the ledger, so an operator learns what a
+ * workload reaches before governing it. For the destinations an operator
+ * lists, the governor (`InterceptGovernor`) takes the connection instead:
+ * TLS is terminated under the operator's authority and the gateway's
+ * lifecycle runs over each request. Same hop, same ledger.
  */
 import { createServer, type AddressInfo, type Server, type Socket } from "node:net";
 import { transparentDial, type Dial } from "../egress/TransparentDial.js";
@@ -24,8 +26,10 @@ import {
 import {
   InterceptLedger,
   type InterceptRefusal,
+  type GovernedCountsSource,
   type InterceptReport,
 } from "../intercept/InterceptLedger.js";
+import { GovernError, type InterceptGovernor } from "./InterceptGovernor.js";
 
 /** One listener: the port it binds, and the port the redirected connections were addressed to. */
 export interface InterceptListenerSpec {
@@ -73,6 +77,8 @@ export type InterceptEvent =
       readonly protocol: InterceptProtocol;
       readonly host: string;
       readonly port: number;
+      /** Taken by the gateway rather than spliced through. */
+      readonly governed: boolean;
       readonly method?: string;
       readonly target?: string;
       readonly alpn?: readonly string[];
@@ -86,6 +92,14 @@ export type InterceptEvent =
       readonly port?: number;
       readonly detail?: string;
     }
+  | {
+      readonly event: "INTERCEPT_GOVERNING";
+      readonly at: string;
+      readonly hosts: readonly string[];
+      readonly unlisted: "passthrough" | "refuse";
+      /** Whether governed TLS is terminated: an operator authority was given. */
+      readonly tls: boolean;
+    }
   | InterceptReport
   | { readonly event: "INTERCEPT_STOPPED"; readonly at: string; readonly signal: string };
 
@@ -93,6 +107,8 @@ export interface InterceptorDependencies {
   readonly emit: (event: InterceptEvent) => void;
   readonly dial?: Dial;
   readonly now?: () => Date;
+  /** The govern phase, when an operator listed destinations; null observes everything. */
+  readonly governor?: InterceptGovernor | null;
 }
 
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0"]);
@@ -105,6 +121,7 @@ export class Interceptor {
   private readonly dial: Dial;
   private readonly now: () => Date;
   private readonly emit: (event: InterceptEvent) => void;
+  private readonly governor: InterceptGovernor | null;
 
   public constructor(
     private readonly options: InterceptorOptions,
@@ -113,6 +130,7 @@ export class Interceptor {
     this.emit = dependencies.emit;
     this.dial = dependencies.dial ?? transparentDial;
     this.now = dependencies.now ?? (() => new Date());
+    this.governor = dependencies.governor ?? null;
   }
 
   /** Binds every listener; a port that cannot be bound closes the ones already bound and rejects. */
@@ -158,8 +176,8 @@ export class Interceptor {
     return this.bound;
   }
 
-  public report(): InterceptReport {
-    return this.ledger.report(this.now().toISOString());
+  public report(governed?: GovernedCountsSource): InterceptReport {
+    return this.ledger.report(this.now().toISOString(), governed);
   }
 
   /** Stops accepting, drops every connection, and waits for the listeners to close. */
@@ -236,13 +254,19 @@ export class Interceptor {
       this.refuse(client, "HOST_IS_INTERCEPTOR", protocol, { host, port }, undefined, true);
       return;
     }
-    const key = this.ledger.record(host, port, protocol, destination.method ?? null, at);
+    const governed = this.governor?.governs(host) ?? false;
+    if (!governed && this.governor?.unlisted === "refuse") {
+      this.refuse(client, "UNLISTED_DESTINATION", protocol, { host, port }, undefined, true);
+      return;
+    }
+    const key = this.ledger.record(host, port, protocol, destination.method ?? null, at, governed);
     this.emit({
       event: "INTERCEPT_OBSERVED",
       at,
       protocol,
       host,
       port,
+      governed,
       ...(destination.method === undefined ? {} : { method: destination.method }),
       ...(destination.target === undefined ? {} : { target: destination.target }),
       ...(destination.alpn === undefined || destination.alpn.length === 0
@@ -250,6 +274,18 @@ export class Interceptor {
         : { alpn: destination.alpn }),
     });
     client.pause();
+    if (governed && this.governor !== null) {
+      // The gateway becomes the connection's other end; nothing is dialled here.
+      try {
+        await this.governor.take(client, head, destination);
+      } catch (error) {
+        const detail = error instanceof GovernError ? error.message : "UNKNOWN";
+        this.refuse(client, "GOVERN_UNAVAILABLE", protocol, { host, port }, detail, false);
+        return;
+      }
+      this.ledger.placed();
+      return;
+    }
     // A client that has already finished sending while the destination is
     // dialled must still have its end delivered once the splice is up.
     let clientEnded = false;

@@ -8,8 +8,8 @@ authority's; the gateway asks, enforces and records ([ADR 0001](../architecture/
 The gateway is addressed: a workload is configured to send its requests to it. The same boundary
 can also be held without configuring the workload at all, by redirecting its outbound connections
 into an AgentSafe process beside it at the network layer; that is
-[transparent interception](./transparent-interception.md), which today observes what a workload
-reaches and will govern it in the same hop next.
+[transparent interception](./transparent-interception.md), which observes what a workload reaches
+and governs the destinations an operator names in that same hop.
 
 ## What is consequential
 
