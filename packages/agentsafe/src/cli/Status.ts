@@ -1,5 +1,9 @@
 import { GATEWAY_PREFIX, type GatewayStatus } from "../gateway/Gateway.js";
-import { enforcementSwitch, renderShadowReport } from "../gateway/ShadowLedger.js";
+import {
+  enforcementSwitch,
+  renderShadowReport,
+  type ShadowSummary,
+} from "../gateway/ShadowLedger.js";
 import { parseArguments, ArgumentError } from "./Arguments.js";
 import type { CliProcess } from "./CliProcess.js";
 import { explainRefusal, resolveGateway, PROXY_ARGUMENTS } from "./Proxy.js";
@@ -70,9 +74,14 @@ export async function runStatus(io: CliProcess, argv: readonly string[]): Promis
     );
     // A gateway in shadow carries its report: what enforcement would have
     // changed so far, and the switch that turns it on. An older gateway
-    // answers without the field, which reads as no report.
-    const shadow = status.shadow ?? null;
-    if (shadow !== null) {
+    // answers without the field, which reads as no report, or without the
+    // accepted counts, which read as none.
+    const answered = status.shadow ?? null;
+    if (answered !== null) {
+      const shadow: ShadowSummary = {
+        ...answered,
+        accepted: (answered as Partial<ShadowSummary>).accepted ?? { ESCALATE: 0, BLOCK: 0 },
+      };
       io.stdout(
         `\n${renderShadowReport(
           { event: "SHADOW_REPORT", at: new Date().toISOString(), shadow, enforce },

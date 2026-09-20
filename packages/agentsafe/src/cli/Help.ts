@@ -14,7 +14,7 @@ export function usage(version: string): string {
     "  doctor               Check the binary, configuration, upstream, Decionis and credentials",
     "  test                 Show what reaches a target without the boundary and what enforcement prevents",
     "  config               Print the effective configuration and where each setting came from",
-    "  login | logout       Store or remove a Decionis key for this user",
+    "  login | logout       Store or remove a Decionis key for this user (--provision mints a free workspace)",
     "  version              Print the version",
     "",
     "Evidence",

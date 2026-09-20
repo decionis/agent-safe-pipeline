@@ -114,9 +114,13 @@ it into enforcement is a report and a switch, and both exist at two places.
 **The gateway's own report.** In shadow the gateway keeps a ledger of what it observed: how many
 consequential actions went through unchanged, what the authority would have decided about each
 (`ALLOW`, `ESCALATE`, `BLOCK`, or no verdict when it could not be asked in time), by action name,
-from the first observation to the last. It is counts only; no path, body, parameter or identifier
-is kept. `agentsafe status` prints it for a running gateway, `/_agentsafe/status` carries it as
-`shadow`, and the gateway prints it when it stops, before the stop line:
+from the first observation to the last, and how many of the would-be holds and refusals the
+upstream accepted as sent. It is counts only; no path, body, parameter or identifier is kept.
+`agentsafe status` prints it for a running gateway, `/_agentsafe/status` carries it as `shadow`,
+the gateway prints it when it stops, before the stop line, and a gateway that runs on prints it
+unasked on its own cadence: as the count of observations reaches 10, 100, 1,000 and each further
+power of ten, and whenever a day has passed since the last report at the moment an observation
+settles. A gateway that observes nothing says nothing.
 
 ```text
 Shadow report
@@ -131,15 +135,26 @@ By action    http.post          160   allow 150  hold 7  block 3
              payments.refund     24   allow 21  hold 2  block 1
 
 Enforcement would have held 9 and refused 4 of 184; 171 would have gone through as they did.
+3 would-be refusals were accepted by the upstream as sent: a valid credential, a permitted API, an intent nobody authorized. That is the Compromised Principal Test, observed (docs/compromised-principal-test.md).
 Turn it on   `agentsafe proxy --mode enforcement`, or `AGENTSAFE_MODE=enforcement`, or `authority.mode: enforcement` in agentsafe.yaml
 ```
 
+The line before the switch appears when a would-be refusal was answered `2xx` by the upstream:
+the request carried a credential the upstream honoured, on an API it permitted, and the authority
+would have refused it. That is the adversary the
+[Compromised Principal Test](./compromised-principal-test.md) states, met in the gateway's own
+traffic rather than in a fixture, and it is the count to read before deciding whether shadow has
+run long enough.
+
 The last line is written in the terms the mode was configured in: the flag for a command line,
 the variable where the environment set it, the file's own key where a file did (`gateway.mode` in
-the chart's values). With a provisional workspace the line says instead that enforcement needs an
-owned key: `agentsafe login` with a key from the Decionis organization, then the switch. A
-gateway started in enforcement with a provisional login refuses to start, by name, rather than
-fail every action closed.
+the chart's values). Against the local demo authority it adds what that switch enforces (the demo's
+synthetic policy) and how Decionis comes to decide instead: `agentsafe login --provision` mints a
+free workspace with no account, which decides in shadow, and `agentsafe login` with a key from an
+organization enables enforcement. With a provisional workspace the line says instead that
+enforcement needs an owned key: `agentsafe login` with a key from the Decionis organization, then
+the switch. A gateway started in enforcement with a provisional login refuses to start, by name,
+rather than fail every action closed.
 
 **The authority's report.** Decionis holds the same observations with their dossiers, and for
 Commerce Gate renders them as the shadow report document (`/v1/protocol/shadow-reports`): the

@@ -42,6 +42,20 @@ describe("the stored login", () => {
     });
     expect(removeCredentials(io)).toBe(path);
     expect(readCredentials(io)).toBeNull();
+    // A provisional workspace's key travels with the fact that it is one:
+    // the loader runs it in shadow and refuses to enforce with it.
+    writeCredentials(io, {
+      apiKey: "synthetic-provisional-key-aaaa",
+      tenantId: TENANT_ID,
+      endpoint: null,
+      provisional: true,
+    });
+    expect(readCredentials(io)).toEqual({
+      apiKey: "synthetic-provisional-key-aaaa",
+      tenantId: TENANT_ID,
+      endpoint: null,
+      provisional: true,
+    });
   });
 
   it("ignores a file it cannot read as a login, and every file in production", () => {

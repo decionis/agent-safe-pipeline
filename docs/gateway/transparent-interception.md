@@ -154,8 +154,11 @@ image's only content) takes the same two ports, the interceptor's user id
 rule, and prints the rules it wrote. It is idempotent.
 
 `SIGTERM` prints the report, the governed gateways' own reports (the shadow report among them),
-and exits `0`. Observing, the process holds no key and asks no authority; the only network it
-opens is to the destinations the workload named.
+and exits `0`. A sidecar that runs on prints its report unasked on its own cadence, as the count of
+connections reaches 10, 100, 1,000 and each further power of ten, and whenever a day has passed
+since the last report at the moment a connection is counted; the governed gateways' shadow reports
+follow the same cadence over their own observations. Observing, the process holds no key and asks
+no authority; the only network it opens is to the destinations the workload named.
 
 ## Reading the report
 

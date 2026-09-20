@@ -20,12 +20,24 @@ export interface ShadowCounts {
   readonly NONE: number;
 }
 
+/**
+ * Of the would-be holds and refusals, how many the upstream accepted as sent
+ * (a 2xx): each is a request that passed every credential and permission
+ * check on its way and would not have passed the authority, which is the
+ * Compromised Principal Test observed rather than stated.
+ */
+export interface AcceptedCounts {
+  readonly ESCALATE: number;
+  readonly BLOCK: number;
+}
+
 export interface ShadowSummary {
   /** When the first and the last observation settled; null before any did. */
   readonly since: string | null;
   readonly until: string | null;
   readonly observed: number;
   readonly would: ShadowCounts;
+  readonly accepted: AcceptedCounts;
   readonly by_action: Readonly<Record<string, ShadowCounts>>;
 }
 
@@ -45,16 +57,37 @@ const MAX_ACTIONS = 1_000;
 export class ShadowLedger {
   private since: string | null = null;
   private until: string | null = null;
-  private observed = 0;
+  private count = 0;
   private would: ShadowCounts = ZERO;
+  private accepted: AcceptedCounts = { ESCALATE: 0, BLOCK: 0 };
   private readonly byAction = new Map<string, ShadowCounts>();
 
-  public record(action: string, verdict: ShadowVerdict | null, at: string): void {
+  /** How many observations have settled so far. */
+  public get observed(): number {
+    return this.count;
+  }
+
+  /**
+   * One settled observation: the action, what the authority would have
+   * decided (null when it could not be asked), when, and the status the
+   * upstream answered the forwarded request with (null when it did not).
+   */
+  public record(
+    action: string,
+    verdict: ShadowVerdict | null,
+    at: string,
+    upstreamStatus: number | null = null,
+  ): void {
     const outcome: ShadowVerdict = verdict ?? "NONE";
     this.since ??= at;
     this.until = at;
-    this.observed += 1;
+    this.count += 1;
     this.would = { ...this.would, [outcome]: this.would[outcome] + 1 };
+    const acceptedUpstream =
+      upstreamStatus !== null && upstreamStatus >= 200 && upstreamStatus < 300;
+    if (acceptedUpstream && (outcome === "BLOCK" || outcome === "ESCALATE")) {
+      this.accepted = { ...this.accepted, [outcome]: this.accepted[outcome] + 1 };
+    }
     const name = this.byAction.has(action) || this.byAction.size < MAX_ACTIONS ? action : "other";
     const counts = this.byAction.get(name) ?? ZERO;
     this.byAction.set(name, { ...counts, [outcome]: counts[outcome] + 1 });
@@ -64,8 +97,9 @@ export class ShadowLedger {
     return {
       since: this.since,
       until: this.until,
-      observed: this.observed,
+      observed: this.count,
       would: this.would,
+      accepted: this.accepted,
       by_action: Object.fromEntries(
         [...this.byAction.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
       ),
@@ -82,14 +116,22 @@ export function enforcementSwitch(config: GatewayConfig): string {
   if (config.authority.provisional) {
     return "a provisional workspace evaluates in shadow only; for enforcement, run `agentsafe login` with a key from your Decionis organization, then `agentsafe proxy --mode enforcement`";
   }
-  switch (config.sources["authority.mode"]) {
-    case "file":
-      return "set `authority.mode: enforcement` in agentsafe.yaml (`gateway.mode: enforcement` in the chart's values) and restart";
-    case "environment":
-      return "set `AGENTSAFE_MODE=enforcement` and restart";
-    default:
-      return "`agentsafe proxy --mode enforcement`, or `AGENTSAFE_MODE=enforcement`, or `authority.mode: enforcement` in agentsafe.yaml";
+  const mode = ((): string => {
+    switch (config.sources["authority.mode"]) {
+      case "file":
+        return "set `authority.mode: enforcement` in agentsafe.yaml (`gateway.mode: enforcement` in the chart's values) and restart";
+      case "environment":
+        return "set `AGENTSAFE_MODE=enforcement` and restart";
+      default:
+        return "`agentsafe proxy --mode enforcement`, or `AGENTSAFE_MODE=enforcement`, or `authority.mode: enforcement` in agentsafe.yaml";
+    }
+  })();
+  // The demo authority is not policy: the switch enforces its synthetic
+  // limits, and the report says how Decionis comes to decide instead.
+  if (config.authority.kind === "LOCAL") {
+    return `${mode}; that enforces the local demo authority's synthetic policy. For Decionis to decide: \`agentsafe login --provision\` mints a free workspace (no account; it decides in shadow), and \`agentsafe login\` with a key from your organization enables enforcement`;
   }
+  return mode;
 }
 
 const ESC = String.fromCharCode(27);
@@ -166,8 +208,15 @@ export function renderShadowReport(
     changed === 0
       ? `Enforcement would have changed nothing: all ${String(shadow.observed)} would have gone through as they did.`
       : `Enforcement would have held ${String(would.ESCALATE)} and refused ${String(would.BLOCK)} of ${String(shadow.observed)}; ${String(would.ALLOW)} would have gone through as they did.`,
-    row("Turn it on", report.enforce),
-    "",
   );
+  // A refusal the upstream accepted as sent is the test this repository
+  // states, met in the wild: the credential was valid, the API permitted it,
+  // and the intent was one nobody authorized.
+  if (shadow.accepted.BLOCK > 0) {
+    lines.push(
+      `${plural(shadow.accepted.BLOCK, "would-be refusal")} ${shadow.accepted.BLOCK === 1 ? "was" : "were"} accepted by the upstream as sent: a valid credential, a permitted API, an intent nobody authorized. That is the Compromised Principal Test, observed (docs/compromised-principal-test.md).`,
+    );
+  }
+  lines.push(row("Turn it on", report.enforce), "");
   return lines.join("\n");
 }

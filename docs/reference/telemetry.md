@@ -76,7 +76,9 @@ already carries: the `User-Agent` of `enforce-and-bind`, `claim-token` and `fina
 naming the pipeline package and its version, `example=agentsafe-gateway@<version>`, and the
 install surface when one is known, all of which is sent only when a key is configured, is not
 decision input, and does not enter the dossier ([how it is wired](../../README.md#how-it-is-wired)).
-`agentsafe status` shows the surface the process would send as `Surface`.
+`agentsafe login --provision`, run by the person, sends the same `User-Agent` on its one call to
+mint a workspace, and nothing else. `agentsafe status` shows the surface the process would send as
+`Surface`.
 
 ## What is never in a metric or a line
 
