@@ -8,6 +8,13 @@
  * answered, 1 when something adversarial got through or a target answered,
  * 2 when the test did not run: the arguments were wrong, or the process is
  * marked production, where the synthetic authority refuses to start.
+ *
+ * `agentsafe test --hosted` is the same requests with Decionis deciding, in
+ * shadow, against the workspace this machine is logged into
+ * (`gateway/HostedBoundaryTest.ts`): the first governed action for that
+ * workspace and the signed record it leaves. Exit 0 when Decionis decided
+ * every consequential request, 1 when it could not be reached for some or
+ * all, 2 when there is no login to run it with.
  */
 import {
   parseTarget,
@@ -24,11 +31,20 @@ import {
   type PassOutcome,
 } from "../gateway/BoundaryTest.js";
 import { executionLabel, stateLabel } from "../gateway/GatewayReport.js";
+import {
+  HostedTestError,
+  runHostedBoundaryTest,
+  type HostedBoundaryTestOptions,
+  type HostedBoundaryTestReport,
+  type HostedCaseResult,
+} from "../gateway/HostedBoundaryTest.js";
+import { processSurface } from "../gateway/InstallSurface.js";
 import { packageVersion } from "../Version.js";
 import { ArgumentError, parseArguments } from "./Arguments.js";
 import type { CliProcess } from "./CliProcess.js";
+import { readCredentials } from "./Credentials.js";
 
-export const TEST_ARGUMENTS = { valued: [], flags: ["json"] } as const;
+export const TEST_ARGUMENTS = { valued: [], flags: ["json", "hosted"] } as const;
 
 /** The report the command prints: the synthetic run, and the containment probe when asked. */
 export interface TestReport extends BoundaryTestReport {
@@ -43,8 +59,16 @@ export interface TestReport extends BoundaryTestReport {
   readonly activation: { readonly milestone: "boundary_tested"; readonly at: string };
 }
 
+/** The hosted report the command prints: the run, and the step of the adoption path it is. */
+export interface HostedTestReport extends HostedBoundaryTestReport {
+  /** 0 when Decionis decided every consequential request; 1 otherwise. */
+  readonly exit: 0 | 1;
+  readonly activation: { readonly milestone: "boundary_tested"; readonly at: string };
+}
+
 export interface TestOptions {
   readonly run?: (options: BoundaryTestOptions) => Promise<BoundaryTestReport>;
+  readonly runHosted?: (options: HostedBoundaryTestOptions) => Promise<HostedBoundaryTestReport>;
   readonly dial?: typeof tcpDial;
   readonly timeoutMs?: number;
 }
@@ -206,17 +230,189 @@ export function renderTestReport(report: TestReport, options: { readonly color: 
   return lines.join("\n");
 }
 
+/** What Decionis said about a case, in the words the local report uses for a lane. */
+function decionisColumn(result: HostedCaseResult): string {
+  const { decionis } = result;
+  const answered = decionis.status === null ? "no answer" : String(decionis.status);
+  if (!decionis.consequential) {
+    return decionis.state === null
+      ? `reached ${answered} (not consequential)`
+      : `refused ${answered} by the gateway, nothing asked`;
+  }
+  const would =
+    decionis.verdict === null
+      ? "no verdict (Decionis could not be asked, or not in time)"
+      : `would ${decionis.verdict === "ESCALATE" ? "hold" : decionis.verdict}`;
+  return `reached ${answered}, ${would}${decionis.dossier_id === null ? "" : ", dossier"}`;
+}
+
+/** The hosted report for a terminal: one row per case, what was decided, the record, the verdict. */
+export function renderHostedTestReport(
+  report: HostedTestReport,
+  options: { readonly color: boolean },
+): string {
+  const bold = (text: string): string => (options.color ? `${BOLD}${text}${RESET}` : text);
+  const dim = (text: string): string => (options.color ? `${DIM}${text}${RESET}` : text);
+  const row = (label: string, value: string): string => `${label.padEnd(11)} ${value}`;
+  const cells = report.cases.map((result) => [
+    result.title,
+    directColumn(result as unknown as BoundaryCaseResult),
+    decionisColumn(result),
+  ]);
+  const widths = ["", "direct", "Decionis, in shadow"].map((heading, column) =>
+    Math.max(heading.length, ...cells.map((cell) => cell[column]?.length ?? 0)),
+  );
+  const pad = (text: string, column: number): string => text.padEnd(widths[column] ?? 0);
+  const { authority, decided } = report;
+  const lines = [
+    `${bold("AgentSafe")} ${dim(report.runtime)} boundary test, Decionis deciding`,
+    "",
+    row("Target", "synthetic loopback service; nothing real is called"),
+    row(
+      "Authority",
+      `Decionis, workspace ${authority.tenant}, shadow${
+        authority.provisional ? " (provisional: no account; it decides in shadow only)" : ""
+      }; at ${authority.endpoint}`,
+    ),
+    "",
+    `${pad("", 0)}  ${bold(pad("direct", 1))}  ${bold("Decionis, in shadow")}`,
+  ];
+  report.cases.forEach((result, index) => {
+    const [title = "", direct = "", decionis = ""] = cells[index] ?? [];
+    const painted =
+      !options.color || result.decionis.verdict === null
+        ? decionis
+        : `${result.decionis.verdict === "ALLOW" ? GREEN : YELLOW}${decionis}${RESET}`;
+    lines.push(`${pad(title, 0)}  ${pad(direct, 1)}  ${painted}`);
+  });
+  const { would } = decided;
+  const decidedCount = decided.consequential - would.NONE;
+  lines.push(
+    "",
+    row(
+      "Decided",
+      `Decionis decided ${String(decidedCount)} of ${String(decided.consequential)} consequential actions: would allow ${String(would.ALLOW)}, hold ${String(would.ESCALATE)}, refuse ${String(would.BLOCK)}`,
+    ),
+    row(
+      "Dossiers",
+      report.dossiers.length === 0
+        ? "none were left"
+        : `${String(report.dossiers.length)} signed record${report.dossiers.length === 1 ? "" : "s"} under this workspace, the first ${report.dossiers[0] ?? ""}`,
+    ),
+  );
+  if (report.signed !== null) {
+    const { signed } = report;
+    const by =
+      signed.keyId === null
+        ? "unsigned record"
+        : `${signed.algorithm ?? "signed"} by key ${signed.keyId}${signed.issuedAt === null ? "" : ` at ${signed.issuedAt}`}`;
+    lines.push(
+      row(
+        "Signed",
+        `${by}, ${String(signed.artifacts)} signed artifact(s); issuer ${signed.issuerTier ?? "not stated"}${
+          signed.issuerTier === "provisional_anonymous"
+            ? " (a workspace without an account; claim it to keep it)"
+            : ""
+        }`,
+      ),
+    );
+  } else if (report.signedUnavailable !== null) {
+    lines.push(
+      row(
+        "Signed",
+        `not fetched (${report.signedUnavailable}); the records are still there under your key`,
+      ),
+    );
+  }
+  const holds = report.exit === 0;
+  const verdict =
+    report.verdict === "DECIONIS_DECIDED"
+      ? "DECIONIS DECIDED"
+      : report.verdict === "AUTHORITY_UNREACHABLE"
+        ? "AUTHORITY UNREACHABLE: Decionis decided nothing"
+        : "PARTLY DECIDED: Decionis could not be asked about every action";
+  lines.push(
+    "",
+    row("Verdict", options.color ? `${BOLD}${holds ? GREEN : RED}${verdict}${RESET}` : verdict),
+    "",
+    dim(
+      holds
+        ? `Next: agentsafe proxy --upstream <your service>; this workspace decides in shadow${
+            authority.provisional
+              ? ", and agentsafe login with a key from your organization enables enforcement."
+              : "; --mode enforcement when the shadow report reads right."
+          }`
+        : "Check agentsafe doctor: the endpoint, the key and the network between them.",
+    ),
+    dim(
+      [...report.milestones, report.activation.milestone]
+        .map((milestone) => `✓ ${milestone.replace(/_/g, " ")}`)
+        .join("  "),
+    ),
+    "",
+  );
+  return lines.join("\n");
+}
+
+async function runHosted(
+  io: CliProcess,
+  json: boolean,
+  options: TestOptions,
+): Promise<HostedTestReport | null> {
+  let hosted: HostedBoundaryTestReport;
+  try {
+    hosted = await (options.runHosted ?? runHostedBoundaryTest)({
+      version: packageVersion(),
+      credentials: readCredentials(io),
+      env: io.env,
+      surface: processSurface(io.env),
+    });
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : "TEST_FAILED";
+    io.stderr(
+      json
+        ? `${JSON.stringify({ event: "TEST_REFUSED", reason })}\n`
+        : `AgentSafe did not run the hosted boundary test.\n\n${reason}${
+            error instanceof HostedTestError && error.code === "NO_LOGIN"
+              ? "\n\nRun agentsafe login --provision for a free workspace that decides in shadow, or agentsafe login with a key from your organization."
+              : ""
+          }\n`,
+    );
+    io.exit(2);
+    return null;
+  }
+  const exit: 0 | 1 = hosted.verdict === "DECIONIS_DECIDED" ? 0 : 1;
+  const report: HostedTestReport = {
+    ...hosted,
+    exit,
+    activation: { milestone: "boundary_tested", at: hosted.at },
+  };
+  io.stdout(
+    json ? `${JSON.stringify(report)}\n` : renderHostedTestReport(report, { color: io.color }),
+  );
+  io.exit(exit);
+  return report;
+}
+
 export async function runTest(
   io: CliProcess,
   argv: readonly string[],
   options: TestOptions = {},
-): Promise<TestReport | null> {
+): Promise<TestReport | HostedTestReport | null> {
   let json = false;
   let targets: ContainmentTarget[];
+  let hosted = false;
   try {
     const parsed = parseArguments(argv, TEST_ARGUMENTS);
     json = parsed.options.get("json") === true;
+    hosted = parsed.options.get("hosted") === true;
     targets = parsed.positionals.map(parseTarget);
+    if (hosted && targets.length > 0) {
+      throw new ArgumentError(
+        "VALUE_INVALID",
+        "--hosted takes no targets; name them to the local test",
+      );
+    }
   } catch (error) {
     const message =
       error instanceof ArgumentError
@@ -228,6 +424,7 @@ export async function runTest(
     io.exit(2);
     return null;
   }
+  if (hosted) return await runHosted(io, json, options);
   let boundary: BoundaryTestReport;
   try {
     boundary = await (options.run ?? runBoundaryTest)({ version: packageVersion() });

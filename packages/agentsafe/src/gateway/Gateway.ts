@@ -103,6 +103,12 @@ export interface GatewayDependencies {
    * absent, and `null` when it is not one of the named surfaces.
    */
   readonly surface?: InstallSurface | null;
+  /**
+   * What a hosted call names as the example, `agentsafe-gateway@<version>`
+   * when absent; `agentsafe test --hosted` names itself, so the authority's
+   * record tells a test run from a gateway in service.
+   */
+  readonly clientExample?: string;
 }
 
 /** What `/_agentsafe/status` reports: identifiers and counts, never a value. */
@@ -293,7 +299,7 @@ export class Gateway {
       ...connection,
       mode: config.authority.mode,
       source: {
-        example: `agentsafe-gateway@${version}`,
+        example: dependencies.clientExample ?? `agentsafe-gateway@${version}`,
         ...(surface === null ? {} : { surface }),
       },
     });

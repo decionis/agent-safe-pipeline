@@ -109,6 +109,33 @@ line, `✓ boundary tested`). The `Caller` line above the verdict says what the 
 same caller on every row, never the reason anything was refused
 ([the Compromised Principal Test](../compromised-principal-test.md)).
 
+### `agentsafe test --hosted`
+
+The same requests, without the outage case, sent two ways at the same synthetic target: directly,
+and through the gateway in shadow against the Decionis workspace this machine is logged into. This
+is the one test that reads the stored login and the `DECIONIS_*` variables (`DECIONIS_API_KEY`,
+`_API_KEY_FILE`, `_API_URL`, `_TENANT_ID`, `_TIMEOUT_MS`, `_ALLOW_INSECURE_LOOPBACK`, and
+`NODE_ENV`; nothing else, no file, no `AGENTSAFE_*`), and it says so. Nothing real is called and
+nothing is enforced; what the run produces is the first governed action against Decionis for the
+workspace, one signed Decision Dossier per consequential request, and the first record fetched
+with the run's own key and shown by its proof (algorithm, key, issuer tier). A workspace from
+`agentsafe login --provision` is enough: it decides in shadow, which is the one lane this test
+runs. Every hosted call names the test, `example=agentsafe-test@<version>`, so the authority's
+record tells a test run from a gateway in service. It takes no targets.
+
+| Exit | Meaning                                                                                       |
+| ---- | --------------------------------------------------------------------------------------------- |
+| `0`  | `DECIONIS_DECIDED`: every consequential request got a verdict                                 |
+| `1`  | `AUTHORITY_UNREACHABLE` or `PARTLY_DECIDED`: Decionis could not be asked about some or all    |
+| `2`  | no login (the message names `agentsafe login --provision` and `agentsafe login`), or a target |
+
+`--json` prints `agent-safe.hosted-boundary-test/1`: `authority` (endpoint, tenant, `provisional`,
+`mode`), `cases[]` with `direct` and `decionis` (`consequential`, `status`, `state`, `verdict`,
+`reason_codes`, `decision_id`, `dossier_id`), `decided`, `dossiers[]`, `signed` (the first record's
+summary, or null with `signedUnavailable` naming why), `milestones` (what the shadow lane reported
+of the [adoption path](./telemetry.md#activation-milestones): `decionis_connected` among them),
+`verdict`, `exit`, `activation`.
+
 ### `agentsafe config`
 
 Prints the effective configuration as YAML (`--json` for JSON), with `sources` naming the layer

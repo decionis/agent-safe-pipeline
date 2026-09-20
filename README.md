@@ -115,6 +115,12 @@ which is the [Compromised Principal Test](./docs/compromised-principal-test.md) 
 last line is the step of the [adoption path](./docs/reference/telemetry.md#activation-milestones)
 the run is.
 
+With a workspace, `agentsafe test --hosted` sends the same requests with Decionis deciding, in
+shadow, at the same synthetic target: the first governed action against Decionis for that
+workspace, one signed Decision Dossier per consequential request, and the first record fetched
+with the run's own key and shown by its proof. `agentsafe login --provision` mints the workspace
+in one command, no account; the test takes about as long as the local one.
+
 ## Five-minute quickstart
 
 Nothing here needs an account: without a Decionis key the gateway runs a local demo authority in

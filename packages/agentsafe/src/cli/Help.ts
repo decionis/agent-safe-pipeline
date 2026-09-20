@@ -27,6 +27,7 @@ export function usage(version: string): string {
     "  probe-containment    Report whether a system of record answers the agent zone",
     "",
     "  test [name=host:port]...  also dials each real target: does it answer without the gateway?",
+    "  test --hosted        the same requests with Decionis deciding, in shadow, against your workspace",
     "",
     "Options shared by proxy, run, status, doctor and config:",
     "  --config <file>  --upstream <url>  --port <n>  --listen <host:port>",
