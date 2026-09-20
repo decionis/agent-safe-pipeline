@@ -687,6 +687,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/gateway/HostedBoundaryTest.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/gateway/InstallSurface.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",

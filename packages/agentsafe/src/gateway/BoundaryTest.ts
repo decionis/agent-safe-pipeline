@@ -212,7 +212,8 @@ export interface BoundaryTestOptions {
 type Mode = "shadow" | "enforcement";
 type Policy = "failClosed" | "failOpen";
 
-interface Lane {
+/** One gateway under test, behind its own listener, writing its lines to an array. */
+export interface Lane {
   readonly gateway: Gateway;
   readonly server: GatewayHttpServer;
   readonly url: string;
@@ -220,10 +221,22 @@ interface Lane {
   readonly lines: string[];
 }
 
-interface Observation {
+/** What a shadow lane reported about one governed request, once the observation settled. */
+export interface Observation {
   readonly verdict: "ALLOW" | "ESCALATE" | "BLOCK" | null;
   readonly dossier: boolean;
+  readonly decisionId: string | null;
+  readonly dossierId: string | null;
+  readonly reasonCodes: readonly string[];
 }
+
+const NO_OBSERVATION: Observation = {
+  verdict: null,
+  dossier: false,
+  decisionId: null,
+  dossierId: null,
+  reasonCodes: [],
+};
 
 const AUTHORITY_DOWN = (): Promise<Response> => Promise.reject(new Error("AUTHORITY_UNREACHABLE"));
 const CLOSE_GRACE_MS = 100;
@@ -241,7 +254,7 @@ function configFor(target: string, mode: Mode, policy: Policy, version: string):
   });
 }
 
-async function openLane(
+export async function openLane(
   config: GatewayConfig,
   dependencies: GatewayDependencies,
   lines: string[],
@@ -263,7 +276,7 @@ async function openLane(
   return { gateway, server, url: `http://127.0.0.1:${String(address.port)}`, lines };
 }
 
-async function closeLane(lane: Lane): Promise<void> {
+export async function closeLane(lane: Lane): Promise<void> {
   await lane.server.close(CLOSE_GRACE_MS);
   await lane.gateway.close();
 }
@@ -281,7 +294,7 @@ function verdictOf(state: GatewayState | null): "ALLOW" | "ESCALATE" | "BLOCK" |
 }
 
 /** Sends one case at one base URL and reads what the target recorded for it. */
-async function send(
+export async function send(
   base: string,
   testCase: BoundaryCase,
   target: RecordingTarget,
@@ -321,7 +334,7 @@ async function send(
 }
 
 /** The `SHADOW` reports a lane has written so far, in the order they settled. */
-function shadowReports(lane: Lane): Observation[] {
+export function shadowReports(lane: Lane): Observation[] {
   const observations: Observation[] = [];
   for (const line of lane.lines) {
     let parsed: unknown;
@@ -335,7 +348,9 @@ function shadowReports(lane: Lane): Observation[] {
       event?: unknown;
       state?: unknown;
       verdict?: unknown;
+      decision_id?: unknown;
       dossier_id?: unknown;
+      reason_codes?: unknown;
     };
     if (report.event !== "INTERCEPTED" || report.state !== "SHADOW") continue;
     const verdict = report.verdict;
@@ -343,6 +358,11 @@ function shadowReports(lane: Lane): Observation[] {
       verdict:
         verdict === "ALLOW" || verdict === "ESCALATE" || verdict === "BLOCK" ? verdict : null,
       dossier: typeof report.dossier_id === "string",
+      decisionId: typeof report.decision_id === "string" ? report.decision_id : null,
+      dossierId: typeof report.dossier_id === "string" ? report.dossier_id : null,
+      reasonCodes: Array.isArray(report.reason_codes)
+        ? report.reason_codes.filter((code): code is string => typeof code === "string")
+        : [],
     });
   }
   return observations;
@@ -355,7 +375,7 @@ function shadowReports(lane: Lane): Observation[] {
  * observation is the `ordinal`-th `SHADOW` report, or none within the
  * bound when the observation itself could not be made.
  */
-async function awaitObservation(
+export async function awaitObservation(
   lane: Lane,
   ordinal: number,
   timeoutMs: number,
@@ -365,7 +385,7 @@ async function awaitObservation(
   for (;;) {
     const observation = shadowReports(lane)[ordinal - 1];
     if (observation !== undefined) return observation;
-    if (clock() >= deadline) return { verdict: null, dossier: false };
+    if (clock() >= deadline) return NO_OBSERVATION;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
 }
@@ -420,7 +440,7 @@ export async function runBoundaryTest(options: BoundaryTestOptions): Promise<Bou
       const shadowSent = await send(shadowLane.url, testCase, target);
       const observed = governed
         ? await awaitObservation(shadowLane, ordinal, observationTimeoutMs, clock)
-        : { verdict: null, dossier: false };
+        : NO_OBSERVATION;
       const shadowOutcome: PassOutcome = {
         ...shadowSent,
         state: governed ? "SHADOW" : null,

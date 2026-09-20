@@ -39,6 +39,11 @@ test are the same `Gateway` behind the same listener that `agentsafe proxy` runs
 system of record, `agentsafe test ledger=ledger.internal:443`, and the test also dials it from
 where you stand and says whether it answers without the gateway.
 
+To see Decionis decide the same requests, `agentsafe login --provision` (a free workspace, no
+account, shadow only) then `agentsafe test --hosted`: the first governed action against Decionis
+for that workspace, and a signed Decision Dossier per consequential request, fetched and shown by
+its proof. Nothing real is called there either.
+
 ## Start the gateway
 
 Anything that answers HTTP will do as the upstream. If you have nothing to hand:

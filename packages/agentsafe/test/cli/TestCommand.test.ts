@@ -1,11 +1,22 @@
 import { describe, expect, it } from "vitest";
 import { CONTAINMENT_STREAM } from "../../src/containment/ContainmentProbe.js";
-import { renderTestReport, runTest, type TestReport } from "../../src/cli/TestCommand.js";
+import {
+  renderTestReport,
+  runTest,
+  type HostedTestReport,
+  type TestReport,
+} from "../../src/cli/TestCommand.js";
 import type {
   BoundaryCaseResult,
   BoundaryTestReport,
   PassOutcome,
 } from "../../src/gateway/BoundaryTest.js";
+import {
+  HostedTestError,
+  type HostedBoundaryTestOptions,
+  type HostedBoundaryTestReport,
+  type HostedCaseResult,
+} from "../../src/gateway/HostedBoundaryTest.js";
 import { fakeProcess } from "../support/GatewayHarness.js";
 
 const ESC = String.fromCharCode(27);
@@ -159,13 +170,14 @@ describe("agentsafe test", () => {
       },
     );
     expect(dialed).toEqual(["ledger.example:443", "vault.example:8200"]);
+    const local = report as TestReport | null;
     expect(
-      report?.containment?.findings.map((finding) => [finding.target, finding.verdict]),
+      local?.containment?.findings.map((finding) => [finding.target, finding.verdict]),
     ).toEqual([
       ["ledger", "REACHABLE"],
       ["vault", "CONTAINED"],
     ]);
-    expect(report?.containment?.findings[0]?.stream).toBe(CONTAINMENT_STREAM);
+    expect(local?.containment?.findings[0]?.stream).toBe(CONTAINMENT_STREAM);
     expect(report?.exit).toBe(1);
     expect(io.exits).toEqual([1]);
     const human = fakeProcess();
@@ -290,6 +302,223 @@ describe("agentsafe test", () => {
     expect(await runTest(target, ["ledger=nowhere"], { run: count })).toBeNull();
     expect(target.err).toEqual(["CONTAINMENT_TARGET_INVALID: ledger=nowhere\n"]);
     expect(target.exits).toEqual([2]);
+    expect(ran).toBe(0);
+  });
+});
+
+const hostedCase = (
+  id: string,
+  adversarial: boolean,
+  decionis: Partial<HostedCaseResult["decionis"]> = {},
+  direct: PassOutcome = reached(201),
+): HostedCaseResult => ({
+  id,
+  title: `Case ${id}`,
+  adversarial,
+  request: { method: "POST", path: "/payments", body: "{}" },
+  direct,
+  decionis: {
+    consequential: true,
+    status: 201,
+    state: "SHADOW",
+    verdict: adversarial ? "BLOCK" : "ALLOW",
+    reason_codes: [],
+    decision_id: `dec_${id}`,
+    dossier_id: `dss_${id}`,
+    ...decionis,
+  },
+});
+
+const decided: HostedBoundaryTestReport = {
+  version: "agent-safe.hosted-boundary-test/1",
+  at: "2026-01-01T00:00:00.000Z",
+  runtime: "1.2.3",
+  authority: {
+    kind: "decionis",
+    endpoint: "https://api.decionis.example",
+    tenant: "00000000-0000-4000-8000-000000000009",
+    provisional: true,
+    mode: "SHADOW",
+  },
+  target: "synthetic loopback",
+  cases: [
+    hostedCase(
+      "read",
+      false,
+      {
+        consequential: false,
+        status: 200,
+        state: null,
+        verdict: null,
+        decision_id: null,
+        dossier_id: null,
+      },
+      reached(200),
+    ),
+    hostedCase("routine", false),
+    hostedCase("large", true, {}, reached(201, { forgedHeadersReached: true })),
+    hostedCase("held", true, { verdict: "ESCALATE" }),
+  ],
+  decided: { consequential: 3, would: { ALLOW: 1, ESCALATE: 1, BLOCK: 1, NONE: 0 } },
+  dossiers: ["dss_routine", "dss_large", "dss_held"],
+  signed: {
+    dossierId: "dss_routine",
+    outcome: "ALLOW",
+    generatedAt: "2026-01-01T00:00:00.000Z",
+    algorithm: "ed25519",
+    keyId: "synthetic-key-1",
+    issuedAt: "2026-01-01T00:00:01.000Z",
+    artifacts: 3,
+    issuerTier: "provisional_anonymous",
+    bytes: 4_096,
+  },
+  signedUnavailable: null,
+  milestones: ["gateway_started", "shadow_enabled", "decionis_connected", "first_interception"],
+  verdict: "DECIONIS_DECIDED",
+};
+
+describe("agentsafe test --hosted", () => {
+  it("prints what Decionis decided, the record, and the next step, and exits 0 when every action was decided", async () => {
+    const io = fakeProcess({ env: { AGENTSAFE_SURFACE: "homebrew" } });
+    const asked: HostedBoundaryTestOptions[] = [];
+    const report = (await runTest(io, ["--hosted"], {
+      runHosted: (options) => {
+        asked.push(options);
+        return Promise.resolve(decided);
+      },
+    })) as HostedTestReport | null;
+    expect(report?.exit).toBe(0);
+    expect(io.exits).toEqual([0]);
+    // The command hands the run the login, the environment and the surface, and nothing else.
+    expect(asked).toHaveLength(1);
+    expect(asked[0]).toMatchObject({ credentials: null, surface: "homebrew" });
+    expect(asked[0]?.env["AGENTSAFE_SURFACE"]).toBe("homebrew");
+    const text = io.out.join("");
+    expect(text).toContain("AgentSafe 1.2.3 boundary test, Decionis deciding");
+    expect(text).toContain("nothing real is called");
+    expect(text).toContain(
+      "Authority   Decionis, workspace 00000000-0000-4000-8000-000000000009, shadow (provisional: no account; it decides in shadow only); at https://api.decionis.example\n",
+    );
+    expect(text).toContain("reached 200 (not consequential)");
+    expect(text).toContain("reached 201, would ALLOW, dossier");
+    expect(text).toContain(
+      "reached 201, forged headers accepted  reached 201, would BLOCK, dossier",
+    );
+    expect(text).toContain("reached 201, would hold, dossier");
+    expect(text).toContain(
+      "Decided     Decionis decided 3 of 3 consequential actions: would allow 1, hold 1, refuse 1",
+    );
+    expect(text).toContain(
+      "Dossiers    3 signed records under this workspace, the first dss_routine",
+    );
+    expect(text).toContain(
+      "Signed      ed25519 by key synthetic-key-1 at 2026-01-01T00:00:01.000Z, 3 signed artifact(s); issuer provisional_anonymous (a workspace without an account; claim it to keep it)",
+    );
+    expect(text).toContain("Verdict     DECIONIS DECIDED\n");
+    expect(text).toContain(
+      "Next: agentsafe proxy --upstream <your service>; this workspace decides in shadow, and agentsafe login with a key from your organization enables enforcement.",
+    );
+    expect(
+      text
+        .trimEnd()
+        .endsWith(
+          "✓ gateway started  ✓ shadow enabled  ✓ decionis connected  ✓ first interception  ✓ boundary tested",
+        ),
+    ).toBe(true);
+    expect(text).not.toContain(ESC);
+  });
+
+  it("prints one JSON line when asked, exits 1 when Decionis could not be asked, and says what to check", async () => {
+    const io = fakeProcess();
+    const unreachable: HostedBoundaryTestReport = {
+      ...decided,
+      authority: { ...decided.authority, provisional: false },
+      cases: decided.cases.map((result) => ({
+        ...result,
+        decionis: {
+          ...result.decionis,
+          verdict: null,
+          decision_id: null,
+          dossier_id: null,
+        },
+      })),
+      decided: { consequential: 3, would: { ALLOW: 0, ESCALATE: 0, BLOCK: 0, NONE: 3 } },
+      dossiers: [],
+      signed: null,
+      signedUnavailable: null,
+      verdict: "AUTHORITY_UNREACHABLE",
+    };
+    const report = (await runTest(io, ["--hosted", "--json"], {
+      runHosted: () => Promise.resolve(unreachable),
+    })) as HostedTestReport | null;
+    expect(report?.exit).toBe(1);
+    expect(io.exits).toEqual([1]);
+    const parsed = JSON.parse(io.out[0] ?? "") as HostedTestReport;
+    expect(parsed.version).toBe("agent-safe.hosted-boundary-test/1");
+    expect(parsed.exit).toBe(1);
+    expect(parsed.activation).toEqual(tested);
+    const human = fakeProcess();
+    await runTest(human, ["--hosted"], { runHosted: () => Promise.resolve(unreachable) });
+    const text = human.out.join("");
+    expect(text).toContain(
+      "Authority   Decionis, workspace 00000000-0000-4000-8000-000000000009, shadow; at https://api.decionis.example\n",
+    );
+    expect(text).toContain("no verdict (Decionis could not be asked, or not in time)");
+    expect(text).toContain("Dossiers    none were left");
+    expect(text).toContain("Verdict     AUTHORITY UNREACHABLE: Decionis decided nothing");
+    expect(text).toContain("Check agentsafe doctor");
+    // A record that could not be fetched says so, and where it still is.
+    const unfetched = fakeProcess();
+    await runTest(unfetched, ["--hosted"], {
+      runHosted: () =>
+        Promise.resolve({
+          ...decided,
+          signed: null,
+          signedUnavailable: "DOSSIER_REFUSED",
+          verdict: "PARTLY_DECIDED",
+        }),
+    });
+    expect(unfetched.out.join("")).toContain(
+      "Signed      not fetched (DOSSIER_REFUSED); the records are still there under your key",
+    );
+    expect(unfetched.out.join("")).toContain(
+      "PARTLY DECIDED: Decionis could not be asked about every action",
+    );
+    expect(unfetched.exits).toEqual([1]);
+  });
+
+  it("refuses to run without a login, naming the two ways to get one, and takes no targets", async () => {
+    const io = fakeProcess();
+    await runTest(io, ["--hosted"], {
+      runHosted: () =>
+        Promise.reject(
+          new HostedTestError(
+            "NO_LOGIN",
+            "no Decionis key: run `agentsafe login --provision` for a free workspace, or `agentsafe login` with your organization's key",
+          ),
+        ),
+    });
+    expect(io.exits).toEqual([2]);
+    expect(io.err.join("")).toContain("AgentSafe did not run the hosted boundary test.");
+    expect(io.err.join("")).toContain("Run agentsafe login --provision for a free workspace");
+    const json = fakeProcess();
+    await runTest(json, ["--hosted", "--json"], {
+      runHosted: () => Promise.reject(new HostedTestError("CONFIG_INVALID", "CONFIG_INVALID: x")),
+    });
+    expect(json.exits).toEqual([2]);
+    expect(json.err.join("")).toContain(
+      '{"event":"TEST_REFUSED","reason":"CONFIG_INVALID: CONFIG_INVALID: x"}',
+    );
+    let ran = 0;
+    const targets = fakeProcess();
+    await runTest(targets, ["--hosted", "ledger=ledger.example:443"], {
+      runHosted: () => {
+        ran += 1;
+        return Promise.resolve(decided);
+      },
+    });
+    expect(targets.exits).toEqual([2]);
+    expect(targets.err.join("")).toContain("--hosted takes no targets");
     expect(ran).toBe(0);
   });
 });
