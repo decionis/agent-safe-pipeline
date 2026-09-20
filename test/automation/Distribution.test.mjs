@@ -134,9 +134,14 @@ describe("the workflow", () => {
       (step) => step.name === "Install and check the .rpm on Fedora",
     );
     assert.equal(fedora.if, "runner.os == 'Linux'");
+    // Fedora's own registry meters no anonymous pull; the digest pins the image.
     assert.match(
       fedora.env.FEDORA_IMAGE,
-      /^public\.ecr\.aws\/docker\/library\/fedora:\d+@sha256:[0-9a-f]{64}$/,
+      /^registry\.fedoraproject\.org\/fedora:\d+@sha256:[0-9a-f]{64}$/,
+    );
+    assert.match(
+      fedora.run,
+      /for attempt in 1 2 3; do\n\s+if docker pull --quiet "\$FEDORA_IMAGE"; then break; fi/,
     );
     assert.match(fedora.run, /rpm -i \/release\/agentsafe-\*\.rpm/);
     assert.match(fedora.run, /rpm -ql agentsafe \| grep -qx \/usr\/bin\/agentsafe/);

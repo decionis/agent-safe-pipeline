@@ -744,15 +744,24 @@ jobs:
       # digest, in a container of this architecture. The package installs, the
       # executable answers its version, the boundary test holds, the unit and
       # the examples land where the Linux page says, and the package removes
-      # cleanly. Until this step the .rpm was built and never installed.
+      # cleanly. Until this step the .rpm was built and never installed. The
+      # image comes from Fedora's own registry, which does not meter anonymous
+      # pulls the way the Docker Hub mirrors do (the ECR Public mirror refused
+      # a run with "toomanyrequests" from a shared runner address), and the
+      # pull is retried before it is called a failure.
       - name: Install and check the .rpm on Fedora
         if: runner.os == 'Linux'
         env:
-          FEDORA_IMAGE: public.ecr.aws/docker/library/fedora:42@sha256:99e203b80b1c3d8f7e161ec10a68fd02b081ef83a3963553e513c82846b97814
+          FEDORA_IMAGE: registry.fedoraproject.org/fedora:42@sha256:e78cd1a688cd079c23864f289a89a49a3f4ad66d817864e325e1d058310ee95c
         shell: bash
         run: |
           set -euo pipefail
           version="$(node -p "require('./packages/agentsafe/package.json').version")"
+          for attempt in 1 2 3; do
+            if docker pull --quiet "$FEDORA_IMAGE"; then break; fi
+            if [ "$attempt" = 3 ]; then echo "could not pull $FEDORA_IMAGE after 3 attempts" >&2; exit 1; fi
+            sleep $((attempt * 30))
+          done
           docker run --rm -v "$PWD/release:/release:ro" -e VERSION="$version" "$FEDORA_IMAGE" bash -euxo pipefail -c '
             ls -l /release
             rpm -i /release/agentsafe-*.rpm
