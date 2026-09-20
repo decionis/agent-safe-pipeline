@@ -6,7 +6,9 @@ name: Docker Hub image
 # digest on both registries. The release workflow calls this one when the
 # DOCKERHUB_PUBLISH_ENABLED variable is true; a maintainer dispatches it by hand
 # to publish a release that predates the variable, or to finish a release whose
-# Docker Hub step failed.
+# Docker Hub step failed. The repository's overview on Docker Hub is the file
+# packaging/dockerhub/README.md, published by the same run, so the page and the
+# image change together.
 
 on:
   workflow_call:
@@ -48,6 +50,10 @@ jobs:
         uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
         with:
           egress-policy: audit
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Resolve the attested GHCR image
         id: source
         env:
@@ -144,3 +150,33 @@ jobs:
             echo "gh attestation verify oci://$IMAGE_REFERENCE --repo $GITHUB_REPOSITORY"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Publish the repository overview
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          HUB_IMAGE_NAME: ${{ steps.hub.outputs.name }}
+          OVERVIEW_FILE: packaging/dockerhub/README.md
+          # Docker Hub shows this line under the repository's title; it takes
+          # at most 100 characters.
+          SHORT_DESCRIPTION: "The execution boundary for AI agents: intent captured, decided by Decionis, forwarded once."
+        shell: bash
+        run: |
+          set -euo pipefail
+          repository="${HUB_IMAGE_NAME#docker.io/}"
+          # The overview is the file in the repository, so the page says what
+          # this commit says. Docker Hub's API takes a session token issued for
+          # the account's credentials; the token is kept in a file only the
+          # runner's user can read, and only for the one request.
+          session="$(node -e 'process.stdout.write(JSON.stringify({ username: process.env.DOCKERHUB_USERNAME, password: process.env.DOCKERHUB_TOKEN }));' \
+            | curl --fail-with-body --silent --show-error --location \
+                --request POST https://hub.docker.com/v2/users/login \
+                --header 'Content-Type: application/json' --data-binary @- \
+            | node -e 'let body = ""; process.stdin.on("data", (d) => (body += d)).on("end", () => { let token; try { token = JSON.parse(body).token; } catch {} if (!token) { console.error("Docker Hub login failed: " + body); process.exit(1); } process.stdout.write(token); });')"
+          header="$RUNNER_TEMP/dockerhub-session"
+          (umask 077; printf 'Authorization: JWT %s\n' "$session" > "$header")
+          node -e 'const fs = require("node:fs"); const full = fs.readFileSync(process.env.OVERVIEW_FILE, "utf8"); const short = process.env.SHORT_DESCRIPTION; if (short.length > 100) throw new Error("The short description exceeds 100 characters."); if (full.length > 25000) throw new Error("The overview exceeds 25000 characters."); process.stdout.write(JSON.stringify({ description: short, full_description: full }));' \
+            | curl --fail-with-body --silent --show-error --location \
+                --request PATCH "https://hub.docker.com/v2/repositories/$repository/" \
+                --header @"$header" --header 'Content-Type: application/json' --data-binary @- \
+            | node -e 'let body = ""; process.stdin.on("data", (d) => (body += d)).on("end", () => { let r; try { r = JSON.parse(body); } catch {} if (!r || !r.full_description) { console.error("Docker Hub refused the overview: " + body); process.exit(1); } console.log("Overview published for " + r.namespace + "/" + r.name + ": " + r.full_description.length + " characters; description: " + r.description); });'
+          rm -f "$header"

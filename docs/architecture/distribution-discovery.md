@@ -203,8 +203,9 @@ Routine packaging choices, recorded here rather than as ADRs:
   `<major>.<minor>`, `<major>` and `latest` tags and a two-architecture manifest. Docker Hub was
   added on 2026-09-20 as a second name for the same manifest, `docker.io/decionis/agentsafe`,
   because that is where developers look first: the `Docker Hub image` workflow copies the
-  release's manifest by digest after the release job, refuses a differing digest, and attests
-  the Docker Hub name; the credential is the `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` secrets
+  release's manifest by digest after the release job, refuses a differing digest, attests the
+  Docker Hub name and publishes the overview from `packaging/dockerhub/README.md`; the credential
+  is the `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` secrets
   for the `decionis` namespace, and the `DOCKERHUB_PUBLISH_ENABLED` variable is the switch. The
   same workflow, dispatched with a version, publishes a release that predates the switch.
 - **The tap stays this repository.** `Formula/agentsafe.rb` is rendered by the release workflow
