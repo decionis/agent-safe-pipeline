@@ -190,10 +190,13 @@ jobs:
           dotnet-version: "8.0.x"
       # The .NET implementation of the Verifying Provider Profile must pass the
       # same vectors the reference and the Go, Java and Rust implementations pass.
+      # The restore is held to the committed packages.lock.json files: a
+      # package that is not the version and hash they record fails the step
+      # rather than being taken from the feed as the newest match.
       - name: Format-check and test the .NET verifier against the profile's vectors
         working-directory: verifiers/dotnet
         run: |
-          dotnet restore --nologo
+          dotnet restore --nologo --locked-mode
           dotnet format --verify-no-changes --no-restore
           dotnet test --nologo --no-restore
 
@@ -1014,13 +1017,12 @@ jobs:
           test -s "$RUNNER_TEMP/packed/package/LICENSE"
           test -s "$RUNNER_TEMP/packed/package/NOTICE"
 
-          (
-            cd "$RUNNER_TEMP/packed/package"
-            npm pkg delete devDependencies scripts
-            npm install --ignore-scripts --omit=dev --no-audit --no-fund
-            npm sbom --omit dev --sbom-format cyclonedx --sbom-type library \
-              > "$GITHUB_WORKSPACE/release/$RELEASE_STEM.cdx.json"
-          )
+          # The SBOM is read from the tree the lockfile pins and the install
+          # above put in place, so every version in it is the one the tests
+          # ran against and every registry package carries the lockfile's
+          # SHA-512; an `npm install` of the packed tarball here would resolve
+          # the declared ranges afresh from the registry, pinned by nothing.
+          node scripts/ReleaseSbom.mjs packages/pipeline "release/$RELEASE_STEM.cdx.json" library
           node scripts/FinalizeReleaseSbom.mjs \
             "release/$RELEASE_STEM.cdx.json" "release/$RELEASE_TARBALL" \
             "$EXPECTED_NAME" "$EXPECTED_VERSION"
@@ -1028,10 +1030,13 @@ jobs:
             "release/$RELEASE_STEM.cdx.json" "$EXPECTED_NAME" "$EXPECTED_VERSION" 5
           pnpm license:inventory release
 
+          # A consumer of the tarball, assembled from the tarball's own files
+          # and the pinned tree's copies of its dependencies, imports the
+          # package's public entry point.
+          node scripts/ConsumerFromTarball.mjs \
+            "release/$RELEASE_TARBALL" packages/pipeline "$RUNNER_TEMP/consumer"
           (
             cd "$RUNNER_TEMP/consumer"
-            npm install "$GITHUB_WORKSPACE/release/$RELEASE_TARBALL" \
-              --ignore-scripts --no-audit --no-fund
             node --input-type=module -e \
               "const pkg = await import('$EXPECTED_NAME'); if (typeof pkg.SafeExecutor !== 'function') throw new Error('PACKED_EXPORT_MISSING')"
           )
@@ -1046,14 +1051,11 @@ jobs:
           pattern: runtime-*
           path: release
           merge-multiple: true
-      # The runtime's SBOM comes from the packed tarball, installed flat with
-      # npm and read by npm, the way the pipeline's does. A pnpm tree cannot be
-      # read by `npm sbom`: it takes every symlinked package for a workspace
-      # link, demands its devDependencies, and refuses the `workspace:` range
-      # the deployed manifest still carries. The pipeline is not on the
-      # registry yet at this point of the job, so it is installed from its own
-      # packed tarball, and the range the runtime declares is put back before
-      # the SBOM is read.
+      # The runtime's SBOM comes from the lockfile's pinned tree, the way the
+      # pipeline's does. The pipeline is not on the registry yet at this point
+      # of the job: the tree links it from source, and the tarball this release
+      # publishes for it is named so its component carries that tarball's
+      # SHA-512 and the registry location the tarball is about to have.
       - name: Pack the runtime package and build its SBOM
         if: steps.release.outputs.exists != 'true'
         id: runtime
@@ -1086,12 +1088,10 @@ jobs:
             test "$(node -p "require('./package.json').version")" = "$runtime_version"
             pipeline_range="$(node -p "require('./package.json').dependencies['@decionis/agent-safe-pipeline']")"
             case "$pipeline_range" in workspace:*) echo "the packed runtime still declares $pipeline_range" >&2; exit 1;; esac
-            npm pkg delete devDependencies scripts
-            npm install --ignore-scripts --omit=dev --no-audit --no-fund "$GITHUB_WORKSPACE/release/$PIPELINE_TARBALL"
-            npm pkg set "dependencies.@decionis/agent-safe-pipeline=$pipeline_range"
-            npm sbom --omit dev --sbom-format cyclonedx --sbom-type application \
-              > "$GITHUB_WORKSPACE/release/agentsafe-$runtime_version.cdx.json"
           )
+          node scripts/ReleaseSbom.mjs packages/agentsafe \
+            "release/agentsafe-$runtime_version.cdx.json" application \
+            --packed "release/$PIPELINE_TARBALL"
           node scripts/FinalizeReleaseSbom.mjs \
             "release/agentsafe-$runtime_version.cdx.json" "release/decionis-agentsafe-$runtime_version.tgz" \
             "$runtime_name" "$runtime_version"
