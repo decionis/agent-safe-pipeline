@@ -14,6 +14,7 @@ AgentSafe is the runtime that installs: `@decionis/agentsafe`, one executable, i
 - Install on Kubernetes (the Helm chart: one Deployment in front of one Service): https://github.com/decionis/agent-safe-pipeline/blob/master/docs/install/kubernetes.md
 - Hosted (agentsafe.decionis.com, the same runtime behind one listener; not live yet): https://github.com/decionis/agent-safe-pipeline/blob/master/docs/install/hosted.md
 - HTTP interception (what is consequential, what the authority sees, what is forwarded, what each outcome means): https://github.com/decionis/agent-safe-pipeline/blob/master/docs/gateway/http-interception.md
+- Transparent interception (`agentsafe intercept` beside a pod or container: outbound 80 and 443 redirected in at the network layer, destinations reported by name and count, nothing decrypted or decided yet; Kubernetes Component and Docker recipe under deploy/intercept): https://github.com/decionis/agent-safe-pipeline/blob/master/docs/gateway/transparent-interception.md
 - Routes (path patterns to action names): https://github.com/decionis/agent-safe-pipeline/blob/master/docs/gateway/routes.md
 - Gateway configuration (one schema, precedence flags then environment then file then defaults): https://github.com/decionis/agent-safe-pipeline/blob/master/docs/gateway/configuration.md
 - Failure policy (fail closed by default; fail open only where written, and recorded): https://github.com/decionis/agent-safe-pipeline/blob/master/docs/gateway/failure-policy.md

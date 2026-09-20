@@ -5,6 +5,12 @@ upstream is the request that was authorized, byte for byte, or nothing reaches i
 says what the gateway looks at, what it binds, and what it forwards. The decision itself is the
 authority's; the gateway asks, enforces and records ([ADR 0001](../architecture/decisions/0001-http-interception-ingress.md)).
 
+The gateway is addressed: a workload is configured to send its requests to it. The same boundary
+can also be held without configuring the workload at all, by redirecting its outbound connections
+into an AgentSafe process beside it at the network layer; that is
+[transparent interception](./transparent-interception.md), which today observes what a workload
+reaches and will govern it in the same hop next.
+
 ## What is consequential
 
 A request is consequential when its method is `POST`, `PUT`, `PATCH` or `DELETE`. `GET`, `HEAD`

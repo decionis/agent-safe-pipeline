@@ -437,6 +437,73 @@ jobs:
               grep -q '"chain":"agent-safe.security/1"' <<<"$logs"
             fi
           done
+      # The interception init: the redirect script is POSIX and runs where it
+      # has the two capabilities, writing the rules it says it writes into a
+      # throwaway namespace; without them it refuses rather than run with less.
+      - name: Build the interception init image and run the redirect
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build -f packages/agentsafe/Dockerfile --target init -t agentsafe-init:ci .
+          docker run --rm --entrypoint sh agentsafe-init:ci -n /usr/local/bin/agentsafe-redirect
+          rules="$(docker run --rm --cap-add NET_ADMIN --cap-add NET_RAW agentsafe-init:ci)"
+          echo "$rules"
+          grep -q -- '-A AGENTSAFE_REDIRECT -p tcp -m tcp --dport 80 -j REDIRECT --to-ports 15001' <<<"$rules"
+          grep -q -- '-A AGENTSAFE_REDIRECT -p tcp -m tcp --dport 443 -j REDIRECT --to-ports 15002' <<<"$rules"
+          grep -q -- '-A AGENTSAFE_OUTPUT -m owner --uid-owner 65532 -j RETURN' <<<"$rules"
+          grep -q -- '-A AGENTSAFE_OUTPUT -o lo -j RETURN' <<<"$rules"
+          grep -q -- '-A AGENTSAFE_OUTPUT -j AGENTSAFE_REDIRECT' <<<"$rules"
+          if docker run --rm agentsafe-init:ci >/dev/null 2>&1; then
+            echo "The redirect ran without NET_ADMIN." >&2
+            exit 1
+          fi
+      # Transparent interception, end to end, the way the Docker recipe runs
+      # it: the interceptor owns a network namespace, the redirect writes the
+      # rules into it, and a workload that joins it and knows nothing of
+      # either reaches a provider through the interceptor. Over plain HTTP,
+      # by address: the interceptor reads the host, places the connection,
+      # and the workload gets the provider's answer. Over TLS, by name: the
+      # provider is reachable as `provider.example` on the network, the
+      # workload's hello carries that name, the interceptor reads it, resolves
+      # it for itself and splices the connection through; the handshake then
+      # fails against a provider that speaks no TLS, which is the provider's
+      # business, not the boundary's. The report on shutdown counts both
+      # placed and nothing refused.
+      - name: Intercept a workload's connections transparently
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker network create intercept-ci >/dev/null
+          docker run -d --name provider --network intercept-ci --network-alias provider.example \
+            --entrypoint sh agentsafe-init:ci -c \
+            'serve() { while true; do printf "HTTP/1.1 200 OK\r\nContent-Length: 8\r\nConnection: close\r\n\r\nprovided" | nc -l -p "$1"; done; }; serve 443 & serve 80' >/dev/null
+          provider="$(docker inspect -f '{{(index .NetworkSettings.Networks "intercept-ci").IPAddress}}' provider)"
+          docker run -d --name intercept --network intercept-ci -e AGENTSAFE_LOG_FORMAT=json agentsafe:ci intercept >/dev/null
+          sleep 2
+          docker run --rm --network container:intercept --cap-add NET_ADMIN --cap-add NET_RAW agentsafe-init:ci >/dev/null
+          answer="$(docker run --rm --network container:intercept --entrypoint sh agentsafe-init:ci -c "wget -q -O- http://$provider/")"
+          [[ "$answer" == "provided" ]] || { echo "the workload got '$answer' through the interceptor" >&2; exit 1; }
+          docker run --rm --network container:intercept --entrypoint sh agentsafe-init:ci -c \
+            'wget -q -O- --no-check-certificate https://provider.example/ 2>/dev/null || true'
+          sleep 1
+          docker stop -t 10 intercept >/dev/null
+          docker wait intercept >/dev/null
+          logs="$(docker logs intercept 2>&1)"
+          echo "$logs"
+          grep -q '"event":"INTERCEPT_STARTED"' <<<"$logs"
+          grep -q "\"event\":\"INTERCEPT_OBSERVED\",\"at\":\"[^\"]*\",\"protocol\":\"HTTP\",\"host\":\"$provider\",\"port\":80,\"method\":\"GET\",\"target\":\"/\"" <<<"$logs"
+          grep -q '"event":"INTERCEPT_OBSERVED","at":"[^"]*","protocol":"TLS","host":"provider.example","port":443' <<<"$logs"
+          if grep -q '"event":"INTERCEPT_REFUSED"' <<<"$logs"; then
+            echo "the interceptor refused a connection it should have placed" >&2
+            exit 1
+          fi
+          grep -q '"event":"INTERCEPT_REPORT"' <<<"$logs"
+          grep -q '"placed":2' <<<"$logs"
+          grep -q '"provider.example:443":{"protocol":"TLS","connections":1' <<<"$logs"
+          grep -q '"event":"INTERCEPT_STOPPED","at":"[^"]*","signal":"SIGTERM"' <<<"$logs"
+          docker rm intercept >/dev/null
+          docker rm -f provider >/dev/null
+          docker network rm intercept-ci >/dev/null
 
   distribution:
     name: Runtime ${{ matrix.target }}
@@ -911,12 +978,25 @@ jobs:
             "${tags[@]}" --push .
           digest="$(docker buildx imagetools inspect "$image:$RELEASE_VERSION" --format '{{json .Manifest.Digest}}' | tr -d '"')"
           [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
-          printf 'image=%s\nversion=%s\ndigest=%s\npublished=true\n' \
-            "$image" "$RELEASE_VERSION" "$digest" > "release/$RELEASE_STEM.image.txt"
+          # The interception init beside it, under the same name with the
+          # `-init` suffix on each tag: the redirect a workload's pod runs once
+          # before the interceptor beside it observes.
+          init_tags=(-t "$image:$RELEASE_VERSION-init")
+          if [[ "$RELEASE_VERSION" != *-* ]]; then
+            init_tags+=(-t "$image:$minor-init" -t "$image:$major-init" -t "$image:latest-init")
+          fi
+          docker buildx build -f packages/agentsafe/Dockerfile --target init "${labels[@]}" \
+            --platform linux/amd64,linux/arm64 --sbom=true --provenance=mode=max \
+            "${init_tags[@]}" --push .
+          init_digest="$(docker buildx imagetools inspect "$image:$RELEASE_VERSION-init" --format '{{json .Manifest.Digest}}' | tr -d '"')"
+          [[ "$init_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          printf 'image=%s\nversion=%s\ndigest=%s\ninit_version=%s-init\ninit_digest=%s\npublished=true\n' \
+            "$image" "$RELEASE_VERSION" "$digest" "$RELEASE_VERSION" "$init_digest" > "release/$RELEASE_STEM.image.txt"
           {
             echo "published=true"
             echo "name=$image"
             echo "digest=$digest"
+            echo "init_digest=$init_digest"
           } >> "$GITHUB_OUTPUT"
       - name: Attest the runtime image
         if: steps.release.outputs.exists != 'true' && steps.image.outputs.published == 'true'
@@ -925,15 +1005,24 @@ jobs:
           subject-name: ${{ steps.image.outputs.name }}
           subject-digest: ${{ steps.image.outputs.digest }}
           push-to-registry: true
-      - name: Verify the published image attestation
+      - name: Attest the interception init image
+        if: steps.release.outputs.exists != 'true' && steps.image.outputs.published == 'true'
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ steps.image.outputs.name }}
+          subject-digest: ${{ steps.image.outputs.init_digest }}
+          push-to-registry: true
+      - name: Verify the published image attestations
         if: steps.release.outputs.exists != 'true' && steps.image.outputs.published == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           IMAGE_REFERENCE: ${{ steps.image.outputs.name }}@${{ steps.image.outputs.digest }}
+          INIT_REFERENCE: ${{ steps.image.outputs.name }}@${{ steps.image.outputs.init_digest }}
         shell: bash
         run: |
           set -euo pipefail
           gh attestation verify "oci://$IMAGE_REFERENCE" --repo "$GITHUB_REPOSITORY"
+          gh attestation verify "oci://$INIT_REFERENCE" --repo "$GITHUB_REPOSITORY"
       - name: Push the Helm chart
         if: steps.release.outputs.exists != 'true' && steps.image.outputs.published == 'true'
         env:
@@ -1112,6 +1201,7 @@ jobs:
           IMAGE_PUBLISHED: ${{ steps.image.outputs.published }}
           IMAGE_NAME: ${{ steps.image.outputs.name }}
           IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+          INIT_DIGEST: ${{ steps.image.outputs.init_digest }}
           IMAGE_VERSION: ${{ steps.runtime.outputs.version }}
           DOCKERHUB_PUBLISH_ENABLED: ${{ vars.DOCKERHUB_PUBLISH_ENABLED }}
           DOCKERHUB_IMAGE_NAME: docker.io/${{ github.repository_owner }}/agentsafe
@@ -1128,10 +1218,10 @@ jobs:
             npm_note="npm publication was not enabled for this release."
           fi
           if [[ "$IMAGE_PUBLISHED" == "true" ]]; then
-            image_note="Container image: \`$IMAGE_NAME:$IMAGE_VERSION\` at \`$IMAGE_DIGEST\`, attested by this workflow. Verify with \`gh attestation verify oci://$IMAGE_NAME@$IMAGE_DIGEST --repo $GITHUB_REPOSITORY\`."
+            image_note="Container image: \`$IMAGE_NAME:$IMAGE_VERSION\` at \`$IMAGE_DIGEST\`, attested by this workflow. Verify with \`gh attestation verify oci://$IMAGE_NAME@$IMAGE_DIGEST --repo $GITHUB_REPOSITORY\`. The interception init, \`$IMAGE_NAME:$IMAGE_VERSION-init\`, is at \`$INIT_DIGEST\` and attested the same way."
             if [[ "$DOCKERHUB_PUBLISH_ENABLED" == "true" ]]; then
               hub="$(printf '%s' "$DOCKERHUB_IMAGE_NAME" | tr '[:upper:]' '[:lower:]')"
-              image_note="$image_note The same manifest is copied to Docker Hub as \`$hub:$IMAGE_VERSION\`, at the same digest, by the Docker Hub job of the run that created this release; verify it with \`gh attestation verify oci://$hub@$IMAGE_DIGEST --repo $GITHUB_REPOSITORY\`."
+              image_note="$image_note The same manifests are copied to Docker Hub as \`$hub:$IMAGE_VERSION\` and \`$hub:$IMAGE_VERSION-init\`, at the same digests, by the Docker Hub job of the run that created this release; verify with \`gh attestation verify oci://$hub@$IMAGE_DIGEST --repo $GITHUB_REPOSITORY\`."
             fi
           else
             image_note="The runtime image was built and checked for this release but not published."

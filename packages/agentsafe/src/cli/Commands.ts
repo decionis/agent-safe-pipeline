@@ -4,6 +4,7 @@ import { runConfig } from "./ConfigCommand.js";
 import { runDoctor } from "./Doctor.js";
 import { usage } from "./Help.js";
 import { runInit } from "./Init.js";
+import { runIntercept } from "./Intercept.js";
 import { runLogin, runLogout } from "./Login.js";
 import { runProxy } from "./Proxy.js";
 import { runStatus } from "./Status.js";
@@ -15,6 +16,7 @@ export const GATEWAY_COMMANDS = [
   "proxy",
   "gateway",
   "run",
+  "intercept",
   "status",
   "doctor",
   "test",
@@ -45,6 +47,9 @@ export async function runGatewayCommand(
     case "gateway":
     case "run":
       await runProxy(io, argv);
+      return;
+    case "intercept":
+      await runIntercept(io, argv);
       return;
     case "status":
       await runStatus(io, argv);

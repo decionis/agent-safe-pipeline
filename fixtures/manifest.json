@@ -549,6 +549,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/cli/Intercept.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/cli/Login.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
@@ -729,6 +735,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/http/InterceptServer.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/http/RecordingTarget.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
@@ -814,6 +826,24 @@
     },
     {
       "path": "packages/agentsafe/test/incident/SecurityEvents.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/intercept/ClientHello.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/intercept/Destination.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/intercept/RequestHead.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false

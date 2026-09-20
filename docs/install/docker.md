@@ -28,7 +28,9 @@ clients; a cluster that pulls often should authenticate to it, pull from GHCR, o
 
 The image's default command is the gateway. The image runs as `NODE_ENV=production`, which
 refuses the demo authority and a key in the environment: a container asks Decionis, and reads its
-key from a mounted file.
+key from a mounted file. The same image runs `agentsafe intercept`, the
+[transparent interceptor](../gateway/transparent-interception.md) beside a container of yours, with
+its redirect in the `<version>-init` tag; the recipe is `deploy/intercept/docker/compose.yaml`.
 
 ## Run the gateway
 

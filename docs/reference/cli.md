@@ -42,6 +42,23 @@ The process prints the banner once it listens, one report per intercepted reques
 `SIGTERM` or `SIGINT`: the listener closes, requests in flight get ten seconds, the gateway closes,
 the exit status is `0`. A refusal to start names the setting and never its value.
 
+### `agentsafe intercept`
+
+The [transparent interceptor](../gateway/transparent-interception.md) as a process: the sidecar
+the redirect rules point at. It binds two loopback listeners, one for redirected port-80
+connections and one for redirected port-443 connections, reads each connection's destination from
+its first bytes (the TLS server name, or the HTTP host), places it there, and prints one line per
+placed or refused connection; `SIGTERM` prints the report of every destination the workload
+reached and exits `0`. It decrypts nothing, decides nothing, holds no key and asks no authority:
+this is the observe phase.
+
+| Option             | Meaning                                                           |
+| ------------------ | ----------------------------------------------------------------- |
+| `--http-port <n>`  | `AGENTSAFE_INTERCEPT_HTTP_PORT`, where redirected `:80` arrives   |
+| `--https-port <n>` | `AGENTSAFE_INTERCEPT_HTTPS_PORT`, where redirected `:443` arrives |
+| `--bind <address>` | `AGENTSAFE_INTERCEPT_BIND`, the listeners' address (`127.0.0.1`)  |
+| `--json`           | one JSON object per line instead of the human rendering           |
+
 ### `agentsafe status`
 
 Asks the gateway that the same configuration would start, at `/_agentsafe/status`, and prints its

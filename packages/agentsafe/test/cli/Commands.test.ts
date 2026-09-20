@@ -25,6 +25,7 @@ describe("the command dispatch", () => {
       "init",
       "proxy",
       "run",
+      "intercept",
       "status",
       "doctor",
       "test",
@@ -51,6 +52,9 @@ describe("the command dispatch", () => {
       expect(io.exits).toEqual([2]);
       expect(io.err.join("")).toContain("upstream");
     }
+    const intercept = fakeProcess();
+    await runGatewayCommand("intercept", ["--nope"], intercept);
+    expect(intercept.exits).toEqual([2]);
     const status = fakeProcess();
     await runGatewayCommand("status", [], status);
     expect(status.exits).toEqual([1]);

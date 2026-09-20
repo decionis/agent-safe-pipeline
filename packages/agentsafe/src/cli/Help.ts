@@ -9,6 +9,7 @@ export function usage(version: string): string {
     "  init                 Write agentsafe.yaml for this directory",
     "  proxy                Run the gateway (--upstream URL, --port N, --mode shadow|enforcement)",
     "  run                  Run the gateway from agentsafe.yaml (same command, file first)",
+    "  intercept            Run the transparent interceptor the redirect rules point at (observe)",
     "  status               Ask a running gateway what it is doing",
     "  doctor               Check the binary, configuration, upstream, Decionis and credentials",
     "  test                 Show what reaches a target without the boundary and what enforcement prevents",

@@ -215,7 +215,12 @@ What is bound and forwarded, and what each outcome finalizes as, is
 [docs/gateway/http-interception.md](./docs/gateway/http-interception.md); what happens when the
 authority cannot be reached is [docs/gateway/failure-policy.md](./docs/gateway/failure-policy.md);
 the configuration, one schema for every distribution with the precedence flags, environment, file,
-defaults, is [docs/gateway/configuration.md](./docs/gateway/configuration.md).
+defaults, is [docs/gateway/configuration.md](./docs/gateway/configuration.md). The gateway is
+addressed: the workload is pointed at it. `agentsafe intercept` holds the same boundary without
+configuring the workload, by redirecting a pod's or a container's outbound 80 and 443 into
+AgentSafe at the network layer and reporting every destination it reaches;
+[docs/gateway/transparent-interception.md](./docs/gateway/transparent-interception.md) says what
+that observes today and what it will govern next.
 
 ## Install
 
