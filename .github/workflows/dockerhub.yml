@@ -80,9 +80,22 @@ jobs:
           gh attestation verify "oci://$image@$digest" \
             --repo "$GITHUB_REPOSITORY" \
             --signer-workflow "$RELEASE_WORKFLOW"
+          # The interception init rides beside the runtime from the release
+          # that introduced it; a version from before has none to copy.
+          init_digest=""
+          if init_digest="$(docker buildx imagetools inspect "$image:$RELEASE_VERSION-init" --format '{{json .Manifest.Digest}}' 2>/dev/null | tr -d '"')" && [[ -n "$init_digest" ]]; then
+            [[ "$init_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+            gh attestation verify "oci://$image@$init_digest" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$RELEASE_WORKFLOW"
+          else
+            init_digest=""
+            echo "::notice::$image:$RELEASE_VERSION-init does not exist; this version predates the interception init."
+          fi
           {
             echo "image=$image"
             echo "digest=$digest"
+            echo "init_digest=$init_digest"
           } >> "$GITHUB_OUTPUT"
       - name: Copy the manifest to Docker Hub
         id: hub
@@ -92,6 +105,7 @@ jobs:
           HUB_IMAGE_NAME: docker.io/${{ github.repository_owner }}/agentsafe
           RELEASE_VERSION: ${{ inputs.version }}
           SOURCE_DIGEST: ${{ steps.source.outputs.digest }}
+          SOURCE_INIT_DIGEST: ${{ steps.source.outputs.init_digest }}
           SOURCE_IMAGE: ${{ steps.source.outputs.image }}
         shell: bash
         run: |
@@ -101,27 +115,39 @@ jobs:
             exit 1
           fi
           hub="$(printf '%s' "$HUB_IMAGE_NAME" | tr '[:upper:]' '[:lower:]')"
-          # The same tags GHCR carries: the exact version always; for a stable
-          # release also the minor, the major and latest.
-          tags=(-t "$hub:$RELEASE_VERSION")
-          if [[ "$RELEASE_VERSION" != *-* ]]; then
-            major="${RELEASE_VERSION%%.*}"
-            minor="${RELEASE_VERSION%.*}"
-            tags+=(-t "$hub:$minor" -t "$hub:$major" -t "$hub:latest")
-          fi
           printf '%s' "$DOCKERHUB_TOKEN" | docker login docker.io -u "$DOCKERHUB_USERNAME" --password-stdin
-          # One source and no annotations: imagetools writes the index bytes it
-          # read, so the digest is the release's, and the check below is what
-          # makes that a fact rather than an expectation.
-          docker buildx imagetools create "${tags[@]}" "$SOURCE_IMAGE@$SOURCE_DIGEST"
-          digest="$(docker buildx imagetools inspect "$hub:$RELEASE_VERSION" --format '{{json .Manifest.Digest}}' | tr -d '"')"
-          if [[ "$digest" != "$SOURCE_DIGEST" ]]; then
-            echo "Docker Hub holds $digest for $hub:$RELEASE_VERSION; the attested release manifest is $SOURCE_DIGEST." >&2
-            exit 1
+          major="${RELEASE_VERSION%%.*}"
+          minor="${RELEASE_VERSION%.*}"
+          # The same tags GHCR carries, for the runtime and for the init with
+          # its suffix: the exact version always; for a stable release also the
+          # minor, the major and latest. One source and no annotations means
+          # imagetools writes the index bytes it read, so the digest is the
+          # release's, and the check is what makes that a fact rather than an
+          # expectation.
+          copy() {
+            local suffix="$1" source_digest="$2"
+            local tags=(-t "$hub:$RELEASE_VERSION$suffix")
+            if [[ "$RELEASE_VERSION" != *-* ]]; then
+              tags+=(-t "$hub:$minor$suffix" -t "$hub:$major$suffix" -t "$hub:latest$suffix")
+            fi
+            docker buildx imagetools create "${tags[@]}" "$SOURCE_IMAGE@$source_digest"
+            local digest
+            digest="$(docker buildx imagetools inspect "$hub:$RELEASE_VERSION$suffix" --format '{{json .Manifest.Digest}}' | tr -d '"')"
+            if [[ "$digest" != "$source_digest" ]]; then
+              echo "Docker Hub holds $digest for $hub:$RELEASE_VERSION$suffix; the attested release manifest is $source_digest." >&2
+              exit 1
+            fi
+            printf '%s' "$digest"
+          }
+          digest="$(copy "" "$SOURCE_DIGEST")"
+          init_digest=""
+          if [[ -n "$SOURCE_INIT_DIGEST" ]]; then
+            init_digest="$(copy "-init" "$SOURCE_INIT_DIGEST")"
           fi
           {
             echo "name=$hub"
             echo "digest=$digest"
+            echo "init_digest=$init_digest"
           } >> "$GITHUB_OUTPUT"
       - name: Attest the Docker Hub image
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
@@ -129,10 +155,18 @@ jobs:
           subject-name: ${{ steps.hub.outputs.name }}
           subject-digest: ${{ steps.hub.outputs.digest }}
           push-to-registry: true
+      - name: Attest the Docker Hub init image
+        if: steps.hub.outputs.init_digest != ''
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ steps.hub.outputs.name }}
+          subject-digest: ${{ steps.hub.outputs.init_digest }}
+          push-to-registry: true
       - name: Verify the published image attestation
         env:
           GH_TOKEN: ${{ github.token }}
           IMAGE_REFERENCE: ${{ steps.hub.outputs.name }}@${{ steps.hub.outputs.digest }}
+          INIT_DIGEST: ${{ steps.hub.outputs.init_digest }}
           RELEASE_VERSION: ${{ inputs.version }}
           SIGNER_WORKFLOW: ${{ github.repository }}/.github/workflows/dockerhub.yml
         shell: bash
@@ -141,10 +175,17 @@ jobs:
           gh attestation verify "oci://$IMAGE_REFERENCE" \
             --repo "$GITHUB_REPOSITORY" \
             --signer-workflow "$SIGNER_WORKFLOW"
+          init_line=""
+          if [[ -n "$INIT_DIGEST" ]]; then
+            gh attestation verify "oci://${IMAGE_REFERENCE%@*}@$INIT_DIGEST" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$SIGNER_WORKFLOW"
+            init_line="The interception init, \`${IMAGE_REFERENCE%@*}:$RELEASE_VERSION-init\`, is at \`$INIT_DIGEST\`, attested the same way."
+          fi
           {
             echo "## Docker Hub"
             echo
-            echo "\`${IMAGE_REFERENCE%@*}:$RELEASE_VERSION\` at \`${IMAGE_REFERENCE#*@}\`, the release's manifest, attested by this workflow."
+            echo "\`${IMAGE_REFERENCE%@*}:$RELEASE_VERSION\` at \`${IMAGE_REFERENCE#*@}\`, the release's manifest, attested by this workflow. $init_line"
             echo
             echo '```sh'
             echo "gh attestation verify oci://$IMAGE_REFERENCE --repo $GITHUB_REPOSITORY"

@@ -1,0 +1,84 @@
+# The two containers the interceptor adds to a workload's pod. The name here
+# is a placeholder: kustomize applies this patch to every Deployment the
+# component's selector names and keeps each one's own name.
+#
+# The init container runs the redirect once, as root with the two
+# capabilities iptables needs and nothing else, in the pod's network
+# namespace, and exits; from then on every connection the workload opens to
+# port 80 or 443 arrives at the interceptor beside it. The interceptor runs as
+# the runtime image's non-root user under the same hardening the gateway
+# runs under, listens on loopback only, and observes: it reads where each
+# connection was going, places it, counts it, and decrypts and decides
+# nothing. `kubectl logs <pod> -c agentsafe-intercept` is where the
+# destinations appear, one JSON line each, and the report on shutdown.
+#
+# The image tags are the runtime's version and are bumped with each release,
+# as the chart's appVersion is; production pins them by digest.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: intercepted-workload
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: agentsafe-redirect
+          image: ghcr.io/decionis/agentsafe:0.2.0-init
+          env:
+            - name: AGENTSAFE_INTERCEPT_UID
+              value: "65532"
+            - name: AGENTSAFE_INTERCEPT_HTTP_PORT
+              value: "15001"
+            - name: AGENTSAFE_INTERCEPT_HTTPS_PORT
+              value: "15002"
+            - name: AGENTSAFE_INTERCEPT_IPV6
+              value: auto
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            privileged: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["NET_ADMIN", "NET_RAW"]
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 32Mi
+      containers:
+        - name: agentsafe-intercept
+          image: ghcr.io/decionis/agentsafe:0.2.0
+          args: ["intercept"]
+          env:
+            - name: AGENTSAFE_SURFACE
+              value: kubernetes
+            - name: AGENTSAFE_LOG_FORMAT
+              value: json
+            - name: AGENTSAFE_INTERCEPT_HTTP_PORT
+              value: "15001"
+            - name: AGENTSAFE_INTERCEPT_HTTPS_PORT
+              value: "15002"
+          securityContext:
+            runAsUser: 65532
+            runAsGroup: 65532
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            privileged: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi

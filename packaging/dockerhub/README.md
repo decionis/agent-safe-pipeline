@@ -71,6 +71,18 @@ The other commands are the same binary: `docker run --rm decionis/agentsafe:<ver
 [deployment kit](https://github.com/decionis/agent-safe-pipeline/blob/master/deploy/README.md)
 runs.
 
+## Intercept transparently
+
+The gateway is addressed: a workload is pointed at it. `decionis/agentsafe:<version> intercept`
+holds the same boundary without configuring the workload: its outbound connections to ports 80 and
+443 are redirected into AgentSafe beside it, at the network layer, and every destination it reaches
+is reported by name and count. The redirect is the `decionis/agentsafe:<version>-init` tag, run
+once with `NET_ADMIN` and `NET_RAW` in the shared network namespace; the
+[compose recipe](https://github.com/decionis/agent-safe-pipeline/blob/master/deploy/intercept/docker/compose.yaml)
+puts the three containers together, and
+[transparent interception](https://github.com/decionis/agent-safe-pipeline/blob/master/docs/gateway/transparent-interception.md)
+says what is observed today and what is governed next.
+
 ## Send your first governed action
 
 With the gateway running in the container and a service on the host at port 3000:

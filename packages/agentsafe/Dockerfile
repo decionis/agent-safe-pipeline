@@ -29,6 +29,7 @@
 
 ARG NODE_BASE_IMAGE=public.ecr.aws/docker/library/node:22-alpine
 ARG RUNTIME_BASE_IMAGE=gcr.io/distroless/nodejs22-debian12:nonroot@sha256:13593b7570658e8477de39e2f4a1dd25db2f836d68a0ba771251572d23bb4f8e
+ARG INIT_BASE_IMAGE=public.ecr.aws/docker/library/alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
 
 FROM ${NODE_BASE_IMAGE} AS base
 RUN corepack enable && corepack prepare pnpm@9.15.3 --activate
@@ -66,6 +67,24 @@ COPY packages/agentsafe ./packages/agentsafe
 RUN pnpm --filter @decionis/agent-safe-pipeline build \
   && pnpm --filter @decionis/agentsafe build \
   && pnpm deploy --filter @decionis/agentsafe --prod /app/deploy
+
+# The interception init: the one image in this file that is not the runtime.
+# It holds iptables and packaging/intercept/Redirect.sh, runs once as root
+# with CAP_NET_ADMIN in the workload's network namespace to redirect its
+# outbound 80 and 443 into the interceptor's listeners, and exits; it is
+# published as the `<version>-init` tag beside the runtime. It carries no
+# AgentSafe code and needs none: the decision of where a connection goes is
+# the interceptor's, made from the bytes; the init only sends them its way.
+#
+#   docker build -f packages/agentsafe/Dockerfile --target init -t agentsafe-init .
+FROM ${INIT_BASE_IMAGE} AS init
+LABEL org.opencontainers.image.source="https://github.com/decionis/agent-safe-pipeline" \
+      org.opencontainers.image.title="AgentSafe interception init" \
+      org.opencontainers.image.description="Redirects a workload's outbound HTTP and TLS into the AgentSafe interceptor, once, then exits." \
+      org.opencontainers.image.licenses="Apache-2.0"
+RUN apk add --no-cache iptables ip6tables
+COPY packaging/intercept/Redirect.sh /usr/local/bin/agentsafe-redirect
+ENTRYPOINT ["/usr/local/bin/agentsafe-redirect"]
 
 # The runtime has no shell, no package manager and no workspace. The base
 # image's entrypoint is node itself and its user is `nonroot` (65532); the

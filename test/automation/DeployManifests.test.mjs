@@ -66,6 +66,9 @@ describe("the deployment kit's manifests", () => {
     const files = manifestFiles().map((path) => relative(ROOT, path));
     assert.deepEqual(files, [
       "alerts/TrustedExecutor.yaml",
+      "intercept/docker/compose.yaml",
+      "intercept/kubernetes/Sidecar.yaml",
+      "intercept/kubernetes/kustomization.yaml",
       "kubernetes/AgentZone.yaml",
       "kubernetes/ContainmentProbe.yaml",
       "kubernetes/DefaultDeny.yaml",
@@ -80,6 +83,8 @@ describe("the deployment kit's manifests", () => {
   });
 
   it("are listed in the apply order, every one of them", () => {
+    // The interceptor's component is applied to a workload of the operator's,
+    // never by this kit's order; it is checked on its own below.
     const kustomization = byKind("Kustomization");
     assert.equal(kustomization.length, 1);
     const listed = kustomization[0].object.resources;

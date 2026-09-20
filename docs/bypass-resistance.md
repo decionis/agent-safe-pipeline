@@ -71,6 +71,14 @@ listener only, with no `ipBlock` anywhere, so on an enforcing CNI there is no ro
 the cluster reads it: a cluster with no NetworkPolicy-enforcing CNI accepts every policy in the
 kit and ignores it.
 
+The network is also where a workload's actions can be _captured_ without its cooperation:
+[transparent interception](./gateway/transparent-interception.md) redirects a pod's or a
+container's outbound 80 and 443 into an AgentSafe process beside it and reports, by name and
+count, every destination the workload reached. That is a different job from enforcement, and the
+distinction is the point of this page: the network is where requests are seen and, in the govern
+phase, held; the credential and the provider are what make refusing them stick, because they hold
+whatever path the request took.
+
 The containment probe (`agentsafe probe-containment`, shipped as a CronJob in
 `deploy/kubernetes/ContainmentProbe.yaml`, and run by `agentsafe test name=host:port` from a
 developer's machine) makes that failure visible from inside the agent zone.

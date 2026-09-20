@@ -1,0 +1,26 @@
+# The transparent interceptor as a sidecar, for a workload of yours.
+#
+# This is a kustomize Component, not a kit of its own: it patches the redirect
+# init container and the interceptor into every Deployment that carries the
+# label `agent-safe-intercept: "true"`, and changes nothing else about it.
+# Add it to the kustomization that owns the workload:
+#
+#   components:
+#     - ../../path/to/agent-safe-pipeline/deploy/intercept/kubernetes
+#
+# Three conditions the patch cannot check for you. The workload's containers
+# must not run as user 65532, which is the interceptor's own and the one user
+# whose connections the redirect leaves alone. The namespace's Pod Security
+# profile must admit an init container that adds NET_ADMIN and NET_RAW and runs
+# as root for the moment it takes to write the rules, which the `restricted`
+# profile does not and `baseline` does; the executor kit's own namespaces stay
+# `restricted` and are not where this goes. And the redirect touches ports 80
+# and 443 only: a workload that reaches a system of record on another port is
+# not intercepted there, and says so in the interceptor's report by absence.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+patches:
+  - path: Sidecar.yaml
+    target:
+      kind: Deployment
+      labelSelector: agent-safe-intercept=true

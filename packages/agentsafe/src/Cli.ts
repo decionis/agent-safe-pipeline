@@ -34,6 +34,7 @@ const COMMANDS = [
   "init",
   "proxy",
   "run",
+  "intercept",
   "status",
   "doctor",
   "test",

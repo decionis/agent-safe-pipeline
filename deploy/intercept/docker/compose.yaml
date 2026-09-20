@@ -1,0 +1,45 @@
+# The transparent interceptor beside a workload, in Docker: three containers
+# in one network namespace, which the interceptor owns. The redirect joins it
+# first and writes the rules; the workload joins it and changes nothing; every
+# connection the workload opens to port 80 or 443 arrives at the interceptor,
+# which places it where the bytes say and logs the destination. Run it, then
+# `docker compose logs -f agentsafe-intercept`.
+#
+#   AGENT_IMAGE=your/agent:tag AGENTSAFE_VERSION=<runtime version> docker compose up
+#
+# The workload container must not run as user 65532, the interceptor's own.
+# Ports the workload publishes are published on the interceptor service here,
+# because the namespace is its. The version is pinned on purpose: a moving tag
+# in front of a boundary is not a boundary.
+services:
+  agentsafe-intercept:
+    image: ghcr.io/decionis/agentsafe:${AGENTSAFE_VERSION:?the runtime version, for example 0.2.0}
+    command: ["intercept"]
+    environment:
+      AGENTSAFE_LOG_FORMAT: json
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    user: "65532:65532"
+
+  agentsafe-redirect:
+    image: ghcr.io/decionis/agentsafe:${AGENTSAFE_VERSION:?the runtime version, for example 0.2.0}-init
+    network_mode: "service:agentsafe-intercept"
+    depends_on:
+      agentsafe-intercept:
+        condition: service_started
+    environment:
+      AGENTSAFE_INTERCEPT_UID: "65532"
+      AGENTSAFE_INTERCEPT_IPV6: auto
+    read_only: true
+    cap_drop: ["ALL"]
+    cap_add: ["NET_ADMIN", "NET_RAW"]
+    security_opt: ["no-new-privileges:true"]
+    restart: "no"
+
+  agent:
+    image: ${AGENT_IMAGE:?the workload's image}
+    network_mode: "service:agentsafe-intercept"
+    depends_on:
+      agentsafe-redirect:
+        condition: service_completed_successfully

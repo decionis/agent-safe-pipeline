@@ -170,6 +170,28 @@ describe("the workflow", () => {
       /--platform linux\/amd64,linux\/arm64 --sbom=true --provenance=mode=max/,
     );
     assert.match(image.run, /\$image:\$minor" -t "\$image:\$major" -t "\$image:latest"/);
+    // The interception init: built from the same file's `init` stage, pushed
+    // under the same name with the `-init` suffix on every tag, its digest
+    // recorded and attested beside the runtime's.
+    assert.match(image.run, /--target init/);
+    assert.match(
+      image.run,
+      /\$image:\$minor-init" -t "\$image:\$major-init" -t "\$image:latest-init"/,
+    );
+    assert.match(image.run, /init_digest=\$init_digest/);
+    assert.match(image.run, /init_version=%s-init/);
+    const attestInit = workflow.jobs.release.steps.find(
+      (step) => step.name === "Attest the interception init image",
+    );
+    assert.equal(attestInit.with["subject-digest"], "${{ steps.image.outputs.init_digest }}");
+    assert.equal(attestInit.with["push-to-registry"], true);
+    const verifyImages = workflow.jobs.release.steps.find(
+      (step) => step.name === "Verify the published image attestations",
+    );
+    assert.match(verifyImages.run, /gh attestation verify "oci:\/\/\$INIT_REFERENCE"/);
+    const imageJobSteps = workflow.jobs.image.steps.map((step) => step.name);
+    assert.ok(imageJobSteps.includes("Build the interception init image and run the redirect"));
+    assert.ok(imageJobSteps.includes("Intercept a workload's connections transparently"));
     for (const step of [...distribution.steps, ...workflow.jobs.release.steps]) {
       if (step.uses !== undefined) assert.match(step.uses, /@[0-9a-f]{40}( #|$)/, step.uses);
     }
@@ -225,6 +247,7 @@ describe("the workflow", () => {
       "Resolve the attested GHCR image",
       "Copy the manifest to Docker Hub",
       "Attest the Docker Hub image",
+      "Attest the Docker Hub init image",
       "Verify the published image attestation",
       "Publish the repository overview",
     ]);
@@ -243,13 +266,22 @@ describe("the workflow", () => {
     const copy = job.steps.find((step) => step.name === "Copy the manifest to Docker Hub");
     assert.equal(copy.env.HUB_IMAGE_NAME, "docker.io/${{ github.repository_owner }}/agentsafe");
     assert.match(copy.run, /-z "\$DOCKERHUB_USERNAME" \|\| -z "\$DOCKERHUB_TOKEN"/);
-    assert.match(copy.run, /\$hub:\$minor" -t "\$hub:\$major" -t "\$hub:latest"/);
     assert.match(
       copy.run,
-      /docker buildx imagetools create "\$\{tags\[@\]\}" "\$SOURCE_IMAGE@\$SOURCE_DIGEST"/,
+      /\$hub:\$minor\$suffix" -t "\$hub:\$major\$suffix" -t "\$hub:latest\$suffix"/,
     );
-    assert.match(copy.run, /if \[\[ "\$digest" != "\$SOURCE_DIGEST" \]\]; then/);
+    assert.match(
+      copy.run,
+      /docker buildx imagetools create "\$\{tags\[@\]\}" "\$SOURCE_IMAGE@\$source_digest"/,
+    );
+    assert.match(copy.run, /if \[\[ "\$digest" != "\$source_digest" \]\]; then/);
+    assert.match(copy.run, /init_digest="\$\(copy "-init" "\$SOURCE_INIT_DIGEST"\)"/);
+    assert.match(source.run, /\$image:\$RELEASE_VERSION-init/);
     assert.doesNotMatch(copy.run, /docker buildx build/);
+    const attestInit = job.steps.find((step) => step.name === "Attest the Docker Hub init image");
+    assert.equal(attestInit.if, "steps.hub.outputs.init_digest != ''");
+    assert.equal(attestInit.with["subject-digest"], "${{ steps.hub.outputs.init_digest }}");
+    assert.equal(attestInit.with["push-to-registry"], true);
     const attest = job.steps.find((step) => step.name === "Attest the Docker Hub image");
     assert.equal(attest.with["subject-name"], "${{ steps.hub.outputs.name }}");
     assert.equal(attest.with["subject-digest"], "${{ steps.hub.outputs.digest }}");
