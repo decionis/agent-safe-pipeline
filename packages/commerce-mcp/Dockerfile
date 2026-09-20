@@ -1,9 +1,9 @@
-# CommerceGate MCP as one image for Amazon Bedrock AgentCore Runtime, built
+# AgentOps: CommerceGate MCP for Amazon Bedrock AgentCore Runtime, built
 # from the repository root as the build context:
 #
-#   docker buildx build -f packages/commerce-mcp/Dockerfile --platform linux/arm64 -t commercegate-mcp .
+#   docker buildx build -f packages/commerce-mcp/Dockerfile --platform linux/arm64 -t agentops-core:latest .
 #
-# The container is the "AgentCore" delivery for buyers who run
+# The container is the "AgentOps MCP Server for Amazon Bedrock AgentCore" delivery for buyers who run
 # their agents in AgentCore: a stateless streamable-HTTP MCP server on
 # 0.0.0.0:8000/mcp, with /ping as its health check, exactly as the runtime
 # expects. It holds no credential: the buyer's workspace key and organization
@@ -11,7 +11,7 @@
 # them as environment variables), and the server refuses tenant calls until
 # both are present. DECIONIS_API_BASE defaults to https://api.decionis.com.
 #
-#   docker run -p 8000:8000 -e DECIONIS_API_KEY=... -e DECIONIS_ORG_ID=... commercegate-mcp
+#   docker run -p 127.0.0.1:8000:8000 --env-file ./agentops.env agentops-core:latest
 #
 # The runtime is distroless: no shell, no package manager, a non-root user
 # (65532), node under its permission model allowed to read the application
@@ -56,7 +56,7 @@ RUN pnpm --filter @decionis/commerce build \
 
 FROM ${RUNTIME_BASE_IMAGE} AS runner
 LABEL org.opencontainers.image.source="https://github.com/decionis/agent-safe-pipeline" \
-      org.opencontainers.image.title="AgentCore (CommerceGate MCP)" \
+      org.opencontainers.image.title="AgentOps MCP Server for Amazon Bedrock AgentCore" \
       org.opencontainers.image.description="The CommerceGate MCP server for Amazon Bedrock AgentCore Runtime: an agent asks before it acts on commerce; allow or hold, the reason, a signed record." \
       org.opencontainers.image.licenses="Apache-2.0"
 WORKDIR /app

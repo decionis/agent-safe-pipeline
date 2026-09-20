@@ -18,7 +18,7 @@ const publish = steps.find((step) => step.id === "publish");
 const repository = "709825985650.dkr.ecr.us-east-1.amazonaws.com/decionis/test-agent";
 const digest = `sha256:${"a".repeat(64)}`;
 
-async function runPublish(target, returnedDigest = digest) {
+async function runPublish(target, returnedDigest = digest, latestDigest = returnedDigest) {
   const directory = await mkdtemp(join(tmpdir(), "agentcore-publish-test-"));
   const callsPath = join(directory, "calls");
   const outputPath = join(directory, "output");
@@ -32,7 +32,7 @@ async function runPublish(target, returnedDigest = digest) {
     );
     await writeFile(
       join(directory, "docker"),
-      '#!/bin/sh\nprintf "docker %s\\n" "$*" >> "$TEST_CALLS"\ncase "$1" in login) cat >/dev/null;; buildx) if [ "$2" = imagetools ]; then printf \'"%s"\\n\' "$TEST_DIGEST"; fi;; esac\n',
+      '#!/bin/sh\nprintf "docker %s\\n" "$*" >> "$TEST_CALLS"\ncase "$1" in login) cat >/dev/null;; buildx) if [ "$2" = imagetools ]; then case "$4" in *:latest) printf \'"%s"\\n\' "$TEST_LATEST_DIGEST";; *) printf \'"%s"\\n\' "$TEST_DIGEST";; esac; fi;; esac\n',
       { mode: 0o700 },
     );
     const result = spawnSync("bash", ["-c", publish.run], {
@@ -45,6 +45,7 @@ async function runPublish(target, returnedDigest = digest) {
         REPOSITORY: target,
         TEST_CALLS: callsPath,
         TEST_DIGEST: returnedDigest,
+        TEST_LATEST_DIGEST: latestDigest,
         VERSION: "0.1.3",
       },
     });
@@ -89,12 +90,18 @@ describe("AgentCore Marketplace image publication", () => {
     const { result, calls, output } = await runPublish(repository);
     assert.equal(result.status, 0, result.stderr);
     assert.match(calls, /--platform linux\/arm64 --provenance=false --push/);
-    assert.ok(calls.includes(`-t ${repository}:0.1.3 .`));
+    assert.ok(calls.includes(`-t ${repository}:0.1.3 -t ${repository}:latest .`));
     assert.equal(output, `name=${repository}\ndigest=${digest}\n`);
   });
 
   it("refuses an invalid registry digest instead of attesting it", async () => {
     const { result, output } = await runPublish(repository, "not-a-digest");
+    assert.notEqual(result.status, 0);
+    assert.equal(output, "");
+  });
+
+  it("refuses a latest alias that differs from the versioned image", async () => {
+    const { result, output } = await runPublish(repository, digest, `sha256:${"b".repeat(64)}`);
     assert.notEqual(result.status, 0);
     assert.equal(output, "");
   });

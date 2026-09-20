@@ -1,9 +1,9 @@
 name: Commerce MCP AgentCore image
 
-# Builds the CommerceGate MCP image for Amazon Bedrock AgentCore Runtime
+# Builds AgentOps, the CommerceGate MCP image for Amazon Bedrock AgentCore Runtime
 # (packages/commerce-mcp/Dockerfile: linux/arm64, distroless, non-root,
 # streamable HTTP on :8000/mcp) and pushes it to the AWS Marketplace
-# repository of the "AgentCore" container product, then
+# repository of the "AgentOps MCP Server for Amazon Bedrock AgentCore" container product, then
 # attests the digest. Run by hand with the version to tag; "verify" builds
 # and smoke-tests without pushing.
 #
@@ -68,8 +68,8 @@ jobs:
         run: |
           set -euo pipefail
           docker buildx build -f packages/commerce-mcp/Dockerfile \
-            --platform linux/amd64 --load -t commercegate-mcp:smoke .
-          docker run -d --name smoke -p 8000:8000 commercegate-mcp:smoke
+            --platform linux/amd64 --load -t agentops-core:latest .
+          docker run -d --name smoke -p 127.0.0.1:8000:8000 agentops-core:latest
           trap 'docker rm -f smoke >/dev/null' EXIT
           for _ in $(seq 1 30); do
             curl -fsS http://127.0.0.1:8000/ping >/dev/null 2>&1 && break
@@ -85,7 +85,7 @@ jobs:
         if: ${{ inputs.mode == 'verify' }}
         run: |
           docker buildx build -f packages/commerce-mcp/Dockerfile \
-            --platform linux/arm64 --provenance=false --load -t commercegate-mcp:arm64 .
+            --platform linux/arm64 --provenance=false --load -t agentops-core:latest .
       - name: Authenticate to AWS (publisher role, through GitHub OIDC)
         if: ${{ inputs.mode == 'publish' }}
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
@@ -126,10 +126,15 @@ jobs:
             --platform linux/arm64 --provenance=false --push \
             --label "org.opencontainers.image.version=$VERSION" \
             --label "org.opencontainers.image.revision=$GITHUB_SHA" \
-            -t "$REPOSITORY:$VERSION" .
+            -t "$REPOSITORY:$VERSION" -t "$REPOSITORY:latest" .
           digest="$(docker buildx imagetools inspect "$REPOSITORY:$VERSION" --format '{{json .Manifest.Digest}}' | tr -d '"')"
           if [[ ! "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
             echo "::error::The registry did not return a valid image digest."
+            exit 1
+          fi
+          latest_digest="$(docker buildx imagetools inspect "$REPOSITORY:latest" --format '{{json .Manifest.Digest}}' | tr -d '"')"
+          if [[ "$latest_digest" != "$digest" ]]; then
+            echo "::error::The latest alias does not identify the versioned image digest."
             exit 1
           fi
           {

@@ -9,6 +9,7 @@ release/
 .env
 .env.*
 !.env.example
+agentops.env
 
 # Local-only planning material
 brief.pipeline.md

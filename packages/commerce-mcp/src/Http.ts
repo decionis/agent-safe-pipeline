@@ -1,10 +1,16 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 
-import { MAX_STDIO_IN_FLIGHT, MAX_STDIO_REQUEST_BYTES, MCP_SERVER_BUSY_CODE } from "./Server.js";
+import {
+  DEFAULT_PROTOCOL_VERSION,
+  MAX_STDIO_IN_FLIGHT,
+  MAX_STDIO_REQUEST_BYTES,
+  MCP_SERVER_BUSY_CODE,
+  SUPPORTED_PROTOCOL_VERSIONS,
+} from "./Server.js";
 
 /**
  * Streamable HTTP, the stateless kind Amazon Bedrock AgentCore Runtime proxies
- * to: one `POST /mcp` per JSON-RPC message (or batch), a JSON answer, no
+ * to: one `POST /mcp` per JSON-RPC message, a JSON answer, no
  * server-initiated stream. The runtime adds an `Mcp-Session-Id` header for its
  * own session isolation; it is echoed and otherwise ignored, because nothing
  * here keeps state between requests. `GET /ping` is the health check.
@@ -17,6 +23,10 @@ export const DEFAULT_HTTP_PORT = 8000;
 export const DEFAULT_HTTP_HOST = "0.0.0.0";
 export const MCP_HTTP_PATH = "/mcp";
 export const PING_HTTP_PATH = "/ping";
+const HTTP_PROTOCOL_VERSIONS: readonly string[] = SUPPORTED_PROTOCOL_VERSIONS.filter(
+  (version) => version !== "2024-11-05",
+);
+const DEFAULT_HTTP_PROTOCOL_VERSION = "2025-03-26";
 
 type JsonRpcResponse = Record<string, unknown>;
 type Handler = (message: unknown) => Promise<JsonRpcResponse | null>;
@@ -54,7 +64,7 @@ async function readBody(request: IncomingMessage, maximumBytes: number): Promise
   if (Number.isFinite(declared) && declared > maximumBytes) return null;
   const chunks: Buffer[] = [];
   let received = 0;
-  for await (const chunk of request) {
+  for await (const chunk of request.iterator({ destroyOnReturn: false })) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     received += buffer.length;
     if (received > maximumBytes) return null;
@@ -130,6 +140,11 @@ export class CommerceGateHttpServer {
   }
 
   private async route(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    // AgentCore is a server-to-server transport. No browser origin is trusted,
+    // including localhost, opaque origins, or an explicitly empty Origin.
+    if (request.headers.origin !== undefined) {
+      return send(response, 403, { error: "origin_not_allowed" });
+    }
     const url = new URL(request.url ?? "/", "http://localhost");
     if (url.pathname === PING_HTTP_PATH) {
       if (request.method !== "GET" && request.method !== "HEAD") {
@@ -140,67 +155,78 @@ export class CommerceGateHttpServer {
     if (url.pathname !== MCP_HTTP_PATH) {
       return send(response, 404, { error: "not_found" });
     }
+    const protocol = request.headers["mcp-protocol-version"] ?? DEFAULT_HTTP_PROTOCOL_VERSION;
+    if (typeof protocol !== "string" || !HTTP_PROTOCOL_VERSIONS.includes(protocol)) {
+      return send(response, 400, error(null, -32600, "Unsupported MCP protocol version"));
+    }
     if (request.method !== "POST") {
       // No server-initiated stream: there is nothing to GET, nothing to DELETE.
       return send(response, 405, { error: "method_not_allowed" }, { allow: "POST" });
     }
     const contentType = String(request.headers["content-type"] ?? "");
-    if (!contentType.toLowerCase().startsWith("application/json")) {
+    if (contentType.split(";", 1)[0].trim().toLowerCase() !== "application/json") {
       return send(response, 415, { error: "unsupported_media_type" });
     }
     const echo: Record<string, string> = {};
     const session = request.headers["mcp-session-id"];
     if (typeof session === "string" && session.length <= 256) echo["mcp-session-id"] = session;
 
-    const body = await readBody(
-      request,
-      this.options.maximumRequestBytes ?? MAX_STDIO_REQUEST_BYTES,
-    );
-    if (body === null) {
-      return send(response, 413, error(null, -32600, "Request too large"), echo);
-    }
-    let message: unknown;
-    try {
-      message = JSON.parse(body.toString("utf8"));
-    } catch {
-      return send(response, 400, error(null, -32700, "Parse error"), echo);
-    }
-    const messages = Array.isArray(message) ? message : [message];
-    if (messages.length === 0) {
-      return send(response, 400, error(null, -32600, "Invalid JSON-RPC 2.0 request"), echo);
-    }
-
     const limit = this.options.maximumInFlight ?? MAX_STDIO_IN_FLIGHT;
     if (this.inFlight >= limit) {
-      const busy = messages
-        .filter((item) => !isNotification(item))
-        .map((item) =>
-          error(
-            idOf(item),
-            MCP_SERVER_BUSY_CODE,
-            "CommerceGate is busy. The request was not processed; retry later.",
-          ),
-        );
-      return send(response, 503, Array.isArray(message) ? busy : busy[0], {
-        ...echo,
-        "retry-after": "1",
-      });
+      return send(
+        response,
+        503,
+        error(
+          null,
+          MCP_SERVER_BUSY_CODE,
+          "CommerceGate is busy. The request was not processed; retry later.",
+        ),
+        { ...echo, "retry-after": "1", connection: "close" },
+      );
     }
 
+    // Admission precedes body consumption: incomplete uploads count against
+    // the same limit as active handlers. Every return and abort releases it.
     this.inFlight += 1;
     try {
-      const answers: JsonRpcResponse[] = [];
-      for (const item of messages) {
-        let answer: JsonRpcResponse | null;
-        try {
-          answer = await this.handler(item);
-        } catch {
-          answer = isNotification(item) ? null : error(idOf(item), -32603, "Internal error");
-        }
-        if (answer) answers.push(answer);
+      const body = await readBody(
+        request,
+        this.options.maximumRequestBytes ?? MAX_STDIO_REQUEST_BYTES,
+      );
+      if (body === null) {
+        return send(response, 413, error(null, -32600, "Request too large"), {
+          ...echo,
+          connection: "close",
+        });
       }
-      if (answers.length === 0) return send(response, 202, undefined, echo);
-      return send(response, 200, Array.isArray(message) ? answers : answers[0], echo);
+      let message: unknown;
+      try {
+        message = JSON.parse(body.toString("utf8"));
+      } catch {
+        return send(response, 400, error(null, -32700, "Parse error"), echo);
+      }
+      // A single message per POST bounds both handler work and response size;
+      // arrays must never fan a bounded input out into thousands of responses.
+      if (!isRecord(message)) {
+        return send(response, 400, error(null, -32600, "Expected one JSON-RPC message"), echo);
+      }
+      if (message.method === "initialize" && isRecord(message.params)) {
+        const requested = message.params.protocolVersion;
+        if (typeof requested !== "string" || !HTTP_PROTOCOL_VERSIONS.includes(requested)) {
+          message = {
+            ...message,
+            params: { ...message.params, protocolVersion: DEFAULT_PROTOCOL_VERSION },
+          };
+        }
+      }
+      let answer: JsonRpcResponse | null;
+      try {
+        answer = await this.handler(message);
+      } catch {
+        answer = isNotification(message) ? null : error(idOf(message), -32603, "Internal error");
+      }
+      if (answer === null) return send(response, 202, undefined, echo);
+      return send(response, 200, answer, echo);
     } finally {
       this.inFlight -= 1;
     }
