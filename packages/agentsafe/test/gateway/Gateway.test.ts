@@ -9,7 +9,12 @@ import {
   LocalPresence,
 } from "@decionis/agent-safe-pipeline/testing";
 import { demoPolicy } from "../../src/gateway/DemoAuthority.js";
-import { Gateway, GATEWAY_PREFIX } from "../../src/gateway/Gateway.js";
+import {
+  Gateway,
+  GATEWAY_PREFIX,
+  SHADOW_REPORT_INTERVAL_MS,
+  SHADOW_REPORT_MILESTONES,
+} from "../../src/gateway/Gateway.js";
 import type { InterceptedRequest } from "../../src/gateway/InterceptedRequest.js";
 import { verifyAuditChain } from "../../src/verify/VerifyAuditChain.js";
 import { closedPort } from "../support/Environment.js";
@@ -393,6 +398,64 @@ describe("the gateway in shadow", () => {
     });
     expect(tail[1]).toMatchObject({ event: "GATEWAY_STOPPED", signal: "SIGINT" });
     expect(gateway.enforcementSwitch).toContain("AGENTSAFE_MODE=enforcement");
+    await gateway.close();
+  }, 20_000);
+
+  it("prints its report on its own cadence: at each milestone of observations, and daily", async () => {
+    await upstream.start();
+    const io = collectedIo();
+    let now = Date.UTC(2026, 8, 20, 9, 0, 0);
+    const gateway = await Gateway.create(
+      testConfig(upstream.baseUrl, { flags: { mode: "shadow" } }),
+      { env: {}, io, clock: () => now },
+    );
+    const shadowReports = (): Record<string, unknown>[] =>
+      io.out
+        .map((line) => JSON.parse(line) as Record<string, unknown>)
+        .filter((line) => line["event"] === "SHADOW_REPORT");
+    expect(SHADOW_REPORT_MILESTONES[0]).toBe(10);
+    // Nine observations: no report. The tenth: one, with the counts so far,
+    // after the line that settled it.
+    for (let index = 0; index < 9; index += 1) {
+      await gateway.govern(request("POST", "/payments", { amount: 5000 }), "http.post");
+    }
+    await settle();
+    expect(shadowReports()).toEqual([]);
+    await gateway.govern(request("POST", "/payments", { amount: 1 }), "http.post");
+    await settle();
+    const [first] = shadowReports();
+    expect(first).toMatchObject({
+      event: "SHADOW_REPORT",
+      at: new Date(now).toISOString(),
+      shadow: {
+        observed: 10,
+        would: { ALLOW: 1, ESCALATE: 0, BLOCK: 9, NONE: 0 },
+        // Every refusal the upstream accepted as sent: the test, observed.
+        accepted: { ESCALATE: 0, BLOCK: 9 },
+      },
+      enforce: expect.stringContaining("agentsafe login --provision") as unknown,
+    });
+    const lines = io.out.map((line) => JSON.parse(line) as Record<string, unknown>);
+    const reportIndex = lines.findIndex((line) => line["event"] === "SHADOW_REPORT");
+    expect(lines[reportIndex - 1]).toMatchObject({ event: "INTERCEPTED", verdict: "ALLOW" });
+    // The eleventh is no milestone, and a day has not passed.
+    await gateway.govern(request("POST", "/payments", { amount: 1 }), "http.post");
+    await settle();
+    expect(shadowReports()).toHaveLength(1);
+    // A day later, the next observation carries a report; the one after does not.
+    now += SHADOW_REPORT_INTERVAL_MS;
+    await gateway.govern(request("POST", "/payments", { amount: 500 }), "http.post");
+    await settle();
+    expect(shadowReports()).toHaveLength(2);
+    expect(shadowReports()[1]).toMatchObject({
+      shadow: { observed: 12, would: { ALLOW: 2, ESCALATE: 1, BLOCK: 9, NONE: 0 } },
+    });
+    await gateway.govern(request("POST", "/payments", { amount: 1 }), "http.post");
+    await settle();
+    expect(shadowReports()).toHaveLength(2);
+    // The stop reports as it always did, and resets nothing that matters.
+    gateway.stopped("SIGTERM");
+    expect(shadowReports()).toHaveLength(3);
     await gateway.close();
   }, 20_000);
 });

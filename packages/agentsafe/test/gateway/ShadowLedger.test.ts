@@ -35,8 +35,10 @@ describe("the shadow ledger", () => {
       until: null,
       observed: 0,
       would: { ALLOW: 0, ESCALATE: 0, BLOCK: 0, NONE: 0 },
+      accepted: { ESCALATE: 0, BLOCK: 0 },
       by_action: {},
     });
+    expect(ledger.observed).toBe(0);
     ledger.record("payments.refund", "BLOCK", "2026-09-19T10:00:00.000Z");
     ledger.record("http.post", "ALLOW", "2026-09-19T10:00:01.000Z");
     ledger.record("http.post", null, "2026-09-19T10:00:02.000Z");
@@ -46,10 +48,36 @@ describe("the shadow ledger", () => {
       until: "2026-09-19T10:00:03.000Z",
       observed: 4,
       would: { ALLOW: 1, ESCALATE: 1, BLOCK: 1, NONE: 1 },
+      accepted: { ESCALATE: 0, BLOCK: 0 },
       by_action: {
         "http.post": { ALLOW: 1, ESCALATE: 1, BLOCK: 0, NONE: 1 },
         "payments.refund": { ALLOW: 0, ESCALATE: 0, BLOCK: 1, NONE: 0 },
       },
+    });
+    expect(ledger.observed).toBe(4);
+  });
+
+  it("counts the would-be holds and refusals the upstream accepted as sent, and no others", () => {
+    const ledger = new ShadowLedger();
+    const at = "2026-09-19T10:00:00.000Z";
+    ledger.record("payments.refund", "BLOCK", at, 201);
+    ledger.record("payments.refund", "BLOCK", at, 200);
+    ledger.record("payments.refund", "BLOCK", at, 299);
+    // Refused by the upstream itself, or unanswered: not a credential that passed.
+    ledger.record("payments.refund", "BLOCK", at, 403);
+    ledger.record("payments.refund", "BLOCK", at, 199);
+    ledger.record("payments.refund", "BLOCK", at, 300);
+    ledger.record("payments.refund", "BLOCK", at, null);
+    ledger.record("payments.refund", "BLOCK", at);
+    ledger.record("payments.refund", "ESCALATE", at, 202);
+    ledger.record("payments.refund", "ESCALATE", at, 500);
+    // What would have been allowed, or had no verdict, is not a refusal accepted.
+    ledger.record("payments.refund", "ALLOW", at, 200);
+    ledger.record("payments.refund", null, at, 200);
+    expect(ledger.summary()).toMatchObject({
+      observed: 12,
+      would: { ALLOW: 1, ESCALATE: 2, BLOCK: 8, NONE: 1 },
+      accepted: { ESCALATE: 1, BLOCK: 3 },
     });
   });
 
@@ -98,19 +126,35 @@ describe("the shadow ledger", () => {
     expect(text).toContain(
       "Enforcement would have held 1 and refused 1 of 5; 2 would have gone through as they did.",
     );
+    expect(text).not.toContain("Compromised Principal Test");
     expect(text).not.toContain(ESC);
     expect(renderShadowReport(report(ledger), { color: true })).toContain(`${ESC}[1m`);
+    // A would-be refusal the upstream accepted is the test, observed; the
+    // line comes before the switch, and counts its own number.
+    ledger.record("payments.refund", "BLOCK", "2026-09-19T12:00:00.000Z", 201);
+    const one = renderShadowReport(report(ledger, "the switch"), { color: false });
+    expect(one).toContain(
+      "1 would-be refusal was accepted by the upstream as sent: a valid credential, a permitted API, an intent nobody authorized. That is the Compromised Principal Test, observed (docs/compromised-principal-test.md).\nTurn it on   the switch",
+    );
+    ledger.record("payments.refund", "BLOCK", "2026-09-19T12:00:00.000Z", 200);
+    expect(renderShadowReport(report(ledger), { color: false })).toContain(
+      "2 would-be refusals were accepted by the upstream as sent",
+    );
   });
 
   it("names the switch in the terms the mode was configured in", () => {
+    // Against the demo authority, the switch says what it enforces and how
+    // Decionis comes to decide instead.
+    const demo =
+      "; that enforces the local demo authority's synthetic policy. For Decionis to decide: `agentsafe login --provision` mints a free workspace (no account; it decides in shadow), and `agentsafe login` with a key from your organization enables enforcement";
     expect(enforcementSwitch(config())).toBe(
-      "`agentsafe proxy --mode enforcement`, or `AGENTSAFE_MODE=enforcement`, or `authority.mode: enforcement` in agentsafe.yaml",
+      `\`agentsafe proxy --mode enforcement\`, or \`AGENTSAFE_MODE=enforcement\`, or \`authority.mode: enforcement\` in agentsafe.yaml${demo}`,
     );
     expect(
       enforcementSwitch(
         config({ env: { AGENTSAFE_UPSTREAM: "http://localhost:3000", AGENTSAFE_MODE: "shadow" } }),
       ),
-    ).toBe("set `AGENTSAFE_MODE=enforcement` and restart");
+    ).toBe(`set \`AGENTSAFE_MODE=enforcement\` and restart${demo}`);
     expect(
       enforcementSwitch(
         config({
@@ -122,8 +166,21 @@ describe("the shadow ledger", () => {
         }),
       ),
     ).toBe(
-      "set `authority.mode: enforcement` in agentsafe.yaml (`gateway.mode: enforcement` in the chart's values) and restart",
+      `set \`authority.mode: enforcement\` in agentsafe.yaml (\`gateway.mode: enforcement\` in the chart's values) and restart${demo}`,
     );
+    // With a Decionis key, the switch is the switch.
+    expect(
+      enforcementSwitch(
+        config({
+          env: {
+            AGENTSAFE_UPSTREAM: "http://localhost:3000",
+            AGENTSAFE_MODE: "shadow",
+            DECIONIS_API_KEY: "synthetic-decionis-key-aaaaaaaa",
+            DECIONIS_TENANT_ID: TENANT_ID,
+          },
+        }),
+      ),
+    ).toBe("set `AGENTSAFE_MODE=enforcement` and restart");
     const provisional = config({
       env: { AGENTSAFE_UPSTREAM: "http://localhost:3000", DECIONIS_TENANT_ID: TENANT_ID },
       credentials: {

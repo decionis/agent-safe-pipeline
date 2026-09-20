@@ -109,7 +109,19 @@ export interface InterceptorDependencies {
   readonly now?: () => Date;
   /** The govern phase, when an operator listed destinations; null observes everything. */
   readonly governor?: InterceptGovernor | null;
+  /** The gateway's account of a governed destination, for the report; none when nothing is governed. */
+  readonly governedCounts?: GovernedCountsSource;
 }
+
+/**
+ * When the interceptor prints its report unasked: as the count of connections
+ * reaches each of these, and whenever a day has passed since the last report
+ * at the moment a connection is counted. The stop always prints one.
+ */
+export const INTERCEPT_REPORT_MILESTONES: readonly number[] = [
+  10, 100, 1_000, 10_000, 100_000, 1_000_000,
+];
+export const INTERCEPT_REPORT_INTERVAL_MS = 24 * 60 * 60 * 1_000;
 
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0"]);
 
@@ -122,6 +134,8 @@ export class Interceptor {
   private readonly now: () => Date;
   private readonly emit: (event: InterceptEvent) => void;
   private readonly governor: InterceptGovernor | null;
+  private readonly governedCounts: GovernedCountsSource;
+  private lastReportAt: number;
 
   public constructor(
     private readonly options: InterceptorOptions,
@@ -131,6 +145,8 @@ export class Interceptor {
     this.dial = dependencies.dial ?? transparentDial;
     this.now = dependencies.now ?? (() => new Date());
     this.governor = dependencies.governor ?? null;
+    this.governedCounts = dependencies.governedCounts ?? (() => null);
+    this.lastReportAt = this.now().getTime();
   }
 
   /** Binds every listener; a port that cannot be bound closes the ones already bound and rejects. */
@@ -176,8 +192,23 @@ export class Interceptor {
     return this.bound;
   }
 
-  public report(governed?: GovernedCountsSource): InterceptReport {
-    return this.ledger.report(this.now().toISOString(), governed);
+  public report(): InterceptReport {
+    this.lastReportAt = this.now().getTime();
+    return this.ledger.report(new Date(this.lastReportAt).toISOString(), this.governedCounts);
+  }
+
+  /**
+   * The report on its own cadence, so a sidecar that runs for weeks is read
+   * without being stopped: at each milestone in the count of connections, and
+   * once a day has passed since the last report.
+   */
+  private reportOnCadence(): void {
+    if (
+      INTERCEPT_REPORT_MILESTONES.includes(this.ledger.connections) ||
+      this.now().getTime() - this.lastReportAt >= INTERCEPT_REPORT_INTERVAL_MS
+    ) {
+      this.emit(this.report());
+    }
   }
 
   /** Stops accepting, drops every connection, and waits for the listeners to close. */
@@ -273,6 +304,7 @@ export class Interceptor {
         ? {}
         : { alpn: destination.alpn }),
     });
+    this.reportOnCadence();
     client.pause();
     if (governed && this.governor !== null) {
       // The gateway becomes the connection's other end; nothing is dialled here.
@@ -373,6 +405,7 @@ export class Interceptor {
       ...(detail === undefined ? {} : { detail }),
     });
     client.destroy();
+    this.reportOnCadence();
   }
 
   /** Whether a destination is one of this interceptor's own listeners: a connection that would loop. */

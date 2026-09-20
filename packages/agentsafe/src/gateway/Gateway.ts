@@ -51,6 +51,17 @@ import {
 import { normalizeRequest, type InterceptedRequest } from "./InterceptedRequest.js";
 import { RouteTable, type RoutePlan } from "./RouteTable.js";
 import { enforcementSwitch, ShadowLedger, type ShadowSummary } from "./ShadowLedger.js";
+
+/**
+ * When a shadow gateway prints its report unasked: as the count of settled
+ * observations reaches each of these, and whenever a day has passed since
+ * the last report at the moment an observation settles. A gateway that
+ * observes nothing says nothing; the stop always prints one.
+ */
+export const SHADOW_REPORT_MILESTONES: readonly number[] = [
+  10, 100, 1_000, 10_000, 100_000, 1_000_000,
+];
+export const SHADOW_REPORT_INTERVAL_MS = 24 * 60 * 60 * 1_000;
 import { Upstream, type UpstreamResult } from "./Upstream.js";
 
 /** The gateway's own evidence stream: what it did that the pipeline's audit contract has no event for. */
@@ -143,6 +154,7 @@ export class Gateway {
   private readonly counts: Record<string, number> = {};
   private readonly activation: ActivationFunnel;
   private readonly ledger = new ShadowLedger();
+  private lastShadowReportAt: number;
 
   private constructor(
     public readonly config: GatewayConfig,
@@ -164,6 +176,7 @@ export class Gateway {
     private readonly version: string,
     private readonly surface: InstallSurface | null,
   ) {
+    this.lastShadowReportAt = clock();
     this.capture = new IntentCapture({ audit, ttlSeconds: config.intentTtlSeconds });
     this.activation = new ActivationFunnel(
       (milestone, at) => this.report({ event: "ACTIVATION", milestone, at }),
@@ -381,15 +394,34 @@ export class Gateway {
     const at = new Date(this.clock()).toISOString();
     // A shadow run ends with its report: what enforcement would have changed,
     // and the one switch that turns it on for this configuration.
-    if (this.shadow !== null) {
-      this.report({
-        event: "SHADOW_REPORT",
-        at,
-        shadow: this.ledger.summary(),
-        enforce: enforcementSwitch(this.config),
-      });
-    }
+    if (this.shadow !== null) this.shadowReport(at);
     this.report({ event: "GATEWAY_STOPPED", at, signal });
+  }
+
+  /** The shadow report, now: the counts so far and the switch. */
+  private shadowReport(at: string): void {
+    this.report({
+      event: "SHADOW_REPORT",
+      at,
+      shadow: this.ledger.summary(),
+      enforce: enforcementSwitch(this.config),
+    });
+    this.lastShadowReportAt = this.clock();
+  }
+
+  /**
+   * The report on its own cadence, so a gateway that runs for weeks is read
+   * without being stopped: at each milestone in the count of observations,
+   * and once a day has passed since the last report.
+   */
+  private shadowReportOnCadence(): void {
+    const now = this.clock();
+    if (
+      SHADOW_REPORT_MILESTONES.includes(this.ledger.observed) ||
+      now - this.lastShadowReportAt >= SHADOW_REPORT_INTERVAL_MS
+    ) {
+      this.shadowReport(new Date(now).toISOString());
+    }
   }
 
   public plan(method: string, path: string): RoutePlan {
@@ -621,6 +653,7 @@ export class Gateway {
         captured.intent.action,
         observation.verdict,
         new Date(this.clock()).toISOString(),
+        upstreamStatus,
       );
       this.report({
         ...this.interception(request, captured, startedAt),
@@ -637,6 +670,7 @@ export class Gateway {
         finalization: null,
         authority_ms: observation.durationMs,
       });
+      this.shadowReportOnCadence();
     });
     if (production.status === "FAILED") return this.upstreamFailure(production.error);
     return this.relay(production.result, {

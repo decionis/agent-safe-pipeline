@@ -441,6 +441,11 @@ export async function runIntercept(
     ...(dependencies.now === undefined ? {} : { now: dependencies.now }),
     emit,
     governor,
+    // The report gives a governed destination its gateway's account of it.
+    governedCounts: (host, protocol) => {
+      const status = governed.get(`${protocol} ${host}`)?.gateway.status();
+      return status === undefined ? null : { mode: status.mode, requests: status.counts };
+    },
   });
   try {
     await interceptor.listen();
@@ -472,12 +477,7 @@ export async function runIntercept(
   const stop = (signal: string): void => {
     if (stopping) return;
     stopping = true;
-    emit(
-      interceptor.report((host, protocol) => {
-        const status = governed.get(`${protocol} ${host}`)?.gateway.status();
-        return status === undefined ? null : { mode: status.mode, requests: status.counts };
-      }),
-    );
+    emit(interceptor.report());
     for (const { gateway } of governed.values()) gateway.stopped(signal);
     emit({ event: "INTERCEPT_STOPPED", at: new Date().toISOString(), signal });
     void interceptor

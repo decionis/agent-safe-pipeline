@@ -166,8 +166,10 @@ UNAVAILABLE`. `--verbose` shows the chained evidence lines; `agentsafe init` wri
 configuration file; `agentsafe doctor` says what would stop it from governing; `agentsafe login`
 connects a Decionis key, after which the same gateway asks Decionis, in shadow first. A gateway in
 shadow keeps its own [shadow report](./docs/shadow-mode.md#from-shadow-to-enforcement): what
-enforcement would have held or refused so far, by action, which `agentsafe status` prints and the
-gateway prints when it stops, ending with the one switch that turns enforcement on. The
+enforcement would have held or refused so far, by action, and how many of those refusals the
+upstream accepted as sent, which `agentsafe status` prints, the gateway prints when it stops and
+on its own cadence as it runs, ending with the one switch that turns enforcement on;
+`agentsafe login --provision` mints the free Decionis workspace that switch names. The
 [quickstart](./docs/quickstart/README.md) is the full walk, and the
 [CLI reference](./docs/reference/cli.md) every command.
 

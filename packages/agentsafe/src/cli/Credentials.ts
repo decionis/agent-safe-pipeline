@@ -48,7 +48,14 @@ export function credentialsPath(io: CliProcess): string {
 export function readCredentials(io: CliProcess): StoredCredentials | null {
   const stored = readStoredCredentials(store(io));
   if (stored === null) return null;
-  return { apiKey: stored.apiKey, tenantId: stored.tenantId, endpoint: stored.endpoint };
+  // Whether the key is a provisional workspace's travels with it: the loader
+  // runs such a key in shadow and refuses to enforce with it.
+  return {
+    apiKey: stored.apiKey,
+    tenantId: stored.tenantId,
+    endpoint: stored.endpoint,
+    ...(stored.provisional === undefined ? {} : { provisional: stored.provisional }),
+  };
 }
 
 /** Writes the login, readable by this user alone. */

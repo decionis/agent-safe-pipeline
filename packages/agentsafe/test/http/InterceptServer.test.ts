@@ -10,6 +10,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { transparentDial, type Dial } from "../../src/egress/TransparentDial.js";
 import {
   INTERCEPT_DEFAULTS,
+  INTERCEPT_REPORT_INTERVAL_MS,
+  INTERCEPT_REPORT_MILESTONES,
   Interceptor,
   type InterceptEvent,
   type InterceptorOptions,
@@ -198,6 +200,79 @@ describe("Interceptor", () => {
       port: 443,
       governed: false,
       alpn: ["http/1.1"],
+    });
+  });
+
+  it("prints its report on its own cadence: at each milestone of connections, and daily", async () => {
+    const upstream = await echoHttp();
+    const events: InterceptEvent[] = [];
+    let clock = Date.UTC(2026, 8, 20, 9, 0, 0);
+    const interceptor = new Interceptor(
+      options({ listeners: [{ port: 0, destinationPort: port(upstream) }] }),
+      {
+        emit: (event) => events.push(event),
+        now: () => new Date(clock),
+        governedCounts: (host, protocol) =>
+          host === "127.0.0.1" && protocol === "HTTP"
+            ? { mode: "SHADOW", requests: { governed: 1 } }
+            : null,
+      },
+    );
+    const [bound] = await interceptor.listen();
+    open.push(interceptor);
+    const listen = bound?.port ?? 0;
+    const reports = (): InterceptEvent[] =>
+      events.filter((event) => event.event === "INTERCEPT_REPORT");
+    const connection = async (): Promise<void> => {
+      const client = connect({ host: "127.0.0.1", port: listen });
+      await once(client, "connect");
+      client.write("GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n");
+      await drain(client);
+    };
+    expect(INTERCEPT_REPORT_MILESTONES[0]).toBe(10);
+    // Nine connections, no report; the tenth carries one, after its own line.
+    for (let index = 0; index < 9; index += 1) await connection();
+    await settle();
+    expect(reports()).toEqual([]);
+    await connection();
+    await settle();
+    expect(reports()).toHaveLength(1);
+    const first = reports()[0];
+    expect(first).toMatchObject({
+      event: "INTERCEPT_REPORT",
+      at: new Date(clock).toISOString(),
+      intercept: { connections: 10 },
+    });
+    const observedBefore = events.findIndex((event) => event.event === "INTERCEPT_REPORT") - 1;
+    expect(events[observedBefore]).toMatchObject({ event: "INTERCEPT_OBSERVED" });
+    // A refused connection counts toward the cadence too; the eleventh and
+    // twelfth are no milestone, and a day has not passed.
+    const opaque = connect({ host: "127.0.0.1", port: listen });
+    await once(opaque, "connect");
+    opaque.write("SSH-2.0-OpenSSH_9.9\r\n\r\n");
+    await once(opaque, "close");
+    await connection();
+    await settle();
+    expect(reports()).toHaveLength(1);
+    // A day on, the next connection carries a report, and the one after does not.
+    clock += INTERCEPT_REPORT_INTERVAL_MS;
+    await connection();
+    await settle();
+    expect(reports()).toHaveLength(2);
+    // The report is of the moment the connection was counted: the one that
+    // carried it is not yet placed.
+    expect(reports()[1]).toMatchObject({
+      intercept: { connections: 13, placed: 11, refused: { DESTINATION_UNKNOWN: 1 } },
+    });
+    await connection();
+    await settle();
+    expect(reports()).toHaveLength(2);
+    // The report an operator asks for is the same one, and it asks the
+    // gateways for their account of what they were handed.
+    const asked = interceptor.report();
+    expect(asked.intercept.connections).toBe(14);
+    expect(asked.intercept.destinations[`127.0.0.1:${port(upstream)}`]).toMatchObject({
+      governed: false,
     });
   });
 

@@ -124,6 +124,15 @@ endpoint (`--endpoint`), and stores them at `$AGENTSAFE_HOME/credentials.json`, 
 `0600`. `DECIONIS_API_KEY` in the environment takes precedence over the login; production never
 reads the login at all. `logout` removes the file.
 
+`login --provision` mints a free provisional Decionis workspace instead (`POST
+/v1/public/agents/provision`: no account, no email, no card, an allowance of governed decisions a
+month) and stores its key as the login, the same file and shape an example writes under
+`DECIONIS_HOSTED=1`. Such a workspace decides in shadow only: `agentsafe proxy` runs it there and
+refuses `--mode enforcement` with it by name; enforcement needs `login` with a key from an
+organization. The call carries what every hosted call carries, the runtime's version and the
+install surface, and nothing about the machine or the person. With a login already stored, nothing
+is minted: a stored provisional workspace is named, a stored key is kept.
+
 ### `agentsafe version`
 
 Prints the version. `--version` and `-v` do the same.

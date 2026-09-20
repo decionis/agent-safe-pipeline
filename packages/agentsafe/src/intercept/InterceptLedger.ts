@@ -89,7 +89,7 @@ const OTHER = "other";
 export class InterceptLedger {
   private since: string | null = null;
   private until: string | null = null;
-  private connections = 0;
+  private count = 0;
   private spliced = 0;
   private readonly refusals = new Map<string, number>();
   private readonly destinations = new Map<string, DestinationCounts>();
@@ -170,7 +170,7 @@ export class InterceptLedger {
     return {
       since: this.since,
       until: this.until,
-      connections: this.connections,
+      connections: this.count,
       placed: this.spliced,
       refused: Object.fromEntries([...this.refusals.entries()].sort()),
       destinations: Object.fromEntries(destinations),
@@ -186,9 +186,14 @@ export class InterceptLedger {
     };
   }
 
+  /** How many connections have been counted so far, placed or refused. */
+  public get connections(): number {
+    return this.count;
+  }
+
   private touch(at: string): void {
     this.since ??= at;
     this.until = at;
-    this.connections += 1;
+    this.count += 1;
   }
 }
