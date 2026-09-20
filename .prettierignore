@@ -12,5 +12,7 @@ verifiers/spring/target
 verifiers/rust/target
 verifiers/dotnet/**/bin
 verifiers/dotnet/**/obj
+# Written by `dotnet restore` in NuGet's own layout; CI restores in locked mode against it
+verifiers/dotnet/**/packages.lock.json
 # Generated from the pipeline by scripts/GenerateIntentSchema.mjs; a test holds it byte for byte
 spec/intent/v1/schema.json

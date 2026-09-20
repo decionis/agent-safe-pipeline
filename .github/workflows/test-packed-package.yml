@@ -50,29 +50,25 @@ jobs:
           pnpm pack --pack-destination /tmp/tarball
           echo "TARBALL_PATH=$(ls /tmp/tarball/*.tgz)" >> "$GITHUB_ENV"
         working-directory: ${{ github.workspace }}
-      - name: Create isolated consumer workspace
+      # The consumer is assembled, not installed: the tarball's own files
+      # unpacked as the package it imports, and the package's dependencies,
+      # with the two the harness imports itself, linked from the tree the
+      # lockfile pins and the install above put in place. No package manager
+      # runs and nothing is fetched, so what the consumer imports is exactly
+      # what the tarball ships against the versions the tests ran with.
+      - name: Assemble a consumer of the tarball from the pinned tree
         run: |
           mkdir -p /tmp/consumer
           cp tests/integration/npm-pack/consumer.mjs /tmp/consumer/
-          cat > /tmp/consumer/package.json << 'EOF'
-          {
-            "name": "consumer-test",
-            "version": "0.0.0",
-            "private": true,
-            "type": "module",
-            "dependencies": {
-              "@decionis/agent-safe-pipeline": "file:${{ env.TARBALL_PATH }}",
-              "@decionis/presence-node": "^0.2.0",
-              "zod": "^4.5.4"
-            }
-          }
-          EOF
-      - name: Install tarball into consumer (offline after)
-        working-directory: /tmp/consumer
+          printf '%s\n' '{ "name": "consumer-test", "private": true, "type": "module" }' > /tmp/consumer/package.json
+          node scripts/ConsumerFromTarball.mjs "$TARBALL_PATH" packages/pipeline /tmp/consumer zod @decionis/presence-node
+      - name: Verify the consumer holds the tarball's files and nothing else
+        working-directory: /tmp/consumer/node_modules/@decionis/agent-safe-pipeline
         run: |
-          npm install --prefer-offline
-          # Freeze the offline store — no registry substitution allowed
-          npm config set registry "https://example.invalid"
+          tar --list --gzip --file "$TARBALL_PATH" | sed 's#^package/##' | grep -v '/$' | sort > /tmp/shipped.txt
+          find . -type f | sed 's#^\./##' | sort > /tmp/held.txt
+          diff /tmp/shipped.txt /tmp/held.txt
+          echo "the consumer imports the $(wc -l < /tmp/held.txt | tr -d ' ') files the tarball ships"
       - name: Run consumer validation (ALLOW + BLOCK)
         working-directory: /tmp/consumer
         run: node consumer.mjs
@@ -93,11 +89,3 @@ jobs:
           path: /tmp/consumer/diagnostics
           if-no-files-found: ignore
           retention-days: 7
-      - name: Verify offline — no registry access after install
-        working-directory: /tmp/consumer
-        run: |
-          # This MUST fail (registry is blocked) — proves no substitution
-          npm view @decionis/agent-safe-pipeline version 2>/dev/null && {
-            echo "FAIL: registry was reachable after install"
-            exit 1
-          } || echo "PASS: registry unreachable after install (expected)"

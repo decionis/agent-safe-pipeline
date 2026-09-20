@@ -16,6 +16,8 @@
     <Description>An independent .NET implementation of the Verifying Provider Profile (agent-safe.verifying-provider/1): how a system of record, or the hop in front of it, verifies the executor's signed request and the authority's claim attestation and refuses what the authority never claimed. With ASP.NET Core middleware.</Description>
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/decionis/agent-safe-pipeline</RepositoryUrl>
+    <!-- packages.lock.json beside the project records each package's version and hash; CI restores in locked mode, so a package that is not what it records fails the restore. -->
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
 
   <ItemGroup>

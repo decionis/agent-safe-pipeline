@@ -81,4 +81,7 @@ runs every vector in [`conformance/provider`](../../conformance/provider/README.
 receipt, through the library and, for a sample, through the middleware, and the library's own cases for what the
 vectors cannot express: the RFC 8785 examples, ECMAScript's number forms, and the bodies another
 parser would read differently. The test dependencies are xunit (Apache-2.0) and the test SDK
-(MIT).
+(MIT). Each project's `packages.lock.json` records the version and content hash of every package
+the restore resolved; CI restores with `dotnet restore --locked-mode`, so a package that is not what
+the lock file records fails the build rather than being taken from the feed. A restore after a
+`PackageReference` change rewrites the lock file, and the change commits both.

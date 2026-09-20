@@ -7,6 +7,8 @@
     <LangVersion>12</LangVersion>
     <IsPackable>false</IsPackable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- packages.lock.json beside the project records each package's version and hash; CI restores in locked mode, so a package that is not what it records fails the restore. -->
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
 
   <ItemGroup>
