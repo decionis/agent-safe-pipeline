@@ -1,0 +1,90 @@
+# Governing destinations from the sidecar: the patch a workload's own
+# kustomization adds beside the component, once the report has said what the
+# workload reaches. It gives the interceptor the hosts to govern and the
+# authority to terminate their TLS under, gives the workload that authority's
+# certificate to trust, and gives the gateway the Decionis key it decides with.
+# Nothing here is applied by the component itself; it is an example to copy,
+# with the container name `agent` and the hosts replaced by yours.
+#
+#   patches:
+#     - path: GovernExample.yaml
+#       target:
+#         kind: Deployment
+#         labelSelector: agent-safe-intercept=true
+#
+# The authority is yours, made for this and for nothing else
+# (docs/gateway/transparent-interception.md has the two openssl commands):
+#
+#   kubectl create secret generic agentsafe-intercept-ca \
+#     --from-file=ca.crt=intercept-ca.crt --from-file=ca.key=intercept-ca.key
+#   kubectl create configmap agentsafe-intercept-ca-cert --from-file=ca.crt=intercept-ca.crt
+#   kubectl create secret generic decionis --from-literal=api-key=<key>
+#
+# The price: every runtime in the workload trusts a CA you hold, and the key in
+# the sidecar can impersonate every governed host to this workload. Keep it as
+# you keep the Decionis key. Shadow first (AGENTSAFE_MODE=shadow) and read the
+# gateway's shadow report before AGENTSAFE_MODE=enforce.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: intercepted-workload
+spec:
+  template:
+    spec:
+      volumes:
+        - name: agentsafe-intercept-ca
+          secret:
+            secretName: agentsafe-intercept-ca
+            defaultMode: 288
+        - name: agentsafe-intercept-ca-cert
+          configMap:
+            name: agentsafe-intercept-ca-cert
+        - name: decionis
+          secret:
+            secretName: decionis
+            defaultMode: 288
+      containers:
+        # The workload: whichever runtime it is, it is told to trust the
+        # authority. Node reads NODE_EXTRA_CA_CERTS; OpenSSL-based clients, Go
+        # and curl read SSL_CERT_FILE; Python requests reads REQUESTS_CA_BUNDLE;
+        # Java needs the certificate imported into a truststore instead.
+        - name: agent
+          env:
+            - name: NODE_EXTRA_CA_CERTS
+              value: /etc/agentsafe/ca/ca.crt
+            - name: SSL_CERT_FILE
+              value: /etc/agentsafe/ca/ca.crt
+            - name: REQUESTS_CA_BUNDLE
+              value: /etc/agentsafe/ca/ca.crt
+          volumeMounts:
+            - name: agentsafe-intercept-ca-cert
+              mountPath: /etc/agentsafe/ca
+              readOnly: true
+        # The interceptor, the same container the component adds, given what
+        # governing needs. Every gateway variable applies to the governed
+        # hosts' gateways as it does to `agentsafe proxy`.
+        - name: agentsafe-intercept
+          env:
+            - name: AGENTSAFE_INTERCEPT_GOVERN
+              value: api.provider.example,payments.internal.example
+            - name: AGENTSAFE_INTERCEPT_UNLISTED
+              value: passthrough
+            - name: AGENTSAFE_INTERCEPT_CA_CERT_FILE
+              value: /var/run/agent-safe/intercept/ca.crt
+            - name: AGENTSAFE_INTERCEPT_CA_KEY_FILE
+              value: /var/run/agent-safe/intercept/ca.key
+            - name: AGENTSAFE_MODE
+              value: shadow
+            - name: NODE_ENV
+              value: production
+            - name: DECIONIS_TENANT_ID
+              value: 00000000-0000-4000-8000-000000000001
+            - name: DECIONIS_API_KEY_FILE
+              value: /var/run/agent-safe/secrets/api-key
+          volumeMounts:
+            - name: agentsafe-intercept-ca
+              mountPath: /var/run/agent-safe/intercept
+              readOnly: true
+            - name: decionis
+              mountPath: /var/run/agent-safe/secrets
+              readOnly: true

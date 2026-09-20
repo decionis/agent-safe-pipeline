@@ -68,6 +68,13 @@ Decionis would have decided. The NetworkPolicy admits ingress from `networkPolic
 the upstream, is what makes the gateway a boundary rather than an option. The
 [security](../deployment/security.md) page says how.
 
+When the callers cannot be pointed anywhere, the same boundary is held from beside them: the
+[transparent interceptor](../gateway/transparent-interception.md) is a kustomize Component
+([`deploy/intercept/kubernetes`](../../deploy/intercept/kubernetes)) that redirects a labelled
+Deployment's outbound 80 and 443 into an `agentsafe intercept` sidecar, reports every destination
+the workload reaches, and governs the ones you name under an authority the workload trusts. It
+needs a namespace under the `baseline` Pod Security profile, and it says what that authority costs.
+
 ## Watch it
 
 ```bash

@@ -2,10 +2,12 @@ import { once } from "node:events";
 import { createServer as createHttpServer, type Server as HttpServer } from "node:http";
 import { connect, type AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
+import { parseArguments } from "../../src/cli/Arguments.js";
 import {
   describe as describeEvent,
+  INTERCEPT_ARGUMENTS,
   INTERCEPT_ENVIRONMENT,
-  resolveInterceptor,
+  resolveIntercept,
   runIntercept,
 } from "../../src/cli/Intercept.js";
 import { INTERCEPT_DEFAULTS } from "../../src/http/InterceptServer.js";
@@ -15,7 +17,13 @@ import { fakeProcess } from "../support/GatewayHarness.js";
 const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 50));
 const port = (server: HttpServer): number => (server.address() as AddressInfo).port;
 
-describe("resolveInterceptor", () => {
+const resolveInterceptor = (
+  argv: readonly string[],
+  env: Record<string, string | undefined>,
+): ReturnType<typeof resolveIntercept>["listeners"] =>
+  resolveIntercept(parseArguments(argv, INTERCEPT_ARGUMENTS), env).listeners;
+
+describe("resolveIntercept", () => {
   it("takes the flags over the environment over the defaults, and names what it refuses", () => {
     expect(resolveInterceptor([], {})).toEqual({
       bind: "127.0.0.1",
@@ -62,7 +70,7 @@ describe("resolveInterceptor", () => {
     expect(() => resolveInterceptor(["--https-port", "0"], {})).toThrow(
       "VALUE_INVALID: https-port",
     );
-    expect(() => resolveInterceptor(["--verbose"], {})).toThrow("UNKNOWN_OPTION: verbose");
+    expect(() => resolveInterceptor(["--nope"], {})).toThrow("UNKNOWN_OPTION: nope");
   });
 });
 
@@ -82,7 +90,7 @@ describe("describe", () => {
         "0.2.0",
       ),
     ).toBe(
-      "AgentSafe intercept 0.2.0 listening on 127.0.0.1:15001 (for :80) and 127.0.0.1:15002 (for :443). Observing; nothing is decrypted or decided.",
+      "AgentSafe intercept 0.2.0 listening on 127.0.0.1:15001 (for :80) and 127.0.0.1:15002 (for :443).",
     );
     expect(
       describeEvent(
@@ -92,6 +100,7 @@ describe("describe", () => {
           protocol: "HTTP",
           host: "a.example",
           port: 80,
+          governed: false,
           method: "POST",
           target: "/x",
         },
@@ -106,6 +115,7 @@ describe("describe", () => {
           protocol: "TLS",
           host: "b.example",
           port: 443,
+          governed: false,
           alpn: ["h2", "http/1.1"],
         },
         "0.2.0",
@@ -113,10 +123,49 @@ describe("describe", () => {
     ).toBe("-> TLS b.example:443 (h2, http/1.1)");
     expect(
       describeEvent(
-        { event: "INTERCEPT_OBSERVED", at, protocol: "TLS", host: "b.example", port: 443 },
+        {
+          event: "INTERCEPT_OBSERVED",
+          at,
+          protocol: "TLS",
+          host: "b.example",
+          port: 443,
+          governed: true,
+        },
         "0.2.0",
       ),
-    ).toBe("-> TLS b.example:443");
+    ).toBe("-> TLS b.example:443  governed");
+    expect(
+      describeEvent(
+        {
+          event: "INTERCEPT_GOVERNING",
+          at,
+          hosts: ["a.example", "b.example"],
+          unlisted: "refuse",
+          tls: true,
+        },
+        "0.2.0",
+      ),
+    ).toBe(
+      "Governing a.example, b.example, TLS terminated under the operator's authority; other destinations are refused.",
+    );
+    expect(
+      describeEvent(
+        {
+          event: "INTERCEPT_GOVERNING",
+          at,
+          hosts: ["a.example"],
+          unlisted: "passthrough",
+          tls: false,
+        },
+        "0.2.0",
+      ),
+    ).toBe("Governing a.example, plaintext only; other destinations are observed.");
+    expect(
+      describeEvent(
+        { event: "INTERCEPT_GOVERNING", at, hosts: [], unlisted: "refuse", tls: false },
+        "0.2.0",
+      ),
+    ).toBe("Governing nothing; destinations are refused.");
     expect(
       describeEvent(
         { event: "INTERCEPT_REFUSED", at, reason: "DESTINATION_UNKNOWN", protocol: null },
@@ -150,17 +199,32 @@ describe("describe", () => {
           destinations: {
             "a.example:80": {
               protocol: "HTTP",
+              governed: true,
               connections: 1,
-              bytes_to_destination: 120,
-              bytes_from_destination: 300,
               methods: { POST: 1 },
+              gateway: { mode: "ENFORCEMENT", requests: { governed: 1, allows: 1 } },
             },
             "b.example:443": {
               protocol: "TLS",
+              governed: false,
               connections: 1,
               bytes_to_destination: 1_000,
               bytes_from_destination: 5_000,
               methods: {},
+            },
+            "c.example:443": {
+              protocol: "TLS",
+              governed: true,
+              connections: 2,
+              methods: {},
+              gateway: null,
+            },
+            "d.example:443": {
+              protocol: "TLS",
+              governed: true,
+              connections: 1,
+              methods: {},
+              gateway: { mode: "SHADOW", requests: {} },
             },
           },
         },
@@ -170,8 +234,10 @@ describe("describe", () => {
     ).split("\n");
     expect(report).toEqual([
       `Intercept report: 3 connection(s), 2 placed, 1 refused, ${at} to ${at}.`,
-      "  a.example:80  HTTP  1 connection(s), 120 B out, 300 B in  POST x1",
+      "  a.example:80  HTTP  governed  1 connection(s), gateway ENFORCEMENT: governed x1, allows x1  POST x1",
       "  b.example:443  TLS  1 connection(s), 1000 B out, 5000 B in",
+      "  c.example:443  TLS  governed  2 connection(s), no request reached the gateway",
+      "  d.example:443  TLS  governed  1 connection(s), gateway SHADOW: no request",
       "  refused DESTINATION_UNKNOWN x1",
       "Next.",
     ]);

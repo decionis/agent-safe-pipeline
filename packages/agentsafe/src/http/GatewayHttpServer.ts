@@ -7,6 +7,7 @@ import {
   type ServerResponse,
 } from "node:http";
 import type { AddressInfo } from "node:net";
+import type { Duplex } from "node:stream";
 import { GATEWAY_PREFIX, type Gateway, type GatewayResponse } from "../gateway/Gateway.js";
 import type { InterceptedRequest } from "../gateway/InterceptedRequest.js";
 import { METRICS_CONTENT_TYPE, RESPONSE_HEADERS } from "./Routes.js";
@@ -73,6 +74,15 @@ export class GatewayHttpServer {
     this.server.listen(port, host);
     await once(this.server, "listening");
     return this.server.address() as AddressInfo;
+  }
+
+  /**
+   * Hands the listener a connection it did not accept itself: the transparent
+   * interceptor's, already terminated where TLS was spoken. The stream is read
+   * as any accepted socket is, and closed with the rest on `close`.
+   */
+  public accept(connection: Duplex): void {
+    this.server.emit("connection", connection);
   }
 
   /** Stops accepting, lets requests in flight finish for a grace period, then closes what is left. */

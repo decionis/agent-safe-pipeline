@@ -6,9 +6,10 @@
  * to exactly what the client asked for, or to nothing, and decides nothing
  * about the destination itself. What it reaches is therefore what the
  * workload reaches, which is the point of observing; the ledger is the record.
- * The govern phase, which terminates TLS and asks the authority, keeps this
- * dial for the destinations it does not govern and takes the sealed egress
- * for the authority.
+ * The governor, which terminates TLS and asks the authority, leaves this dial
+ * to the destinations it does not govern; a governed destination is reached
+ * by its gateway's own upstream client, and the authority by the sealed
+ * egress.
  */
 import { connect, type Socket } from "node:net";
 

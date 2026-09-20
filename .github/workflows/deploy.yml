@@ -491,15 +491,139 @@ jobs:
           logs="$(docker logs intercept 2>&1)"
           echo "$logs"
           grep -q '"event":"INTERCEPT_STARTED"' <<<"$logs"
-          grep -q "\"event\":\"INTERCEPT_OBSERVED\",\"at\":\"[^\"]*\",\"protocol\":\"HTTP\",\"host\":\"$provider\",\"port\":80,\"method\":\"GET\",\"target\":\"/\"" <<<"$logs"
-          grep -q '"event":"INTERCEPT_OBSERVED","at":"[^"]*","protocol":"TLS","host":"provider.example","port":443' <<<"$logs"
+          grep -q "\"event\":\"INTERCEPT_OBSERVED\",\"at\":\"[^\"]*\",\"protocol\":\"HTTP\",\"host\":\"$provider\",\"port\":80,\"governed\":false,\"method\":\"GET\",\"target\":\"/\"" <<<"$logs"
+          grep -q '"event":"INTERCEPT_OBSERVED","at":"[^"]*","protocol":"TLS","host":"provider.example","port":443,"governed":false' <<<"$logs"
           if grep -q '"event":"INTERCEPT_REFUSED"' <<<"$logs"; then
             echo "the interceptor refused a connection it should have placed" >&2
             exit 1
           fi
           grep -q '"event":"INTERCEPT_REPORT"' <<<"$logs"
           grep -q '"placed":2' <<<"$logs"
-          grep -q '"provider.example:443":{"protocol":"TLS","connections":1' <<<"$logs"
+          grep -q '"provider.example:443":{"protocol":"TLS","governed":false,"connections":1' <<<"$logs"
+          grep -q '"event":"INTERCEPT_STOPPED","at":"[^"]*","signal":"SIGTERM"' <<<"$logs"
+          docker rm intercept >/dev/null
+          docker rm -f provider >/dev/null
+          docker network rm intercept-ci >/dev/null
+      # The govern phase on the same kernel: the operator's authority is made
+      # with the two commands the guide gives, the provider speaks TLS under an
+      # authority of its own that the interceptor is told to trust (as a real
+      # provider's certificate chains to the system store), and a workload
+      # that trusts the operator's authority and nothing else posts to the
+      # provider by name over HTTPS and over HTTP. The interceptor terminates
+      # the TLS, the gateway for that host decides with the demo authority,
+      # the allowed payment reaches the provider exactly once, the blocked one
+      # never does, and a destination not listed still passes through
+      # observed.
+      - name: Govern a destination transparently
+        shell: bash
+        run: |
+          set -euo pipefail
+          ca="$RUNNER_TEMP/intercept-ca"
+          mkdir -p "$ca"
+          openssl ecparam -name prime256v1 -genkey -noout -out "$ca/ca.key"
+          openssl req -x509 -new -key "$ca/ca.key" -sha256 -days 2 -subj "/CN=AgentSafe Intercept CA (CI)" \
+            -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign" -out "$ca/ca.crt"
+          openssl ecparam -name prime256v1 -genkey -noout -out "$ca/provider-ca.key"
+          openssl req -x509 -new -key "$ca/provider-ca.key" -sha256 -days 2 -subj "/CN=Provider CA (CI)" \
+            -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign" -out "$ca/provider-ca.crt"
+          openssl ecparam -name prime256v1 -genkey -noout -out "$ca/provider.key"
+          openssl req -new -key "$ca/provider.key" -subj "/CN=provider.example" \
+            -addext "subjectAltName=DNS:provider.example" -out "$ca/provider.csr"
+          openssl x509 -req -in "$ca/provider.csr" -CA "$ca/provider-ca.crt" -CAkey "$ca/provider-ca.key" \
+            -CAcreateserial -days 2 -sha256 -copy_extensions copy -out "$ca/provider.crt"
+          chmod 0644 "$ca"/*
+          docker network create intercept-ci >/dev/null
+          # The provider: TLS on 443 and plain HTTP on 80, one JSON line per
+          # request it receives, so the step can count what reached it.
+          docker run -d --name provider --network intercept-ci --network-alias provider.example --user 0:0 \
+            --mount "type=bind,src=$ca,dst=/provider,readonly" --entrypoint /nodejs/bin/node agentsafe:ci --input-type=module -e '
+            import { createServer as https } from "node:https";
+            import { createServer as http } from "node:http";
+            import { readFileSync } from "node:fs";
+            const answer = (request, response) => {
+              let body = "";
+              request.on("data", (chunk) => { body += chunk; });
+              request.on("end", () => {
+                console.log(JSON.stringify({ protocol: request.socket.encrypted ? "https" : "http", method: request.method, url: request.url, body }));
+                const created = request.method === "POST";
+                response.writeHead(created ? 201 : 200, { "content-type": "application/json" });
+                response.end(created ? "{\"id\":\"pay_ci_1\",\"status\":\"created\"}" : "{\"provider\":\"ci\"}");
+              });
+            };
+            https({ cert: readFileSync("/provider/provider.crt"), key: readFileSync("/provider/provider.key") }, answer).listen(443);
+            http(answer).listen(80);
+          ' >/dev/null
+          provider="$(docker inspect -f '{{(index .NetworkSettings.Networks "intercept-ci").IPAddress}}' provider)"
+          docker run -d --name intercept --network intercept-ci \
+            --read-only --user 65532:65532 --cap-drop ALL --security-opt no-new-privileges \
+            -e AGENTSAFE_LOG_FORMAT=json -e NODE_ENV= \
+            -e AGENTSAFE_INTERCEPT_GOVERN=provider.example \
+            -e AGENTSAFE_INTERCEPT_CA_CERT_FILE=/var/run/agent-safe/intercept/ca.crt \
+            -e AGENTSAFE_INTERCEPT_CA_KEY_FILE=/var/run/agent-safe/intercept/ca.key \
+            -e NODE_EXTRA_CA_CERTS=/var/run/agent-safe/intercept/provider-ca.crt \
+            --mount "type=bind,src=$ca,dst=/var/run/agent-safe/intercept,readonly" \
+            agentsafe:ci intercept >/dev/null
+          sleep 2
+          docker run --rm --network container:intercept --cap-add NET_ADMIN --cap-add NET_RAW agentsafe-init:ci >/dev/null
+          # The workload: not the interceptor's user, trusting the operator's
+          # authority and nothing else, reaching the provider by name.
+          docker run --rm --network container:intercept --user 1000:1000 \
+            -e NODE_EXTRA_CA_CERTS=/var/run/agent-safe/intercept/ca.crt \
+            --mount "type=bind,src=$ca,dst=/var/run/agent-safe/intercept,readonly" \
+            --entrypoint /nodejs/bin/node agentsafe:ci --input-type=module -e '
+            const post = async (url, amount) => {
+              const response = await fetch(url, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ amount }),
+              });
+              console.log(JSON.stringify({
+                url,
+                amount,
+                status: response.status,
+                decision: response.headers.get("agentsafe-decision"),
+                state: response.headers.get("agentsafe-state"),
+                body: await response.text(),
+              }));
+            };
+            await post("https://provider.example/payments", 1);
+            await post("https://provider.example/payments", 5000);
+            await post("http://provider.example/payments", 1);
+          ' > "$RUNNER_TEMP/workload.jsonl"
+          cat "$RUNNER_TEMP/workload.jsonl"
+          grep -qF '"url":"https://provider.example/payments","amount":1,"status":201,"decision":"ALLOW","state":null,"body":"{\"id\":\"pay_ci_1\",\"status\":\"created\"}"' "$RUNNER_TEMP/workload.jsonl"
+          grep -qF '"url":"https://provider.example/payments","amount":5000,"status":403,"decision":null,"state":"BLOCK"' "$RUNNER_TEMP/workload.jsonl"
+          grep -qF '"url":"http://provider.example/payments","amount":1,"status":201,"decision":"ALLOW"' "$RUNNER_TEMP/workload.jsonl"
+          # A destination not listed is spliced through as before.
+          answer="$(docker run --rm --network container:intercept --entrypoint sh agentsafe-init:ci -c "wget -q -O- http://$provider/")"
+          [[ "$answer" == '{"provider":"ci"}' ]] || { echo "the unlisted destination answered '$answer' through the interceptor" >&2; exit 1; }
+          sleep 1
+          docker stop -t 10 intercept >/dev/null
+          docker wait intercept >/dev/null
+          logs="$(docker logs intercept 2>&1)"
+          echo "$logs"
+          reached="$(docker logs provider 2>&1)"
+          echo "$reached"
+          # The provider saw the two allowed payments and never the blocked one.
+          [[ "$(grep -c '"method":"POST"' <<<"$reached")" == 2 ]] || { echo "the provider saw $(grep -c '"method":"POST"' <<<"$reached") payments, not 2" >&2; exit 1; }
+          grep -qF '{"protocol":"https","method":"POST","url":"/payments","body":"{\"amount\":1}"}' <<<"$reached"
+          grep -qF '{"protocol":"http","method":"POST","url":"/payments","body":"{\"amount\":1}"}' <<<"$reached"
+          if grep -q '5000' <<<"$reached"; then echo "the blocked payment reached the provider" >&2; exit 1; fi
+          grep -q '"event":"INTERCEPT_GOVERNING","at":"[^"]*","hosts":\["provider.example"\],"unlisted":"passthrough","tls":true' <<<"$logs"
+          grep -q '"event":"INTERCEPT_OBSERVED","at":"[^"]*","protocol":"TLS","host":"provider.example","port":443,"governed":true' <<<"$logs"
+          grep -q '"event":"INTERCEPT_OBSERVED","at":"[^"]*","protocol":"HTTP","host":"provider.example","port":80,"governed":true,"method":"POST","target":"/payments"' <<<"$logs"
+          grep -q "\"event\":\"INTERCEPT_OBSERVED\",\"at\":\"[^\"]*\",\"protocol\":\"HTTP\",\"host\":\"$provider\",\"port\":80,\"governed\":false" <<<"$logs"
+          grep -q '"event":"GATEWAY_STARTED".*"upstream":"https://provider.example".*"mode":"ENFORCEMENT","authority":"local/demo' <<<"$logs"
+          grep -q '"event":"GATEWAY_STARTED".*"upstream":"http://provider.example"' <<<"$logs"
+          # The report gives each governed destination the gateway's account of it.
+          grep -q '"provider.example:443":{"protocol":"TLS","governed":true,"connections":[0-9]*,"methods":{},"gateway":{"mode":"ENFORCEMENT","requests":{"governed":2,"interceptions":2,"allows":1,"blocks":1}}}' <<<"$logs"
+          grep -qF '"provider.example:80":{"protocol":"HTTP","governed":true,"connections":1,"methods":{"POST":1},"gateway":{"mode":"ENFORCEMENT","requests":{"governed":1,"interceptions":1,"allows":1}}}' <<<"$logs"
+          [[ "$(grep -c '"event":"INTERCEPTED"' <<<"$logs")" == 3 ]] || { echo "$(grep -c '"event":"INTERCEPTED"' <<<"$logs") requests were intercepted, not 3" >&2; exit 1; }
+          if grep -q '"event":"INTERCEPT_REFUSED"' <<<"$logs"; then
+            echo "the interceptor refused a connection it should have governed or placed" >&2
+            exit 1
+          fi
+          grep -q '"event":"INTERCEPT_REPORT"' <<<"$logs"
           grep -q '"event":"INTERCEPT_STOPPED","at":"[^"]*","signal":"SIGTERM"' <<<"$logs"
           docker rm intercept >/dev/null
           docker rm -f provider >/dev/null

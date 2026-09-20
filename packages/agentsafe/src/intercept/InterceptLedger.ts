@@ -18,16 +18,51 @@ export type InterceptRefusal =
   /** The destination is this interceptor's own listener: a loop, refused. */
   | "HOST_IS_INTERCEPTOR"
   /** The interceptor holds as many connections as it will. */
-  | "TOO_MANY_CONNECTIONS";
+  | "TOO_MANY_CONNECTIONS"
+  /** The operator governs a list of destinations and refuses the rest; this was the rest. */
+  | "UNLISTED_DESTINATION"
+  /** A governed connection could not be taken: no authority to mint with, a failed handshake, no gateway. */
+  | "GOVERN_UNAVAILABLE";
 
-export interface DestinationCounts {
+/** A destination whose connections were spliced through: what the hop itself measured. */
+export interface SplicedCounts {
   readonly protocol: InterceptProtocol;
+  readonly governed: false;
   readonly connections: number;
   readonly bytes_to_destination: number;
   readonly bytes_from_destination: number;
   /** HTTP methods seen in the clear; empty for TLS, whose requests are not read. */
   readonly methods: Readonly<Record<string, number>>;
 }
+
+/** What the gateway for a governed destination did with the requests it was handed. */
+export interface GovernedGatewayCounts {
+  readonly mode: "SHADOW" | "ENFORCEMENT";
+  /** The gateway's own counts by name: `governed`, `interceptions`, `allows`, `blocks`, `escalations`, `shadow`, `passthrough`, ... */
+  readonly requests: Readonly<Record<string, number>>;
+}
+
+/**
+ * A destination whose connections the gateway took: the hop counted the
+ * connections and read the first request's method where it was in the clear,
+ * and the requests themselves are the gateway's account, not a byte count.
+ */
+export interface GovernedCounts {
+  readonly protocol: InterceptProtocol;
+  readonly governed: true;
+  readonly connections: number;
+  readonly methods: Readonly<Record<string, number>>;
+  /** Null until the report is written, or when no request reached the gateway. */
+  readonly gateway: GovernedGatewayCounts | null;
+}
+
+export type DestinationCounts = SplicedCounts | GovernedCounts;
+
+/** The gateway counts for a governed destination at report time, or null when none was created. */
+export type GovernedCountsSource = (
+  host: string,
+  protocol: InterceptProtocol,
+) => GovernedGatewayCounts | null;
 
 export interface InterceptSummary {
   readonly since: string | null;
@@ -66,18 +101,13 @@ export class InterceptLedger {
     protocol: InterceptProtocol,
     method: string | null,
     at: string,
+    governed = false,
   ): string {
     this.touch(at);
     const wanted = `${host}:${port}`;
     const key =
       this.destinations.has(wanted) || this.destinations.size < MAX_DESTINATIONS ? wanted : OTHER;
-    const counts = this.destinations.get(key) ?? {
-      protocol,
-      connections: 0,
-      bytes_to_destination: 0,
-      bytes_from_destination: 0,
-      methods: {},
-    };
+    const counts: DestinationCounts = this.destinations.get(key) ?? this.fresh(protocol, governed);
     const methods =
       method === null
         ? counts.methods
@@ -86,10 +116,23 @@ export class InterceptLedger {
     return key;
   }
 
-  /** Bytes that crossed for a placed connection, by the key `record` returned. */
+  private fresh(protocol: InterceptProtocol, governed: boolean): DestinationCounts {
+    return governed
+      ? { protocol, governed: true, connections: 0, methods: {}, gateway: null }
+      : {
+          protocol,
+          governed: false,
+          connections: 0,
+          bytes_to_destination: 0,
+          bytes_from_destination: 0,
+          methods: {},
+        };
+  }
+
+  /** Bytes that crossed for a spliced connection, by the key `record` returned; a governed destination has none to count. */
   public bytes(key: string, toDestination: number, fromDestination: number): void {
     const counts = this.destinations.get(key);
-    if (counts === undefined) return;
+    if (counts === undefined || counts.governed) return;
     this.destinations.set(key, {
       ...counts,
       bytes_to_destination: counts.bytes_to_destination + toDestination,
@@ -113,23 +156,33 @@ export class InterceptLedger {
     this.refusals.set(reason, (this.refusals.get(reason) ?? 0) + 1);
   }
 
-  public summary(): InterceptSummary {
+  /**
+   * The summary so far. A governed destination's `gateway` is filled from
+   * `governed`, the gateway's account of the requests it was handed, when one
+   * is given; the key is `host:port`, and the port names the protocol.
+   */
+  public summary(governed: GovernedCountsSource = () => null): InterceptSummary {
+    const destinations = [...this.destinations.entries()].sort().map(([key, counts]) => {
+      if (!counts.governed) return [key, counts] as const;
+      const host = key.slice(0, key.lastIndexOf(":"));
+      return [key, { ...counts, gateway: governed(host, counts.protocol) }] as const;
+    });
     return {
       since: this.since,
       until: this.until,
       connections: this.connections,
       placed: this.spliced,
       refused: Object.fromEntries([...this.refusals.entries()].sort()),
-      destinations: Object.fromEntries([...this.destinations.entries()].sort()),
+      destinations: Object.fromEntries(destinations),
     };
   }
 
-  public report(at: string): InterceptReport {
+  public report(at: string, governed?: GovernedCountsSource): InterceptReport {
     return {
       event: "INTERCEPT_REPORT",
       at,
-      intercept: this.summary(),
-      next: "Every destination listed is somewhere this workload acts. agentsafe proxy --upstream https://<host> governs one today; governing them transparently, in this same hop, is the interceptor's next phase.",
+      intercept: this.summary(governed),
+      next: "Every destination listed is somewhere this workload acts. Name the ones to govern in AGENTSAFE_INTERCEPT_GOVERN, with the authority the workload trusts, and this same hop asks Decionis before each consequential request reaches them.",
     };
   }
 

@@ -67,6 +67,7 @@ describe("the deployment kit's manifests", () => {
     assert.deepEqual(files, [
       "alerts/TrustedExecutor.yaml",
       "intercept/docker/compose.yaml",
+      "intercept/kubernetes/GovernExample.yaml",
       "intercept/kubernetes/Sidecar.yaml",
       "intercept/kubernetes/kustomization.yaml",
       "kubernetes/AgentZone.yaml",

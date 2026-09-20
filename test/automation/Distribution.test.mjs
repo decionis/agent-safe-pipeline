@@ -219,6 +219,31 @@ describe("the workflow", () => {
     const imageJobSteps = workflow.jobs.image.steps.map((step) => step.name);
     assert.ok(imageJobSteps.includes("Build the interception init image and run the redirect"));
     assert.ok(imageJobSteps.includes("Intercept a workload's connections transparently"));
+    // The govern phase on a real kernel: the interceptor hardened as the
+    // manifests run it, the workload as another user trusting the operator's
+    // authority alone, the allowed payment reaching the provider and the
+    // blocked one never.
+    const govern = workflow.jobs.image.steps.find(
+      (step) => step.name === "Govern a destination transparently",
+    );
+    assert.match(govern.run, /AGENTSAFE_INTERCEPT_GOVERN=provider\.example/);
+    assert.match(
+      govern.run,
+      /AGENTSAFE_INTERCEPT_CA_CERT_FILE=\/var\/run\/agent-safe\/intercept\/ca\.crt/,
+    );
+    assert.match(
+      govern.run,
+      /AGENTSAFE_INTERCEPT_CA_KEY_FILE=\/var\/run\/agent-safe\/intercept\/ca\.key/,
+    );
+    assert.match(
+      govern.run,
+      /--read-only --user 65532:65532 --cap-drop ALL --security-opt no-new-privileges/,
+    );
+    assert.match(govern.run, /--user 1000:1000/);
+    assert.match(govern.run, /"amount":5000,"status":403,"decision":null,"state":"BLOCK"/);
+    assert.match(govern.run, /if grep -q '5000' <<<"\$reached"; then/);
+    assert.match(govern.run, /"governed":true/);
+    assert.match(govern.run, /\\"governed\\":false/);
     for (const step of [...distribution.steps, ...workflow.jobs.release.steps]) {
       if (step.uses !== undefined) assert.match(step.uses, /@[0-9a-f]{40}( #|$)/, step.uses);
     }

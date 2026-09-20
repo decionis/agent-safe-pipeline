@@ -119,6 +119,7 @@ describe("Interceptor", () => {
       protocol: "HTTP",
       host: "127.0.0.1",
       port: port(upstream),
+      governed: false,
       method: "POST",
       target: "/payments",
     });
@@ -128,8 +129,10 @@ describe("Interceptor", () => {
     expect(report.intercept.placed).toBe(1);
     const counts = report.intercept.destinations[`127.0.0.1:${port(upstream)}`];
     expect(counts?.methods).toEqual({ POST: 1 });
-    expect(counts?.bytes_to_destination).toBeGreaterThan(100);
-    expect(counts?.bytes_from_destination).toBeGreaterThan(100);
+    expect(counts?.governed).toBe(false);
+    if (counts?.governed !== false) throw new Error("spliced");
+    expect(counts.bytes_to_destination).toBeGreaterThan(100);
+    expect(counts.bytes_from_destination).toBeGreaterThan(100);
   });
 
   it("takes the port the host header names over the listener's", async () => {
@@ -193,6 +196,7 @@ describe("Interceptor", () => {
       protocol: "TLS",
       host: "upstream.example",
       port: 443,
+      governed: false,
       alpn: ["http/1.1"],
     });
   });
@@ -260,6 +264,7 @@ describe("Interceptor", () => {
         protocol: "HTTP",
         host: "nowhere.example",
         port: 80,
+        governed: false,
         method: "GET",
         target: "/",
       },

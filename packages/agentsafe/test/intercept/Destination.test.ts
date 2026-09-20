@@ -166,6 +166,7 @@ describe("InterceptLedger", () => {
       destinations: {
         "a.example:80": {
           protocol: "HTTP",
+          governed: false,
           connections: 2,
           bytes_to_destination: 300,
           bytes_from_destination: 50,
@@ -173,6 +174,7 @@ describe("InterceptLedger", () => {
         },
         "b.example:443": {
           protocol: "TLS",
+          governed: false,
           connections: 1,
           bytes_to_destination: 100,
           bytes_from_destination: 2_000,
@@ -184,7 +186,46 @@ describe("InterceptLedger", () => {
     expect(report.event).toBe("INTERCEPT_REPORT");
     expect(report.at).toBe("2026-09-20T10:01:00.000Z");
     expect(report.intercept.placed).toBe(2);
-    expect(report.next).toContain("agentsafe proxy --upstream");
+    expect(report.next).toContain("AGENTSAFE_INTERCEPT_GOVERN");
+  });
+
+  it("reports a governed destination by the gateway's account, with no bytes of its own", () => {
+    const ledger = new InterceptLedger();
+    const key = ledger.record("g.example", 443, "TLS", null, "2026-09-20T10:00:00.000Z", true);
+    ledger.record("g.example", 80, "HTTP", "POST", "2026-09-20T10:00:01.000Z", true);
+    ledger.record("[::1]", 443, "TLS", null, "2026-09-20T10:00:02.000Z", true);
+    ledger.placed();
+    ledger.bytes(key, 500, 500);
+    expect(ledger.summary().destinations).toEqual({
+      "[::1]:443": { protocol: "TLS", governed: true, connections: 1, methods: {}, gateway: null },
+      "g.example:443": {
+        protocol: "TLS",
+        governed: true,
+        connections: 1,
+        methods: {},
+        gateway: null,
+      },
+      "g.example:80": {
+        protocol: "HTTP",
+        governed: true,
+        connections: 1,
+        methods: { POST: 1 },
+        gateway: null,
+      },
+    });
+    const asked: string[] = [];
+    const summary = ledger.summary((host, protocol) => {
+      asked.push(`${protocol} ${host}`);
+      return protocol === "TLS" && host === "g.example"
+        ? { mode: "SHADOW", requests: { governed: 2, shadow: 2 } }
+        : null;
+    });
+    expect(asked.sort()).toEqual(["HTTP g.example", "TLS [::1]", "TLS g.example"]);
+    expect(summary.destinations["g.example:443"]).toMatchObject({
+      gateway: { mode: "SHADOW", requests: { governed: 2, shadow: 2 } },
+    });
+    expect(summary.destinations["g.example:80"]).toMatchObject({ gateway: null });
+    expect(ledger.report("2026-09-20T10:01:00.000Z", () => null).intercept.placed).toBe(1);
   });
 
   it("keeps a thousand destinations apart and the rest under one name", () => {

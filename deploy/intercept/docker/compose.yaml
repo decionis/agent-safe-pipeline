@@ -11,6 +11,13 @@
 # Ports the workload publishes are published on the interceptor service here,
 # because the namespace is its. The version is pinned on purpose: a moving tag
 # in front of a boundary is not a boundary.
+# To govern destinations, add to the agentsafe-intercept service the variables
+# AGENTSAFE_INTERCEPT_GOVERN (the hosts), AGENTSAFE_INTERCEPT_CA_CERT_FILE and
+# AGENTSAFE_INTERCEPT_CA_KEY_FILE (the operator authority, mounted read-only
+# under /var/run/agent-safe/intercept), the Decionis key as DECIONIS_API_KEY_FILE
+# with DECIONIS_TENANT_ID, and AGENTSAFE_MODE; and mount the same ca.crt into
+# the agent, telling its runtime to trust it (NODE_EXTRA_CA_CERTS, SSL_CERT_FILE,
+# REQUESTS_CA_BUNDLE). docs/gateway/transparent-interception.md walks through it.
 services:
   agentsafe-intercept:
     image: ghcr.io/decionis/agentsafe:${AGENTSAFE_VERSION:?the runtime version, for example 0.2.1}

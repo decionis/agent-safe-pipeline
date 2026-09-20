@@ -70,6 +70,11 @@ not imply a release date.
   reports its effect to the hop, and the executor's effect plane compares what a receipt states
   with what it observed itself, so two witnesses' disagreement is an exception rather than a
   silence.
+- Govern from the transparent interceptor what it first observed: for the destinations an operator
+  names, the same hop terminates TLS under an authority the operator holds and runs the gateway's
+  lifecycle over each request, with the price of that authority stated beside the feature
+  ([ADR 0005](./docs/architecture/decisions/0005-governing-in-the-interceptor.md)); it ships in the
+  first release after the observe phase, proven in CI on a real kernel.
 
 The open issue tracker is the source of truth for scope, acceptance criteria, and progress. An item
 leaves this section when it is released, rejected with rationale, or explicitly moved back to

@@ -9,8 +9,10 @@
 # the runtime image's non-root user under the same hardening the gateway
 # runs under, listens on loopback only, and observes: it reads where each
 # connection was going, places it, counts it, and decrypts and decides
-# nothing. `kubectl logs <pod> -c agentsafe-intercept` is where the
-# destinations appear, one JSON line each, and the report on shutdown.
+# nothing until it is told what to govern. `kubectl logs <pod> -c
+# agentsafe-intercept` is where the destinations appear, one JSON line each,
+# and the report on shutdown. GovernExample.yaml beside this file is the patch
+# that names the hosts to govern and the authority to govern them under.
 #
 # The image tags are the runtime's version and are bumped with each release,
 # as the chart's appVersion is; production pins them by digest.
