@@ -155,6 +155,31 @@ The ERP guard uses a separate binary vocabulary: `ALLOW` maps to `PROCEED` for t
 
 The API base must use HTTPS. HTTP is accepted only for loopback development.
 
+## Run it as a remote server (Amazon Bedrock AgentCore Runtime)
+
+The same server speaks streamable HTTP for a container an agent runtime
+proxies to — the "Decionis Commerce Agent" delivery on AWS Marketplace for
+buyers who run their agents in Amazon Bedrock AgentCore Runtime. Start it with
+`--http` (or `MCP_TRANSPORT=http`): it listens on `0.0.0.0:8000`, answers
+`POST /mcp` with one JSON-RPC message or batch per request (stateless; the
+runtime's `Mcp-Session-Id` is echoed), and `GET /ping` with
+`{"status":"Healthy"}`. There is no server-initiated stream.
+
+```sh
+docker buildx build -f packages/commerce-mcp/Dockerfile --platform linux/arm64 -t commercegate-mcp .
+docker run -p 8000:8000 -e DECIONIS_API_KEY=… -e DECIONIS_ORG_ID=… commercegate-mcp
+curl -X POST http://127.0.0.1:8000/mcp -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
+The image holds no credential: `DECIONIS_API_KEY` and `DECIONIS_ORG_ID` arrive
+at launch as the listing's environment variables (a Commerce Gate workspace
+issues them), and tenant calls fail closed until both are present.
+Capability discovery works without them. The same limits as stdio apply — a
+1 MiB request, eight in flight, a busy answer (503, `Retry-After`) rather
+than a queue. `.github/workflows/commerce-mcp-agentcore.yml` builds, smoke-tests,
+publishes and attests the image.
+
 ## Develop from source
 
 ```sh
