@@ -200,8 +200,13 @@ Routine packaging choices, recorded here rather than as ADRs:
   who passed no argument gets the gateway's `REFUSED_TO_START` until they add `args: ["serve"]`;
   that is the whole migration.
 - **The registry stays `ghcr.io/decionis/agentsafe`**, the existing convention, with `<version>`,
-  `<major>.<minor>`, `<major>` and `latest` tags and a two-architecture manifest. A Docker Hub
-  mirror is a credential this repository does not hold.
+  `<major>.<minor>`, `<major>` and `latest` tags and a two-architecture manifest. Docker Hub was
+  added on 2026-09-20 as a second name for the same manifest, `docker.io/decionis/agentsafe`,
+  because that is where developers look first: the `Docker Hub image` workflow copies the
+  release's manifest by digest after the release job, refuses a differing digest, and attests
+  the Docker Hub name; the credential is the `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` secrets
+  for the `decionis` namespace, and the `DOCKERHUB_PUBLISH_ENABLED` variable is the switch. The
+  same workflow, dispatched with a version, publishes a release that predates the switch.
 - **The tap stays this repository.** `Formula/agentsafe.rb` is rendered by the release workflow
   from the release's `SHA256SUMS` and pushed to a `homebrew/agentsafe-<version>` branch for the
   pull request bot to open; nothing is pushed to `master` by a workflow. A `decionis/homebrew-tap`

@@ -113,8 +113,10 @@ Or take the one the release workflow publishes. From the first release after thi
 release pushes `ghcr.io/decionis/agentsafe:<version>` (and `latest` for a stable release) to the
 organisation's GitHub container registry, attests the image digest with the same keyless workflow
 identity that signs the release tag, verifies that attestation before the release is created, and
-records the reference and digest in the release assets. A dry run builds the image and never pushes.
-Verify before you run it:
+records the reference and digest in the release assets. After the release, the same manifest is
+copied by digest to `docker.io/decionis/agentsafe:<version>` and attested under that name too; the
+digest is the same on both registries. A dry run builds the image and never pushes. Verify before
+you run it:
 
 ```bash
 gh attestation verify oci://ghcr.io/decionis/agentsafe:<version> \

@@ -182,6 +182,82 @@ describe("the workflow", () => {
     assert.match(failClosed.run, /test "\$status" = "503"/);
   });
 
+  it("copies the attested manifest to Docker Hub by digest, after the release and only when enabled", async () => {
+    const workflow = parse(await read(".github/workflows/deploy.yml"));
+    const release = workflow.jobs.release;
+    assert.equal(release.outputs.image_published, "${{ steps.image.outputs.published }}");
+    assert.equal(release.outputs.runtime_version, "${{ steps.runtime.outputs.version }}");
+    const notes = release.steps.find((step) => step.name === "Create verified GitHub release");
+    assert.equal(notes.env.DOCKERHUB_PUBLISH_ENABLED, "${{ vars.DOCKERHUB_PUBLISH_ENABLED }}");
+    assert.match(notes.run, /if \[\[ "\$DOCKERHUB_PUBLISH_ENABLED" == "true" \]\]; then/);
+    assert.match(notes.run, /gh attestation verify oci:\/\/\$hub@\$IMAGE_DIGEST/);
+
+    const hub = workflow.jobs.dockerhub;
+    assert.deepEqual(hub.needs, ["release"]);
+    assert.equal(
+      hub.if,
+      "needs.release.outputs.image_published == 'true' && vars.DOCKERHUB_PUBLISH_ENABLED == 'true'",
+    );
+    assert.equal(hub.uses, "./.github/workflows/dockerhub.yml");
+    assert.equal(hub.with.version, "${{ needs.release.outputs.runtime_version }}");
+    assert.deepEqual(Object.keys(hub.secrets).sort(), ["DOCKERHUB_TOKEN", "DOCKERHUB_USERNAME"]);
+    assert.deepEqual(hub.permissions, {
+      attestations: "write",
+      contents: "read",
+      "id-token": "write",
+      packages: "read",
+    });
+
+    const publish = parse(await read(".github/workflows/dockerhub.yml"));
+    assert.deepEqual(Object.keys(publish.on).sort(), ["workflow_call", "workflow_dispatch"]);
+    assert.equal(publish.on.workflow_call.inputs.version.required, true);
+    assert.equal(publish.on.workflow_dispatch.inputs.version.required, true);
+    for (const secret of ["DOCKERHUB_USERNAME", "DOCKERHUB_TOKEN"]) {
+      assert.equal(publish.on.workflow_call.secrets[secret].required, true);
+    }
+    assert.deepEqual(publish.permissions, { contents: "read" });
+    const job = publish.jobs.publish;
+    assert.deepEqual(job.permissions, hub.permissions);
+    const names = job.steps.map((step) => step.name);
+    assert.deepEqual(names, [
+      "Harden runner",
+      "Resolve the attested GHCR image",
+      "Copy the manifest to Docker Hub",
+      "Attest the Docker Hub image",
+      "Verify the published image attestation",
+    ]);
+    for (const step of job.steps) {
+      if (step.uses !== undefined) assert.match(step.uses, /@[0-9a-f]{40}( #|$)/, step.uses);
+    }
+    const source = job.steps.find((step) => step.name === "Resolve the attested GHCR image");
+    assert.equal(source.env.IMAGE_NAME, "ghcr.io/${{ github.repository_owner }}/agentsafe");
+    assert.match(source.run, /--signer-workflow "\$RELEASE_WORKFLOW"/);
+    assert.equal(
+      source.env.RELEASE_WORKFLOW,
+      "${{ github.repository }}/.github/workflows/deploy.yml",
+    );
+    const copy = job.steps.find((step) => step.name === "Copy the manifest to Docker Hub");
+    assert.equal(copy.env.HUB_IMAGE_NAME, "docker.io/${{ github.repository_owner }}/agentsafe");
+    assert.match(copy.run, /-z "\$DOCKERHUB_USERNAME" \|\| -z "\$DOCKERHUB_TOKEN"/);
+    assert.match(copy.run, /\$hub:\$minor" -t "\$hub:\$major" -t "\$hub:latest"/);
+    assert.match(
+      copy.run,
+      /docker buildx imagetools create "\$\{tags\[@\]\}" "\$SOURCE_IMAGE@\$SOURCE_DIGEST"/,
+    );
+    assert.match(copy.run, /if \[\[ "\$digest" != "\$SOURCE_DIGEST" \]\]; then/);
+    assert.doesNotMatch(copy.run, /docker buildx build/);
+    const attest = job.steps.find((step) => step.name === "Attest the Docker Hub image");
+    assert.equal(attest.with["subject-name"], "${{ steps.hub.outputs.name }}");
+    assert.equal(attest.with["subject-digest"], "${{ steps.hub.outputs.digest }}");
+    assert.equal(attest.with["push-to-registry"], true);
+    const verify = job.steps.find((step) => step.name === "Verify the published image attestation");
+    assert.equal(
+      verify.env.SIGNER_WORKFLOW,
+      "${{ github.repository }}/.github/workflows/dockerhub.yml",
+    );
+    assert.match(verify.run, /gh attestation verify "oci:\/\/\$IMAGE_REFERENCE"/);
+  });
+
   it("keeps the smoke test runnable", async () => {
     const smoke = await read("packaging/smoke/Smoke.sh");
     assert.equal(spawnSync("bash", ["-n", "-"], { input: smoke, encoding: "utf8" }).status, 0);

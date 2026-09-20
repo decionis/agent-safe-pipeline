@@ -574,6 +574,9 @@ jobs:
       contents: write
       id-token: write
       packages: write
+    outputs:
+      image_published: ${{ steps.image.outputs.published }}
+      runtime_version: ${{ steps.runtime.outputs.version }}
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
@@ -1110,6 +1113,8 @@ jobs:
           IMAGE_NAME: ${{ steps.image.outputs.name }}
           IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
           IMAGE_VERSION: ${{ steps.runtime.outputs.version }}
+          DOCKERHUB_PUBLISH_ENABLED: ${{ vars.DOCKERHUB_PUBLISH_ENABLED }}
+          DOCKERHUB_IMAGE_NAME: docker.io/${{ github.repository_owner }}/agentsafe
         shell: bash
         run: |
           set -euo pipefail
@@ -1124,6 +1129,10 @@ jobs:
           fi
           if [[ "$IMAGE_PUBLISHED" == "true" ]]; then
             image_note="Container image: \`$IMAGE_NAME:$IMAGE_VERSION\` at \`$IMAGE_DIGEST\`, attested by this workflow. Verify with \`gh attestation verify oci://$IMAGE_NAME@$IMAGE_DIGEST --repo $GITHUB_REPOSITORY\`."
+            if [[ "$DOCKERHUB_PUBLISH_ENABLED" == "true" ]]; then
+              hub="$(printf '%s' "$DOCKERHUB_IMAGE_NAME" | tr '[:upper:]' '[:lower:]')"
+              image_note="$image_note The same manifest is copied to Docker Hub as \`$hub:$IMAGE_VERSION\`, at the same digest, by the Docker Hub job of the run that created this release; verify it with \`gh attestation verify oci://$hub@$IMAGE_DIGEST --repo $GITHUB_REPOSITORY\`."
+            fi
           else
             image_note="The runtime image was built and checked for this release but not published."
           fi
@@ -1201,3 +1210,22 @@ jobs:
           path: release/
           if-no-files-found: error
           retention-days: 7
+  # Docker Hub carries the release's manifest list, copied by digest from GHCR
+  # once the release exists: the same image under a second name, attested
+  # again under that name. The variable is the switch; the secrets are the
+  # credential this repository holds for the decionis namespace on Docker Hub.
+  dockerhub:
+    name: Docker Hub image
+    needs: [release]
+    if: needs.release.outputs.image_published == 'true' && vars.DOCKERHUB_PUBLISH_ENABLED == 'true'
+    permissions:
+      attestations: write
+      contents: read
+      id-token: write
+      packages: read
+    uses: ./.github/workflows/dockerhub.yml
+    with:
+      version: ${{ needs.release.outputs.runtime_version }}
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}

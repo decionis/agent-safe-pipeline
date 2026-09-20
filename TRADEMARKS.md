@@ -10,8 +10,9 @@ customary use in describing the origin of the work.
 Decionis, Presence, AgentSafe, Agent-Safe Pipeline, CommerceGate, and their associated names and
 logos are trademarks or service marks of Decionis, Inc. The package names `@decionis/agent-safe-pipeline`,
 `@decionis/agentsafe` and `@decionis/commerce`, the repository name `decionis/agent-safe-pipeline`,
-the container image `ghcr.io/decionis/agentsafe`, the Helm chart `agentsafe` and the Homebrew
-formula `agentsafe` are the official distributions of this project under those marks. You may make
+the container image `ghcr.io/decionis/agentsafe` and its copy `docker.io/decionis/agentsafe`, the
+Helm chart `agentsafe` and the Homebrew formula `agentsafe` are the official distributions of this
+project under those marks. You may make
 accurate, non-confusing references to the project and compatibility with it. You may not use these
 marks to imply sponsorship, endorsement, or official status for a fork, modified distribution,
 product, or service.

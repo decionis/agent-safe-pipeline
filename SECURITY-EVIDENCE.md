@@ -63,7 +63,7 @@ The following gates were observed failing on 2026-08-15 before their controls we
   tarballs were byte-identical with SHA-256
   `5b04318b3a73d8bb1e3b2551cc3633ea36891eb1fa6d4976d1ab5f15bc714c82`; the temporary bootstrap
   credential was revoked and the one-time workflow was removed.
-- Fixture provenance, trademark ownership, and disclosure targets are written human decisions, recorded with the approver, date and conditions in `PUBLICATION-SIGNOFFS.md` (approved 2026-09-19 as of v0.3.0); automation cannot manufacture those approvals, and a change to their evidence reopens the gap until the approval is renewed there.
+- Fixture provenance, trademark ownership, and disclosure targets are written human decisions, recorded with the approver, date and conditions in `PUBLICATION-SIGNOFFS.md` (approved 2026-09-19 as of v0.3.0; the trademark decision renewed 2026-09-20 for the Docker Hub distribution); automation cannot manufacture those approvals, and a change to their evidence reopens the gap until the approval is renewed there.
 - Repository-age, contributor-count, and historical review signals improve only with real project activity.
 - The project has a lead and a maintainer, but code-owner, private-report, npm-recovery, and
   emergency-release authority are not independently available to two people. `GOVERNANCE.md`

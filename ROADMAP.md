@@ -1,6 +1,6 @@
 # Roadmap
 
-This roadmap is current as of 2026-09-13. It distinguishes work maintainers intend to deliver from
+This roadmap is current as of 2026-09-20. It distinguishes work maintainers intend to deliver from
 ideas that still require design or resourcing. It is not a promise of dates or hosted-service
 availability; priorities can change when security or compatibility work intervenes.
 
@@ -22,6 +22,11 @@ availability; priorities can change when security or compatibility work interven
   test, Homebrew, Linux packages, an installer, the image, the Helm chart) and put the hosted gate
   in every example's run path: one variable, a key issued in the run, and each run ending with the
   signed Decision Dossier Decionis left.
+- `v0.3.0` stated the provider's half as the Verifying Provider Profile, with implementations for
+  Envoy, Kong, Spring, .NET and Rust, made its effect receipt normative (`v0.2`, the Kong plugin
+  signing it in the response phase and the executor comparing a receipt with its own observation),
+  and added the Compromised Principal Test as a canonical example, a conformance vector and a
+  stated threat ([tag v0.3.0](https://github.com/decionis/agent-safe-pipeline/releases/tag/v0.3.0)).
 
 See [GitHub Releases](https://github.com/decionis/agent-safe-pipeline/releases) and the
 [release-verification guide](./CONTRIBUTING.md#releases) for immutable artifacts and verification
@@ -34,9 +39,11 @@ not imply a release date.
 
 - Continue closing documented OpenSSF Silver evidence gaps without overstating controls that are
   not yet independently exercised.
-- Publish the trusted executor image, `ghcr.io/decionis/agentsafe`, from the release workflow on the
-  next release, signed and attested like the tarball, so the kit under `deploy/` can be verified
-  before it is mirrored; the executor itself is `@decionis/agentsafe` in `packages/agentsafe`.
+- Keep the trusted executor image at one digest under its two names, `ghcr.io/decionis/agentsafe`
+  (pushed and attested by every release since `v0.2.0`) and `docker.io/decionis/agentsafe` (copied
+  by digest and attested by the `Docker Hub image` workflow from the first release after its
+  credential is set), so the kit under `deploy/` can be verified before it is mirrored; the executor
+  itself is `@decionis/agentsafe` in `packages/agentsafe`.
 - Turn the trusted executor into a bank security boundary in eight pull requests
   ([#136](https://github.com/decionis/agent-safe-pipeline/issues/136)): the package promotion,
   verified host posture and secret handling, sealed egress with chained evidence, caller principals,

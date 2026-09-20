@@ -11,9 +11,18 @@ ghcr.io/decionis/agentsafe:<major>
 ghcr.io/decionis/agentsafe:latest        moves; never in production
 ```
 
-> Availability: the image is pushed by the release workflow from `v0.2.0` on; the tag is the
-> runtime version. Before that, build it from a clone:
-> `docker build -f packages/agentsafe/Dockerfile -t agentsafe .`
+The same manifest list is on Docker Hub as `docker.io/decionis/agentsafe`, under the same four
+tags. It is not a second build: after each release the [`Docker Hub image`
+workflow](../../.github/workflows/dockerhub.yml) copies the release's manifest from GHCR by digest,
+refuses a copy whose digest differs, and attests the Docker Hub name with the same keyless workflow
+identity. One digest therefore names the release on both registries, and either name pulls the same
+bytes. Docker Hub applies pull-rate limits to anonymous clients; a cluster that pulls often should
+authenticate to it, pull from GHCR, or mirror.
+
+> Availability: the image is pushed to GHCR by the release workflow from `v0.2.0` on; the tag is
+> the runtime version. Docker Hub carries a version once the Docker Hub job of its release, or a
+> maintainer's dispatch of the workflow for that version, has copied it. Before `v0.2.0`, build it
+> from a clone: `docker build -f packages/agentsafe/Dockerfile -t agentsafe .`
 
 The image's default command is the gateway. The image runs as `NODE_ENV=production`, which
 refuses the demo authority and a key in the environment: a container asks Decionis, and reads its
@@ -74,7 +83,16 @@ docker buildx imagetools inspect ghcr.io/decionis/agentsafe:<version>
 
 The manifest carries BuildKit's SBOM and provenance attestations for both architectures, and the
 release workflow attests the manifest digest with the same keyless identity that signs the release
-tag. Mirror the image into your own registry before a cluster pulls it; the
+tag. The Docker Hub copy verifies the same way, against the attestation the Docker Hub workflow
+made for that name:
+
+```bash
+gh attestation verify oci://docker.io/decionis/agentsafe:<version> --repo decionis/agent-safe-pipeline
+docker buildx imagetools inspect docker.io/decionis/agentsafe:<version>
+```
+
+The two `inspect` digests are equal for every version; a difference is a reason to stop and to
+report it. Mirror the image into your own registry before a cluster pulls it; the
 [kit](../../deploy/README.md#getting-the-image) says why.
 
 ## Send your first governed action
