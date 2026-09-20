@@ -51,6 +51,16 @@ Every package is attested by the release workflow; `gh attestation verify <packa
 decionis/agent-safe-pipeline` checks the provenance. Packages are not GPG-signed; the checksum
 file and the attestation are the integrity evidence.
 
+What the repository checks before any of this is published, on both Linux architectures: the
+`.deb` is installed on the Ubuntu runner and the `.rpm` in a Fedora container pinned by digest, the
+installed executable answers its version and runs the boundary test, the unit and the examples land
+at the paths above, and each package removes cleanly; the installer runs end to end against the
+archive just built, served over HTTPS by a local mirror with a certificate it is told to trust, and
+a tampered archive is refused with `checksum mismatch` and nothing installed. The steps are in
+[`.github/workflows/deploy.yml`](../../.github/workflows/deploy.yml) under the `distribution`
+job; to repeat the installer's check against a mirror of your own, set `AGENTSAFE_RELEASE_BASE`,
+`AGENTSAFE_RELEASE_CA` and `AGENTSAFE_RELEASE_TAG` as that step does.
+
 ## The service
 
 The unit ([`packaging/linux/agentsafe.service`](../../packaging/linux/agentsafe.service)) runs
