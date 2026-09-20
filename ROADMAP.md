@@ -31,6 +31,13 @@ availability; priorities can change when security or compatibility work interven
 intercept`, the redirect as the `<version>-init` image, a Kubernetes Component and a Docker
   recipe), published the image to Docker Hub at one digest with GHCR, and recorded the three
   publication sign-offs ([tag v0.3.1](https://github.com/decionis/agent-safe-pipeline/releases/tag/v0.3.1)).
+- `v0.3.2` governs from the transparent interceptor what it first observed (TLS terminated under
+  an operator's authority for the destinations named, the gateway's lifecycle over each request,
+  ADR 0005), prints the shadow report on its own cadence with the Compromised Principal Test
+  observed in it, mints a provisional Decionis workspace from the command line
+  (`agentsafe login --provision`), and runs the boundary test with Decionis deciding
+  (`agentsafe test --hosted`), the first governed action for a workspace in one command
+  ([tag v0.3.2](https://github.com/decionis/agent-safe-pipeline/releases/tag/v0.3.2)).
 
 See [GitHub Releases](https://github.com/decionis/agent-safe-pipeline/releases) and the
 [release-verification guide](./CONTRIBUTING.md#releases) for immutable artifacts and verification
@@ -70,11 +77,6 @@ not imply a release date.
   reports its effect to the hop, and the executor's effect plane compares what a receipt states
   with what it observed itself, so two witnesses' disagreement is an exception rather than a
   silence.
-- Govern from the transparent interceptor what it first observed: for the destinations an operator
-  names, the same hop terminates TLS under an authority the operator holds and runs the gateway's
-  lifecycle over each request, with the price of that authority stated beside the feature
-  ([ADR 0005](./docs/architecture/decisions/0005-governing-in-the-interceptor.md)); it ships in the
-  first release after the observe phase, proven in CI on a real kernel.
 
 The open issue tracker is the source of truth for scope, acceptance criteria, and progress. An item
 leaves this section when it is released, rejected with rationale, or explicitly moved back to

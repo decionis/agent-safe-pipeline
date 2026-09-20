@@ -117,7 +117,7 @@ describe("the Helm chart", { skip: available ? false : "helm is not installed" }
     const pod = deployment.spec.template.spec;
     const container = pod.containers[0];
     assert.deepEqual(container.args, ["run"]);
-    assert.equal(container.image, "ghcr.io/decionis/agentsafe:0.2.1");
+    assert.equal(container.image, "ghcr.io/decionis/agentsafe:0.2.2");
     const env = Object.fromEntries(
       container.env.map((entry) => [entry.name, entry.value ?? entry.valueFrom]),
     );

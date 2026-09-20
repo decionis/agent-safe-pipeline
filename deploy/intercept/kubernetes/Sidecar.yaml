@@ -25,7 +25,7 @@ spec:
     spec:
       initContainers:
         - name: agentsafe-redirect
-          image: ghcr.io/decionis/agentsafe:0.2.1-init
+          image: ghcr.io/decionis/agentsafe:0.2.2-init
           env:
             - name: AGENTSAFE_INTERCEPT_UID
               value: "65532"
@@ -55,7 +55,7 @@ spec:
               memory: 32Mi
       containers:
         - name: agentsafe-intercept
-          image: ghcr.io/decionis/agentsafe:0.2.1
+          image: ghcr.io/decionis/agentsafe:0.2.2
           args: ["intercept"]
           env:
             - name: AGENTSAFE_SURFACE
