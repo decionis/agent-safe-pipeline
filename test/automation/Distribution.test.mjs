@@ -221,11 +221,15 @@ describe("the workflow", () => {
     const names = job.steps.map((step) => step.name);
     assert.deepEqual(names, [
       "Harden runner",
+      "Check out repository",
       "Resolve the attested GHCR image",
       "Copy the manifest to Docker Hub",
       "Attest the Docker Hub image",
       "Verify the published image attestation",
+      "Publish the repository overview",
     ]);
+    const checkout = job.steps.find((step) => step.name === "Check out repository");
+    assert.equal(checkout.with["persist-credentials"], false);
     for (const step of job.steps) {
       if (step.uses !== undefined) assert.match(step.uses, /@[0-9a-f]{40}( #|$)/, step.uses);
     }
@@ -256,6 +260,54 @@ describe("the workflow", () => {
       "${{ github.repository }}/.github/workflows/dockerhub.yml",
     );
     assert.match(verify.run, /gh attestation verify "oci:\/\/\$IMAGE_REFERENCE"/);
+  });
+
+  it("publishes the Docker Hub overview from the repository, a page whose links all leave Docker Hub", async () => {
+    const publish = parse(await read(".github/workflows/dockerhub.yml"));
+    const overview = publish.jobs.publish.steps.find(
+      (step) => step.name === "Publish the repository overview",
+    );
+    assert.equal(overview.env.OVERVIEW_FILE, "packaging/dockerhub/README.md");
+    assert.ok(
+      overview.env.SHORT_DESCRIPTION.length <= 100,
+      "the short description fits Docker Hub",
+    );
+    assert.match(overview.run, /--request POST https:\/\/hub\.docker\.com\/v2\/users\/login/);
+    assert.match(
+      overview.run,
+      /--request PATCH "https:\/\/hub\.docker\.com\/v2\/repositories\/\$repository\/"/,
+    );
+    assert.match(overview.run, /umask 077/);
+    assert.match(overview.run, /--header @"\$header"/);
+    assert.match(overview.run, /rm -f "\$header"/);
+    assert.doesNotMatch(
+      overview.run,
+      /\$DOCKERHUB_TOKEN/,
+      "the token reaches curl through stdin only",
+    );
+
+    const page = await read(overview.env.OVERVIEW_FILE);
+    assert.ok(page.length <= 25000, "the overview fits Docker Hub");
+    assert.match(page, /^# AgentSafe/);
+    const links = [...page.matchAll(/\]\(([^)]+)\)/g)].map((match) => match[1]);
+    assert.ok(links.length >= 8);
+    for (const link of links) {
+      assert.match(
+        link,
+        /^https:\/\/(github\.com\/decionis\/agent-safe-pipeline|decionis\.com)/,
+        link,
+      );
+    }
+    for (const expectation of [
+      "decionis/agentsafe:<version>     immutable",
+      "ghcr.io/decionis/agentsafe",
+      "gh attestation verify oci://docker.io/decionis/agentsafe:<version> --repo decionis/agent-safe-pipeline",
+      "oci://ghcr.io/decionis/charts/agentsafe",
+      "GATEWAY_STOPPED",
+      "TRADEMARKS.md",
+    ]) {
+      assert.ok(page.includes(expectation), expectation);
+    }
   });
 
   it("keeps the smoke test runnable", async () => {

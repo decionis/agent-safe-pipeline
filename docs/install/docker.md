@@ -16,8 +16,10 @@ tags. It is not a second build: after each release the [`Docker Hub image`
 workflow](../../.github/workflows/dockerhub.yml) copies the release's manifest from GHCR by digest,
 refuses a copy whose digest differs, and attests the Docker Hub name with the same keyless workflow
 identity. One digest therefore names the release on both registries, and either name pulls the same
-bytes. Docker Hub applies pull-rate limits to anonymous clients; a cluster that pulls often should
-authenticate to it, pull from GHCR, or mirror.
+bytes. The overview shown on Docker Hub is
+[`packaging/dockerhub/README.md`](../../packaging/dockerhub/README.md), published by the same run,
+so the page and the image change together. Docker Hub applies pull-rate limits to anonymous
+clients; a cluster that pulls often should authenticate to it, pull from GHCR, or mirror.
 
 > Availability: the image is pushed to GHCR by the release workflow from `v0.2.0` on; the tag is
 > the runtime version. Docker Hub carries a version once the Docker Hub job of its release, or a
