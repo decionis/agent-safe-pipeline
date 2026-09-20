@@ -43,67 +43,84 @@ export type RequestHeadRefusal =
 export const MAX_REQUEST_HEAD_BYTES = 16_384;
 
 const HEAD_END = "\r\n\r\n";
+const LINE_END = "\r\n";
 const TOKEN = /^[!#$%&'*+\-.^`|~\w]+$/;
+/** Method, target and version: the target is origin-form or absolute-form, checked after. */
 const REQUEST_LINE = /^([!#$%&'*+\-.^`|~\w]+) (\S+) HTTP\/1\.[01]$/;
+/** Absolute-form target: the scheme this interceptor speaks, an authority, and a path that may be absent. */
+const ABSOLUTE_TARGET = /^http:\/\/([^/?#]+)(\/\S*)?$/i;
+/** A method token followed by a space, or by the end of what has arrived so far. */
+const REQUEST_LINE_START = /^[A-Z][!#$%&'*+\-.^`|~\w]{0,19}(?: |$)/;
+/** RFC 1123 host name: labels of letters, digits and hyphens, at most 253 characters. */
 const HOST_NAME =
   /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/;
-const IPV4 = /^(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
-const IPV6_LITERAL = /^\[[0-9a-f:.]+\]$/;
-const METHODS_WITHOUT_ORIGIN_FORM = new Set(["CONNECT"]);
+/** A bracketed IPv6 literal, then an optional port. */
+const IPV6_AUTHORITY = /^(\[[0-9a-f:.]+\])(?::(\d{1,5}))?$/;
+/** A name or IPv4 address, then an optional port. */
+const NAMED_AUTHORITY = /^([a-z0-9.-]+)(?::(\d{1,5}))?$/;
+/** One decimal octet, no leading zero. */
+const OCTET = /^(?:0|[1-9]\d{0,2})$/;
+/** What can only be meant as an address. */
+const DIGITS_AND_DOTS = /^[\d.]+$/;
+
+const NEED_MORE = { kind: "NEED_MORE" } as const;
+const NOT_HTTP = { kind: "NOT_HTTP" } as const;
+const malformed = (reason: RequestHeadRefusal): RequestHeadReading => ({
+  kind: "MALFORMED",
+  reason,
+});
 
 /** Reads a client's first bytes as an HTTP/1 request head, or says why they are not one. */
 export function readRequestHead(bytes: Uint8Array): RequestHeadReading {
-  const text = latin1(
-    bytes.subarray(0, Math.min(bytes.length, MAX_REQUEST_HEAD_BYTES + HEAD_END.length)),
-  );
+  // Only as much as a head may be, plus the terminator that would end it.
+  const window = Math.min(bytes.length, MAX_REQUEST_HEAD_BYTES + HEAD_END.length);
+  const text = latin1(bytes.subarray(0, window));
   const end = text.indexOf(HEAD_END);
   if (end === -1) {
-    if (!looksLikeRequestLine(text)) return { kind: "NOT_HTTP" };
-    return bytes.length > MAX_REQUEST_HEAD_BYTES
-      ? { kind: "MALFORMED", reason: "HEAD_TOO_LONG" }
-      : { kind: "NEED_MORE" };
+    if (!REQUEST_LINE_START.test(text)) return NOT_HTTP;
+    return bytes.length > MAX_REQUEST_HEAD_BYTES ? malformed("HEAD_TOO_LONG") : NEED_MORE;
   }
-  const lines = text.slice(0, end).split("\r\n");
-  const requestLine = lines.shift() ?? "";
+  const head = text.slice(0, end);
+  const firstLineEnd = head.indexOf(LINE_END);
+  const requestLine = firstLineEnd === -1 ? head : head.slice(0, firstLineEnd);
+  const headerLines =
+    firstLineEnd === -1 ? [] : head.slice(firstLineEnd + LINE_END.length).split(LINE_END);
   const match = REQUEST_LINE.exec(requestLine);
   if (match === null) {
-    return looksLikeRequestLine(text)
-      ? { kind: "MALFORMED", reason: "REQUEST_LINE_INVALID" }
-      : { kind: "NOT_HTTP" };
+    return REQUEST_LINE_START.test(text) ? malformed("REQUEST_LINE_INVALID") : NOT_HTTP;
   }
-  const method = match[1] ?? "";
-  const rawTarget = match[2] ?? "";
-  if (METHODS_WITHOUT_ORIGIN_FORM.has(method))
-    return { kind: "MALFORMED", reason: "TARGET_INVALID" };
+  // Stryker disable next-line all: both groups are matched whenever the line is; the fallbacks satisfy the type.
+  const [method, rawTarget] = [match[1] ?? "", match[2] ?? ""];
 
   let hostHeader: string | null = null;
-  for (const line of lines) {
+  for (const line of headerLines) {
     const header = readHeaderLine(line);
-    if (header === null) return { kind: "MALFORMED", reason: "HEADER_INVALID" };
+    if (header === null) return malformed("HEADER_INVALID");
     if (header.name !== "host") continue;
-    if (hostHeader !== null) return { kind: "MALFORMED", reason: "HOST_REPEATED" };
+    if (hostHeader !== null) return malformed("HOST_REPEATED");
     hostHeader = header.value;
   }
 
   let target = rawTarget;
   let authority: Authority | null = null;
   if (!rawTarget.startsWith("/")) {
-    const absolute = /^http:\/\/([^/?#]+)(\/\S*)?$/i.exec(rawTarget);
-    if (absolute === null) return { kind: "MALFORMED", reason: "TARGET_INVALID" };
+    const absolute = ABSOLUTE_TARGET.exec(rawTarget);
+    if (absolute === null) return malformed("TARGET_INVALID");
+    // Stryker disable next-line all: the authority group is matched whenever the target is; the fallback satisfies the type.
     authority = parseAuthority(absolute[1] ?? "");
-    if (authority === null) return { kind: "MALFORMED", reason: "TARGET_INVALID" };
+    if (authority === null) return malformed("TARGET_INVALID");
     target = absolute[2] ?? "/";
   }
   if (hostHeader === null) {
-    if (authority === null) return { kind: "MALFORMED", reason: "HOST_MISSING" };
+    if (authority === null) return malformed("HOST_MISSING");
   } else {
     const fromHeader = parseAuthority(hostHeader);
-    if (fromHeader === null) return { kind: "MALFORMED", reason: "HOST_INVALID" };
+    if (fromHeader === null) return malformed("HOST_INVALID");
     if (
       authority !== null &&
       (authority.host !== fromHeader.host || authority.port !== fromHeader.port)
     ) {
-      return { kind: "MALFORMED", reason: "TARGET_DISAGREES_WITH_HOST" };
+      return malformed("TARGET_DISAGREES_WITH_HOST");
     }
     authority ??= fromHeader;
   }
@@ -115,56 +132,58 @@ interface Authority {
   readonly port: number | null;
 }
 
-/** `host[:port]`, with the host a name, an IPv4 address or a bracketed IPv6 address. */
+/** `host[:port]`, with the host a name, an IPv4 address or a bracketed IPv6 address, lowercased. */
 export function parseAuthority(value: string): Authority | null {
-  const text = value.trim().toLowerCase();
-  if (text.length === 0 || text.length > 260) return null;
-  let host: string;
-  let rest: string;
-  if (text.startsWith("[")) {
-    const close = text.indexOf("]");
-    if (close === -1) return null;
-    host = text.slice(0, close + 1);
-    rest = text.slice(close + 1);
-    if (!IPV6_LITERAL.test(host)) return null;
-  } else {
-    const colon = text.indexOf(":");
-    host = colon === -1 ? text : text.slice(0, colon);
-    rest = colon === -1 ? "" : text.slice(colon);
-    if (!HOST_NAME.test(host) && !IPV4.test(host)) return null;
-  }
-  if (rest === "") return { host, port: null };
-  if (!/^:\d{1,5}$/.test(rest)) return null;
-  const port = Number(rest.slice(1));
+  const text = value.toLowerCase();
+  const match = IPV6_AUTHORITY.exec(text) ?? NAMED_AUTHORITY.exec(text);
+  if (match === null) return null;
+  // Stryker disable next-line all: the host group is matched whenever the authority is; the fallback satisfies the type.
+  const host = match[1] ?? "";
+  if (!host.startsWith("[") && !isHost(host)) return null;
+  const digits = match[2];
+  if (digits === undefined) return { host, port: null };
+  const port = Number(digits);
   if (port < 1 || port > 65_535) return null;
   return { host, port };
 }
 
 /**
- * Whether the first bytes could still be an HTTP request line: an uppercase
- * method token, then a space or the end of what has arrived. Enough to tell a
- * request from a binary protocol before the head is complete.
+ * A host name, or an IPv4 address. Digits and dots alone are read as an
+ * address and must be a valid one: `256.1.1.1` is a name to the grammar and an
+ * address to a reader, which is exactly the disagreement this parser refuses.
  */
-function looksLikeRequestLine(text: string): boolean {
-  return /^[A-Z][!#$%&'*+\-.^`|~\w]{0,19}(?: |$)/.test(text.slice(0, 21));
+function isHost(host: string): boolean {
+  if (DIGITS_AND_DOTS.test(host)) return isIpv4(host);
+  return HOST_NAME.test(host);
+}
+
+/** Four decimal octets, each without a leading zero and at most 255. */
+function isIpv4(text: string): boolean {
+  const octets = text.split(".");
+  return octets.length === 4 && octets.every((octet) => OCTET.test(octet) && Number(octet) <= 255);
 }
 
 /**
  * One header line as `name: value`, the name a token lowercased and the value
  * without its optional leading and trailing space or tab. A line with a bare
- * CR or LF, or no colon, or a name that is not a token, is not a header.
+ * CR or LF, no colon, or a name that is not a token is not a header.
  */
 function readHeaderLine(line: string): { readonly name: string; readonly value: string } | null {
   if (line.includes("\n") || line.includes("\r")) return null;
   const colon = line.indexOf(":");
-  if (colon <= 0) return null;
+  if (colon === -1) return null;
   const name = line.slice(0, colon);
   if (!TOKEN.test(name)) return null;
-  let start = colon + 1;
-  let end = line.length;
-  while (start < end && (line[start] === " " || line[start] === "\t")) start += 1;
-  while (end > start && (line[end - 1] === " " || line[end - 1] === "\t")) end -= 1;
-  return { name: name.toLowerCase(), value: line.slice(start, end) };
+  return { name: name.toLowerCase(), value: trimBlanks(line.slice(colon + 1)) };
+}
+
+/** Without the optional leading and trailing spaces and tabs; nothing else is whitespace to HTTP. */
+function trimBlanks(value: string): string {
+  // Both searches find the same absence in a blank value, and the slice from
+  // one past the other's end is empty.
+  const start = value.search(/[^ \t]/);
+  const end = value.search(/[^ \t][ \t]*$/);
+  return value.slice(start, end + 1);
 }
 
 function latin1(bytes: Uint8Array): string {

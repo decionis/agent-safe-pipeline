@@ -6,7 +6,7 @@
  * Anything else is a destination nobody can name, and is refused rather than
  * sent somewhere by guess.
  */
-import { readClientHello } from "./ClientHello.js";
+import { readClientHello, type ClientHelloReading } from "./ClientHello.js";
 import { readRequestHead, type RequestHeadRefusal } from "./RequestHead.js";
 
 export type InterceptProtocol = "TLS" | "HTTP";
@@ -37,7 +37,7 @@ export type DestinationRefusal =
   /** TLS or HTTP whose head does not follow its grammar. */
   | "MALFORMED";
 
-/** The most bytes read while waiting for a head; a hello or a head that needs more is refused. */
+/** The most bytes read while waiting for a head; a hello that needs more at this size is refused. */
 export const MAX_PEEK_BYTES = 65_536;
 
 /**
@@ -47,9 +47,39 @@ export const MAX_PEEK_BYTES = 65_536;
  */
 export function readDestination(bytes: Uint8Array, fallbackPort: number): DestinationReading {
   const hello = readClientHello(bytes);
+  if (hello.kind !== "NOT_TLS") return fromHello(hello, bytes.length, fallbackPort);
+  const head = readRequestHead(bytes);
+  switch (head.kind) {
+    case "NEED_MORE":
+      // The head reader bounds itself at its own maximum, well under the
+      // peek bound, so more is always worth waiting for here.
+      return { kind: "NEED_MORE" };
+    case "MALFORMED":
+      return { kind: "REFUSED", reason: "MALFORMED", protocol: "HTTP", detail: head.reason };
+    case "REQUEST":
+      return {
+        kind: "DESTINATION",
+        protocol: "HTTP",
+        host: head.host,
+        port: head.port ?? fallbackPort,
+        method: head.method,
+        target: head.target,
+      };
+    case "NOT_HTTP":
+      return { kind: "REFUSED", reason: "DESTINATION_UNKNOWN", protocol: null };
+  }
+}
+
+/** A TLS reading as a destination: the server name on the port the connection was addressed to. */
+function fromHello(
+  hello: Exclude<ClientHelloReading, { kind: "NOT_TLS" }>,
+  received: number,
+  fallbackPort: number,
+): DestinationReading {
   switch (hello.kind) {
     case "NEED_MORE":
-      return bytes.length >= MAX_PEEK_BYTES
+      // A hello still incomplete at the peek bound is not worth waiting for.
+      return received >= MAX_PEEK_BYTES
         ? { kind: "REFUSED", reason: "MALFORMED", protocol: "TLS" }
         : { kind: "NEED_MORE" };
     case "MALFORMED":
@@ -65,27 +95,5 @@ export function readDestination(bytes: Uint8Array, fallbackPort: number): Destin
         port: fallbackPort,
         alpn: hello.alpn,
       };
-    case "NOT_TLS":
-      break;
-  }
-  const head = readRequestHead(bytes);
-  switch (head.kind) {
-    case "NEED_MORE":
-      return bytes.length >= MAX_PEEK_BYTES
-        ? { kind: "REFUSED", reason: "MALFORMED", protocol: "HTTP", detail: "HEAD_TOO_LONG" }
-        : { kind: "NEED_MORE" };
-    case "MALFORMED":
-      return { kind: "REFUSED", reason: "MALFORMED", protocol: "HTTP", detail: head.reason };
-    case "REQUEST":
-      return {
-        kind: "DESTINATION",
-        protocol: "HTTP",
-        host: head.host,
-        port: head.port ?? fallbackPort,
-        method: head.method,
-        target: head.target,
-      };
-    case "NOT_HTTP":
-      return { kind: "REFUSED", reason: "DESTINATION_UNKNOWN", protocol: null };
   }
 }

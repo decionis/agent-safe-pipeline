@@ -87,8 +87,24 @@ describe("readRequestHead", () => {
       expect(readRequestHead(bytes(head.slice(0, cut))), `${cut}`).toEqual({ kind: "NEED_MORE" });
     }
     expect(readRequestHead(bytes(head)).kind).toBe("REQUEST");
-    const long = `GET / HTTP/1.1\r\nHost: a.example\r\nX: ${"y".repeat(MAX_REQUEST_HEAD_BYTES)}`;
-    expect(readRequestHead(bytes(long))).toEqual({ kind: "MALFORMED", reason: "HEAD_TOO_LONG" });
+    // A head that fills the bound exactly is read; one byte more without its
+    // terminator is refused, and a terminator beyond the bound does not save it.
+    const filled = (headLength: number): string => {
+      const fixed = "GET / HTTP/1.1\r\nHost: a.example\r\nX: ";
+      return `${fixed}${"y".repeat(headLength - fixed.length)}`;
+    };
+    expect(readRequestHead(bytes(`${filled(MAX_REQUEST_HEAD_BYTES)}\r\n\r\n`)).kind).toBe(
+      "REQUEST",
+    );
+    expect(readRequestHead(bytes(filled(MAX_REQUEST_HEAD_BYTES)))).toEqual({ kind: "NEED_MORE" });
+    expect(readRequestHead(bytes(filled(MAX_REQUEST_HEAD_BYTES + 1)))).toEqual({
+      kind: "MALFORMED",
+      reason: "HEAD_TOO_LONG",
+    });
+    expect(readRequestHead(bytes(`${filled(MAX_REQUEST_HEAD_BYTES + 100)}\r\n\r\n`))).toEqual({
+      kind: "MALFORMED",
+      reason: "HEAD_TOO_LONG",
+    });
   });
 
   it("is not HTTP when the first bytes are not a request line", () => {
@@ -97,10 +113,13 @@ describe("readRequestHead", () => {
       "hello there\r\n",
       "get / HTTP/1.1\r\n",
       "\x00\x01",
+      "xGET /path",
+      `${"A".repeat(21)} /`,
     ]) {
       expect(readRequestHead(bytes(text)), JSON.stringify(text)).toEqual({ kind: "NOT_HTTP" });
     }
     expect(readRequestHead(bytes("SSH-2.0-OpenSSH\r\n\r\n"))).toEqual({ kind: "NOT_HTTP" });
+    expect(readRequestHead(bytes(`${"A".repeat(20)} /`))).toEqual({ kind: "NEED_MORE" });
   });
 
   it("refuses a head two parsers could read differently", () => {
@@ -123,6 +142,32 @@ describe("readRequestHead", () => {
         "HEADER_INVALID",
       ],
       "an HTTP/2 preface": ["PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n", "REQUEST_LINE_INVALID"],
+      "a header with a bare CR": [
+        "GET / HTTP/1.1\r\nHost: a.example\rX: y\r\n\r\n",
+        "HEADER_INVALID",
+      ],
+      "a header with no name": [
+        "GET / HTTP/1.1\r\n: a.example\r\nHost: a.example\r\n\r\n",
+        "HEADER_INVALID",
+      ],
+      "a header line that is one token": ["GET / HTTP/1.1\r\nHostx\r\n\r\n", "HEADER_INVALID"],
+      "a version with a trailing character": [
+        "GET / HTTP/1.1x\r\nHost: a.example\r\n\r\n",
+        "REQUEST_LINE_INVALID",
+      ],
+      "an absolute target with a query and no path": [
+        "GET http://a.example?x HTTP/1.1\r\n\r\n",
+        "TARGET_INVALID",
+      ],
+      "a target whose scheme is nearly right": [
+        "GET xhttp://a.example/ HTTP/1.1\r\n\r\n",
+        "TARGET_INVALID",
+      ],
+      "a target and a host that agree on the name but not the port": [
+        "GET http://a.example:81/ HTTP/1.1\r\nHost: a.example:82\r\n\r\n",
+        "TARGET_DISAGREES_WITH_HOST",
+      ],
+      "a host with an inner space": ["GET / HTTP/1.1\r\nHost: a.example b\r\n\r\n", "HOST_INVALID"],
       "a CONNECT": [
         "CONNECT a.example:443 HTTP/1.1\r\nHost: a.example:443\r\n\r\n",
         "TARGET_INVALID",
@@ -141,25 +186,51 @@ describe("readRequestHead", () => {
 describe("parseAuthority", () => {
   it("reads names, addresses and ports, and nothing else", () => {
     expect(parseAuthority("Example.COM")).toEqual({ host: "example.com", port: null });
+    expect(parseAuthority("a.b")).toEqual({ host: "a.b", port: null });
+    expect(parseAuthority("a1.2.3.4")).toEqual({ host: "a1.2.3.4", port: null });
+    expect(parseAuthority("1.2.3.4a")).toEqual({ host: "1.2.3.4a", port: null });
     expect(parseAuthority("example.com:443")).toEqual({ host: "example.com", port: 443 });
+    expect(parseAuthority("a.example:1")).toEqual({ host: "a.example", port: 1 });
+    expect(parseAuthority("a.example:65535")).toEqual({ host: "a.example", port: 65_535 });
     expect(parseAuthority("10.0.0.1:80")).toEqual({ host: "10.0.0.1", port: 80 });
+    expect(parseAuthority("0.0.0.0")).toEqual({ host: "0.0.0.0", port: null });
+    expect(parseAuthority("255.255.255.255")).toEqual({ host: "255.255.255.255", port: null });
     expect(parseAuthority("[fe80::1]")).toEqual({ host: "[fe80::1]", port: null });
     expect(parseAuthority("[fe80::1]:8443")).toEqual({ host: "[fe80::1]", port: 8443 });
+    expect(parseAuthority("[::FFFF:10.0.0.1]")).toEqual({ host: "[::ffff:10.0.0.1]", port: null });
+    const label = "a".repeat(63);
+    const longest = [label, label, label, "a".repeat(61)].join(".");
+    expect(parseAuthority(longest)).toEqual({ host: longest, port: null });
     for (const bad of [
       "",
       "a..b",
       "-a.example",
+      "a.example-",
       "a.example:",
       "a.example:0",
       "a.example:65536",
+      "a.example:123456",
       "a.example:8o",
+      "a.example::80",
       "fe80::1",
       "[fe80::1",
       "[fe80::1]x",
+      "[fe80::1]:",
+      "x[fe80::1]",
       "[zz]",
+      "[]",
       "a.example/path",
+      "a example",
       `${"a".repeat(64)}.example`,
-      "x".repeat(261),
+      [label, label, label, "a".repeat(62)].join("."),
+      "256.1.1.1",
+      "1.2.3",
+      "1.2.3.4.5",
+      "01.2.3.4",
+      "1234.1.1.1",
+      "1.2.3.",
+      ".1.2.3",
+      "1.2..3.4",
     ]) {
       expect(parseAuthority(bad), bad).toBeNull();
     }
