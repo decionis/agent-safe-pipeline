@@ -27,7 +27,7 @@
 # journal directory, and to spawn nothing. The executor verifies that
 # posture at start and refuses to run without it.
 
-ARG NODE_BASE_IMAGE=public.ecr.aws/docker/library/node:22-alpine
+ARG NODE_BASE_IMAGE=public.ecr.aws/docker/library/node:22-alpine@sha256:b6f26b36c8ff49624cfdac716b8ea1138d606df02586a77d364bb5536a634f85
 ARG RUNTIME_BASE_IMAGE=gcr.io/distroless/nodejs22-debian12:nonroot@sha256:13593b7570658e8477de39e2f4a1dd25db2f836d68a0ba771251572d23bb4f8e
 ARG INIT_BASE_IMAGE=public.ecr.aws/docker/library/alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
 

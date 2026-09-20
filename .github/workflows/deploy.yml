@@ -1281,6 +1281,15 @@ jobs:
             "release/$RELEASE_STEM.sbom.sigstore.json" \
             "release/$RELEASE_STEM.sbom.intoto.json" \
             "release/$RELEASE_TARBALL"
+          # The signed DSSE envelopes on their own, one JSON object per line,
+          # under the name SLSA provenance travels by (`.intoto.jsonl`): what a
+          # verifier that reads envelopes rather than Sigstore bundles takes,
+          # and what the OpenSSF Scorecard's Signed-Releases check counts as
+          # provenance. Each is the bundle's own envelope, copied, not re-signed.
+          for kind in provenance sbom; do
+            jq -ce '.dsseEnvelope | select(.payloadType == "application/vnd.in-toto+json" and (.signatures | length) > 0)' \
+              "release/$RELEASE_STEM.$kind.sigstore.json" > "release/$RELEASE_STEM.$kind.intoto.jsonl"
+          done
           gh attestation trusted-root > release/trusted_root.jsonl
           gh attestation verify "release/$RELEASE_TARBALL" \
             --repo "$GITHUB_REPOSITORY" \
@@ -1476,7 +1485,7 @@ jobs:
             echo
             echo "The annotated release tag is keylessly signed by the protected deploy workflow. See [release tag signing](https://github.com/decionis/agent-safe-pipeline/blob/master/docs/release-tag-signing.md) for identity-bound verification commands."
             echo
-            echo "The CycloneDX SBOM was generated from the extracted npm tarball and contains at least five dependency components. Raw in-toto statements and their signed Sigstore bundles are attached for mirrors and offline verification."
+            echo "The CycloneDX SBOM was generated from the extracted npm tarball and contains at least five dependency components. Raw in-toto statements, their signed DSSE envelopes (\`.intoto.jsonl\`) and their Sigstore bundles are attached for mirrors and offline verification."
           } > "$RUNNER_TEMP/release-notes.md"
 
           release_args=(

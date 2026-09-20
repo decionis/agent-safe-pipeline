@@ -76,3 +76,8 @@ gh attestation verify decionis-agent-safe-pipeline-<version>.tgz \
   --bundle agent-safe-pipeline-<version>.provenance.sigstore.json \
   --custom-trusted-root trusted_root.jsonl
 ```
+
+Beside each Sigstore bundle, `agent-safe-pipeline-<version>.provenance.intoto.jsonl` (and
+`.sbom.intoto.jsonl`) is the same signed DSSE envelope on its own line, the form SLSA provenance
+travels in, for a verifier that reads envelopes rather than bundles; `.intoto.json` is the
+statement inside it, unsigned, for reading.

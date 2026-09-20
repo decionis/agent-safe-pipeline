@@ -1,0 +1,3 @@
+# Go build outputs: `go build .` names the binary after the directory, the README names it.
+/kong
+/verifying-provider
