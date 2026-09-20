@@ -17,12 +17,13 @@
 #
 # The runtime is versioned on its own, and its archives ride on the
 # repository's releases, which are tagged by the library's version: runtime
-# 0.1.0 lives under the release v0.2.0, runtime 0.2.0 under v0.3.0. Which
+# 0.1.0 lives under the release v0.2.0, runtime 0.2.0 under v0.3.0, runtime
+# 0.2.1 under v0.3.1. Which
 # release carries the archive is read from the release listing, by the
 # archive's own name, never guessed from the version.
 #
 # Settings, all optional:
-#   AGENTSAFE_VERSION         a runtime version such as 0.2.0; the latest release's otherwise
+#   AGENTSAFE_VERSION         a runtime version such as 0.2.1; the latest release's otherwise
 #   AGENTSAFE_RELEASE_TAG     the release the archive lives in, for a mirror or a test that has no listing
 #   AGENTSAFE_INSTALL_PREFIX  where bin/agentsafe and lib/agentsafe/<version> go
 #   AGENTSAFE_RELEASE_BASE    the release download base, for a mirror or a test
