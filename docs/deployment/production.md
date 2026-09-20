@@ -7,7 +7,8 @@ authority, the same claim and finalization as on a laptop.
 ## The checklist
 
 - **Pin the image by digest.** `image.digest` in the chart, or `ghcr.io/decionis/agentsafe@sha256:...`
-  on a host; `latest` never. The release notes carry the digest, and
+  on a host; `latest` never. The release notes carry the digest, which is the same on
+  `docker.io/decionis/agentsafe`, and
   `gh attestation verify oci://ghcr.io/decionis/agentsafe@<digest> --repo decionis/agent-safe-pipeline`
   checks who built it. Mirror the image into your own registry first.
 - **Enforcement, fail closed.** `gateway.mode: enforcement`, `gateway.failurePolicy: FailClosed`.

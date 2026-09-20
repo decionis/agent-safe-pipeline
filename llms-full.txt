@@ -10,7 +10,7 @@ AgentSafe is the runtime that installs: `@decionis/agentsafe`, one executable, i
 - Five-minute quickstart (install, start the gateway, send the first governed action, see the evidence, connect Decionis): https://github.com/decionis/agent-safe-pipeline/blob/master/docs/quickstart/README.md
 - Install on macOS (Homebrew, the installer, by hand): https://github.com/decionis/agent-safe-pipeline/blob/master/docs/install/macos.md
 - Install on Linux (the installer, .deb and .rpm with a hardened systemd unit, Homebrew): https://github.com/decionis/agent-safe-pipeline/blob/master/docs/install/linux.md
-- Run in Docker (ghcr.io/decionis/agentsafe, immutable tags, key as a mounted file): https://github.com/decionis/agent-safe-pipeline/blob/master/docs/install/docker.md
+- Run in Docker (ghcr.io/decionis/agentsafe, or docker.io/decionis/agentsafe at the same digest; immutable tags, key as a mounted file): https://github.com/decionis/agent-safe-pipeline/blob/master/docs/install/docker.md
 - Install on Kubernetes (the Helm chart: one Deployment in front of one Service): https://github.com/decionis/agent-safe-pipeline/blob/master/docs/install/kubernetes.md
 - Hosted (agentsafe.decionis.com, the same runtime behind one listener; not live yet): https://github.com/decionis/agent-safe-pipeline/blob/master/docs/install/hosted.md
 - HTTP interception (what is consequential, what the authority sees, what is forwarded, what each outcome means): https://github.com/decionis/agent-safe-pipeline/blob/master/docs/gateway/http-interception.md

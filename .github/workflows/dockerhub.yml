@@ -1,0 +1,146 @@
+name: Docker Hub image
+
+# The runtime image is built once, by the release job, and pushed to GHCR with
+# its digest attested. Docker Hub carries the same manifest list, copied by
+# digest from GHCR after the release: no second build, no second SBOM, one
+# digest on both registries. The release workflow calls this one when the
+# DOCKERHUB_PUBLISH_ENABLED variable is true; a maintainer dispatches it by hand
+# to publish a release that predates the variable, or to finish a release whose
+# Docker Hub step failed.
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Runtime version already published to GHCR (without the v prefix)
+        required: true
+        type: string
+    secrets:
+      DOCKERHUB_USERNAME:
+        required: true
+      DOCKERHUB_TOKEN:
+        required: true
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Runtime version already published to GHCR (without the v prefix)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish the runtime image to Docker Hub
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: dockerhub-${{ inputs.version }}
+      cancel-in-progress: false
+    permissions:
+      attestations: write
+      contents: read
+      id-token: write
+      packages: read
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+      - name: Resolve the attested GHCR image
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GHCR_ACTOR: ${{ github.actor }}
+          GHCR_TOKEN: ${{ github.token }}
+          IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/agentsafe
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_WORKFLOW: ${{ github.repository }}/.github/workflows/deploy.yml
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || {
+            echo "The version must be a semantic version without the v prefix, not '$RELEASE_VERSION'." >&2
+            exit 1
+          }
+          image="$(printf '%s' "$IMAGE_NAME" | tr '[:upper:]' '[:lower:]')"
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_ACTOR" --password-stdin
+          digest="$(docker buildx imagetools inspect "$image:$RELEASE_VERSION" --format '{{json .Manifest.Digest}}' | tr -d '"')"
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          # Only a manifest the release workflow attested is copied: the
+          # attestation is verified against that workflow's identity, so a tag
+          # pushed by anything else is refused here.
+          gh attestation verify "oci://$image@$digest" \
+            --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "$RELEASE_WORKFLOW"
+          {
+            echo "image=$image"
+            echo "digest=$digest"
+          } >> "$GITHUB_OUTPUT"
+      - name: Copy the manifest to Docker Hub
+        id: hub
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          HUB_IMAGE_NAME: docker.io/${{ github.repository_owner }}/agentsafe
+          RELEASE_VERSION: ${{ inputs.version }}
+          SOURCE_DIGEST: ${{ steps.source.outputs.digest }}
+          SOURCE_IMAGE: ${{ steps.source.outputs.image }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$DOCKERHUB_USERNAME" || -z "$DOCKERHUB_TOKEN" ]]; then
+            echo "Docker Hub publication needs the DOCKERHUB_USERNAME and DOCKERHUB_TOKEN secrets; set them, or unset the DOCKERHUB_PUBLISH_ENABLED variable." >&2
+            exit 1
+          fi
+          hub="$(printf '%s' "$HUB_IMAGE_NAME" | tr '[:upper:]' '[:lower:]')"
+          # The same tags GHCR carries: the exact version always; for a stable
+          # release also the minor, the major and latest.
+          tags=(-t "$hub:$RELEASE_VERSION")
+          if [[ "$RELEASE_VERSION" != *-* ]]; then
+            major="${RELEASE_VERSION%%.*}"
+            minor="${RELEASE_VERSION%.*}"
+            tags+=(-t "$hub:$minor" -t "$hub:$major" -t "$hub:latest")
+          fi
+          printf '%s' "$DOCKERHUB_TOKEN" | docker login docker.io -u "$DOCKERHUB_USERNAME" --password-stdin
+          # One source and no annotations: imagetools writes the index bytes it
+          # read, so the digest is the release's, and the check below is what
+          # makes that a fact rather than an expectation.
+          docker buildx imagetools create "${tags[@]}" "$SOURCE_IMAGE@$SOURCE_DIGEST"
+          digest="$(docker buildx imagetools inspect "$hub:$RELEASE_VERSION" --format '{{json .Manifest.Digest}}' | tr -d '"')"
+          if [[ "$digest" != "$SOURCE_DIGEST" ]]; then
+            echo "Docker Hub holds $digest for $hub:$RELEASE_VERSION; the attested release manifest is $SOURCE_DIGEST." >&2
+            exit 1
+          fi
+          {
+            echo "name=$hub"
+            echo "digest=$digest"
+          } >> "$GITHUB_OUTPUT"
+      - name: Attest the Docker Hub image
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ steps.hub.outputs.name }}
+          subject-digest: ${{ steps.hub.outputs.digest }}
+          push-to-registry: true
+      - name: Verify the published image attestation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE_REFERENCE: ${{ steps.hub.outputs.name }}@${{ steps.hub.outputs.digest }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          SIGNER_WORKFLOW: ${{ github.repository }}/.github/workflows/dockerhub.yml
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh attestation verify "oci://$IMAGE_REFERENCE" \
+            --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "$SIGNER_WORKFLOW"
+          {
+            echo "## Docker Hub"
+            echo
+            echo "\`${IMAGE_REFERENCE%@*}:$RELEASE_VERSION\` at \`${IMAGE_REFERENCE#*@}\`, the release's manifest, attested by this workflow."
+            echo
+            echo '```sh'
+            echo "gh attestation verify oci://$IMAGE_REFERENCE --repo $GITHUB_REPOSITORY"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
