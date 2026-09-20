@@ -1,6 +1,6 @@
 {
   "name": "@decionis/agentsafe",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "The trusted executor of the Execution Authority architecture as one deployable process: a proposal in over HTTP, a verdict from the authority, one execution on a claimed single-use grant, and the evidence of each.",
   "keywords": [
     "execution-authority",

@@ -13,7 +13,7 @@
 # in front of a boundary is not a boundary.
 services:
   agentsafe-intercept:
-    image: ghcr.io/decionis/agentsafe:${AGENTSAFE_VERSION:?the runtime version, for example 0.2.0}
+    image: ghcr.io/decionis/agentsafe:${AGENTSAFE_VERSION:?the runtime version, for example 0.2.1}
     command: ["intercept"]
     environment:
       AGENTSAFE_LOG_FORMAT: json
@@ -23,7 +23,7 @@ services:
     user: "65532:65532"
 
   agentsafe-redirect:
-    image: ghcr.io/decionis/agentsafe:${AGENTSAFE_VERSION:?the runtime version, for example 0.2.0}-init
+    image: ghcr.io/decionis/agentsafe:${AGENTSAFE_VERSION:?the runtime version, for example 0.2.1}-init
     network_mode: "service:agentsafe-intercept"
     depends_on:
       agentsafe-intercept:

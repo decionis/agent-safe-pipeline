@@ -11,8 +11,8 @@ authors:
     given-names: Festus B.
     affiliation: Decionis, Inc.
     orcid: https://orcid.org/0009-0006-4895-6046
-version: 0.3.0
-date-released: 2026-09-19
+version: 0.3.1
+date-released: 2026-09-20
 license: Apache-2.0
 repository-code: https://github.com/decionis/agent-safe-pipeline
 url: https://github.com/decionis/agent-safe-pipeline
@@ -29,6 +29,11 @@ abstract: >-
   conformance vectors and five independent implementations that pass them;
   and the self-checking adversarial corpus, including the Compromised
   Principal Test, in which a valid identity proposes an unauthorized action.
+  This release adds transparent interception beside a workload: its outbound
+  HTTP and TLS connections redirected at the network layer into an AgentSafe
+  process that reads each destination from the client's own bytes, places
+  the connection, and reports what the workload reaches, with the redirect
+  published as an init image and sidecar shapes for Kubernetes and Docker.
 keywords:
   - execution authority
   - agentic AI
@@ -41,3 +46,5 @@ keywords:
   - verifying provider
   - effect receipt
   - HTTP message signatures
+  - transparent interception
+  - sidecar

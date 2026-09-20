@@ -27,6 +27,10 @@ availability; priorities can change when security or compatibility work interven
   signing it in the response phase and the executor comparing a receipt with its own observation),
   and added the Compromised Principal Test as a canonical example, a conformance vector and a
   stated threat ([tag v0.3.0](https://github.com/decionis/agent-safe-pipeline/releases/tag/v0.3.0)).
+- `v0.3.1` added transparent interception beside a workload in its observe phase (`agentsafe
+intercept`, the redirect as the `<version>-init` image, a Kubernetes Component and a Docker
+  recipe), published the image to Docker Hub at one digest with GHCR, and recorded the three
+  publication sign-offs ([tag v0.3.1](https://github.com/decionis/agent-safe-pipeline/releases/tag/v0.3.1)).
 
 See [GitHub Releases](https://github.com/decionis/agent-safe-pipeline/releases) and the
 [release-verification guide](./CONTRIBUTING.md#releases) for immutable artifacts and verification
