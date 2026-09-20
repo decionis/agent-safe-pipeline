@@ -616,6 +616,97 @@ jobs:
           packaging/smoke/Smoke.sh /usr/bin/agentsafe "$version"
           sudo dpkg -r agentsafe
           if command -v rpm >/dev/null 2>&1; then rpm -qip release/agentsafe-*.rpm | grep -q '^Name *: agentsafe'; fi
+      # The .rpm on a distribution that installs .rpm files: Fedora, pinned by
+      # digest, in a container of this architecture. The package installs, the
+      # executable answers its version, the boundary test holds, the unit and
+      # the examples land where the Linux page says, and the package removes
+      # cleanly. Until this step the .rpm was built and never installed.
+      - name: Install and check the .rpm on Fedora
+        if: runner.os == 'Linux'
+        env:
+          FEDORA_IMAGE: public.ecr.aws/docker/library/fedora:42@sha256:99e203b80b1c3d8f7e161ec10a68fd02b081ef83a3963553e513c82846b97814
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./packages/agentsafe/package.json').version")"
+          docker run --rm -v "$PWD/release:/release:ro" -e VERSION="$version" "$FEDORA_IMAGE" bash -euxo pipefail -c '
+            ls -l /release
+            rpm -i /release/agentsafe-*.rpm
+            # The package puts the executable in /usr/bin; on this Fedora
+            # /usr/sbin is the same directory, so the name on the path is
+            # checked for being that file rather than for its spelling.
+            rpm -ql agentsafe | grep -qx /usr/bin/agentsafe
+            installed="$(command -v agentsafe || true)"
+            [ -n "$installed" ] && [ "$installed" -ef /usr/bin/agentsafe ] || { echo "agentsafe resolves to ${installed:-nothing} after rpm -i, not /usr/bin/agentsafe" >&2; exit 1; }
+            reported="$(agentsafe version || true)"
+            [ "$reported" = "$VERSION" ] || { echo "the installed agentsafe reports $reported, not $VERSION" >&2; exit 1; }
+            agentsafe test --json > /tmp/boundary.json || { cat /tmp/boundary.json >&2; exit 1; }
+            grep -q "\"verdict\":\"BOUNDARY_HOLDS\"" /tmp/boundary.json
+            for path in /usr/lib/systemd/system/agentsafe.service /etc/agentsafe/agentsafe.yaml.example /etc/agentsafe/environment.example /usr/share/doc/agentsafe/LICENSE /usr/share/doc/agentsafe/NOTICE; do
+              [ -r "$path" ] || { echo "$path missing after rpm -i" >&2; exit 1; }
+            done
+            rpm -q agentsafe | grep "^agentsafe-$VERSION"
+            rpm -e agentsafe
+            [ ! -e /usr/bin/agentsafe ] || { echo "/usr/bin/agentsafe remains after rpm -e" >&2; exit 1; }
+          '
+      # The installer, end to end, against this build served the way a release
+      # or a mirror serves it: over HTTPS, with a certificate the installer is
+      # told to trust, from a base it is pointed at. It downloads the archive
+      # and the checksums, verifies, installs under a prefix, links the
+      # executable, and the smoke test runs on what it linked. Until this step
+      # the installer was syntax-checked and never run.
+      - name: Run the installer against this build over a local mirror
+        if: runner.os == 'Linux'
+        env:
+          TARGET: ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./packages/agentsafe/package.json').version")"
+          mirror="$RUNNER_TEMP/mirror"
+          tag="v0.0.0-mirror"
+          mkdir -p "$mirror/$tag"
+          cp "release/agentsafe-$version-$TARGET.tar.gz" "$mirror/$tag/"
+          (cd "$mirror/$tag" && sha256sum "agentsafe-$version-$TARGET.tar.gz" > SHA256SUMS)
+          openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 1 \
+            -subj "/CN=mirror.localhost" -addext "subjectAltName=IP:127.0.0.1,DNS:localhost" \
+            -keyout "$RUNNER_TEMP/mirror.key" -out "$RUNNER_TEMP/mirror.crt" >/dev/null 2>&1
+          node -e '
+            const https = require("node:https"); const fs = require("node:fs"); const path = require("node:path");
+            const root = process.argv[1];
+            const server = https.createServer({ key: fs.readFileSync(process.argv[2]), cert: fs.readFileSync(process.argv[3]) }, (req, res) => {
+              const file = path.join(root, path.normalize(req.url.replace(/^\/download/, "")));
+              if (!file.startsWith(root) || !fs.existsSync(file)) { res.writeHead(404); res.end(); return; }
+              res.writeHead(200); fs.createReadStream(file).pipe(res);
+            });
+            server.listen(0, "127.0.0.1", () => { fs.writeFileSync(process.argv[4], String(server.address().port)); });
+          ' "$mirror" "$RUNNER_TEMP/mirror.key" "$RUNNER_TEMP/mirror.crt" "$RUNNER_TEMP/mirror.port" &
+          server=$!
+          for _ in $(seq 1 50); do [ -s "$RUNNER_TEMP/mirror.port" ] && break; sleep 0.1; done
+          port="$(cat "$RUNNER_TEMP/mirror.port")"
+          prefix="$RUNNER_TEMP/installed"
+          mkdir -p "$prefix/bin" "$prefix/lib"
+          AGENTSAFE_RELEASE_BASE="https://127.0.0.1:$port/download" \
+            AGENTSAFE_RELEASE_CA="$RUNNER_TEMP/mirror.crt" \
+            AGENTSAFE_RELEASE_TAG="$tag" \
+            AGENTSAFE_VERSION="$version" \
+            AGENTSAFE_INSTALL_PREFIX="$prefix" \
+            sh packaging/install.sh
+          [ "$("$prefix/bin/agentsafe" version)" = "$version" ]
+          [ -L "$prefix/bin/agentsafe" ]
+          packaging/smoke/Smoke.sh "$prefix/bin/agentsafe" "$version"
+          # A tampered archive is refused before anything is installed.
+          printf 'tampered' >> "$mirror/$tag/agentsafe-$version-$TARGET.tar.gz"
+          rm -rf "$prefix" && mkdir -p "$prefix/bin" "$prefix/lib"
+          if AGENTSAFE_RELEASE_BASE="https://127.0.0.1:$port/download" AGENTSAFE_RELEASE_CA="$RUNNER_TEMP/mirror.crt" \
+            AGENTSAFE_RELEASE_TAG="$tag" AGENTSAFE_VERSION="$version" AGENTSAFE_INSTALL_PREFIX="$prefix" \
+            sh packaging/install.sh 2>"$RUNNER_TEMP/refusal.txt"; then
+            echo "the installer installed a tampered archive" >&2
+            exit 1
+          fi
+          grep -q "checksum mismatch" "$RUNNER_TEMP/refusal.txt"
+          [ ! -e "$prefix/bin/agentsafe" ]
+          kill "$server"
       - name: Upload runtime artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

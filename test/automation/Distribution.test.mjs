@@ -128,6 +128,33 @@ describe("the workflow", () => {
     const steps = distribution.steps.map((step) => step.name);
     assert.ok(steps.includes("Build, archive and smoke-test the executable"));
     assert.ok(steps.includes("Build, install and smoke-test the Linux packages"));
+    // The .rpm is installed where .rpm files install, and the installer runs
+    // against the build over a mirror it is told to trust, both on Linux only.
+    const fedora = distribution.steps.find(
+      (step) => step.name === "Install and check the .rpm on Fedora",
+    );
+    assert.equal(fedora.if, "runner.os == 'Linux'");
+    assert.match(
+      fedora.env.FEDORA_IMAGE,
+      /^public\.ecr\.aws\/docker\/library\/fedora:\d+@sha256:[0-9a-f]{64}$/,
+    );
+    assert.match(fedora.run, /rpm -i \/release\/agentsafe-\*\.rpm/);
+    assert.match(fedora.run, /rpm -ql agentsafe \| grep -qx \/usr\/bin\/agentsafe/);
+    assert.match(fedora.run, /\[ "\$installed" -ef \/usr\/bin\/agentsafe \]/);
+    assert.match(fedora.run, /agentsafe test --json/);
+    assert.match(fedora.run, /rpm -e agentsafe/);
+    const installer = distribution.steps.find(
+      (step) => step.name === "Run the installer against this build over a local mirror",
+    );
+    assert.equal(installer.if, "runner.os == 'Linux'");
+    assert.match(installer.run, /AGENTSAFE_RELEASE_BASE="https:\/\/127\.0\.0\.1:\$port\/download"/);
+    assert.match(installer.run, /AGENTSAFE_RELEASE_CA="\$RUNNER_TEMP\/mirror\.crt"/);
+    assert.match(installer.run, /sh packaging\/install\.sh/);
+    assert.match(
+      installer.run,
+      /packaging\/smoke\/Smoke\.sh "\$prefix\/bin\/agentsafe" "\$version"/,
+    );
+    assert.match(installer.run, /grep -q "checksum mismatch"/);
     const build = distribution.steps.find(
       (step) => step.name === "Build, archive and smoke-test the executable",
     );
