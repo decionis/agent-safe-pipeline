@@ -1,0 +1,3 @@
+# Go build outputs: `go build ./cmd/extauthz` and the plain `go build .` name.
+/extauthz
+/envoy

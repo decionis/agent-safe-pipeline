@@ -18,8 +18,11 @@ on:
     - cron: "23 5 * * *"
   workflow_dispatch:
 
+# The token's write is the one job's, to push the metrics branch; the workflow
+# as a whole reads. A top-level write is what the OpenSSF Scorecard's
+# Token-Permissions check scores at zero, and rightly: every job would hold it.
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: repository-metrics
@@ -30,6 +33,8 @@ jobs:
     name: Collect and record
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: write
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
