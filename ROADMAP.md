@@ -31,6 +31,15 @@ availability; priorities can change when security or compatibility work interven
 intercept`, the redirect as the `<version>-init` image, a Kubernetes Component and a Docker
   recipe), published the image to Docker Hub at one digest with GHCR, and recorded the three
   publication sign-offs ([tag v0.3.1](https://github.com/decionis/agent-safe-pipeline/releases/tag/v0.3.1)).
+- `v0.3.3` ships Govern, the workflow gate: one static binary for GitHub Actions, GitLab CI,
+  Jenkins and any other runner that captures a CI step as an execution intent, asks Decionis
+  through `enforce-and-bind`, runs the command only on a claimed grant, holds an escalated step
+  for a person, and finalizes the outcome into the Decision Dossier, with no local policy engine;
+  built twice per platform and shipped only when identical, listed in `SHA256SUMS`, attested, with
+  a Homebrew formula, a verifying installer, a signed `govern/v2.0.0` module tag, an action that
+  downloads the archive its commit pins, `govern init` for a repository's starter files, and
+  `decionis/govern@v2` as the Marketplace address
+  ([tag v0.3.3](https://github.com/decionis/agent-safe-pipeline/releases/tag/v0.3.3)).
 - `v0.3.2` governs from the transparent interceptor what it first observed (TLS terminated under
   an operator's authority for the destinations named, the gateway's lifecycle over each request,
   ADR 0005), prints the shadow report on its own cadence with the Compromised Principal Test
@@ -73,10 +82,10 @@ not imply a release date.
   tap, an installer that verifies before it installs, and a signed `govern/v<version>` module tag
   for `go install`); the action downloads the archive its commit pins and verifies it before
   running, building the same bytes from the commit when no archive exists yet; `govern init`
-  writes a repository's starter files; [`docs/govern.md`](./docs/govern.md) is the page. Still to
-  come: `decionis/govern` kept as the Marketplace address, a thin action over this one; a Windows
-  archive; a govern SBOM; and, on the Decionis side, the public verify link on decisions govern
-  makes.
+  writes a repository's starter files; [`docs/govern.md`](./docs/govern.md) is the page;
+  `decionis/govern@v2` is the Marketplace address, a thin action over this one. Still to come: a
+  Windows archive; a govern SBOM; and, on the Decionis side, the public verify link on decisions
+  govern makes.
 - Make native verification a deployment location rather than a product: the
   [Verifying Provider Profile](./docs/authority/verifying-provider.md) states the provider's half
   of the boundary normatively, with [vectors](./conformance/provider/README.md) any implementation
