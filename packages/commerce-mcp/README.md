@@ -26,7 +26,7 @@ Outcomes map to the operator vocabulary used across Commerce Gate: APPROVE → P
 CommerceGate requires Node.js 20 or later. Start the pinned public package with:
 
 ```sh
-npx -y @decionis/commerce@0.1.4
+npx -y @decionis/commerce@0.1.5
 ```
 
 The process starts without credentials for capability discovery. For an unconfigured local STDIO client on macOS or Linux, the first valid `commercegate_evaluate_action` call creates a provisional Shadow workspace without a registration form. It reuses that workspace on later calls and restarts. Discovery, invalid input, evidence reads, and ERP calls never create a workspace. Provisional access is subject to the service's trial limits and cannot authorize ERP transactions.
@@ -44,7 +44,7 @@ Optionally forward existing credentials and local access preferences from the en
 ```toml
 [mcp_servers.commercegate]
 command = "npx"
-args = ["-y", "@decionis/commerce@0.1.4"]
+args = ["-y", "@decionis/commerce@0.1.5"]
 env_vars = ["DECIONIS_API_KEY", "DECIONIS_ORG_ID", "DECIONIS_API_BASE", "AGENTOPS_HOME", "AGENTOPS_AUTO_PROVISION"]
 enabled = true
 required = false
@@ -173,7 +173,9 @@ runtime's `Mcp-Session-Id` is echoed), and `GET /ping` with
 `{"status":"Healthy"}`. There is no server-initiated stream.
 
 The AgentOps container is free on Marketplace; service usage is billed
-through the AgentSaaS subscription, the API-based Marketplace product.
+through the AgentSaaS subscription, the API-based Marketplace product. Buyers
+pay their own AWS runtime and related infrastructure charges. No measured
+compute-cost, latency or throughput improvement is claimed here.
 
 For local use, put your workspace's `DECIONIS_API_KEY` and `DECIONIS_ORG_ID`
 in an untracked `agentops.env` file. `DECIONIS_API_BASE` is optional and
@@ -202,6 +204,66 @@ Keep this server behind AgentCore's authenticated runtime in production.
 publishes and attests the image. Publication tags the same digest with the
 package version and `latest`; listing versions use the pinned digest.
 
+### Historical assessment in managed HTTP
+
+Managed HTTP retains all seven tools above and adds a 90-day historical
+assessment feature. This feature does not replace proposal evaluation,
+Dynamics 365 authorization or their existing permission boundaries. The STDIO
+package and Claude Desktop wrapper retain their seven-tool contract.
+
+| Additional HTTP tool                       | Purpose                                                                        |
+| ------------------------------------------ | ------------------------------------------------------------------------------ |
+| `commercegate_list_history_sources`        | List the synthetic dataset and already connected stores available to the buyer |
+| `commercegate_start_historical_assessment` | Persist an idempotent assessment of the previous 90 days                       |
+| `commercegate_get_historical_assessment`   | Read its immutable summary, provenance, policy and bounded evidence            |
+
+These tools require the Commerce Gate `/aws` gateway with its historical
+service deployed and enabled, plus a currently valid, server-verified AWS
+grant. A package or image release alone does not enable the service. Use the
+durable AgentSaaS access secret described above, or explicitly configure its
+key and `DECIONIS_API_BASE=https://commerce.decionis.com/aws`. History requests
+derive the workspace from the credential and never send an organization
+override. Grant eligibility and expiry are verified by the service on each
+request; the container does not invent an expiry or extend a trial.
+
+The AWS trial lasts **14 days** and uses a synthetic dataset representing
+90 days of commerce history. It does not require live customer data. Real
+assessments currently read an already verified Adobe Commerce store connection; there is no CSV,
+generic transaction upload or store-connection tool in this contract. The
+client never creates an anonymous HTTP trial.
+
+First list sources, then call the start tool with:
+
+```json
+{
+  "source": { "kind": "synthetic" },
+  "idempotency_key": "history-demo-1"
+}
+```
+
+For real history, use `{"kind":"connected_store","connection_id":"<listed UUID>"}`
+as the source. The service fixes the 90-day window, timestamps, policy and
+transactions. Callers cannot supply replacement dates, policies or raw
+transactions. Reuse the same idempotency key only for a retry of the same
+assessment, then read its `assessment_id` to retrieve the stored result.
+
+Summaries retain missing costs, excluded timestamps and evaluation failures.
+Synthetic results identify a sample policy; real-store results identify the
+merchant policy. Historical `PROCEED` is a retrospective classification, not
+permission to execute an action. Evidence includes at most 100 records with
+hashed identifiers. The initial service scans at most 100 source records, so
+`coverage.complete` and `truncated` must be checked before treating a result as
+complete for the interval. Missing costs or unavailable policy must not be
+presented as successful evaluation. A failed assessment may have `policy: null`.
+A null `proof_ref` means no
+signed proof is available; sample margin calculations must not be described
+as signed Decision Dossiers. No history tool executes a platform write.
+
+The history transport accepts only the exact `/aws` prefix, rejects redirects,
+limits responses to 100 KiB and validates returned source, policy, window,
+assessment identity and evidence. Errors omit upstream bodies and credentials.
+There is no fallback to another tenant, source or prospective evaluation.
+
 ## Develop from source
 
 ```sh
@@ -215,11 +277,11 @@ pnpm --silent --filter @decionis/commerce mcp
 
 CommerceGate MCP talks to the configured Decionis API. Managed deployments using `AGENTOPS_ACCESS_SECRET_ARN` also contact AWS Secrets Manager through the AWS SDK credential chain. It has no telemetry, analytics, or crash reporting. The full Decionis privacy policy is at <https://decionis.com/privacy>; this section describes what this server specifically does.
 
-**What it collects.** The first valid unconfigured local Shadow call sends the fixed agent name "AgentOps MCP Shadow" to obtain a provisional workspace. Other application data comes from tool inputs: the commerce facts being checked (SKU, current and new price or quantity, landed cost, order amounts, discount, refund amount and reason, promotion facts, actor type and a non-secret actor identifier, platform, idempotency key), a dossier UUID for evidence reads, and a report window for Shadow reports. It reads only its configured credentials and local access files; it does not read browser data, the clipboard, or unrelated machine data.
+**What it collects.** The first valid unconfigured local Shadow call sends the fixed agent name "AgentOps MCP Shadow" to obtain a provisional workspace. Other application data comes from tool inputs: the commerce facts being checked (SKU, current and new price or quantity, landed cost, order amounts, discount, refund amount and reason, promotion facts, actor type and a non-secret actor identifier, platform, idempotency key), a dossier UUID for evidence reads, and a report window for Shadow reports. The additional managed HTTP history tools send only a selected synthetic source or connected-store UUID, idempotency key, or assessment UUID; they do not accept uploaded customer transactions. The service reads authorized connected-store history separately. The server reads only its configured credentials and local access files; it does not read browser data, the clipboard, or unrelated machine data.
 
 **Where it goes and why.** Tool inputs are sent over HTTPS to the Decionis API to evaluate them against your organization's policy and to read evidence you already own. The request carries your `DECIONIS_API_KEY` as a bearer token, your `DECIONIS_ORG_ID` to scope the call to your organization, and a `user-agent` naming this package and version. Credentials come from the process environment, private local access storage, or the configured AWS secret. Keys and claim tokens are never returned in tool results or written to logs.
 
-**What is stored.** Decionis stores the evaluation as a signed Decision Dossier in your organization's workspace so it can be verified later; that is the product. Retention follows your Decionis plan and the Decionis privacy policy. Local trial access persists its credential, tenant binding, and setup marker in the private AgentOps directory. Managed AWS credentials remain in Secrets Manager and process memory; the server does not persist them locally. There is no tool-input cache, log file, or local evidence database. On a failed request it writes one fixed line to stderr with no request contents.
+**What is stored.** Existing Protocol policy evaluations may produce signed Decision Dossiers in your organization's workspace. Historical assessments instead persist their immutable summary, source and policy provenance, hashed record identifiers, and inline evaluation results; those results are unsigned when `proof_ref` is null. Do not describe a synthetic assessment as a signed dossier. Retention follows your Decionis plan and the Decionis privacy policy. Local trial access persists its credential, tenant binding, and setup marker in the private AgentOps directory. Managed AWS credentials remain in Secrets Manager and process memory; the server does not persist them locally. There is no tool-input cache, log file, or local evidence database. On a failed request it writes one fixed line to stderr with no request contents.
 
 **Third parties.** Managed secret access uses AWS; commerce tool inputs still go only to the configured Decionis API. Decionis does not sell or share tool inputs. Your MCP client (Claude Desktop, Codex, VS Code or another host) may log tool calls under its own policy.
 

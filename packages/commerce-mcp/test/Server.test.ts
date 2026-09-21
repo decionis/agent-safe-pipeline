@@ -43,7 +43,7 @@ describe("CommerceGateMcpHandler", () => {
       id: 1,
       result: {
         protocolVersion: "2025-06-18",
-        serverInfo: { name: "commercegate", version: "0.1.4" },
+        serverInfo: { name: "commercegate", version: "0.1.5" },
         instructions: COMMERCEGATE_MCP_INSTRUCTIONS,
       },
     });

@@ -1,22 +1,13 @@
 #!/usr/bin/env node
 
-import { CommerceGateClient } from "./CommerceGateClient.js";
-import { CommerceGateConfiguration } from "./Configuration.js";
 import { CommerceGateHttpServer, DEFAULT_HTTP_HOST, DEFAULT_HTTP_PORT } from "./Http.js";
-import { createMcpHandler, CommerceGateStdioServer } from "./Server.js";
-import { CommerceGateTools } from "./Tools.js";
-import { runtimeAccess } from "./Access.js";
+import { CommerceGateStdioServer } from "./Server.js";
+import { createRuntimeHandler } from "./Runtime.js";
 
 const transport = process.argv.includes("--http")
   ? "http"
   : (process.env.MCP_TRANSPORT ?? "stdio").trim().toLowerCase();
-const configuration = new CommerceGateConfiguration(
-  process.env,
-  runtimeAccess(process.env, transport),
-);
-const client = new CommerceGateClient(configuration);
-const tools = new CommerceGateTools(configuration, client).build();
-const handler = createMcpHandler(tools);
+const handler = createRuntimeHandler(process.env, transport);
 
 // Stdio for a desktop or a local agent; streamable HTTP (`--http`, or
 // MCP_TRANSPORT=http) for a container Amazon Bedrock AgentCore Runtime proxies

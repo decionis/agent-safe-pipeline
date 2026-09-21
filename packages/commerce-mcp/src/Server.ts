@@ -128,7 +128,10 @@ class BoundedLineFramer {
 export class CommerceGateMcpHandler {
   private readonly byName: Map<string, ToolDefinition>;
 
-  constructor(private readonly tools: ToolDefinition[]) {
+  constructor(
+    private readonly tools: ToolDefinition[],
+    private readonly instructions: string = COMMERCEGATE_MCP_INSTRUCTIONS,
+  ) {
     this.byName = new Map(tools.map((tool) => [tool.name, tool]));
   }
 
@@ -157,7 +160,7 @@ export class CommerceGateMcpHandler {
           protocolVersion,
           capabilities: { tools: { listChanged: false } },
           serverInfo: { name: "commercegate", version: MCP_SERVER_VERSION },
-          instructions: COMMERCEGATE_MCP_INSTRUCTIONS,
+          instructions: this.instructions,
         });
       }
       case "ping":
@@ -277,7 +280,7 @@ export class CommerceGateStdioServer {
   }
 }
 
-export function createMcpHandler(tools: ToolDefinition[]) {
-  const handler = new CommerceGateMcpHandler(tools);
+export function createMcpHandler(tools: ToolDefinition[], instructions?: string) {
+  const handler = new CommerceGateMcpHandler(tools, instructions);
   return (message: unknown): Promise<JsonRpcResponse | null> => handler.handle(message);
 }

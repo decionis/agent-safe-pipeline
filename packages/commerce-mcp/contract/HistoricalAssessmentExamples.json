@@ -1,0 +1,646 @@
+{
+  "fixture_only": true,
+  "source": "decionis/Commerce connectors/aws/src/historical/HistoricalAssessments.ts",
+  "generation": "Real service with an isolated in-memory store, fixed clock, synthetic source and denied connected source; no customer, credential or live license data.",
+  "clock": "2026-09-21T04:00:00.000Z",
+  "completed": {
+    "assessment_id": "11111111-1111-4111-8111-111111111111",
+    "status": "completed",
+    "mode": "historical_only",
+    "window": {
+      "days": 90,
+      "start": "2026-06-23T04:00:00.000Z",
+      "end": "2026-09-21T04:00:00.000Z",
+      "timestamp_field": "transaction_at"
+    },
+    "provenance": {
+      "kind": "synthetic",
+      "label": "Synthetic commerce history",
+      "dataset_version": "commerce-history-v1"
+    },
+    "policy": {
+      "kind": "sample",
+      "version": "synthetic-margin-v1",
+      "floor_percent": 12
+    },
+    "summary": {
+      "transactions_scanned": 90,
+      "evaluated": 81,
+      "missing_cost": 9,
+      "excluded_timestamp": 0,
+      "evaluation_errors": 0,
+      "allow": 63,
+      "hold": 18,
+      "escalate": 0
+    },
+    "evidence": [
+      {
+        "record_id": "db34e0f0e77aa3914721e738fe1dc3c9856d31f3d51b2c2a8c92807270d6a8e5",
+        "transaction_at": "2026-09-19T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "fb2e85c77472ee8020d319f89b68e2fb9e0aff0b27220f1e4d4dae10c64fab96",
+        "transaction_at": "2026-09-18T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "61a8175f391ff3ff69a631cb870eab79a8cf3e6e89541398cd6fcfc9bd0e03f1",
+        "transaction_at": "2026-09-17T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "e779eaca02958dcecc6205b3211c5109dfed99db3333b1cd94b3cd1065bf50c2",
+        "transaction_at": "2026-09-16T04:00:01.000Z",
+        "decision": "HOLD",
+        "reason_codes": ["MARGIN_BELOW_FLOOR"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "689eea5aedd4b37758f7f5d041876e34f5a45dc193fd73ce95a1312cebb39e8e",
+        "transaction_at": "2026-09-15T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "35774ebbb9e7fbfdc47267eb0e42083b55911b76653c43db08d5eaa366f3f741",
+        "transaction_at": "2026-09-14T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "a24f9bb408c83c3e5e427cfd7c560d71f75647c572ecb37ca9f6bcf731db2a92",
+        "transaction_at": "2026-09-13T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "944e876a98954ef03d4da429fbf9acad8f6eeffc73f36bab0ca90ea97470f072",
+        "transaction_at": "2026-09-12T04:00:01.000Z",
+        "decision": "HOLD",
+        "reason_codes": ["MARGIN_BELOW_FLOOR"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "18598981c5dbd66dee71480e65bb63baabdb21b2af3e60d8dbeca6de61310381",
+        "transaction_at": "2026-09-11T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "85e306f1f1383fa7c884f3fd1d236c946cbc793fcbdd7fbfed353ea16a8d197f",
+        "transaction_at": "2026-09-09T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "e0f934d34d32078b35286537c5f5b0b9ac619a8826cd15823f560e53dab83065",
+        "transaction_at": "2026-09-08T04:00:01.000Z",
+        "decision": "HOLD",
+        "reason_codes": ["MARGIN_BELOW_FLOOR"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "952f876984d341c69c856d4e478acda5b5962ef65028a9a87708e60510b03fec",
+        "transaction_at": "2026-09-07T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "162fb99b9dc87dec65a2493381832d9fc1ced47ac68faa64a7f2d551e71e6fee",
+        "transaction_at": "2026-09-06T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "1c02bab8fa838d98f2829784af064d130e59b5321181f3e09e4ecdb35a4419c8",
+        "transaction_at": "2026-09-05T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "35b34d8708bb69f0cc5c349ffab9c4a683f0512b627ddb79b7db8fc17bc97d08",
+        "transaction_at": "2026-09-04T04:00:01.000Z",
+        "decision": "HOLD",
+        "reason_codes": ["MARGIN_BELOW_FLOOR"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "ddcd74f0abef2fe95bdede093d6a3ccc510f6622e6edcc2519cea30bfb46ffd7",
+        "transaction_at": "2026-09-03T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "cc95c7e45c866fe881b68961a736bd9c7e895afee31dc3b95df2b4cecc753db3",
+        "transaction_at": "2026-09-02T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "bf9b081ce9c0f657e53e476ae0fcb9a8cc7c6e62ac648c42633e1d58084134c6",
+        "transaction_at": "2026-09-01T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "a04393d51aef055ac5bb03e4307a8339ec0a06d3b4588471708e8a1a82b3f443",
+        "transaction_at": "2026-08-30T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "185619ecadae96853c49edcc4bc04f1104158cae97d5d0993647ab513f6fb92b",
+        "transaction_at": "2026-08-29T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "ee52a97e844babeafca6cd38e239d7431e58819145b076666cc861f9ce6e4a17",
+        "transaction_at": "2026-08-28T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "61608575b1991ad4fdf0b4262b81ce647c9a01d35c1cd5a740dd0f515838fd44",
+        "transaction_at": "2026-08-27T04:00:01.000Z",
+        "decision": "HOLD",
+        "reason_codes": ["MARGIN_BELOW_FLOOR"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "36a511df3386e9e02e4259f346d7ee0194c14ebceba688e62fbf37c2a5eeca38",
+        "transaction_at": "2026-08-26T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "67d3d3aa3871997064a0047ae1b6721d7d97d3802dd50ae077c57902a53792a7",
+        "transaction_at": "2026-08-25T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "698e2695a190ec6d27e8557ccb110c84454b5924b805fbb3e180ca834bacf654",
+        "transaction_at": "2026-08-24T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "bb73b4e38202bf0ae665a8abc25a094505eb740b884c62abffe43ea0e3a04cd4",
+        "transaction_at": "2026-08-23T04:00:01.000Z",
+        "decision": "HOLD",
+        "reason_codes": ["MARGIN_BELOW_FLOOR"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "1ba62f1c66e91d8982b6d147523498205f659a753550db53781b12b25acca07d",
+        "transaction_at": "2026-08-22T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "4236c47d0f04f4788fef15bbb55d95029f73fea81fef88cfb2c85fc49930bdd3",
+        "transaction_at": "2026-08-20T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "381a610720175063089ed42cd716f8772f2b4a38b07518e0f39952fcd84eb36f",
+        "transaction_at": "2026-08-19T04:00:01.000Z",
+        "decision": "HOLD",
+        "reason_codes": ["MARGIN_BELOW_FLOOR"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "7af2d293f14594517c027f88b4094af8f57a43f03cacd68e96a69fc51e1c530d",
+        "transaction_at": "2026-08-18T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "414f5be7d2129c0042e537d81287841b41b9e86ebd42153461a1ca252e1d4e9b",
+        "transaction_at": "2026-08-17T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "901653cce8523c064993482ad77ca462d78fd6ed3e6b0bd72f2b875e949f7704",
+        "transaction_at": "2026-08-16T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "478a6a56a283ad1ace1787d0c166e9d5a876b7afbae9dc060d477b1a3bc617e3",
+        "transaction_at": "2026-08-15T04:00:01.000Z",
+        "decision": "HOLD",
+        "reason_codes": ["MARGIN_BELOW_FLOOR"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "c3cde2dc98c3d86c8ea15b291b9c8b505e8276c1c4def2005a53be5b579fef00",
+        "transaction_at": "2026-08-14T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "80b412474908b64dd74fcabb3335ff66b1f6334f9281f2fc5c54d2757c81649e",
+        "transaction_at": "2026-08-13T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "f1aad6e2fa6d842e3fcd107435484dcf1d14593dfad267a4b86cc6458ad8eba9",
+        "transaction_at": "2026-08-12T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "9b9372a115645017896a0f04793217cb771d8c49c85a32d5991760aec59ff88c",
+        "transaction_at": "2026-08-10T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "0708b9f4cf9f717213ea9f2085d9af62a881be3576b19a9657398871be022b93",
+        "transaction_at": "2026-08-09T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "3e21f5f623af5537c838db2bf27d8dea58c323632d4fa6beb6756a0913d696cb",
+        "transaction_at": "2026-08-08T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "c0b674177ad423c1be0cd6df21120eb239126907016adeb8dcc2d3165166b56f",
+        "transaction_at": "2026-08-07T04:00:01.000Z",
+        "decision": "HOLD",
+        "reason_codes": ["MARGIN_BELOW_FLOOR"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "73a87a22cd7b4b9f9355d3158eafbd21b055b78cf4d05e94f859f82a63377bf3",
+        "transaction_at": "2026-08-06T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "ea47d93aa58c5434e9c1210705ae07233c78f6f141ac3cb193a04576d10f4f66",
+        "transaction_at": "2026-08-05T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "dd36ba72e988823383d20b320730292c54a4d9a6ed205ed63e3870329fbec4c8",
+        "transaction_at": "2026-08-04T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "462a971edd2a4629f9ba6eef31ac5376c93304551d21a4e71f6f19af2e4de2f4",
+        "transaction_at": "2026-08-03T04:00:01.000Z",
+        "decision": "HOLD",
+        "reason_codes": ["MARGIN_BELOW_FLOOR"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "f65400d5e04c574c16b090d2ce02639b59b9887f133a63ec7c7179bb717e66ec",
+        "transaction_at": "2026-08-02T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "bed5b1c93557d2ed0749a04f3fe05e45844accc86cb0809a48aa738f2203f4ff",
+        "transaction_at": "2026-07-31T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "6e6b16e32391ca70c46eaa7c01fe502c7ecfbc1e6b55fdf9b59105a8b370c59b",
+        "transaction_at": "2026-07-30T04:00:01.000Z",
+        "decision": "HOLD",
+        "reason_codes": ["MARGIN_BELOW_FLOOR"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "41fdde2da6e3641b1c5d2848d5bb46b5de7045c74d8e6fc1b6719ac3b587e905",
+        "transaction_at": "2026-07-29T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "729b31e0b4dd327c01ef7c399adc503e1d93ce1a80fa99e479a30c5999f7d7b9",
+        "transaction_at": "2026-07-28T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "41d5c65f8c05058313312d8b16b88cfd1fad27e0d7493b5bd4beeb804822efc9",
+        "transaction_at": "2026-07-27T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "7e27ab0658848cce00e3d4a5a61f5d5a114419292dd671ba4f795b05229fc5cc",
+        "transaction_at": "2026-07-26T04:00:01.000Z",
+        "decision": "HOLD",
+        "reason_codes": ["MARGIN_BELOW_FLOOR"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "9a7728e7830c78992f20fb6bedc785bdf3f805243e53244b51b6640b227b3e5f",
+        "transaction_at": "2026-07-25T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "fa7264c5570a829195bde3898da576af9c1f6848f52dc478e534cea30ec2ae8c",
+        "transaction_at": "2026-07-24T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "728837faa820bf9f8af08733e34708878e95538bd06ccb1b358f54b72f773da3",
+        "transaction_at": "2026-07-23T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "8710526dea7b0ac6314262cc531469b707919dbc3403cbaf4b2461885798953b",
+        "transaction_at": "2026-07-21T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "4cf3a9f3ecf8da8ead748eabe86b4be3352f4a31720ad4482a33bbbe0276b3e7",
+        "transaction_at": "2026-07-20T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "b580df713c47740e5e4bbce99cd42db865f24e5c66412fe4387ab94905123b5c",
+        "transaction_at": "2026-07-19T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "0475d2f62bb6545c2b0335f50627a6a497a474599d5b0592006dd17510580613",
+        "transaction_at": "2026-07-18T04:00:01.000Z",
+        "decision": "HOLD",
+        "reason_codes": ["MARGIN_BELOW_FLOOR"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "d885fb2a2424f60cc89598df94c4378ecdf7c7e0b46fc87e6f54479c14f616aa",
+        "transaction_at": "2026-07-17T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "8995b3631f819f06a99f2bea6da8ade8e88388a26c8858373b296310367fdc50",
+        "transaction_at": "2026-07-16T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "097ade4900be1a76175fcc3c2487695fd8a948061d67f6444b81429f3bd9bddf",
+        "transaction_at": "2026-07-15T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "2958f0a2bcf4e6d4156268540a38ca78545ea7858c7de7721a18e4378d6ed819",
+        "transaction_at": "2026-07-14T04:00:01.000Z",
+        "decision": "HOLD",
+        "reason_codes": ["MARGIN_BELOW_FLOOR"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "ba614620ab1fbbb4508d38e80e692dc8643f334fc748cb1bd3010ea1ece6f561",
+        "transaction_at": "2026-07-13T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "0e4eac9654a42a102c09eb0dfe43fb2412d0ac472dc4d91f234c2e1f38bd2843",
+        "transaction_at": "2026-07-11T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "9528d3c3d39be77e21b65ee5b0547b91bea0b0643247d966b8fdd729d65fc166",
+        "transaction_at": "2026-07-10T04:00:01.000Z",
+        "decision": "HOLD",
+        "reason_codes": ["MARGIN_BELOW_FLOOR"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "71bd4558345b43d34750e8d9e440d8d192827c74ef3220d180a4448815aac01c",
+        "transaction_at": "2026-07-09T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "e8fd2ea7a0de3e71c62adcc3c1adc0c3f1b8f733e9c8e0d5f6dcb4777be47a23",
+        "transaction_at": "2026-07-08T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "6f818e2474bb422766efe6692f4e6683299bb6dbb9438dcf619a6863a7f88d63",
+        "transaction_at": "2026-07-07T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "cc809fc2569597512b7177f020377b5ebfe1b5696cc48d732c7d6d1eeed76019",
+        "transaction_at": "2026-07-06T04:00:01.000Z",
+        "decision": "HOLD",
+        "reason_codes": ["MARGIN_BELOW_FLOOR"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "fba14f862519a3653f4ba2370fa06eeadba2262bbb29ed4e237f8fdf82d93c5c",
+        "transaction_at": "2026-07-05T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "1a52bd96fe85c2f75e6a78f321e35d70ffa2ec3319b1dfcd53ea001e93557ef9",
+        "transaction_at": "2026-07-04T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "acd93b9dccfbc30f1e112d378ecdfe266da24e410bb6b5e7b7f385bfce67ba1c",
+        "transaction_at": "2026-07-03T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "f2c4c92400d9d8808710f5ba7c73f8080deabf9849ba4b27aaeb5d69a338831e",
+        "transaction_at": "2026-07-01T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "229833ff362a8a880ccb1cf912bd337111ae98da06430059e1be9313d2734188",
+        "transaction_at": "2026-06-30T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "b12c595af0552c1465dd8008b0e0cec69c3aed0eca31167224848ba520a70986",
+        "transaction_at": "2026-06-29T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "3cf827edd6b061dd164757021f3b12f2dfed009aebe5f24f50092c5db4a80b6f",
+        "transaction_at": "2026-06-28T04:00:01.000Z",
+        "decision": "HOLD",
+        "reason_codes": ["MARGIN_BELOW_FLOOR"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "27ef109dac290258ce5c2349355813a0b845c2207847d55c60cea4246a0b3d55",
+        "transaction_at": "2026-06-27T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "7bae96ee1af99a61945058924d0b35ec1b39c5d964ee69c02e052785ef2eead8",
+        "transaction_at": "2026-06-26T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "ef241eaf74eca924c1e4eafe038f6a14b643eb7f6c7720be070409ee7ce78094",
+        "transaction_at": "2026-06-25T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "e39c44acbcc8fa661638ff0bc3d7920d37720a2f670482b611e29b8b50adaabd",
+        "transaction_at": "2026-06-24T04:00:01.000Z",
+        "decision": "HOLD",
+        "reason_codes": ["MARGIN_BELOW_FLOOR"],
+        "proof_ref": null
+      },
+      {
+        "record_id": "626f85222d8da8ba237b2462902c87a1f53ec2e783313f5c3eda2419eff9f042",
+        "transaction_at": "2026-06-23T04:00:01.000Z",
+        "decision": "PROCEED",
+        "reason_codes": ["MARGIN_PASSED"],
+        "proof_ref": null
+      }
+    ],
+    "coverage": {
+      "record_limit": 100,
+      "complete": false
+    },
+    "truncated": false
+  },
+  "failed": {
+    "assessment_id": "11111111-1111-4111-8111-111111111111",
+    "status": "failed",
+    "mode": "historical_only",
+    "window": {
+      "days": 90,
+      "start": "2026-06-23T04:00:00.000Z",
+      "end": "2026-09-21T04:00:00.000Z",
+      "timestamp_field": "transaction_at"
+    },
+    "provenance": {
+      "kind": "connected_store",
+      "label": "Connected Adobe Commerce history",
+      "connection_id": "55555555-5555-4555-8555-555555555555",
+      "platform": "adobe-commerce"
+    },
+    "policy": null,
+    "summary": {
+      "transactions_scanned": 0,
+      "evaluated": 0,
+      "missing_cost": 0,
+      "excluded_timestamp": 0,
+      "evaluation_errors": 0,
+      "allow": 0,
+      "hold": 0,
+      "escalate": 0
+    },
+    "evidence": [],
+    "coverage": {
+      "record_limit": 100,
+      "complete": false
+    },
+    "truncated": false,
+    "error_code": "CONNECTED_STORE_REQUIRED"
+  }
+}
