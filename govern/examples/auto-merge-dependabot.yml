@@ -1,0 +1,46 @@
+# Only auto-merge a Dependabot PR when Decionis returns `allow`. The verdict can
+# weigh the update type (patch vs major), advisories, and your own policy — so
+# low-risk bumps merge themselves while risky ones wait for a human.
+
+name: Dependabot auto-merge (governed)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  govern-and-merge:
+    runs-on: ubuntu-latest
+    if: github.actor == 'dependabot[bot]'
+    steps:
+      - name: Fetch update metadata
+        id: meta
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Decionis verdict
+        id: gate
+        uses: decionis/govern@v1
+        with:
+          api-key: ${{ secrets.DECIONIS_API_KEY }}
+          org-id: ${{ secrets.DECIONIS_ORG_ID }}
+          workflow-key: dependency_auto_merge
+          comment-pr: "true"
+          fail-on: never # don't fail the PR; gate the merge step instead
+          payload: |
+            {
+              "dependency": "${{ steps.meta.outputs.dependency-names }}",
+              "update_type": "${{ steps.meta.outputs.update-type }}",
+              "ecosystem": "${{ steps.meta.outputs.package-ecosystem }}"
+            }
+
+      - name: Enable auto-merge (only if allowed)
+        if: steps.gate.outputs.decision == 'allow'
+        run: gh pr merge --auto --squash "${{ github.event.pull_request.html_url }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -200,6 +200,32 @@ jobs:
           dotnet format --verify-no-changes --no-restore
           dotnet test --nologo --no-restore
 
+  # Govern, the gate for CI workflows, moved here from decionis/govern as the
+  # node20 action it was (v1.9.0); its Go rewrite replaces this job's commands
+  # with the module's own. The tests need only Node and git, and the onboarding
+  # installer is POSIX sh.
+  govern:
+    name: Govern (workflow gate)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.20.0
+          package-manager-cache: false
+      - name: Test the action and check the installer's syntax
+        working-directory: govern
+        run: |
+          sh -n install.sh
+          node --test test/*.test.mjs
+
   image:
     name: Trusted executor image
     runs-on: ubuntu-latest
