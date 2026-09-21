@@ -1,6 +1,6 @@
 # Roadmap
 
-This roadmap is current as of 2026-09-20. It distinguishes work maintainers intend to deliver from
+This roadmap is current as of 2026-09-22. It distinguishes work maintainers intend to deliver from
 ideas that still require design or resourcing. It is not a promise of dates or hosted-service
 availability; priorities can change when security or compatibility work intervenes.
 
@@ -31,6 +31,13 @@ availability; priorities can change when security or compatibility work interven
 intercept`, the redirect as the `<version>-init` image, a Kubernetes Component and a Docker
   recipe), published the image to Docker Hub at one digest with GHCR, and recorded the three
   publication sign-offs ([tag v0.3.1](https://github.com/decionis/agent-safe-pipeline/releases/tag/v0.3.1)).
+- `v0.3.2` governs from the transparent interceptor what it first observed (TLS terminated under
+  an operator's authority for the destinations named, the gateway's lifecycle over each request,
+  ADR 0005), prints the shadow report on its own cadence with the Compromised Principal Test
+  observed in it, mints a provisional Decionis workspace from the command line
+  (`agentsafe login --provision`), and runs the boundary test with Decionis deciding
+  (`agentsafe test --hosted`), the first governed action for a workspace in one command
+  ([tag v0.3.2](https://github.com/decionis/agent-safe-pipeline/releases/tag/v0.3.2)).
 - `v0.3.3` ships Govern, the workflow gate: one static binary for GitHub Actions, GitLab CI,
   Jenkins and any other runner that captures a CI step as an execution intent, asks Decionis
   through `enforce-and-bind`, runs the command only on a claimed grant, holds an escalated step
@@ -40,13 +47,13 @@ intercept`, the redirect as the `<version>-init` image, a Kubernetes Component a
   downloads the archive its commit pins, `govern init` for a repository's starter files, and
   `decionis/govern@v2` as the Marketplace address
   ([tag v0.3.3](https://github.com/decionis/agent-safe-pipeline/releases/tag/v0.3.3)).
-- `v0.3.2` governs from the transparent interceptor what it first observed (TLS terminated under
-  an operator's authority for the destinations named, the gateway's lifecycle over each request,
-  ADR 0005), prints the shadow report on its own cadence with the Compromised Principal Test
-  observed in it, mints a provisional Decionis workspace from the command line
-  (`agentsafe login --provision`), and runs the boundary test with Decionis deciding
-  (`agentsafe test --hosted`), the first governed action for a workspace in one command
-  ([tag v0.3.2](https://github.com/decionis/agent-safe-pipeline/releases/tag/v0.3.2)).
+- `v0.3.4` ships Govern 2.1.0: a Windows archive (`govern-<version>-windows-x64.zip`, built twice
+  on a Windows runner and shipped only when identical, installed by the action there), PowerShell
+  and `cmd` as shells the gate runs a step's command through with the arguments after `--` quoted
+  for the shell in use, and govern's CycloneDX SBOM, read from the shipped executables' own build
+  information and attested beside the archives. The library (0.3.4) and the runtime (0.2.4) carry
+  no change of their own
+  ([tag v0.3.4](https://github.com/decionis/agent-safe-pipeline/releases/tag/v0.3.4)).
 
 See [GitHub Releases](https://github.com/decionis/agent-safe-pipeline/releases) and the
 [release-verification guide](./CONTRIBUTING.md#releases) for immutable artifacts and verification
