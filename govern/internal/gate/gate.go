@@ -17,12 +17,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/decionis/agent-safe-pipeline/govern/internal/authority"
-	"github.com/decionis/agent-safe-pipeline/govern/internal/command"
-	"github.com/decionis/agent-safe-pipeline/govern/internal/host"
-	"github.com/decionis/agent-safe-pipeline/govern/internal/intent"
-	"github.com/decionis/agent-safe-pipeline/govern/internal/policy"
-	"github.com/decionis/agent-safe-pipeline/govern/internal/report"
+	"github.com/decionis/agent-safe-pipeline/govern/v2/internal/authority"
+	"github.com/decionis/agent-safe-pipeline/govern/v2/internal/command"
+	"github.com/decionis/agent-safe-pipeline/govern/v2/internal/host"
+	"github.com/decionis/agent-safe-pipeline/govern/v2/internal/intent"
+	"github.com/decionis/agent-safe-pipeline/govern/v2/internal/policy"
+	"github.com/decionis/agent-safe-pipeline/govern/v2/internal/report"
 )
 
 // FailOn says which verdict fails a step that wraps no command; a step that

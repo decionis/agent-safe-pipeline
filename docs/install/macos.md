@@ -83,3 +83,12 @@ The gateway prints `ESCALATE` with `Execution HELD` and the dossier it left; the
 `202`. `{"amount": 50}` is forwarded once as `ALLOW`, `{"amount": 5000}` is refused as `BLOCK`.
 From here the [quickstart](../quickstart/README.md#connect-decionis) connects a Decionis key and
 the [gateway pages](../gateway/http-interception.md) say what was bound and forwarded.
+
+## Govern, the workflow gate
+
+The same releases carry `govern`, the gate for CI steps, as one static binary per platform. From
+the same tap, `brew install govern`; or the installer,
+`curl -fsSL https://raw.githubusercontent.com/decionis/agent-safe-pipeline/master/govern/install.sh | sh`,
+which verifies the archive against the release's `SHA256SUMS` the way the runtime's does; or
+`go install github.com/decionis/agent-safe-pipeline/govern/v2/cmd/govern@v2.0.0`. Govern's
+[README](../../govern/README.md#install) has what it does and every way to run it.

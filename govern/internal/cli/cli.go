@@ -20,13 +20,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/decionis/agent-safe-pipeline/govern/internal/authority"
-	"github.com/decionis/agent-safe-pipeline/govern/internal/gate"
-	"github.com/decionis/agent-safe-pipeline/govern/internal/host"
-	"github.com/decionis/agent-safe-pipeline/govern/internal/host/generic"
-	"github.com/decionis/agent-safe-pipeline/govern/internal/host/github"
-	"github.com/decionis/agent-safe-pipeline/govern/internal/host/gitlab"
-	"github.com/decionis/agent-safe-pipeline/govern/internal/host/jenkins"
+	"github.com/decionis/agent-safe-pipeline/govern/v2/internal/authority"
+	"github.com/decionis/agent-safe-pipeline/govern/v2/internal/gate"
+	"github.com/decionis/agent-safe-pipeline/govern/v2/internal/host"
+	"github.com/decionis/agent-safe-pipeline/govern/v2/internal/host/generic"
+	"github.com/decionis/agent-safe-pipeline/govern/v2/internal/host/github"
+	"github.com/decionis/agent-safe-pipeline/govern/v2/internal/host/gitlab"
+	"github.com/decionis/agent-safe-pipeline/govern/v2/internal/host/jenkins"
 )
 
 // Exit codes the command itself uses; a gated command's own code passes through.

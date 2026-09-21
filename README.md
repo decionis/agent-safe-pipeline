@@ -248,6 +248,11 @@ claim or finalization differs between them.
 
 Every install page ends at the same place: send your first governed action.
 
+Govern, the workflow gate, ships with the same releases as one static binary per platform:
+`curl -fsSL https://raw.githubusercontent.com/decionis/agent-safe-pipeline/master/govern/install.sh | sh`,
+`brew install govern` from the same tap, or `go install github.com/decionis/agent-safe-pipeline/govern/v2/cmd/govern@v2.0.0`;
+[its README](./govern/README.md#install) has the rest.
+
 ## Golden adversarial demo
 
 One legitimate path and eight adversarial attempts against the same boundary, offline, in a few seconds, with every expectation asserted:

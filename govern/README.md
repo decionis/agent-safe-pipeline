@@ -73,8 +73,8 @@ manager, a shadow comment on every pull request, agent-authored pull requests, a
 auto-merge.
 
 The action currently builds the binary from this pinned commit with the Go toolchain
-(`actions/setup-go`, about twenty seconds, cached); the release will publish it as a binary the
-action downloads by checksum.
+(`actions/setup-go`, about twenty seconds, cached); the next phase has it download the release's
+archive and verify it against the release's `SHA256SUMS` instead.
 
 ## GitLab CI, Jenkins, and any other runner
 
@@ -95,6 +95,38 @@ govern run --action production-deploy --environment production \
 Outputs in a dotenv or properties file are `GOVERN_DECISION`, `GOVERN_DOSSIER_ID`,
 `GOVERN_OUTCOME` and the rest, one per line. [`examples/gitlab-ci.yml`](./examples/gitlab-ci.yml)
 and [`examples/Jenkinsfile`](./examples/Jenkinsfile) show a job each.
+
+## Install
+
+Govern ships with the repository's [releases](https://github.com/decionis/agent-safe-pipeline/releases)
+as one static binary per platform, `govern-<version>-<os>-<arch>.tar.gz` for macOS and Linux on
+Apple silicon, ARM and x86-64, each built twice on its own platform and shipped only when the two
+builds are the same bytes. Every archive is listed in the release's `SHA256SUMS` and attested by
+the release workflow; a `GOVERN_VERSION` such as `2.0.0` pins a version, and the installer
+otherwise takes the newest release that carries one.
+
+| How            | Command                                                                                                                  |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Installer      | `curl -fsSL https://raw.githubusercontent.com/decionis/agent-safe-pipeline/master/govern/install.sh \| sh`               |
+| Homebrew       | `brew tap decionis/agent-safe https://github.com/decionis/agent-safe-pipeline && brew install govern`                    |
+| Go             | `go install github.com/decionis/agent-safe-pipeline/govern/v2/cmd/govern@v2.0.0`                                         |
+| By hand        | download the archive and `SHA256SUMS` from the release, `shasum -a 256 -c SHA256SUMS`, extract, put `govern` on the path |
+| GitHub Actions | `uses: decionis/govern@v2` (the action builds or fetches the binary itself)                                              |
+
+[`install.sh`](./install.sh) does one thing: it detects the platform, downloads the archive and the
+release's `SHA256SUMS`, refuses to continue unless the archive's SHA-256 is the one the release
+lists, places the directory under `<prefix>/lib/govern/<version>` and links `<prefix>/bin/govern`
+to it (`/usr/local` when writable, `~/.local` otherwise, or `GOVERN_INSTALL_PREFIX`). It touches
+no shell profile, no workflow file and no configuration; `GOVERN_RELEASE_BASE` and
+`GOVERN_RELEASE_CA` point it at a mirror. The Homebrew formula (`Formula/govern.rb` in this
+repository, the tap) pins each platform's archive to the checksum the release listed; it is
+rendered by the release workflow from `SHA256SUMS` and opened as a pull request, never typed by
+hand. The Go module is `github.com/decionis/agent-safe-pipeline/govern/v2`; its tag,
+`govern/v<version>`, is signed by the release workflow's identity like the release tag, and
+`go.mod` pins the toolchain so a `go install` builds the same bytes the release shipped.
+
+A release is verified the way the runtime's is: `shasum -a 256 -c SHA256SUMS`, and
+`gh attestation verify govern-<version>-<os>-<arch>.tar.gz --repo decionis/agent-safe-pipeline`.
 
 ## Settings
 
@@ -190,7 +222,7 @@ test runs the built binary against `LocalAuthority` from `@decionis/agent-safe-p
 which re-hashes every binding with its own canonicalizer and validates every request against the
 contract's strict shapes: what passes is a client another implementation of the contract accepts.
 
-[`install.sh`](./install.sh) is the onboarding installer of the earlier action (`v1`); `govern init`
-replaces it in the next phase.
+`govern init`, which writes a starter workflow and policy file into a repository the way the v1
+action's onboarding installer did, is the next phase.
 
 Built by [Decionis](https://decionis.com?source=govern_readme) · Apache-2.0

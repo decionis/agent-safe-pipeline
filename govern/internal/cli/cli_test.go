@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/decionis/agent-safe-pipeline/govern/internal/authority/authoritytest"
+	"github.com/decionis/agent-safe-pipeline/govern/v2/internal/authority/authoritytest"
 )
 
 func environment(values map[string]string) func(string) string {
