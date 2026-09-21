@@ -1,0 +1,32 @@
+# GitLab CI: the same gate as one job. The verdict and the record's ids reach
+# later jobs as variables through the dotenv report, and the merge request
+# gets the comment when GOVERN_GITLAB_TOKEN (a project token with `api`) is set.
+stages: [deploy]
+
+deploy:production:
+  stage: deploy
+  image: golang:1.22
+  environment: production
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  variables:
+    # DECIONIS_API_KEY and DECIONIS_TENANT_ID come from the project's CI variables (masked).
+    GOVERN_ACTION: production-deploy
+    GOVERN_RESOURCE: service:api
+    GOVERN_ENVIRONMENT: production
+    GOVERN_OUTPUT_FILE: govern.env
+    GOVERN_COMMENT: "true"
+  script:
+    # Pin the version the release names; the release job publishes it as a binary too.
+    - go install github.com/decionis/agent-safe-pipeline/govern/cmd/govern@latest
+    - govern run --payload "{\"service\":\"api\",\"sha\":\"$CI_COMMIT_SHA\"}" -- ./scripts/deploy.sh
+  artifacts:
+    reports:
+      dotenv: govern.env
+
+announce:
+  stage: .post
+  image: alpine:3
+  needs: [deploy:production]
+  script:
+    - echo "decision=$GOVERN_DECISION dossier=$GOVERN_DOSSIER_ID outcome=$GOVERN_OUTCOME"

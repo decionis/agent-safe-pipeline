@@ -16,6 +16,7 @@ const git = spawnSync(
     "packages/pipeline/test/*.ts",
     "packages/pipeline/test/**/*.ts",
     "tests/integration/*/*.mjs",
+    "govern/test/*.mjs",
   ],
   { encoding: "utf8" },
 );

@@ -1,42 +1,35 @@
-# Require a Decionis verdict before a tagged release ships. The signed verify
-# URL is attached to the GitHub Release notes as portable proof that the
-# release passed governance.
-
-name: Release (governed)
+# A tagged release ships only on an ALLOW. The publish command runs through
+# the gate; a BLOCK never publishes; an ESCALATE waits for the release
+# manager's approval, orchestrated by Decionis, within the intent's lifetime.
+name: Release
 
 on:
   push:
     tags: ["v*"]
 
-jobs:
-  govern-and-release:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write # to create the release
-    steps:
-      - uses: actions/checkout@v4
+permissions:
+  contents: write
+  id-token: write
 
-      - name: Decionis verdict
-        id: gate
-        uses: decionis/govern@v1
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Govern the release
+        uses: decionis/govern@v2
         with:
           api-key: ${{ secrets.DECIONIS_API_KEY }}
-          org-id: ${{ secrets.DECIONIS_ORG_ID }}
-          workflow-key: release_gate
-          fail-on: block
+          tenant-id: ${{ vars.DECIONIS_TENANT_ID }}
+          action: release-publish
+          resource: npm:${{ github.event.repository.name }}
           payload: |
-            {
-              "release_tag": "${{ github.ref_name }}",
-              "repository": "${{ github.repository }}"
-            }
-
-      - name: Create release (only if allowed)
-        if: steps.gate.outputs.decision == 'allow'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create "${{ github.ref_name }}" \
-            --title "${{ github.ref_name }}" \
-            --notes "Governed release. ${{ steps.gate.outputs.badge-markdown }}
-
-          Verify: ${{ steps.gate.outputs.verify-url }}"
+            { "tag": "${{ github.ref_name }}", "sha": "${{ github.sha }}", "actor": "${{ github.actor }}" }
+          escalation: managed
+          approver-role: RELEASE_MANAGER
+          run: npm publish --provenance --access public

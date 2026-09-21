@@ -201,7 +201,11 @@ importers:
         specifier: ^4.5.4
         version: 4.5.4
 
-  govern: {}
+  govern:
+    devDependencies:
+      '@decionis/agent-safe-pipeline':
+        specifier: workspace:*
+        version: link:../packages/pipeline
 
   packages/agentsafe:
     dependencies:

@@ -63,14 +63,15 @@ not imply a release date.
   capabilities with offline drills. Each phase says "verified" or "shipped" where that is what it
   is, and never claims a control the host still owns.
 
-- Bring Govern, the gate for CI workflows, home. The `decionis/govern` action's source lives under
-  [`govern/`](./govern/README.md) from 2026-09-21, as it shipped at v1.9.0, and is rewritten in Go
-  as one binary for GitHub Actions, GitLab CI, Jenkins and other workflow runners, speaking the
-  execution contract the runtime speaks (intent, decision, grant, execution, Decision Dossier)
-  rather than the evaluate-decision API, with its repository policy file still a bound input;
-  distributed with the runtime's releases (archives, checksums, attestations, Homebrew, the
-  installer), with `decionis/govern` kept as the Marketplace address, a thin action that fetches
-  the pinned binary.
+- Bring Govern, the gate for workflows, home. The `decionis/govern` action's source lives under
+  [`govern/`](./govern/README.md) from 2026-09-21: first as it shipped at v1.9.0, then rewritten in
+  Go as one binary for GitHub Actions, GitLab CI, Jenkins and other runners, speaking the execution
+  contract the runtime speaks (intent, decision, grant, execution, Decision Dossier) rather than the
+  evaluate-decision API, with the repository policy file still a bound input and no local policy
+  engine. Still to come: distribution with the runtime's releases (archives, checksums,
+  attestations, Homebrew, the installer), the action fetching that pinned binary instead of building
+  it, `govern init` in place of the v1 onboarding installer, and `decionis/govern` kept as the
+  Marketplace address, a thin action that fetches the binary.
 - Make native verification a deployment location rather than a product: the
   [Verifying Provider Profile](./docs/authority/verifying-provider.md) states the provider's half
   of the boundary normatively, with [vectors](./conformance/provider/README.md) any implementation
