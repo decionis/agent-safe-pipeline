@@ -25,7 +25,14 @@ export default [
   regexp.configs["flat/recommended"],
   { rules: { "regexp/no-super-linear-move": ["error", { report: "potential" }] } },
   {
-    files: ["scripts/**/*.mjs", "test/**/*.mjs", "tests/**/*.mjs", "packages/*/scripts/**/*.mjs"],
+    files: [
+      "scripts/**/*.mjs",
+      "test/**/*.mjs",
+      "tests/**/*.mjs",
+      "packages/*/scripts/**/*.mjs",
+      "govern/src/**/*.mjs",
+      "govern/test/**/*.mjs",
+    ],
     languageOptions: { globals: globals.node },
   },
   {

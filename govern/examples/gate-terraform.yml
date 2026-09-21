@@ -1,0 +1,55 @@
+# Gate `terraform apply` on a Decionis verdict driven by the plan's blast radius.
+# The plan's resource-change counts feed the policy, so a large/destructive plan
+# can require escalation while a no-op or additive plan sails through.
+
+name: Terraform (governed apply)
+
+on:
+  push:
+    branches: [main]
+    paths: ["infra/**", "**.tf"]
+  workflow_dispatch:
+
+jobs:
+  plan-and-govern:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform plan
+        id: plan
+        working-directory: infra
+        run: |
+          terraform init -input=false
+          terraform plan -input=false -out=tfplan
+          # Summarize the plan into change counts the policy can evaluate.
+          terraform show -json tfplan > plan.json
+          ADD=$(jq '[.resource_changes[]?|select(.change.actions|index("create"))]|length' plan.json)
+          DESTROY=$(jq '[.resource_changes[]?|select(.change.actions|index("delete"))]|length' plan.json)
+          echo "add=$ADD"     >> "$GITHUB_OUTPUT"
+          echo "destroy=$DESTROY" >> "$GITHUB_OUTPUT"
+
+      - name: Decionis verdict
+        id: gate
+        uses: decionis/govern@v1
+        with:
+          api-key: ${{ secrets.DECIONIS_API_KEY }}
+          org-id: ${{ secrets.DECIONIS_ORG_ID }}
+          workflow-key: terraform_apply_gate
+          fail-on: block_or_escalate
+          payload: |
+            {
+              "environment": "production",
+              "tool": "terraform",
+              "resources_created": ${{ steps.plan.outputs.add }},
+              "resources_destroyed": ${{ steps.plan.outputs.destroy }}
+            }
+
+      - name: Terraform apply
+        if: steps.gate.outputs.decision == 'allow'
+        working-directory: infra
+        run: terraform apply -input=false tfplan

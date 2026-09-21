@@ -1,0 +1,30 @@
+# Run Decionis in shadow mode and post the verdict as a PR comment so the
+# reviewer sees what the governed verdict would have been — without ever
+# failing the build.
+#
+# Pattern: install shadow first, observe verdicts on PRs for a sprint, then
+# flip `mode` to `enforce`.
+
+name: Decionis (shadow on PRs)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  shadow-verdict:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Decionis shadow verdict
+        uses: decionis/govern@v1
+        with:
+          api-key: ${{ secrets.DECIONIS_API_KEY }}
+          org-id: ${{ secrets.DECIONIS_ORG_ID }}
+          workflow-key: github_pr_change_intent
+          mode: shadow
+          comment-pr: "true"

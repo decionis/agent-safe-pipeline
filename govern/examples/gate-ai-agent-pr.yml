@@ -1,0 +1,66 @@
+# Govern AI-generated changes before they merge.
+#
+# When an AI coding agent (Claude Code, Copilot, Cursor, Codex, OpenHands, …)
+# opens or updates a PR, evaluate it against policy + risk BEFORE it can be
+# merged or trigger a deploy. The verdict is posted to the PR; on `block`/
+# `escalate` the merge gate stays closed until a human signs off.
+#
+# Detection here is heuristic — adjust to how your agents are wired (a bot
+# account, a label, a branch prefix, or a commit trailer).
+
+name: AI change gate
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  govern-ai-change:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Detect AI authorship
+        id: detect
+        env:
+          ACTOR: ${{ github.actor }}
+          HEAD_REF: ${{ github.head_ref }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: |
+          AI=false
+          case "$ACTOR" in
+            *copilot*|*cursor*|*claude*|*codex*|*openhands*|*[bot]) AI=true ;;
+          esac
+          case "$HEAD_REF" in ai/*|agent/*|copilot/*|cursor/*) AI=true ;; esac
+          case ",$LABELS," in *,ai-generated,*) AI=true ;; esac
+          echo "ai_generated=$AI" >> "$GITHUB_OUTPUT"
+
+      - name: Decionis Action Gate
+        id: gate
+        uses: decionis/govern@v1
+        with:
+          api-key: ${{ secrets.DECIONIS_API_KEY }}
+          org-id: ${{ secrets.DECIONIS_ORG_ID }}
+          workflow-key: ai_change_gate
+          action: ai-generated-pr
+          comment-pr: "true"
+          # Don't fail the check itself — gate the merge step below on the verdict.
+          fail-on: never
+          payload: |
+            {
+              "author": "${{ github.actor }}",
+              "agent_generated": ${{ steps.detect.outputs.ai_generated }},
+              "changed_files": ${{ github.event.pull_request.changed_files }},
+              "additions": ${{ github.event.pull_request.additions }},
+              "deletions": ${{ github.event.pull_request.deletions }}
+            }
+
+      # Only allow auto-merge when Decionis explicitly allowed the change.
+      # Anything block/escalate waits for a human — the PR comment shows why.
+      - name: Mark ready (allow only)
+        if: steps.gate.outputs.decision == 'allow' && steps.detect.outputs.ai_generated == 'true'
+        run: gh pr merge --auto --squash "${{ github.event.pull_request.html_url }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

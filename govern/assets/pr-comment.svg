@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="372" viewBox="0 0 720 372" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-label="Example Decionis PR comment showing a Blocked verdict with a verify link">
+  <defs>
+    <clipPath id="card"><rect x="8" y="8" width="704" height="356" rx="12"/></clipPath>
+  </defs>
+
+  <!-- comment card -->
+  <rect x="8" y="8" width="704" height="356" rx="12" fill="#ffffff" stroke="#d0d7de"/>
+  <g clip-path="url(#card)">
+    <!-- comment header bar -->
+    <rect x="8" y="8" width="704" height="46" fill="#f6f8fa"/>
+    <circle cx="34" cy="31" r="13" fill="#6D28D9"/>
+    <text x="34" y="36" font-size="14" fill="#ffffff" text-anchor="middle">🛡️</text>
+    <text x="56" y="36" font-size="13.5" fill="#1f2328"><tspan font-weight="600">github-actions</tspan> <tspan fill="#59636e">bot commented · now</tspan></text>
+    <text x="694" y="36" font-size="12" fill="#59636e" text-anchor="end">···</text>
+
+    <!-- verdict badge -->
+    <rect x="24" y="70" width="186" height="34" rx="6" fill="#d1242f"/>
+    <text x="40" y="92" font-size="13" fill="#ffffff">🛡️</text>
+    <text x="62" y="92" font-size="13.5" fill="#ffffff" font-weight="700" letter-spacing="0.6">DECIONIS · BLOCKED</text>
+
+    <!-- heading -->
+    <text x="24" y="138" font-size="17" fill="#1f2328" font-weight="700">🛑 Governed step — Blocked</text>
+
+    <!-- table -->
+    <rect x="24" y="154" width="672" height="108" rx="8" fill="#ffffff" stroke="#d0d7de"/>
+    <line x1="24" y1="190" x2="696" y2="190" stroke="#d8dee4"/>
+    <line x1="24" y1="226" x2="696" y2="226" stroke="#d8dee4"/>
+    <line x1="150" y1="154" x2="150" y2="262" stroke="#d8dee4"/>
+
+    <text x="40" y="178" font-size="13" fill="#59636e" font-weight="600">Verdict</text>
+    <text x="166" y="178" font-size="13" fill="#cf222e" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">block</text>
+
+    <text x="40" y="214" font-size="13" fill="#59636e" font-weight="600">Policy</text>
+    <text x="166" y="214" font-size="13" fill="#1f2328" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">github_deploy_approval@v4</text>
+
+    <text x="40" y="250" font-size="13" fill="#59636e" font-weight="600">Reason</text>
+    <text x="166" y="250" font-size="13" fill="#1f2328" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">change_window_closed</text>
+
+    <!-- verify link -->
+    <text x="24" y="294" font-size="14" fill="#0969da" font-weight="600">🔎 Verify this decision →</text>
+    <text x="234" y="294" font-size="13" fill="#59636e">signed, tamper-evident proof.</text>
+
+    <!-- divider + footer -->
+    <line x1="24" y1="312" x2="696" y2="312" stroke="#d8dee4"/>
+    <text x="24" y="338" font-size="12" fill="#59636e">🛡️ Governed by <tspan fill="#6D28D9" font-weight="600">Decionis</tspan> · gate your own deploys with <tspan font-family="ui-monospace, SFMono-Regular, Menlo, monospace" fill="#1f2328">decionis/govern</tspan></text>
+  </g>
+</svg>
