@@ -4,12 +4,12 @@
   "title": "Decionis CommerceGate MCP",
   "description": "Commerce preflights, D365 authorization, signed evidence, and reports; no marketplace or ERP writes.",
   "websiteUrl": "https://commerce.decionis.com",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@decionis/commerce",
-      "version": "0.1.3",
+      "version": "0.1.4",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"
@@ -17,7 +17,7 @@
       "environmentVariables": [
         {
           "name": "DECIONIS_API_KEY",
-          "description": "Decionis API key. Required for ERP guard, Protocol evaluation, and evidence calls.",
+          "description": "Existing workspace key. Unconfigured local STDIO can create provisional Shadow access on first evaluation; owned access is required for ERP.",
           "isRequired": false,
           "isSecret": true
         },
@@ -29,7 +29,19 @@
         },
         {
           "name": "DECIONIS_API_BASE",
-          "description": "Optional Decionis API origin. Defaults to https://api.decionis.com.",
+          "description": "Optional HTTPS API origin or exact /aws gateway prefix. Defaults to https://api.decionis.com.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "AGENTOPS_HOME",
+          "description": "Optional private directory for persistent local trial credentials; defaults to ~/.config/agentops (honoring XDG_CONFIG_HOME).",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "AGENTOPS_AUTO_PROVISION",
+          "description": "Set 0 to disable new local trial creation. Existing stored credentials remain usable.",
           "isRequired": false,
           "isSecret": false
         }

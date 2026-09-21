@@ -2,7 +2,7 @@ export const MCPB_VERSION = "2.1.2";
 
 export const PACKED_PACKAGE = Object.freeze({
   name: "@decionis/commercegate-claude-extension",
-  version: "0.1.3",
+  version: "0.1.4",
   private: true,
   description: "MIT-licensed Claude Desktop extension wrapper for Decionis CommerceGate.",
   author: "Decionis, Inc.",
@@ -20,7 +20,7 @@ export const PACKED_PACKAGE = Object.freeze({
 
 export const VENDORED_RUNTIME_PACKAGE = Object.freeze({
   name: "@decionis/commerce",
-  version: "0.1.3",
+  version: "0.1.4",
   license: "Apache-2.0",
   type: "module",
   repository: Object.freeze({

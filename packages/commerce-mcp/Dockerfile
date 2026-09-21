@@ -6,10 +6,11 @@
 # The container is the "AgentOps MCP Server for Amazon Bedrock AgentCore" delivery for buyers who run
 # their agents in AgentCore: a stateless streamable-HTTP MCP server on
 # 0.0.0.0:8000/mcp, with /ping as its health check, exactly as the runtime
-# expects. It holds no credential: the buyer's workspace key and organization
-# arrive as DECIONIS_API_KEY and DECIONIS_ORG_ID at launch (the listing names
-# them as environment variables), and the server refuses tenant calls until
-# both are present. DECIONIS_API_BASE defaults to https://api.decionis.com.
+# expects. It holds no credential: launch with AGENTOPS_ACCESS_SECRET_ARN for
+# durable execution-role access, or DECIONIS_API_KEY and DECIONIS_ORG_ID.
+# HTTP never provisions anonymous workspaces. The raw Marketplace secret
+# uses https://commerce.decionis.com/aws; explicit credentials retain the
+# existing https://api.decionis.com default.
 #
 #   docker run -p 127.0.0.1:8000:8000 --env-file ./agentops.env agentops-core:latest
 #

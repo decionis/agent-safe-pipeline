@@ -26,5 +26,12 @@
       "license": "(MIT OR CC0-1.0)",
       "justification": "Development-only transitive dependency of the pinned Anthropic MCPB packaging CLI, used under its permissive MIT option and excluded from the CommerceGate extension bundle."
     }
+  ],
+  "githubPackageExceptions": [
+    {
+      "package": "bowser@2.14.1",
+      "license": "MIT AND MITNFA",
+      "justification": "Pinned AWS SDK transitive dependency distributed unmodified with its upstream LICENSE retained. GitHub recognizes the MITNFA no-false-attribution clause in addition to MIT, although npm metadata reports MIT. That clause requires substantially modified distributions to replace or remove upstream bug-report contacts; no such modifications are made. Reviewed the shipped 2.14.1 LICENSE and https://github.com/bowser-js/bowser/blob/v2.14.1/LICENSE. This exception applies only to that version; vulnerability review remains enabled."
+    }
   ]
 }

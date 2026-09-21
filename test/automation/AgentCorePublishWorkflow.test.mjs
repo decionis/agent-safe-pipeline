@@ -46,7 +46,7 @@ async function runPublish(target, returnedDigest = digest, latestDigest = return
         TEST_CALLS: callsPath,
         TEST_DIGEST: returnedDigest,
         TEST_LATEST_DIGEST: latestDigest,
-        VERSION: "0.1.3",
+        VERSION: "0.1.4",
       },
     });
     return {
@@ -90,7 +90,7 @@ describe("AgentCore Marketplace image publication", () => {
     const { result, calls, output } = await runPublish(repository);
     assert.equal(result.status, 0, result.stderr);
     assert.match(calls, /--platform linux\/arm64 --provenance=false --push/);
-    assert.ok(calls.includes(`-t ${repository}:0.1.3 -t ${repository}:latest .`));
+    assert.ok(calls.includes(`-t ${repository}:0.1.4 -t ${repository}:latest .`));
     assert.equal(output, `name=${repository}\ndigest=${digest}\n`);
   });
 

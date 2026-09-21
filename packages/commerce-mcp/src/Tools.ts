@@ -1233,7 +1233,14 @@ export class CommerceGateTools {
               configuration: {
                 required_for_erp_guard: ["DECIONIS_API_KEY"],
                 required_for_protocol_calls: ["DECIONIS_API_KEY", "DECIONIS_ORG_ID"],
-                optional: ["DECIONIS_API_BASE"],
+                optional: [
+                  "DECIONIS_API_BASE",
+                  "AGENTOPS_ACCESS_SECRET_ARN",
+                  "AGENTOPS_HOME",
+                  "AGENTOPS_AUTO_PROVISION",
+                ],
+                alternative_access:
+                  "Unconfigured local STDIO can provision provisional Shadow access on the first valid evaluation. Managed HTTP requires configured credentials or a durable AWS secret; reads and ERP never mint access.",
               },
             };
           }),
@@ -1282,6 +1289,9 @@ export class CommerceGateTools {
               commercegate_disposition: commerceGateDisposition(evaluation),
               agent_guidance: outcomeGuidance(evaluation),
               evaluation,
+              ...(this.configuration.describe().access
+                ? { access: this.configuration.describe().access }
+                : {}),
             };
           }),
       },

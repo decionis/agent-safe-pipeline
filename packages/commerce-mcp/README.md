@@ -26,22 +26,26 @@ Outcomes map to the operator vocabulary used across Commerce Gate: APPROVE → P
 CommerceGate requires Node.js 20 or later. Start the pinned public package with:
 
 ```sh
-npx -y @decionis/commerce@0.1.3
+npx -y @decionis/commerce@0.1.4
 ```
 
-The process starts without credentials so an MCP client can discover its capabilities. The ERP guard requires `DECIONIS_API_KEY`; Protocol evaluation and evidence tools require both `DECIONIS_API_KEY` and `DECIONIS_ORG_ID`. Store `DECIONIS_API_KEY` in the MCP client’s secret or environment manager; never place it in command arguments, source control, prompts, or logs. `DECIONIS_API_BASE` is optional and defaults to `https://api.decionis.com`.
+The process starts without credentials for capability discovery. For an unconfigured local STDIO client on macOS or Linux, the first valid `commercegate_evaluate_action` call creates a provisional Shadow workspace without a registration form. It reuses that workspace on later calls and restarts. Discovery, invalid input, evidence reads, and ERP calls never create a workspace. Provisional access is subject to the service's trial limits and cannot authorize ERP transactions.
 
-For a capability-only startup, omit the credential variables and call `commercegate_describe_capabilities`. Every authenticated call fails closed until its required configuration is available.
+Automatic local provisioning is unavailable on Windows until equivalent secure credential persistence is supported; configure existing credentials there.
+
+Local access is stored separately from AgentSafe in `$AGENTOPS_HOME/credentials.json`, or `$XDG_CONFIG_HOME/agentops/credentials.json` (default `~/.config/agentops/credentials.json`). On POSIX systems the directory is owner-only (`0700`) and the file is owner-only (`0600`). A private exclusive lock coordinates concurrent processes. A persistent attempt marker prevents a second mint after an uncertain response, crash, or lost credential. Corrupt, permissive, missing-after-attempt, or revoked credentials fail closed: restore the owned credential or contact support rather than deleting setup files to obtain another trial. Safe tool results identify provisional access and provide claim guidance without exposing the key or claim tokens.
+
+Existing `DECIONIS_API_KEY` and `DECIONIS_ORG_ID` configuration takes precedence. Store keys in the MCP client's secret manager; never place them in command arguments, source control, prompts, or logs. `DECIONIS_API_BASE` defaults to `https://api.decionis.com` and also accepts the exact `/aws` gateway prefix. Set `AGENTOPS_AUTO_PROVISION=0` to disable new trial creation; already stored credentials remain usable. `NODE_ENV=production` and HTTP transport never provision anonymous access. For capability-only use, disable automatic provisioning and supply no stored or configured credentials.
 
 ### Codex client configuration
 
-Forward the three named variables from the environment that launches Codex:
+Optionally forward existing credentials and local access preferences from the environment that launches Codex:
 
 ```toml
 [mcp_servers.commercegate]
 command = "npx"
-args = ["-y", "@decionis/commerce@0.1.3"]
-env_vars = ["DECIONIS_API_KEY", "DECIONIS_ORG_ID", "DECIONIS_API_BASE"]
+args = ["-y", "@decionis/commerce@0.1.4"]
+env_vars = ["DECIONIS_API_KEY", "DECIONIS_ORG_ID", "DECIONIS_API_BASE", "AGENTOPS_HOME", "AGENTOPS_AUTO_PROVISION"]
 enabled = true
 required = false
 startup_timeout_sec = 20
@@ -92,7 +96,7 @@ The Shadow Report tools accept an optional `days` window from 1–365 and `limit
 
 ## Minimal end-to-end example
 
-With `DECIONIS_API_KEY` and `DECIONIS_ORG_ID` set in the MCP process environment, call `commercegate_evaluate_action` with:
+With existing credentials, or to create a provisional local Shadow workspace on first use, call `commercegate_evaluate_action` with:
 
 ```json
 {
@@ -147,11 +151,14 @@ The ERP guard uses a separate binary vocabulary: `ALLOW` maps to `PROCEED` for t
 
 ## Configuration
 
-| Environment variable | Required                     | Secret | Meaning                                                         |
-| -------------------- | ---------------------------- | ------ | --------------------------------------------------------------- |
-| `DECIONIS_API_KEY`   | For every authenticated call | Yes    | Sent as bearer for Protocol or X-Decionis-API-Key for ERP guard |
-| `DECIONIS_ORG_ID`    | For Protocol calls           | No     | UUID that permanently scopes Protocol evaluation and evidence   |
-| `DECIONIS_API_BASE`  | No                           | No     | API origin; defaults to `https://api.decionis.com`              |
+| Environment variable         | Required                          | Secret | Meaning                                                                                                 |
+| ---------------------------- | --------------------------------- | ------ | ------------------------------------------------------------------------------------------------------- |
+| `DECIONIS_API_KEY`           | Existing workspace option         | Yes    | Sent as bearer for Protocol or X-Decionis-API-Key for ERP guard                                         |
+| `DECIONIS_ORG_ID`            | With an explicit key for Protocol | No     | UUID that scopes Protocol evaluation and evidence                                                       |
+| `DECIONIS_API_BASE`          | No                                | No     | HTTPS API origin or exact `/aws` prefix; raw AWS secret defaults to `https://commerce.decionis.com/aws` |
+| `AGENTOPS_ACCESS_SECRET_ARN` | Managed access option             | No     | AWS Secrets Manager secret read through the execution role                                              |
+| `AGENTOPS_HOME`              | No                                | No     | Private local trial directory; separate from AgentSafe                                                  |
+| `AGENTOPS_AUTO_PROVISION`    | No                                | No     | Set `0` to disable new local trial creation                                                             |
 
 The API base must use HTTPS. HTTP is accepted only for loopback development.
 
@@ -181,10 +188,9 @@ curl -X POST http://127.0.0.1:8000/mcp -H 'content-type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
 
-The image holds no credential: `DECIONIS_API_KEY` and `DECIONIS_ORG_ID` arrive
-at launch as the listing's environment variables (a Commerce Gate workspace
-issues them), and tenant calls fail closed until both are present.
-Capability discovery works without them. Requests are limited to 1 MiB,
+For managed AgentCore, configure `AGENTOPS_ACCESS_SECRET_ARN` with a durable Secrets Manager secret and grant the execution role `secretsmanager:GetSecretValue` on that secret (and `kms:Decrypt` if it uses a customer-managed KMS key). The AWS SDK uses its default execution-role credential chain; the image contains no AWS access key. The secret may contain JSON with `api_key`, `org_id`, and `api_base_url`, or the raw `dcn_aws_` Marketplace key. For a raw key, the server discovers its tenant through authenticated `GET https://commerce.decionis.com/aws/commerce/session`. An explicit `DECIONIS_API_BASE` may select another trusted deployment's exact `/aws` gateway. Redirects and any returned change to the configured origin or prefix are rejected.
+
+The secret is loaded once on the first authenticated tool call and retained in memory for that process; errors never trigger key rotation or anonymous fallback. New AgentCore instances load the same durable secret, so ephemeral restarts retain the tenant. A deliberate credential rotation requires restarting the runtime. Existing `DECIONIS_API_KEY` and `DECIONIS_ORG_ID` launch variables remain supported and take precedence. HTTP requires configured access and never creates a trial. Capability discovery works without access. This client does not itself subscribe a buyer, create the durable secret, or grant its execution role; the deployment must supply those bindings. Requests are limited to 1 MiB,
 with eight in flight including uploads still being read; further requests
 receive 503 with `Retry-After`. JSON-RPC batches receive 400 without invoking
 a tool. Browser access is unsupported: every request carrying an `Origin`
@@ -207,19 +213,19 @@ pnpm --silent --filter @decionis/commerce mcp
 
 ## Privacy Policy
 
-CommerceGate MCP runs on your machine and talks to one service: the Decionis API at `https://api.decionis.com` (or the origin you set in `DECIONIS_API_BASE`). It has no telemetry, no analytics, no crash reporting and no other network destination. The full Decionis privacy policy is at <https://decionis.com/privacy>; this section describes what this server specifically does.
+CommerceGate MCP talks to the configured Decionis API. Managed deployments using `AGENTOPS_ACCESS_SECRET_ARN` also contact AWS Secrets Manager through the AWS SDK credential chain. It has no telemetry, analytics, or crash reporting. The full Decionis privacy policy is at <https://decionis.com/privacy>; this section describes what this server specifically does.
 
-**What it collects.** Nothing on its own. Everything it sends is what the agent passes into a tool call: the commerce facts being checked (SKU, current and new price or quantity, landed cost, order amounts, discount, refund amount and reason, promotion facts, actor type and a non-secret actor identifier, platform, idempotency key), a dossier UUID for evidence reads, and a report window for Shadow reports. It never reads files, browser data, clipboard or anything else on the machine.
+**What it collects.** The first valid unconfigured local Shadow call sends the fixed agent name "AgentOps MCP Shadow" to obtain a provisional workspace. Other application data comes from tool inputs: the commerce facts being checked (SKU, current and new price or quantity, landed cost, order amounts, discount, refund amount and reason, promotion facts, actor type and a non-secret actor identifier, platform, idempotency key), a dossier UUID for evidence reads, and a report window for Shadow reports. It reads only its configured credentials and local access files; it does not read browser data, the clipboard, or unrelated machine data.
 
-**Where it goes and why.** Tool inputs are sent over HTTPS to the Decionis API to evaluate them against your organization's policy and to read evidence you already own. The request carries your `DECIONIS_API_KEY` as a bearer token, your `DECIONIS_ORG_ID` to scope the call to your organization, and a `user-agent` naming this package and version. Credentials are read from the process environment, never written to disk or logs by this server, and never returned in any tool result.
+**Where it goes and why.** Tool inputs are sent over HTTPS to the Decionis API to evaluate them against your organization's policy and to read evidence you already own. The request carries your `DECIONIS_API_KEY` as a bearer token, your `DECIONIS_ORG_ID` to scope the call to your organization, and a `user-agent` naming this package and version. Credentials come from the process environment, private local access storage, or the configured AWS secret. Keys and claim tokens are never returned in tool results or written to logs.
 
-**What is stored.** Decionis stores the evaluation as a signed Decision Dossier in your organization's workspace so it can be verified later; that is the product. Retention follows your Decionis plan and the Decionis privacy policy. This server itself stores nothing: no cache, no log file, no local database. On a failed request it writes one fixed line to stderr with no request contents.
+**What is stored.** Decionis stores the evaluation as a signed Decision Dossier in your organization's workspace so it can be verified later; that is the product. Retention follows your Decionis plan and the Decionis privacy policy. Local trial access persists its credential, tenant binding, and setup marker in the private AgentOps directory. Managed AWS credentials remain in Secrets Manager and process memory; the server does not persist them locally. There is no tool-input cache, log file, or local evidence database. On a failed request it writes one fixed line to stderr with no request contents.
 
-**Third parties.** None. Decionis does not sell or share tool inputs, and this server contacts no third-party service. Your MCP client (Claude Desktop, Codex, VS Code or another host) may log tool calls under its own policy.
+**Third parties.** Managed secret access uses AWS; commerce tool inputs still go only to the configured Decionis API. Decionis does not sell or share tool inputs. Your MCP client (Claude Desktop, Codex, VS Code or another host) may log tool calls under its own policy.
 
 **Personal data.** Commerce facts can include order identifiers and, if you pass them, customer-related amounts. Send only what the policy check needs; the server accepts a bounded, typed action and rejects unknown fields.
 
-**Your controls.** Remove `DECIONIS_API_KEY` and `DECIONIS_ORG_ID` and the server can only describe its capabilities. Uninstall the package or extension to stop all processing. To access, correct or delete dossiers held by Decionis, or to ask anything about this policy, write to <mailto:commerce@decionis.com>; security reports go to <mailto:security@decionis.com> (see <https://commerce.decionis.com/.well-known/security.txt>).
+**Your controls.** Set `AGENTOPS_AUTO_PROVISION=0` to disable new local trial creation. To leave only capability discovery, also remove configured access and securely remove the stored credential; keep the attempt marker to prevent accidental reminting. Revocation and deletion of the server-side workspace are separate operations. Uninstall the package or extension to stop all processing. To access, correct or delete dossiers held by Decionis, or to ask anything about this policy, write to <mailto:commerce@decionis.com>; security reports go to <mailto:security@decionis.com> (see <https://commerce.decionis.com/.well-known/security.txt>).
 
 ## Support and license
 
