@@ -10,6 +10,7 @@ import type {
 import { COMMERCEGATE_API_OPERATIONS, SUPPORTED_ACTION_TYPES } from "../src/CommerceGateClient.js";
 import { CommerceGateConfiguration } from "../src/Configuration.js";
 import { COMMERCEGATE_TOOL_NAMES, CommerceGateTools } from "../src/Tools.js";
+import { HISTORICAL_TOOL_NAMES } from "../src/HistoricalTools.js";
 
 interface JsonSchema {
   type?: string | string[];
@@ -86,7 +87,7 @@ describe("CommerceGate discovery drift", () => {
       tools: Array<{ name: string }>;
     };
 
-    expect(namesIn(readme)).toEqual(expectedNames);
+    expect(namesIn(readme)).toEqual([...expectedNames, ...HISTORICAL_TOOL_NAMES].sort());
     expect(directoryListing.tools.map((tool) => tool.name).sort()).toEqual(expectedNames);
     // server.json carries no tool list by design; it must at least not name a tool we do not ship.
     expect(namesIn(serverManifest).every((name) => expectedNameSet.has(name))).toBe(true);

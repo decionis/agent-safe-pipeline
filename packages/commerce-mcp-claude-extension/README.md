@@ -3,7 +3,7 @@
 Check a price change, order, refund or return against your commerce policy before an agent acts. Never writes to a marketplace.
 
 This workspace package is the dedicated MIT-licensed Claude Desktop extension wrapper for
-[`@decionis/commerce@0.1.4`](https://github.com/decionis/agent-safe-pipeline/tree/master/packages/commerce-mcp),
+[`@decionis/commerce@0.1.5`](https://github.com/decionis/agent-safe-pipeline/tree/master/packages/commerce-mcp),
 the Apache-2.0 CommerceGate MCP runtime. The licenses do not blend: the small loader, extension
 manifest, packaging checks, and extension documentation are MIT; the separately bundled
 CommerceGate runtime remains Apache-2.0 and ships with its own package metadata, license, and
@@ -125,4 +125,4 @@ deletion, or privacy questions, email <commerce@decionis.com>. Security reports 
 - Support: <https://decionis.com/contact>
 - Extension source: <https://github.com/decionis/agent-safe-pipeline/tree/master/packages/commerce-mcp-claude-extension>
 - Extension wrapper: [MIT](./LICENSE)
-- Bundled CommerceGate runtime: `@decionis/commerce@0.1.4`, [Apache-2.0 source](https://github.com/decionis/agent-safe-pipeline/tree/master/packages/commerce-mcp), retained in the MCPB with its package metadata at `vendor/commerce-mcp/package.json`, license at `vendor/commerce-mcp/LICENSE`, and attribution notice at `vendor/commerce-mcp/NOTICE`
+- Bundled CommerceGate runtime: `@decionis/commerce@0.1.5`, [Apache-2.0 source](https://github.com/decionis/agent-safe-pipeline/tree/master/packages/commerce-mcp), retained in the MCPB with its package metadata at `vendor/commerce-mcp/package.json`, license at `vendor/commerce-mcp/LICENSE`, and attribution notice at `vendor/commerce-mcp/NOTICE`

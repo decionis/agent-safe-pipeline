@@ -81,6 +81,17 @@ jobs:
             -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | jq -r '.result.tools[].name' | sort | tr '\n' ' ')
           echo "tools: $tools"
           grep -q commercegate_evaluate_action <<< "$tools"
+          grep -q commercegate_validate_erp_transaction <<< "$tools"
+          grep -q commercegate_list_history_sources <<< "$tools"
+          grep -q commercegate_start_historical_assessment <<< "$tools"
+          grep -q commercegate_get_historical_assessment <<< "$tools"
+          test "$(wc -w <<< "$tools" | tr -d ' ')" = 10
+          # HTTP may discover capabilities while unconfigured, but cannot mint
+          # an anonymous synthetic trial or assess a buyer's store history.
+          curl -fsS -X POST http://127.0.0.1:8000/mcp \
+            -H 'content-type: application/json' \
+            -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"commercegate_start_historical_assessment","arguments":{"source":{"kind":"synthetic"},"idempotency_key":"image-smoke"}}}' \
+            | jq -e '.result.isError == true and .result.structuredContent.error.code == "CONFIGURATION_REQUIRED"'
       - name: Verify the arm64 runtime image builds
         if: ${{ inputs.mode == 'verify' }}
         run: |

@@ -1,4 +1,4 @@
-# Public npm-backed Smithery manifest for @decionis/commerce@0.1.4.
+# Public npm-backed Smithery manifest for @decionis/commerce@0.1.5.
 # The stable version is pinned so installations cannot drift across releases.
 # The server starts without credentials for capability discovery. ERP guard calls
 # require owned access. Unconfigured local STDIO provisions provisional Shadow
@@ -21,7 +21,7 @@ startCommand:
   commandFunction: |-
     (config) => ({
       command: "npx",
-      args: ["-y", "@decionis/commerce@0.1.4"],
+      args: ["-y", "@decionis/commerce@0.1.5"],
       env: {
         ...(config.apiKey ? { DECIONIS_API_KEY: config.apiKey } : {}),
         ...(config.orgId ? { DECIONIS_ORG_ID: config.orgId } : {}),
