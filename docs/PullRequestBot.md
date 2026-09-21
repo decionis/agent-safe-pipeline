@@ -27,14 +27,16 @@ repository.
 API requests use bounded retry and timeout controls. Successful JSON responses
 are streamed into a 100 KiB maximum buffer before parsing. The read-only compare
 endpoint alone permits up to 512 KiB because GitHub embeds textual patches in its
-JSON response. A comparison that outgrows even that (a large change touching
-many files) is read instead from the two commit listings, the branch's and the
-default branch's, in pages of forty: the commits ahead are the branch's newest
-commits up to the first one the default branch's recent history also has, and a
-base beyond that history is an incomplete comparison the bot skips, exactly as
-it skips GitHub's own. No patch is read on that path. Other oversized or
-malformed responses fail closed with stable error codes, and failed GitHub
-responses retain only the HTTP status rather than a downstream response body.
+JSON response, as does the commit listing, whose entries carry each commit's
+message twice (once as the signature's payload). A comparison that outgrows
+even that (a large change touching many files) is read instead from the two
+commit listings, the branch's and the default branch's, in pages of twenty: the
+commits ahead are the branch's newest commits up to the first one the default
+branch's last hundred and twenty commits also have, and a base beyond that
+history is an incomplete comparison the bot skips, exactly as it skips GitHub's
+own. No patch is read on that path. Other oversized or malformed responses fail
+closed with stable error codes, and failed GitHub responses retain only the
+HTTP status rather than a downstream response body.
 
 `PullRequestBot.yml` handles branch-creation events directly, so its default
 `GITHUB_TOKEN` needs only Contents read. Its workflow and script are checked out

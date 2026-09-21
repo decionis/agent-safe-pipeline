@@ -262,7 +262,7 @@ describe("PullRequestBot", () => {
       if (path.endsWith("/pulls") && method === "GET") return [];
       if (path.includes("/compare/")) throw new Error("GITHUB_API_RESPONSE_TOO_LARGE");
       if (path.endsWith("/commits")) {
-        assert.equal(options.query.per_page, 40);
+        assert.equal(options.query.per_page, 20);
         return options.query.sha === defaultBranch ? master : branch;
       }
       if (path.endsWith("/actions/runs")) return { workflow_runs: [] };
@@ -442,7 +442,7 @@ describe("GitHubApiClient", () => {
     assert.equal(bodyRead, false);
   });
 
-  it("allows larger bounded JSON only for compare responses", async () => {
+  it("allows larger bounded JSON only for compare responses and commit listings", async () => {
     const padding = "x".repeat(defaultMaxJsonResponseBytes);
     const api = new GitHubApiClient({
       token: "x",
@@ -455,8 +455,17 @@ describe("GitHubApiClient", () => {
       "/repos/example/project/compare/master...feature%2Flarge",
     );
     assert.equal(comparison.padding.length, padding.length);
+    const listing = await api.request("GET", "/repos/example/project/commits", {
+      query: { sha: "master", per_page: 20 },
+    });
+    assert.equal(listing.padding.length, padding.length);
     await assert.rejects(
       api.request("GET", "/repos/example/project/pulls"),
+      /GITHUB_API_RESPONSE_TOO_LARGE/,
+    );
+    // One commit is not a listing: the wider bound stops at the collection.
+    await assert.rejects(
+      api.request("GET", "/repos/example/project/commits/abc123"),
       /GITHUB_API_RESPONSE_TOO_LARGE/,
     );
   });
