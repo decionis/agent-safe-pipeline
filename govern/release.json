@@ -1,6 +1,11 @@
 {
-  "version": "",
-  "tag": "",
+  "version": "2.0.0",
+  "tag": "v0.3.3",
   "base": "https://github.com/decionis/agent-safe-pipeline/releases/download",
-  "sha256": {}
+  "sha256": {
+    "darwin-arm64": "5386efc796768dd27f05919ed7731674ea28cbb302b3b94c3758a3babfb2774a",
+    "darwin-x64": "133f64715683c6874823d7cf2b5170cfdc0ef099fbcda7f68271d8891e823b02",
+    "linux-arm64": "fe1532a74db7649ef7be7f63863152bd28ca4bd9b03fe910f9ac639c035e2eac",
+    "linux-x64": "3b5d8a79cd50d4333abab3e6e994f7e9fd455be464d5245116d19dd03c9edad1"
+  }
 }
