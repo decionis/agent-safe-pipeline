@@ -155,6 +155,47 @@ The ERP guard uses a separate binary vocabulary: `ALLOW` maps to `PROCEED` for t
 
 The API base must use HTTPS. HTTP is accepted only for loopback development.
 
+## Run it as a remote server (Amazon Bedrock AgentCore Runtime)
+
+AgentOps is the container delivery of the same CommerceGate MCP server,
+listed as "AgentOps MCP Server for Amazon Bedrock AgentCore" on AWS Marketplace.
+It speaks streamable HTTP for buyers who run their agents in Amazon Bedrock AgentCore Runtime. Start it with
+`--http` (or `MCP_TRANSPORT=http`): it listens on `0.0.0.0:8000`, answers
+`POST /mcp` with one JSON-RPC message per request (stateless; the
+runtime's `Mcp-Session-Id` is echoed), and `GET /ping` with
+`{"status":"Healthy"}`. There is no server-initiated stream.
+
+The AgentOps container is free on Marketplace; service usage is billed
+through the AgentSaaS subscription, the API-based Marketplace product.
+
+For local use, put your workspace's `DECIONIS_API_KEY` and `DECIONIS_ORG_ID`
+in an untracked `agentops.env` file. `DECIONIS_API_BASE` is optional and
+defaults to `https://api.decionis.com`. Keep this file private and bind the
+published local port to loopback:
+
+```sh
+chmod 600 agentops.env
+docker buildx build -f packages/commerce-mcp/Dockerfile --platform linux/arm64 -t agentops-core:latest .
+docker run -p 127.0.0.1:8000:8000 --env-file ./agentops.env agentops-core:latest
+curl -X POST http://127.0.0.1:8000/mcp -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
+The image holds no credential: `DECIONIS_API_KEY` and `DECIONIS_ORG_ID` arrive
+at launch as the listing's environment variables (a Commerce Gate workspace
+issues them), and tenant calls fail closed until both are present.
+Capability discovery works without them. Requests are limited to 1 MiB,
+with eight in flight including uploads still being read; further requests
+receive 503 with `Retry-After`. JSON-RPC batches receive 400 without invoking
+a tool. Browser access is unsupported: every request carrying an `Origin`
+header receives 403. HTTP supports MCP versions `2025-03-26`, `2025-06-18`,
+and `2025-11-25`; unsupported `MCP-Protocol-Version` headers receive 400,
+and a missing header uses the `2025-03-26` compatibility default.
+Keep this server behind AgentCore's authenticated runtime in production.
+`.github/workflows/commerce-mcp-agentcore.yml` builds, smoke-tests,
+publishes and attests the image. Publication tags the same digest with the
+package version and `latest`; listing versions use the pinned digest.
+
 ## Develop from source
 
 ```sh

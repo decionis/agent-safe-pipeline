@@ -1,0 +1,151 @@
+name: Commerce MCP AgentCore image
+
+# Builds AgentOps, the CommerceGate MCP image for Amazon Bedrock AgentCore Runtime
+# (packages/commerce-mcp/Dockerfile: linux/arm64, distroless, non-root,
+# streamable HTTP on :8000/mcp) and pushes it to the AWS Marketplace
+# repository of the "AgentOps MCP Server for Amazon Bedrock AgentCore" container product, then
+# attests the digest. Run by hand with the version to tag; "verify" builds
+# and smoke-tests without pushing.
+#
+# AWS access is keyless: the publisher role decionis/Commerce's
+# infra/aws/marketplace-access creates, trusted through GitHub's OIDC provider
+# for this repository's master branch (AWS_MARKETPLACE_PUBLISH_ROLE_ARN), and
+# allowed only to push to the Marketplace repositories under the seller's
+# prefix. AWS_MARKETPLACE_MCP_REPOSITORY is the repository URL the product's
+# Repositories tab shows.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Image tag (the commerce-mcp package version, without a v prefix)
+        required: true
+        type: string
+      mode:
+        description: verify (build and smoke-test only) or publish
+        required: true
+        type: choice
+        options: [verify, publish]
+        default: verify
+
+permissions:
+  contents: read
+
+jobs:
+  image:
+    name: Build, smoke-test and publish
+    if: ${{ inputs.mode != 'publish' || github.ref == 'refs/heads/master' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: commerce-mcp-agentcore-${{ inputs.version }}
+      cancel-in-progress: false
+    permissions:
+      attestations: write
+      contents: read
+      id-token: write
+    env:
+      VERSION: ${{ inputs.version }}
+      AWS_REGION: us-east-1
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check the version names the package
+        run: |
+          set -euo pipefail
+          test "$(node -p "require('./packages/commerce-mcp/package.json').version")" = "$VERSION"
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      # The runner's own platform first, loaded locally, so the image can be
+      # smoke-tested here exactly as the runtime will drive it.
+      - name: Build for the runner and smoke-test
+        run: |
+          set -euo pipefail
+          docker buildx build -f packages/commerce-mcp/Dockerfile \
+            --platform linux/amd64 --load -t agentops-core:latest .
+          docker run -d --name smoke -p 127.0.0.1:8000:8000 agentops-core:latest
+          trap 'docker rm -f smoke >/dev/null' EXIT
+          for _ in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8000/ping >/dev/null 2>&1 && break
+            sleep 1
+          done
+          test "$(curl -fsS http://127.0.0.1:8000/ping)" = '{"status":"Healthy"}'
+          tools=$(curl -fsS -X POST http://127.0.0.1:8000/mcp \
+            -H 'content-type: application/json' -H 'Mcp-Session-Id: smoke' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | jq -r '.result.tools[].name' | sort | tr '\n' ' ')
+          echo "tools: $tools"
+          grep -q commercegate_evaluate_action <<< "$tools"
+      - name: Verify the arm64 runtime image builds
+        if: ${{ inputs.mode == 'verify' }}
+        run: |
+          docker buildx build -f packages/commerce-mcp/Dockerfile \
+            --platform linux/arm64 --provenance=false --load -t agentops-core:latest .
+      - name: Authenticate to AWS (publisher role, through GitHub OIDC)
+        if: ${{ inputs.mode == 'publish' }}
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_MARKETPLACE_PUBLISH_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Decionis Action Gate (shadow)
+        if: ${{ inputs.mode == 'publish' }}
+        continue-on-error: true
+        uses: decionis/govern@6bc8bd3fc0dab105703fe3dc8c6c7a1d738bcf29 # v1.9.3
+        with:
+          api-key: ${{ secrets.DECIONIS_API_KEY }}
+          org-id: ${{ secrets.DECIONIS_ORG_ID }}
+          workflow-key: github_deploy_approval
+          action: marketplace-publish-commerce-mcp-agentcore
+          mode: shadow
+          payload: |
+            {
+              "artifact": "@decionis/commerce",
+              "version": "${{ inputs.version }}",
+              "sha": "${{ github.sha }}",
+              "actor": "${{ github.actor }}"
+            }
+      - name: Publish the arm64 image to the Marketplace repository
+        if: ${{ inputs.mode == 'publish' }}
+        id: publish
+        env:
+          REPOSITORY: ${{ vars.AWS_MARKETPLACE_MCP_REPOSITORY }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$REPOSITORY" =~ ^709825985650\.dkr\.ecr\.us-east-1\.amazonaws\.com/decionis/[a-z0-9._/-]+$ ]]; then
+            echo "::error::Expected the Marketplace repository under the Decionis seller prefix in us-east-1."
+            exit 1
+          fi
+          registry="${REPOSITORY%%/*}"
+          aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$registry"
+          docker buildx build -f packages/commerce-mcp/Dockerfile \
+            --platform linux/arm64 --provenance=false --push \
+            --label "org.opencontainers.image.version=$VERSION" \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            -t "$REPOSITORY:$VERSION" -t "$REPOSITORY:latest" .
+          digest="$(docker buildx imagetools inspect "$REPOSITORY:$VERSION" --format '{{json .Manifest.Digest}}' | tr -d '"')"
+          if [[ ! "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+            echo "::error::The registry did not return a valid image digest."
+            exit 1
+          fi
+          latest_digest="$(docker buildx imagetools inspect "$REPOSITORY:latest" --format '{{json .Manifest.Digest}}' | tr -d '"')"
+          if [[ "$latest_digest" != "$digest" ]]; then
+            echo "::error::The latest alias does not identify the versioned image digest."
+            exit 1
+          fi
+          {
+            echo "name=$REPOSITORY"
+            echo "digest=$digest"
+          } >> "$GITHUB_OUTPUT"
+          echo "✓ $REPOSITORY:$VERSION@$digest"
+      - name: Attest the published image
+        if: ${{ inputs.mode == 'publish' }}
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ steps.publish.outputs.name }}
+          subject-digest: ${{ steps.publish.outputs.digest }}
+          push-to-registry: false
