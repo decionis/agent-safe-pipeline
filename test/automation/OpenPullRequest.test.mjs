@@ -246,6 +246,72 @@ describe("PullRequestBot", () => {
     );
   });
 
+  it("reads the commits ahead from the commit listings when the comparison is too large", async () => {
+    const commit = (sha, login, message) => ({ sha, author: { login }, commit: { message } });
+    const master = [
+      commit("m3", "someone", "third"),
+      commit("m2", "someone", "second"),
+      commit("m1", "someone", "first"),
+    ];
+    const branch = [
+      commit("b2", expectedAuthorLogin, "feat(govern): the rewrite\n\nOne binary for any runner."),
+      commit("b1", expectedAuthorLogin, "chore: prepare"),
+      ...master,
+    ];
+    const { api, bot } = createBot(({ method, path, options }) => {
+      if (path.endsWith("/pulls") && method === "GET") return [];
+      if (path.includes("/compare/")) throw new Error("GITHUB_API_RESPONSE_TOO_LARGE");
+      if (path.endsWith("/commits")) {
+        assert.equal(options.query.per_page, 40);
+        return options.query.sha === defaultBranch ? master : branch;
+      }
+      if (path.endsWith("/actions/runs")) return { workflow_runs: [] };
+      if (path.endsWith("/pulls") && method === "POST") {
+        return { html_url: "https://github.com/decionis/agent-safe-pipeline/pull/237" };
+      }
+      throw new Error("Unexpected request: " + method + " " + path);
+    });
+
+    const outcomes = await bot.run("create", { ref: "feat/large", ref_type: "branch" });
+
+    assert.equal(outcomes[0].status, "created");
+    const { title, body } = api.calls.find(({ method }) => method === "POST").options.body;
+    assert.equal(title, "feat(govern): the rewrite");
+    assert.match(body, /One binary for any runner\./);
+    assert.match(body, /every commit ahead of master was attributed to @ocularminds/);
+  });
+
+  it("fails closed when the branch's base is beyond the default branch's recent history", async () => {
+    const commit = (sha, login) => ({ sha, author: { login }, commit: { message: "x" } });
+    const { bot } = createBot(({ method, path, options }) => {
+      if (path.endsWith("/pulls") && method === "GET") return [];
+      if (path.includes("/compare/")) throw new Error("GITHUB_API_RESPONSE_TOO_LARGE");
+      if (path.endsWith("/commits")) {
+        if (options.query.sha === defaultBranch) return [commit("m1", "someone")];
+        return [commit("b1", expectedAuthorLogin), commit("old", "someone")];
+      }
+      if (path.endsWith("/actions/runs")) return { workflow_runs: [] };
+      throw new Error("Unexpected request: " + method + " " + path);
+    });
+
+    const outcomes = await bot.run("create", { ref: "feat/ancient", ref_type: "branch" });
+
+    assert.equal(outcomes[0].status, "skipped");
+    assert.equal(outcomes[0].reason, "incomplete-commit-comparison");
+  });
+
+  it("still fails on any other error the comparison raises", async () => {
+    const { bot } = createBot(({ method, path }) => {
+      if (path.endsWith("/pulls") && method === "GET") return [];
+      if (path.includes("/compare/")) throw new Error("GITHUB_API_RESPONSE_INVALID");
+      throw new Error("Unexpected request: " + method + " " + path);
+    });
+    await assert.rejects(
+      bot.run("create", { ref: "feat/odd", ref_type: "branch" }),
+      /GITHUB_API_RESPONSE_INVALID/,
+    );
+  });
+
   it("fails closed when GitHub returns an incomplete comparison", async () => {
     const { bot } = createBot(({ method, path }) => {
       if (path.endsWith("/pulls") && method === "GET") return [];

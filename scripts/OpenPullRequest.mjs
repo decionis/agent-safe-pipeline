@@ -9,6 +9,13 @@ const maxTimeoutMs = 15_000;
 const maxAttemptsLimit = 3;
 const maxPages = 3;
 const perPage = 100;
+/**
+ * The commit listing that stands in for a comparison too large to read: pages
+ * small enough to stay inside the ordinary response bound, and enough of them
+ * to reach a base within the default branch's recent history.
+ */
+const commitsPerPage = 40;
+const maxCommitPages = 3;
 const branchCreationWorkflow = ".github/workflows/PullRequestBot.yml";
 export const compareMaxJsonResponseBytes = 512 * 1024;
 /** GitHub accepts a longer title; 72 keeps it readable in a list and in a terminal. */
@@ -260,8 +267,49 @@ export class PullRequestBot {
       );
     } catch (error) {
       if (error instanceof GitHubApiError && error.status === 404) return null;
+      // A comparison carries every changed file's patch, and a large change
+      // outgrows the bound; the bot needs only the commits ahead and who made
+      // them, which the commit listings say without a patch in sight.
+      if (error instanceof Error && error.message === "GITHUB_API_RESPONSE_TOO_LARGE") {
+        return this.compareFromCommits(branch);
+      }
       throw error;
     }
+  }
+
+  /**
+   * The commits ahead of the default branch, read from the two commit
+   * listings: the branch's, newest first, up to the first commit the default
+   * branch's recent history also has, returned oldest first as a comparison
+   * lists them. A base beyond that history is reported as an incomplete
+   * comparison, exactly as GitHub's own would be, so the bot fails closed
+   * rather than guessing at authorship.
+   */
+  async compareFromCommits(branch) {
+    const known = new Set((await this.listCommits(this.defaultBranch)).map(({ sha }) => sha));
+    const ahead = [];
+    for (const commit of await this.listCommits(branch)) {
+      if (typeof commit?.sha !== "string") break;
+      if (known.has(commit.sha)) {
+        ahead.reverse();
+        return { ahead_by: ahead.length, total_commits: ahead.length, commits: ahead };
+      }
+      ahead.push(commit);
+    }
+    return { ahead_by: ahead.length, total_commits: ahead.length + 1, commits: ahead };
+  }
+
+  async listCommits(ref) {
+    const commits = [];
+    for (let page = 1; page <= maxCommitPages; page += 1) {
+      const response = await this.api.request("GET", "/repos/" + this.repository + "/commits", {
+        query: { sha: ref, per_page: commitsPerPage, page },
+      });
+      if (!Array.isArray(response)) throw new Error("Expected commit list");
+      commits.push(...response);
+      if (response.length < commitsPerPage) break;
+    }
+    return commits;
   }
 
   async isTrustedCreationRun(runId, branch) {
