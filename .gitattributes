@@ -2,3 +2,6 @@
 /packages/commerce-mcp/** text eol=lf
 /packages/commerce-mcp-claude-extension/** text eol=lf
 /packages/commerce-mcp-claude-extension/icon.png binary
+# Govern is built and tested on Windows runners too: its sources, embedded
+# templates and test fixtures check out as the bytes the repository holds.
+/govern/** text eol=lf

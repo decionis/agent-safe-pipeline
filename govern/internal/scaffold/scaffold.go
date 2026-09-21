@@ -59,6 +59,8 @@ type Options struct {
 
 // File is one file the scaffold wrote, or would write.
 type File struct {
+	// Path is repository-relative with forward slashes on every platform, as
+	// the tree and every runner's configuration name it.
 	Path    string
 	Content string
 	// Existed is true when a file was already there (overwritten with Force, kept otherwise).
@@ -139,20 +141,19 @@ func Run(options Options, out io.Writer) (Result, error) {
 	values := map[string]string{"MODE": mode, "ACTION": action, "BRANCH": branch, "VERSION": version}
 	switch host {
 	case GitHub:
-		files = append(files, File{Path: filepath.Join(".github", "workflows", "decionis-govern.yml"), Content: render("templates/github.yml", values)})
+		files = append(files, File{Path: ".github/workflows/decionis-govern.yml", Content: render("templates/github.yml", values)})
 	case GitLab:
-		path := filepath.Join(".gitlab", "ci", "decionis-govern.yml")
-		values["PATH"] = filepath.ToSlash(path)
-		files = append(files, File{Path: path, Content: render("templates/gitlab.yml", values)})
+		values["PATH"] = ".gitlab/ci/decionis-govern.yml"
+		files = append(files, File{Path: values["PATH"], Content: render("templates/gitlab.yml", values)})
 	case Jenkins:
-		files = append(files, File{Path: filepath.Join("jenkins", "decionis-govern.groovy"), Content: render("templates/jenkins.groovy", values)})
+		files = append(files, File{Path: "jenkins/decionis-govern.groovy", Content: render("templates/jenkins.groovy", values)})
 	}
 	if options.Policy {
 		files = append(files, File{Path: PolicyFile, Content: render("templates/DECIONIS_POLICY.md", values)})
 	}
 
 	for i := range files {
-		full := filepath.Join(dir, files[i].Path)
+		full := filepath.Join(dir, filepath.FromSlash(files[i].Path))
 		if _, err := os.Stat(full); err == nil {
 			files[i].Existed = true
 			if !options.Force {
@@ -194,7 +195,7 @@ func nextSteps(host string, files []File, mode string) []string {
 	case GitLab:
 		for _, file := range files {
 			if strings.HasSuffix(file.Path, "decionis-govern.yml") {
-				steps = append(steps, fmt.Sprintf("Include the job from .gitlab-ci.yml: `include: [{ local: %s }]`.", filepath.ToSlash(file.Path)))
+				steps = append(steps, fmt.Sprintf("Include the job from .gitlab-ci.yml: `include: [{ local: %s }]`.", file.Path))
 			}
 		}
 		steps = append(steps,

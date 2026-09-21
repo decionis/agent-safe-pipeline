@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/decionis/agent-safe-pipeline/govern/v2/internal/authority"
+	"github.com/decionis/agent-safe-pipeline/govern/v2/internal/command"
 	"github.com/decionis/agent-safe-pipeline/govern/v2/internal/gate"
 	"github.com/decionis/agent-safe-pipeline/govern/v2/internal/host"
 	"github.com/decionis/agent-safe-pipeline/govern/v2/internal/host/generic"
@@ -119,7 +120,9 @@ Flags (each also reads a variable; flags win):
   --payload <json|@file>        GOVERN_PAYLOAD         the action's parameters, a JSON object
   --environment <name>          GOVERN_ENVIRONMENT     the deployment environment
   --run <line>                  GOVERN_RUN             the command as one shell line (or use --)
-  --shell bash|sh               GOVERN_SHELL           default bash
+  --shell bash|sh|pwsh|powershell|cmd
+                                GOVERN_SHELL           default bash; powershell on Windows. The arguments
+                                                       after -- are quoted for the shell in use
   --fail-on block|escalate|block_or_escalate|never
                                 GOVERN_FAIL_ON         verdict-only steps; default block
   --escalation none|managed     GOVERN_ESCALATION      hold an ESCALATE for Decionis' approval flow
@@ -292,7 +295,7 @@ func selectHost(name string, p Process) host.Host {
 }
 
 func configure(s settings, rest []string, p Process) (gate.Config, string, error) {
-	cfg := gate.Config{Attribution: true, Shell: "bash", FailOn: gate.FailOnBlock, IntentTTL: 5 * time.Minute, Timeout: 20 * time.Second}
+	cfg := gate.Config{Attribution: true, Shell: command.DefaultShell, FailOn: gate.FailOnBlock, IntentTTL: 5 * time.Minute, Timeout: 20 * time.Second}
 	switch strings.ToLower(s.value("mode", "GOVERN_MODE", "DECIONIS_MODE")) {
 	case "", "enforce", "enforcement":
 		cfg.Mode = authority.Enforcement
@@ -312,22 +315,24 @@ func configure(s settings, rest []string, p Process) (gate.Config, string, error
 	}
 	cfg.Parameters = payload
 	cfg.Environment = strings.TrimSpace(s.value("environment", "GOVERN_ENVIRONMENT"))
+	if shell := strings.ToLower(strings.TrimSpace(s.value("shell", "GOVERN_SHELL"))); shell != "" {
+		if _, ok := command.Shells[shell]; !ok {
+			return cfg, "", errors.New("--shell must be bash, sh, pwsh, powershell or cmd")
+		}
+		cfg.Shell = shell
+	}
 	line := s.value("run", "GOVERN_RUN")
 	if len(rest) > 0 {
 		if line != "" {
 			return cfg, "", errors.New("give the command either as --run or after --, not both")
 		}
-		line = shellJoin(rest)
+		joined, err := command.Join(cfg.Shell, rest)
+		if err != nil {
+			return cfg, "", err
+		}
+		line = joined
 	}
 	cfg.Command = strings.TrimSpace(line)
-	switch shell := strings.ToLower(s.value("shell", "GOVERN_SHELL")); shell {
-	case "", "bash":
-		cfg.Shell = "bash"
-	case "sh":
-		cfg.Shell = "sh"
-	default:
-		return cfg, "", errors.New("--shell must be bash or sh")
-	}
 	switch failOn := gate.FailOn(strings.ToLower(s.value("fail-on", "GOVERN_FAIL_ON"))); failOn {
 	case "":
 	case gate.FailOnBlock, gate.FailOnEscalate, gate.FailOnBlockOrEscalate, gate.FailOnNever:
@@ -450,25 +455,6 @@ func parseDuration(value string) (time.Duration, error) {
 		return time.Duration(n) * time.Second, nil
 	}
 	return time.ParseDuration(value)
-}
-
-// shellJoin turns argv into one shell line, quoting what needs it, so that
-// `govern run -- ./deploy.sh --env "prod us"` runs as typed.
-func shellJoin(args []string) string {
-	parts := make([]string, len(args))
-	for i, arg := range args {
-		parts[i] = shellQuote(arg)
-	}
-	return strings.Join(parts, " ")
-}
-
-var plainWord = regexp.MustCompile(`^[\w./:=@%+,-]+$`)
-
-func shellQuote(arg string) string {
-	if arg != "" && plainWord.MatchString(arg) {
-		return arg
-	}
-	return "'" + strings.ReplaceAll(arg, "'", `'\''`) + "'"
 }
 
 // readKey reads the credential from the environment or the file it names.

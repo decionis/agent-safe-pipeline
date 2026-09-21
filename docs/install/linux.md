@@ -127,7 +127,7 @@ no package of its own: the installer,
 `curl -fsSL https://raw.githubusercontent.com/decionis/agent-safe-pipeline/master/govern/install.sh | sh`,
 verifies the archive against the release's `SHA256SUMS` the way the runtime's does and installs
 under `/usr/local` or `~/.local`; Homebrew on Linux has `brew install govern` from the same tap;
-`go install github.com/decionis/agent-safe-pipeline/govern/v2/cmd/govern@v2.0.0` builds the
+`go install github.com/decionis/agent-safe-pipeline/govern/v2/cmd/govern@v2.1.0` builds the
 same bytes from the signed module tag. A pipeline image without a shell profile pins the version
-and prefix: `GOVERN_VERSION=2.0.0 GOVERN_INSTALL_PREFIX="$PWD/.govern" sh install.sh`. Govern's
+and prefix: `GOVERN_VERSION=2.1.0 GOVERN_INSTALL_PREFIX="$PWD/.govern" sh install.sh`. Govern's
 [README](../../govern/README.md#install) has what it does and every way to run it.

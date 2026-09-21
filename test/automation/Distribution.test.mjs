@@ -3,6 +3,8 @@ import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { describe, it } from "node:test";
 import { parse } from "yaml";
+import { BUILD_COMMAND } from "../../scripts/GovernSbom.mjs";
+import { TARGETS } from "../../scripts/RenderGovernRelease.mjs";
 
 const read = (path) => readFile(new URL(`../../${path}`, import.meta.url), "utf8");
 
@@ -446,27 +448,46 @@ describe("govern's distribution", () => {
     assert.match(script, /"\$bin\/govern" version/);
     // The v1 onboarding installer wrote workflow files; this one never does.
     assert.doesNotMatch(script, /\.github\/workflows|DECIONIS_POLICY\.md|--inject|--pr\b/);
+    // Windows has the zip and no installer; run there, it says so rather than guessing.
+    assert.match(
+      script,
+      /MINGW\* \| MSYS\* \| CYGWIN\* \| Windows_NT\) die "on Windows, download govern-<version>-windows-x64\.zip/,
+    );
   });
 
   it("builds each target on its own runner, twice, and installs it over a mirror before a release", async () => {
     const workflow = parse(await read(".github/workflows/deploy.yml"));
     const job = workflow.jobs["govern-distribution"];
     const targets = job.strategy.matrix.include.map((entry) => entry.target).sort();
-    assert.deepEqual(targets, ["darwin-arm64", "darwin-x64", "linux-arm64", "linux-x64"]);
+    assert.deepEqual(targets, [...TARGETS].sort());
+    assert.equal(
+      job.strategy.matrix.include.find((entry) => entry.target === "windows-x64").runner,
+      "windows-latest",
+    );
     const setupGo = job.steps.find((step) => step.name === "Set up Go");
     assert.equal(setupGo.with["go-version-file"], "govern/go.mod");
     const build = job.steps.find(
       (step) => step.name === "Build, archive and smoke-test the binary",
     );
+    assert.equal(build.shell, "bash");
     assert.match(build.run, /CGO_ENABLED=0 GOOS="\$goos" GOARCH="\$goarch"/);
-    assert.match(build.run, /go build -trimpath -buildvcs=false -ldflags="-s -w"/);
+    assert.ok(build.run.includes(BUILD_COMMAND.replace("CGO_ENABLED=0 ", "")));
+    assert.match(build.run, /windows-x64\) goos=windows; goarch=amd64/);
     assert.match(build.run, /cmp "\$RUNNER_TEMP\/govern\.first" "\$RUNNER_TEMP\/govern\.second"/);
+    // The shells only Windows has are tested where they are.
+    assert.match(build.run, /if \[ "\$goos" = windows \]; then go test -count=1 \.\/\.\.\.; fi/);
     assert.match(
       build.run,
       // The archive line wraps; the name and version follow on its continuation.
       /scripts\/ArchiveExecutable\.mjs .*\\\n\s+--out release --name govern --version "\$version"/,
     );
-    assert.match(build.run, /packaging\/smoke\/Govern\.sh/);
+    // The zip is opened by Windows' own tar and smoke-tested as govern.exe.
+    assert.match(
+      build.run,
+      /"\$\{SYSTEMROOT:-C:\/Windows\}\/System32\/tar\.exe" -xf "release\/govern-\$version-\$TARGET\.zip"/,
+    );
+    assert.match(build.run, /executable="\$extracted\/govern-\$version-\$TARGET\/govern\.exe"/);
+    assert.match(build.run, /packaging\/smoke\/Govern\.sh "\$executable" "\$version"/);
     const installer = job.steps.find(
       (step) => step.name === "Run the installer against this build over a local mirror",
     );
@@ -478,6 +499,7 @@ describe("govern's distribution", () => {
     assert.match(installer.run, /grep -q "checksum mismatch"/);
     const upload = job.steps.find((step) => step.name === "Upload govern artifacts");
     assert.equal(upload.with.name, "govern-${{ matrix.target }}");
+    assert.equal(upload.with.path, "release/govern-*.tar.gz\nrelease/govern-*.zip\n");
     for (const step of job.steps) {
       if (step.uses !== undefined) assert.match(step.uses, /@[0-9a-f]{40}( #|$)/, step.uses);
     }
@@ -486,8 +508,9 @@ describe("govern's distribution", () => {
     for (const name of [
       "Create and verify the signed govern module tag",
       "Download the govern artifacts",
-      "Check the govern artifacts",
+      "Check the govern artifacts and write the govern SBOM",
       "Attest govern provenance",
+      "Attest govern SBOM",
       "Open the govern formula and release manifest for review",
     ]) {
       assert.ok(names.includes(name), name);
@@ -515,11 +538,42 @@ describe("govern's distribution", () => {
       create.run,
       /go install github\.com\/\$GH_REPO\/govern\/v2\/cmd\/govern@v\$GOVERN_VERSION/,
     );
-    const check = releaseSteps.find((step) => step.name === "Check the govern artifacts");
+    const check = releaseSteps.find(
+      (step) => step.name === "Check the govern artifacts and write the govern SBOM",
+    );
     assert.match(check.run, /for target in linux-x64 linux-arm64 darwin-arm64 darwin-x64/);
+    assert.match(check.run, /test -s "release\/govern-\$GOVERN_VERSION-windows-x64\.zip"/);
+    assert.match(check.run, /unzip -tq "release\/govern-\$GOVERN_VERSION-windows-x64\.zip"/);
     assert.match(check.run, /packaging\/smoke\/Govern\.sh/);
+    // The SBOM is read from every archive, then held to the release's own SBOM rules.
+    assert.match(
+      check.run,
+      /for archive in release\/govern-"\$GOVERN_VERSION"-\*\.tar\.gz release\/govern-"\$GOVERN_VERSION"-\*\.zip; do/,
+    );
+    assert.match(
+      check.run,
+      /node scripts\/GovernSbom\.mjs --version "\$GOVERN_VERSION" --tag "\$RELEASE_TAG" \\\n\s+--out "release\/govern-\$GOVERN_VERSION\.cdx\.json" "\$\{archives\[@\]\}"/,
+    );
+    assert.match(
+      check.run,
+      /node scripts\/AssertReleaseSbom\.mjs "release\/govern-\$GOVERN_VERSION\.cdx\.json" govern "\$GOVERN_VERSION" 2/,
+    );
+    assert.equal(check.env.RELEASE_TAG, "${{ steps.release.outputs.tag }}");
     const attest = releaseSteps.find((step) => step.name === "Attest govern provenance");
-    assert.equal(attest.with["subject-path"], "release/govern-*.tar.gz");
+    assert.equal(attest.with["subject-path"], "release/govern-*.tar.gz\nrelease/govern-*.zip\n");
+    const sbom = releaseSteps.find((step) => step.name === "Attest govern SBOM");
+    assert.equal(sbom.with["subject-path"], "release/govern-*.tar.gz\nrelease/govern-*.zip\n");
+    assert.equal(
+      sbom.with["sbom-path"],
+      "release/govern-${{ steps.release.outputs.govern_version }}.cdx.json",
+    );
+    assert.match(sbom.uses, /^actions\/attest@[0-9a-f]{40}/);
+    assert.ok(
+      names.indexOf("Attest govern SBOM") < names.indexOf("Prepare offline attestation assets"),
+    );
+    const notes = releaseSteps.find((step) => step.name === "Create verified GitHub release");
+    assert.match(notes.run, /govern-<version>-windows-x64\.zip/);
+    assert.match(notes.run, /govern-<version>\.cdx\.json/);
     const formula = releaseSteps.find((step) => step.name === "Render the Homebrew formula");
     assert.match(
       formula.run,
@@ -533,6 +587,26 @@ describe("govern's distribution", () => {
     assert.match(open.run, /cp release\/govern\.rb Formula\/govern\.rb/);
     assert.match(open.run, /cp release\/govern-release\.json govern\/release\.json/);
     assert.match(formula.run, /RenderGovernRelease\.mjs --version "\$GOVERN_VERSION"/);
+    assert.match(formula.run, /\(\.sha256 \| length\) == 5/);
+    // The govern job runs the release's SBOM step on every change, against
+    // every target's archive, cross-compiled with the release's build.
+    const dryRun = workflow.jobs.govern.steps.find(
+      (step) => step.name === "Archive every target and write the SBOM the release would",
+    );
+    assert.match(
+      dryRun.run,
+      /for target in linux-x64 linux-arm64 darwin-arm64 darwin-x64 windows-x64; do/,
+    );
+    assert.ok(dryRun.run.includes(BUILD_COMMAND.replace("CGO_ENABLED=0 ", "")));
+    assert.match(
+      dryRun.run,
+      /node scripts\/GovernSbom\.mjs --version "\$version" --tag v0\.0\.0-check/,
+    );
+    assert.match(
+      dryRun.run,
+      /node scripts\/AssertReleaseSbom\.mjs "\$RUNNER_TEMP\/govern\.cdx\.json" govern "\$version" 2/,
+    );
+    assert.match(dryRun.run, /unzip -tq/);
   });
 
   it("keeps the smoke test runnable and the module's toolchain pinned", async () => {
@@ -541,6 +615,10 @@ describe("govern's distribution", () => {
     assert.match(smoke, /^set -euo pipefail$/m);
     assert.match(smoke, /--mode shadow/);
     assert.match(smoke, /enforcement needs DECIONIS_API_KEY/);
+    // The gated commands are bash's wherever the smoke runs, Windows included,
+    // and a Windows executable is handed a Windows path.
+    assert.match(smoke, /^export GOVERN_SHELL=bash$/m);
+    assert.match(smoke, /cygpath -w/);
     const mod = await read("govern/go.mod");
     assert.match(mod, /^module github\.com\/decionis\/agent-safe-pipeline\/govern\/v2$/m);
     assert.match(mod, /^toolchain go\d+\.\d+\.\d+$/m);

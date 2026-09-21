@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/decionis/agent-safe-pipeline/govern/v2/internal/authority/authoritytest"
+	"github.com/decionis/agent-safe-pipeline/govern/v2/internal/command"
 )
 
 func environment(values map[string]string) func(string) string {
@@ -143,6 +144,8 @@ func TestUsageErrors(t *testing.T) {
 		{[]string{"run", "--payload", "[1]"}, base, "--payload must be a JSON object"},
 		{[]string{"run", "--fail-on", "sometimes"}, base, "--fail-on must be"},
 		{[]string{"run", "--run", "a", "--", "b"}, base, "either as --run or after --"},
+		{[]string{"run", "--shell", "fish"}, base, "--shell must be bash, sh, pwsh, powershell or cmd"},
+		{[]string{"run", "--", "echo", `say "hi"`}, map[string]string{"DECIONIS_API_KEY": "k", "DECIONIS_TENANT_ID": authoritytest.TenantID, "GOVERN_SHELL": "CMD"}, "cmd cannot carry a double quote"},
 		{[]string{"run", "--mode", "shadow", "--escalation", "managed"}, base, "shadow never holds a step"},
 		{[]string{"run", "--host", "circle"}, base, "--host must be"},
 		{[]string{"run"}, map[string]string{"DECIONIS_API_KEY": "k"}, "DECIONIS_TENANT_ID"},
@@ -173,9 +176,30 @@ func TestVersionAndHelp(t *testing.T) {
 	}
 }
 
-func TestShellJoinQuotesWhatNeedsIt(t *testing.T) {
-	if got := shellJoin([]string{"./deploy.sh", "--env", "prod us", "it's", "a=b"}); got != `./deploy.sh --env 'prod us' 'it'\''s' a=b` {
-		t.Fatalf("%q", got)
+// The shell is the platform's default until named; a --run line goes to
+// whichever shell is named, and the arguments after -- are quoted for it.
+func TestShellSettingReachesTheGate(t *testing.T) {
+	s := settings{flags: map[string]*stringFlag{}, bools: map[string]*boolFlag{}, env: environment(map[string]string{})}
+	cfg, _, err := configure(s, nil, Process{Env: s.env})
+	if err != nil || cfg.Shell != command.DefaultShell {
+		t.Fatalf("%v %q", err, cfg.Shell)
+	}
+	for _, shell := range []string{"sh", "pwsh", "powershell", "cmd"} {
+		s := settings{flags: map[string]*stringFlag{}, bools: map[string]*boolFlag{}, env: environment(map[string]string{"GOVERN_SHELL": shell, "GOVERN_RUN": "./deploy"})}
+		cfg, _, err := configure(s, nil, Process{Env: s.env})
+		if err != nil || cfg.Shell != shell || cfg.Command != "./deploy" {
+			t.Fatalf("%s: %v %+v", shell, err, cfg)
+		}
+	}
+	s = settings{flags: map[string]*stringFlag{}, bools: map[string]*boolFlag{}, env: environment(map[string]string{"GOVERN_SHELL": "pwsh"})}
+	cfg, _, err = configure(s, []string{"./deploy.ps1", "-Environment", "prod us"}, Process{Env: s.env})
+	if err != nil || cfg.Command != `./deploy.ps1 -Environment 'prod us'` {
+		t.Fatalf("%v %q", err, cfg.Command)
+	}
+	s = settings{flags: map[string]*stringFlag{}, bools: map[string]*boolFlag{}, env: environment(map[string]string{"GOVERN_SHELL": "bash"})}
+	cfg, _, err = configure(s, []string{"./deploy.sh", "--env", "prod us"}, Process{Env: s.env})
+	if err != nil || cfg.Command != `./deploy.sh --env 'prod us'` {
+		t.Fatalf("%v %q", err, cfg.Command)
 	}
 }
 

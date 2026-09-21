@@ -90,5 +90,5 @@ The same releases carry `govern`, the gate for CI steps, as one static binary pe
 the same tap, `brew install govern`; or the installer,
 `curl -fsSL https://raw.githubusercontent.com/decionis/agent-safe-pipeline/master/govern/install.sh | sh`,
 which verifies the archive against the release's `SHA256SUMS` the way the runtime's does; or
-`go install github.com/decionis/agent-safe-pipeline/govern/v2/cmd/govern@v2.0.0`. Govern's
+`go install github.com/decionis/agent-safe-pipeline/govern/v2/cmd/govern@v2.1.0`. Govern's
 [README](../../govern/README.md#install) has what it does and every way to run it.

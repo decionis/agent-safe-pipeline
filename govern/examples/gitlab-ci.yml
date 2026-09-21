@@ -23,7 +23,7 @@ deploy:production:
   script:
     # The release's binary for this platform, verified against the release's
     # SHA256SUMS before it is installed; GOVERN_VERSION pins the version.
-    - curl -fsSL https://raw.githubusercontent.com/decionis/agent-safe-pipeline/master/govern/install.sh | GOVERN_VERSION=2.0.0 GOVERN_INSTALL_PREFIX="$CI_PROJECT_DIR/.govern" sh
+    - curl -fsSL https://raw.githubusercontent.com/decionis/agent-safe-pipeline/master/govern/install.sh | GOVERN_VERSION=2.1.0 GOVERN_INSTALL_PREFIX="$CI_PROJECT_DIR/.govern" sh
     - export PATH="$CI_PROJECT_DIR/.govern/bin:$PATH"
     - govern run --payload "{\"service\":\"api\",\"sha\":\"$CI_COMMIT_SHA\"}" -- ./scripts/deploy.sh
   artifacts:

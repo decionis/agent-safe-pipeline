@@ -83,8 +83,11 @@ not imply a release date.
   for `go install`); the action downloads the archive its commit pins and verifies it before
   running, building the same bytes from the commit when no archive exists yet; `govern init`
   writes a repository's starter files; [`docs/govern.md`](./docs/govern.md) is the page;
-  `decionis/govern@v2` is the Marketplace address, a thin action over this one. Still to come: a
-  Windows archive; a govern SBOM; and, on the Decionis side, the public verify link on decisions
+  `decionis/govern@v2` is the Marketplace address, a thin action over this one. Since then: a
+  Windows archive (`govern-<version>-windows-x64.zip`, built and smoke-tested on a Windows runner,
+  installed by the action there, with PowerShell and `cmd` as shells the gate runs through) and a
+  govern SBOM (CycloneDX, read from the shipped executables' own build information, attested
+  beside the archives). Still to come, on the Decionis side: the public verify link on decisions
   govern makes.
 - Make native verification a deployment location rather than a product: the
   [Verifying Provider Profile](./docs/authority/verifying-provider.md) states the provider's half

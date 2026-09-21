@@ -18,7 +18,7 @@ refusal, and the command does not run.
 > [`decionis/agent-safe-pipeline`](https://github.com/decionis/agent-safe-pipeline).
 > [`decionis/govern`](https://github.com/decionis/govern) is the address GitHub workflows use
 > (`uses: decionis/govern@v2`; `v1` is the earlier node20 action, which spoke the evaluate-decision
-> API) and the Marketplace listing. The version here is `2.0.0` ([`VERSION`](./VERSION)).
+> API) and the Marketplace listing. The version here is `2.1.0` ([`VERSION`](./VERSION)).
 
 ## What one governed step is
 
@@ -89,6 +89,14 @@ govern run --action production-deploy --environment production \
   --payload '{"service":"api"}' -- ./scripts/deploy.sh
 ```
 
+The arguments after `--` are quoted for the shell in use, so the command runs as typed: bash or
+`sh` by default, Windows PowerShell on a Windows agent unless another shell is named, and `--run`
+takes a line already written for that shell.
+
+```powershell
+govern run --shell pwsh --action production-deploy -- ./scripts/deploy.ps1 -Environment production
+```
+
 | Runner         | Detected by                      | Facts                              | Outputs                                                   | Comment                                                        |
 | -------------- | -------------------------------- | ---------------------------------- | --------------------------------------------------------- | -------------------------------------------------------------- |
 | GitHub Actions | `GITHUB_ACTIONS`                 | `GITHUB_*`                         | `GITHUB_OUTPUT`, the step summary                         | the pull request, with `GITHUB_TOKEN` (`pull-requests: write`) |
@@ -103,19 +111,23 @@ and [`examples/Jenkinsfile`](./examples/Jenkinsfile) show a job each.
 ## Install
 
 Govern ships with the repository's [releases](https://github.com/decionis/agent-safe-pipeline/releases)
-as one static binary per platform, `govern-<version>-<os>-<arch>.tar.gz` for macOS and Linux on
-Apple silicon, ARM and x86-64, each built twice on its own platform and shipped only when the two
-builds are the same bytes. Every archive is listed in the release's `SHA256SUMS` and attested by
-the release workflow; a `GOVERN_VERSION` such as `2.0.0` pins a version, and the installer
-otherwise takes the newest release that carries one.
+as one static binary per platform: `govern-<version>-<os>-<arch>.tar.gz` for macOS and Linux on
+Apple silicon, ARM and x86-64, and `govern-<version>-windows-x64.zip` for Windows, each built
+twice on its own platform and shipped only when the two builds are the same bytes. Every archive
+is listed in the release's `SHA256SUMS` and attested by the release workflow, and
+`govern-<version>.cdx.json` is the release's CycloneDX SBOM, read from the shipped executables'
+own build information (the modules linked in, the toolchain, the build settings, each archive's
+checksum) and attested beside them. A `GOVERN_VERSION` such as `2.1.0` pins a version, and the
+installer otherwise takes the newest release that carries one.
 
-| How            | Command                                                                                                                  |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Installer      | `curl -fsSL https://raw.githubusercontent.com/decionis/agent-safe-pipeline/master/govern/install.sh \| sh`               |
-| Homebrew       | `brew tap decionis/agent-safe https://github.com/decionis/agent-safe-pipeline && brew install govern`                    |
-| Go             | `go install github.com/decionis/agent-safe-pipeline/govern/v2/cmd/govern@v2.0.0`                                         |
-| By hand        | download the archive and `SHA256SUMS` from the release, `shasum -a 256 -c SHA256SUMS`, extract, put `govern` on the path |
-| GitHub Actions | `uses: decionis/govern@v2` (the action builds or fetches the binary itself)                                              |
+| How            | Command                                                                                                                            |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Installer      | `curl -fsSL https://raw.githubusercontent.com/decionis/agent-safe-pipeline/master/govern/install.sh \| sh`                         |
+| Homebrew       | `brew tap decionis/agent-safe https://github.com/decionis/agent-safe-pipeline && brew install govern`                              |
+| Go             | `go install github.com/decionis/agent-safe-pipeline/govern/v2/cmd/govern@v2.1.0`                                                   |
+| By hand        | download the archive and `SHA256SUMS` from the release, `shasum -a 256 -c SHA256SUMS`, extract, put `govern` on the path           |
+| Windows        | download `govern-<version>-windows-x64.zip` and `SHA256SUMS`, check the zip against the list, unpack, put `govern.exe` on the path |
+| GitHub Actions | `uses: decionis/govern@v2` (the action builds or fetches the binary itself, on Windows runners too)                                |
 
 [`install.sh`](./install.sh) does one thing: it detects the platform, downloads the archive and the
 release's `SHA256SUMS`, refuses to continue unless the archive's SHA-256 is the one the release
@@ -130,7 +142,9 @@ hand. The Go module is `github.com/decionis/agent-safe-pipeline/govern/v2`; its 
 `go.mod` pins the toolchain so a `go install` builds the same bytes the release shipped.
 
 A release is verified the way the runtime's is: `shasum -a 256 -c SHA256SUMS`, and
-`gh attestation verify govern-<version>-<os>-<arch>.tar.gz --repo decionis/agent-safe-pipeline`.
+`gh attestation verify govern-<version>-<os>-<arch>.tar.gz --repo decionis/agent-safe-pipeline`
+(or the zip); the same command with `--predicate-type https://cyclonedx.org/bom` checks the SBOM
+attestation, and the SBOM itself names each archive it describes with its SHA-256.
 
 ## Settings
 
@@ -147,7 +161,7 @@ Every setting is a flag or a variable; flags win. `govern run --help` lists them
 | `--payload`                     | `GOVERN_PAYLOAD`                             | A JSON object (or `@file`): the action's parameters                                                          |
 | `--environment`                 | `GOVERN_ENVIRONMENT`                         | The deployment environment; GitLab's `CI_ENVIRONMENT_NAME` otherwise                                         |
 | `--run` or `-- <command>`       | `GOVERN_RUN`                                 | The gated command                                                                                            |
-| `--shell`                       | `GOVERN_SHELL`                               | `bash` (default) or `sh`, run with `-e -c`                                                                   |
+| `--shell`                       | `GOVERN_SHELL`                               | `bash` (default; `powershell` on Windows), `sh`, `pwsh`, `powershell`, `cmd`; `--` is quoted for the shell   |
 | `--fail-on`                     | `GOVERN_FAIL_ON`                             | For a step without a command: `block` (default), `escalate`, `block_or_escalate`, `never`                    |
 | `--escalation`                  | `GOVERN_ESCALATION`                          | `managed`: hold an `ESCALATE` for Decionis' approval flow                                                    |
 | `--approver`, `--approver-role` | `GOVERN_APPROVER`, `GOVERN_APPROVER_ROLE`    | Who approves a managed escalation; either implies `managed`                                                  |
