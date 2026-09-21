@@ -10,7 +10,8 @@ inputs:
   api-key:
     description: >-
       Decionis API key for the workspace. Pass a secret
-      (`${{ secrets.DECIONIS_API_KEY }}`); never write it in the workflow.
+      (`secrets.DECIONIS_API_KEY`); never write it in the workflow — GitHub
+      evaluates an expression even inside this description.
     required: false
     default: ""
   tenant-id:
@@ -108,12 +109,6 @@ inputs:
     description: "Where to write the JSON record of the run; empty for none."
     required: false
     default: ""
-  go-version:
-    description: >-
-      The Go release this step builds the binary with until the release
-      binary ships; a `go.mod`-compatible version.
-    required: false
-    default: "1.22"
 
 outputs:
   decision:
@@ -177,17 +172,60 @@ outputs:
 runs:
   using: "composite"
   steps:
-    # Until the release binary ships, the step builds it from this pinned
-    # commit: no download, no registry, the source you can read.
-    - name: Set up Go
-      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-      with:
-        go-version: ${{ inputs.go-version }}
-        cache-dependency-path: ${{ github.action_path }}/go.sum
-    - name: Build govern
+    # The binary: the release's archive for this runner when the manifest
+    # beside this action names this version, verified against the SHA-256
+    # the manifest pins before it is extracted, so the action's commit names
+    # the bytes it runs the way a commit-pinned action names its code; the
+    # same bytes built from this commit with the pinned toolchain otherwise
+    # (a version not yet released, or a runner without an archive), which
+    # the release's double build holds to the archive's bytes.
+    - name: Resolve the govern binary
+      id: resolve
       shell: bash
       working-directory: ${{ github.action_path }}
-      run: CGO_ENABLED=0 go build -trimpath -o "$RUNNER_TEMP/govern" ./cmd/govern
+      run: |
+        set -euo pipefail
+        version="$(tr -d '[:space:]' < VERSION)"
+        case "$RUNNER_OS/$RUNNER_ARCH" in
+          Linux/X64) target=linux-x64 ;;
+          Linux/ARM64) target=linux-arm64 ;;
+          macOS/ARM64) target=darwin-arm64 ;;
+          macOS/X64) target=darwin-x64 ;;
+          *) target="" ;;
+        esac
+        pinned="$(jq -r '.version' release.json)"
+        sum=""
+        if [ -n "$target" ]; then sum="$(jq -r --arg t "$target" '.sha256[$t] // empty' release.json)"; fi
+        if [ "$pinned" != "$version" ] || [ -z "$sum" ]; then
+          echo "govern $version has no released archive for ${target:-$RUNNER_OS/$RUNNER_ARCH} in release.json; building it from this commit."
+          echo "source=build" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        tag="$(jq -r '.tag' release.json)"
+        base="$(jq -r '.base' release.json)"
+        archive="govern-$version-$target.tar.gz"
+        curl --proto '=https' --tlsv1.2 -fsSL --retry 3 -o "$RUNNER_TEMP/$archive" "$base/$tag/$archive"
+        if command -v sha256sum >/dev/null 2>&1; then
+          echo "$sum  $RUNNER_TEMP/$archive" | sha256sum --check --strict
+        else
+          echo "$sum  $RUNNER_TEMP/$archive" | shasum -a 256 --check --strict
+        fi
+        tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+        mv "$RUNNER_TEMP/govern-$version-$target/govern" "$RUNNER_TEMP/govern"
+        chmod 0755 "$RUNNER_TEMP/govern"
+        echo "govern $version for $target: release $tag, SHA-256 $sum verified."
+        echo "source=release" >> "$GITHUB_OUTPUT"
+    - name: Set up Go
+      if: steps.resolve.outputs.source == 'build'
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: ${{ github.action_path }}/go.mod
+        cache-dependency-path: ${{ github.action_path }}/go.sum
+    - name: Build govern
+      if: steps.resolve.outputs.source == 'build'
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w" -o "$RUNNER_TEMP/govern" ./cmd/govern
     - name: Govern the step
       id: gate
       shell: bash

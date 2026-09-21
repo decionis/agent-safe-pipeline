@@ -44,6 +44,7 @@ AgentSafe is the runtime that installs: `@decionis/agentsafe`, one executable, i
 - Remote CRO authorization sequence: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/remote-cro-authorization.md
 - Concepts: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/concepts.md
 - Shadow mode: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/shadow-mode.md
+- Govern, the workflow gate (one Decionis verdict before a CI step runs on GitHub Actions, GitLab CI, Jenkins or any runner: the step as an execution intent, the command only on a claimed grant, ESCALATE held for a person, the outcome finalized into the dossier; `govern init` for the starter files; one static binary per platform with the releases): https://github.com/decionis/agent-safe-pipeline/blob/master/docs/govern.md, https://github.com/decionis/agent-safe-pipeline/blob/master/govern/README.md
 - Local testing: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/local-testing.md
 - Deployment kit (the trusted executor as a process, its image, conformance-tested Kubernetes manifests for the agent zone and the executor zone, and the shadow-to-enforcement runbook): https://github.com/decionis/agent-safe-pipeline/blob/master/deploy/README.md
 - Decision Dossiers: https://github.com/decionis/agent-safe-pipeline/blob/master/docs/decision-dossiers.md

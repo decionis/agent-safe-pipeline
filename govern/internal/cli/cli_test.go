@@ -178,3 +178,39 @@ func TestShellJoinQuotesWhatNeedsIt(t *testing.T) {
 		t.Fatalf("%q", got)
 	}
 }
+
+func TestInitWritesTheStarterAndRefusesArguments(t *testing.T) {
+	dir := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	code := Main(context.Background(), Process{Args: []string{"init", "--dir", dir, "--host", "github", "--action", "production-deploy"}, Env: environment(map[string]string{}), Stdout: &stdout, Stderr: &stderr, Version: "2.0.0-test"})
+	if code != 0 || !strings.Contains(stdout.String(), "wrote .github/workflows/decionis-govern.yml") {
+		t.Fatalf("exit %d\n%s%s", code, stdout.String(), stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".github", "workflows", "decionis-govern.yml")); err != nil {
+		t.Fatal(err)
+	}
+	if code := Main(context.Background(), Process{Args: []string{"init", "extra"}, Env: environment(map[string]string{}), Stdout: &stdout, Stderr: &stderr, Version: "t"}); code != ExitUsage || !strings.Contains(stderr.String(), "flags only") {
+		t.Fatalf("exit %d %q", code, stderr.String())
+	}
+	stderr.Reset()
+	if code := Main(context.Background(), Process{Args: []string{"init", "--dir", dir, "--mode", "loud"}, Env: environment(map[string]string{}), Stdout: &stdout, Stderr: &stderr, Version: "t"}); code != ExitUsage || !strings.Contains(stderr.String(), "MODE_INVALID") {
+		t.Fatalf("exit %d %q", code, stderr.String())
+	}
+}
+
+// A key pasted as "key", with a smart quote or a newline, is the key.
+func TestCredentialsArePastedWithQuotes(t *testing.T) {
+	for _, raw := range []string{"synthetic-key-aaaa", "\"synthetic-key-aaaa\"", "'synthetic-key-aaaa'", "\u201csynthetic-key-aaaa\u201d", " synthetic-key-aaaa\n"} {
+		if got := sanitizeCredential(raw); got != "synthetic-key-aaaa" {
+			t.Fatalf("%q → %q", raw, got)
+		}
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "key")
+	if err := os.WriteFile(path, []byte("\"synthetic-key-aaaa\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if key, err := readKey(environment(map[string]string{"DECIONIS_API_KEY_FILE": path})); err != nil || key != "synthetic-key-aaaa" {
+		t.Fatalf("%q %v", key, err)
+	}
+}

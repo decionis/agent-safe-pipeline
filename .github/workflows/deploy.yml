@@ -1583,6 +1583,10 @@ jobs:
           node scripts/RenderHomebrewFormula.mjs --product govern --version "$GOVERN_VERSION" --tag "$RELEASE_TAG" \
             --sums release/SHA256SUMS --out release/govern.rb
           ruby -c release/govern.rb
+          # The manifest the action pins the archives by, from the same checksums.
+          node scripts/RenderGovernRelease.mjs --version "$GOVERN_VERSION" --tag "$RELEASE_TAG" \
+            --sums release/SHA256SUMS --out release/govern-release.json
+          jq -e --arg v "$GOVERN_VERSION" '.version == $v and (.sha256 | length) == 4' release/govern-release.json
       # The runtime package's first publication cannot use trusted publishing:
       # npm attaches a trusted publisher to a package that already exists. A
       # granular NPM_TOKEN (publish, bypass 2FA) carries that one publication
@@ -1746,7 +1750,7 @@ jobs:
             echo "go install github.com/$GH_REPO/govern/v2/cmd/govern@v$GOVERN_VERSION"
             echo '```'
             echo
-            echo "Govern $GOVERN_VERSION, the workflow gate, is attached as the \`govern-<version>-<os>-<arch>.tar.gz\` archives, one static binary each, listed in \`SHA256SUMS\` and attested by this workflow; \`govern-install.sh\` is the installer at this tag. Its Go module tag, \`$GOVERN_TAG\`, is signed the same way as the release tag and points at this commit. The Homebrew formula is opened as a pull request from the \`homebrew/govern-<version>\` branch."
+            echo "Govern $GOVERN_VERSION, the workflow gate, is attached as the \`govern-<version>-<os>-<arch>.tar.gz\` archives, one static binary each, listed in \`SHA256SUMS\` and attested by this workflow; \`govern-install.sh\` is the installer at this tag. Its Go module tag, \`$GOVERN_TAG\`, is signed the same way as the release tag and points at this commit. The Homebrew formula and the manifest the action pins these archives by are opened as one pull request from the \`dist/govern-<version>\` branch."
             echo
             echo "## Verifiable artifacts"
             echo
@@ -1804,7 +1808,11 @@ jobs:
           git commit -s -m "dist(homebrew): pin the agentsafe formula to $RELEASE_TAG" \
             -m "Rendered by the release workflow from the release's SHA256SUMS."
           git push origin "$branch"
-      - name: Open the govern Homebrew formula for review
+      # Govern's formula and the manifest its action pins the archives by, one
+      # branch and one pull request per govern version: after it merges, the
+      # tap installs this release's archives and the action downloads them
+      # instead of building from source.
+      - name: Open the govern formula and release manifest for review
         if: steps.release.outputs.exists != 'true' && github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -1813,7 +1821,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          branch="homebrew/govern-$GOVERN_VERSION"
+          branch="dist/govern-$GOVERN_VERSION"
           if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
             echo "$branch exists; nothing to open."
             exit 0
@@ -1822,9 +1830,10 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -b "$branch" "$GITHUB_SHA"
           cp release/govern.rb Formula/govern.rb
-          git add Formula/govern.rb
-          git commit -s -m "dist(homebrew): pin the govern formula to $RELEASE_TAG" \
-            -m "Rendered by the release workflow from the release's SHA256SUMS."
+          cp release/govern-release.json govern/release.json
+          git add Formula/govern.rb govern/release.json
+          git commit -s -m "dist(govern): pin the formula and the action to $RELEASE_TAG" \
+            -m "Rendered by the release workflow from the release's SHA256SUMS: Formula/govern.rb for the tap, govern/release.json for the action, which downloads the archive these checksums name instead of building from source."
           git push origin "$branch"
       - name: Upload verified dry-run assets
         if: steps.release.outputs.exists != 'true' && github.event_name == 'workflow_dispatch'

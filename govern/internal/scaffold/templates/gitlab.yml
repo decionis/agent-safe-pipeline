@@ -1,0 +1,30 @@
+# Decionis govern: one verdict before this pipeline's governed job runs, with
+# a signed Decision Dossier of it. Written by `govern init`; include it from
+# .gitlab-ci.yml:
+#
+#   include:
+#     - local: {{PATH}}
+#
+# Shadow first: the job never fails a pipeline, and until the variables exist
+# it records nothing. Add DECIONIS_API_KEY (masked) and DECIONIS_TENANT_ID to
+# the project's CI variables from https://decionis.com/quickstart, watch the
+# verdicts on merge requests, then set GOVERN_MODE to enforce and gate the
+# command that matters.
+govern:
+  stage: test
+  image: alpine:3
+  before_script:
+    - apk add --no-cache curl tar
+    - curl -fsSL https://raw.githubusercontent.com/decionis/agent-safe-pipeline/master/govern/install.sh | GOVERN_VERSION={{VERSION}} GOVERN_INSTALL_PREFIX="$CI_PROJECT_DIR/.govern" sh
+    - export PATH="$CI_PROJECT_DIR/.govern/bin:$PATH"
+  variables:
+    GOVERN_MODE: {{MODE}}
+    GOVERN_ACTION: {{ACTION}}
+    GOVERN_SHELL: sh
+    GOVERN_OUTPUT_FILE: govern.env
+    GOVERN_COMMENT: "true"
+  script:
+    - govern run -- true # replace `true` with the command the verdict gates
+  artifacts:
+    reports:
+      dotenv: govern.env

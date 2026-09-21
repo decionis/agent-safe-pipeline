@@ -488,7 +488,7 @@ describe("govern's distribution", () => {
       "Download the govern artifacts",
       "Check the govern artifacts",
       "Attest govern provenance",
-      "Open the govern Homebrew formula for review",
+      "Open the govern formula and release manifest for review",
     ]) {
       assert.ok(names.includes(name), name);
     }
@@ -527,10 +527,12 @@ describe("govern's distribution", () => {
     );
     assert.match(formula.run, /ruby -c release\/govern\.rb/);
     const open = releaseSteps.find(
-      (step) => step.name === "Open the govern Homebrew formula for review",
+      (step) => step.name === "Open the govern formula and release manifest for review",
     );
-    assert.match(open.run, /branch="homebrew\/govern-\$GOVERN_VERSION"/);
+    assert.match(open.run, /branch="dist\/govern-\$GOVERN_VERSION"/);
     assert.match(open.run, /cp release\/govern\.rb Formula\/govern\.rb/);
+    assert.match(open.run, /cp release\/govern-release\.json govern\/release\.json/);
+    assert.match(formula.run, /RenderGovernRelease\.mjs --version "\$GOVERN_VERSION"/);
   });
 
   it("keeps the smoke test runnable and the module's toolchain pinned", async () => {

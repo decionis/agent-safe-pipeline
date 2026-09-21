@@ -71,9 +71,12 @@ not imply a release date.
   engine; distributed with the runtime's releases (one static binary per platform, built twice and
   shipped only when identical, listed in `SHA256SUMS`, attested, a Homebrew formula from the same
   tap, an installer that verifies before it installs, and a signed `govern/v<version>` module tag
-  for `go install`). Still to come: the action fetching that pinned binary instead of building it,
-  `govern init` in place of the v1 onboarding installer, and `decionis/govern` kept as the
-  Marketplace address, a thin action that fetches the binary.
+  for `go install`); the action downloads the archive its commit pins and verifies it before
+  running, building the same bytes from the commit when no archive exists yet; `govern init`
+  writes a repository's starter files; [`docs/govern.md`](./docs/govern.md) is the page. Still to
+  come: `decionis/govern` kept as the Marketplace address, a thin action over this one; a Windows
+  archive; a govern SBOM; and, on the Decionis side, the public verify link on decisions govern
+  makes.
 - Make native verification a deployment location rather than a product: the
   [Verifying Provider Profile](./docs/authority/verifying-provider.md) states the provider's half
   of the boundary normatively, with [vectors](./conformance/provider/README.md) any implementation
