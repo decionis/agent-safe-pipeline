@@ -16,6 +16,12 @@ executable="${1:?path to govern}"
 expected_version="${2:?expected version}"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
+# The gated commands below are bash's, wherever this runs: on Windows the
+# binary's default shell is PowerShell, and the path a Windows executable
+# is handed must be a Windows path, which Git Bash's mktemp does not give.
+export GOVERN_SHELL=bash
+report_dir="$work"
+if command -v cygpath >/dev/null 2>&1; then report_dir="$(cygpath -w "$work")"; fi
 
 fail() { echo "SMOKE FAILED: $*" >&2; exit 1; }
 
@@ -26,7 +32,7 @@ actual="$("$executable" version)"
 
 # 2. Shadow without a key is inert: the command runs, the exit code is its own.
 set +e
-GOVERN_HOST=generic GOVERN_REPORT="$work/shadow.json" \
+GOVERN_HOST=generic GOVERN_REPORT="$report_dir/shadow.json" \
   "$executable" run --mode shadow --action smoke-test -- sh -c 'echo shadow-ran; exit 3' > "$work/shadow.out" 2>&1
 code=$?
 set -e

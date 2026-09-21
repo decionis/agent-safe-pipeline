@@ -41,7 +41,14 @@ pnpm reproducible:compare \
 
 Govern, the workflow gate under `govern/`, is a Go module, and its release archives are held to
 the same standard by a different mechanism: the `Govern <target>` jobs build the binary twice on
-the target's own runner with `CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w"`
-under the toolchain `govern/go.mod` pins, compare the two with `cmp`, and archive only a binary
-both builds agree on. The same command with the same toolchain reproduces the shipped bytes from
-the commit the release's `govern/v<version>` tag names, on any machine.
+the target's own runner (macOS, Linux and Windows) with
+`CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w"` under the toolchain
+`govern/go.mod` pins, compare the two with `cmp`, and archive only a binary both builds agree on.
+The same command with the same toolchain reproduces the shipped bytes from the commit the
+release's `govern/v<version>` tag names, on any machine. The Windows archive is a zip written by
+`scripts/ArchiveExecutable.mjs` itself, every entry dated 2000-01-01 with a fixed mode, so its
+bytes depend on the binary and the runner's zlib, never on the minute it was wrapped; and the
+release's SBOM, `govern-<version>.cdx.json`, is read by
+`scripts/GovernSbom.mjs` from the build information each shipped executable carries (the modules
+linked in with their `go.sum` checksums, the toolchain, the build settings), which the five
+archives must agree on before it is written.

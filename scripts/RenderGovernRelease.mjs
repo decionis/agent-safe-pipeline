@@ -12,14 +12,24 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { parseSums, TARGETS } from "./RenderHomebrewFormula.mjs";
+import { extensionOf } from "./ArchiveExecutable.mjs";
+import { parseSums, TARGETS as FORMULA_TARGETS } from "./RenderHomebrewFormula.mjs";
 
 export const RELEASE_BASE = "https://github.com/decionis/agent-safe-pipeline/releases/download";
+/**
+ * Every target a release archives govern for: the four the formula and the
+ * installer serve, and Windows, whose archive the action and a download
+ * install.
+ */
+export const TARGETS = [...FORMULA_TARGETS, "windows-x64"];
+/** The archive a govern version ships for a target: a tarball, or a zip for Windows. */
+export const archiveName = (version, target) =>
+  `govern-${version}-${target}.${extensionOf(target)}`;
 const VERSION = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[\w.-]+)?$/;
 const TAG = /^v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[\w.-]+)?$/;
 
 /**
- * The manifest for a govern version from the checksums of its four archives.
+ * The manifest for a govern version from the checksums of its five archives.
  * A missing archive is a refusal: a manifest that fetches on one platform and
  * builds on another would make the two paths' bytes a matter of luck.
  */
@@ -28,7 +38,7 @@ export function renderManifest(version, tag, sums, base = RELEASE_BASE) {
   if (!TAG.test(tag)) throw new Error(`not a release tag: ${tag}`);
   const sha256 = {};
   for (const target of TARGETS) {
-    const name = `govern-${version}-${target}.tar.gz`;
+    const name = archiveName(version, target);
     const sum = sums.get(name);
     if (sum === undefined) throw new Error(`SHA256SUMS does not list ${name}`);
     sha256[target] = sum;

@@ -76,12 +76,13 @@ first: until the key and tenant exist the step is inert, then it records; the ve
 pull requests; then `mode: enforce` and the command to gate. [Shadow mode](./shadow-mode.md) is
 the same idea for the runtime.
 
-The binary ships with the repository's releases, built twice per platform and shipped only when
-identical, listed in `SHA256SUMS`, attested, and pinned by a signed `govern/v<version>` module
-tag; the GitHub action downloads the archive its commit names and verifies it before running, or
-builds the same bytes from that commit when no archive exists yet. Govern's
-[README](../govern/README.md) has the install paths, every setting and output, the exit codes, and
-the runners' surfaces.
+The binary ships with the repository's releases for macOS, Linux and Windows, built twice per
+platform and shipped only when identical, listed in `SHA256SUMS`, attested, described by a
+CycloneDX SBOM read from the shipped executables themselves, and pinned by a signed
+`govern/v<version>` module tag; the GitHub action downloads the archive its commit names and
+verifies it before running, or builds the same bytes from that commit when no archive exists yet.
+Govern's [README](../govern/README.md) has the install paths, every setting and output, the exit
+codes, and the runners' surfaces.
 
 ## What it does not do
 

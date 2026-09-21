@@ -250,6 +250,28 @@ jobs:
         run: |
           sh -n install.sh
           node --test test/*.test.mjs
+      # The release's SBOM step, run here on every change against every
+      # target's archive, cross-compiled: the SBOM is read from the shipped
+      # executables' build information, so this is the only place short of a
+      # release where that reading meets real archives.
+      - name: Archive every target and write the SBOM the release would
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(cat govern/VERSION)"
+          mkdir -p "$RUNNER_TEMP/archives"
+          for target in linux-x64 linux-arm64 darwin-arm64 darwin-x64 windows-x64; do
+            goos="${target%-*}"; goarch="${target#*-}"; goarch="${goarch/x64/amd64}"
+            (cd govern && CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
+              go build -trimpath -buildvcs=false -ldflags="-s -w" -o "$RUNNER_TEMP/govern-$target" ./cmd/govern)
+            node scripts/ArchiveExecutable.mjs --executable "$RUNNER_TEMP/govern-$target" --target "$target" \
+              --out "$RUNNER_TEMP/archives" --name govern --version "$version"
+          done
+          archives=()
+          for archive in "$RUNNER_TEMP"/archives/govern-*; do archives+=(--archive "$archive"); done
+          node scripts/GovernSbom.mjs --version "$version" --tag v0.0.0-check --out "$RUNNER_TEMP/govern.cdx.json" "${archives[@]}"
+          node scripts/AssertReleaseSbom.mjs "$RUNNER_TEMP/govern.cdx.json" govern "$version" 2
+          unzip -tq "$RUNNER_TEMP/archives/govern-$version-windows-x64.zip"
 
   image:
     name: Trusted executor image
@@ -907,10 +929,12 @@ jobs:
           retention-days: 7
 
   # Govern, the workflow gate, built for each target on that target's runner
-  # with the toolchain go.mod pins, archived the way the runtime is, smoke-
-  # tested offline, and, on Linux, installed by its installer over a local
-  # mirror before the archive is kept. One static binary per target: the
-  # same bytes from any runner, which the two-build comparison holds it to.
+  # with the toolchain go.mod pins, archived the way the runtime is (a zip on
+  # Windows), smoke-tested offline, and, on Linux, installed by its installer
+  # over a local mirror before the archive is kept. One static binary per
+  # target: the same bytes from any runner, which the two-build comparison
+  # holds it to. Windows also runs the module's tests, for the shells that
+  # exist there alone.
   govern-distribution:
     name: Govern ${{ matrix.target }}
     strategy:
@@ -925,6 +949,8 @@ jobs:
             runner: macos-15
           - target: darwin-x64
             runner: macos-15-intel
+          - target: windows-x64
+            runner: windows-latest
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
     steps:
@@ -954,6 +980,7 @@ jobs:
             linux-arm64) goos=linux; goarch=arm64 ;;
             darwin-arm64) goos=darwin; goarch=arm64 ;;
             darwin-x64) goos=darwin; goarch=amd64 ;;
+            windows-x64) goos=windows; goarch=amd64 ;;
             *) echo "unexpected target $TARGET" >&2; exit 1 ;;
           esac
           (
@@ -965,16 +992,25 @@ jobs:
                 go build -trimpath -buildvcs=false -ldflags="-s -w" -o "$RUNNER_TEMP/govern.$pass" ./cmd/govern
             done
             cmp "$RUNNER_TEMP/govern.first" "$RUNNER_TEMP/govern.second"
+            # The shells only Windows has, run where they are.
+            if [ "$goos" = windows ]; then go test -count=1 ./...; fi
           )
           mkdir -p release
           node scripts/ArchiveExecutable.mjs --executable "$RUNNER_TEMP/govern.first" --target "$TARGET" \
             --out release --name govern --version "$version"
           extracted="$RUNNER_TEMP/extracted"
           mkdir -p "$extracted"
-          tar -xzf "release/govern-$version-$TARGET.tar.gz" -C "$extracted"
+          if [ "$goos" = windows ]; then
+            # Windows' own tar reads a zip; the Git Bash tar on the runner does not.
+            "${SYSTEMROOT:-C:/Windows}/System32/tar.exe" -xf "release/govern-$version-$TARGET.zip" -C "$extracted"
+            executable="$extracted/govern-$version-$TARGET/govern.exe"
+          else
+            tar -xzf "release/govern-$version-$TARGET.tar.gz" -C "$extracted"
+            executable="$extracted/govern-$version-$TARGET/govern"
+          fi
           test -s "$extracted/govern-$version-$TARGET/LICENSE"
           test -s "$extracted/govern-$version-$TARGET/NOTICE"
-          packaging/smoke/Govern.sh "$extracted/govern-$version-$TARGET/govern" "$version"
+          packaging/smoke/Govern.sh "$executable" "$version"
       # The installer, end to end, against this build served the way a release
       # or a mirror serves it, exactly as the runtime's is: it downloads the
       # archive and the checksums, verifies, installs under a prefix, links the
@@ -1035,7 +1071,9 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: govern-${{ matrix.target }}
-          path: release/govern-*.tar.gz
+          path: |
+            release/govern-*.tar.gz
+            release/govern-*.zip
           if-no-files-found: error
           retention-days: 7
 
@@ -1333,7 +1371,9 @@ jobs:
           } >> "$GITHUB_OUTPUT"
       # Govern: the archives the govern distribution job built and smoke-tested
       # on every platform, one static binary each, checked against the version
-      # the release names for it.
+      # the release names for it, and its SBOM, read from those executables'
+      # own build information: the modules linked into the shipped bytes, the
+      # toolchain, the build settings, and each archive's checksum.
       - name: Download the govern artifacts
         if: steps.release.outputs.exists != 'true'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -1341,21 +1381,31 @@ jobs:
           pattern: govern-*
           path: release
           merge-multiple: true
-      - name: Check the govern artifacts
+      - name: Check the govern artifacts and write the govern SBOM
         if: steps.release.outputs.exists != 'true'
         env:
           GOVERN_VERSION: ${{ steps.release.outputs.govern_version }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
         shell: bash
         run: |
           set -euo pipefail
           for target in linux-x64 linux-arm64 darwin-arm64 darwin-x64; do
             test -s "release/govern-$GOVERN_VERSION-$target.tar.gz"
           done
+          test -s "release/govern-$GOVERN_VERSION-windows-x64.zip"
+          unzip -tq "release/govern-$GOVERN_VERSION-windows-x64.zip"
           mkdir -p "$RUNNER_TEMP/govern-check"
           tar -xzf "release/govern-$GOVERN_VERSION-linux-x64.tar.gz" -C "$RUNNER_TEMP/govern-check"
           packaging/smoke/Govern.sh "$RUNNER_TEMP/govern-check/govern-$GOVERN_VERSION-linux-x64/govern" "$GOVERN_VERSION"
           sh -n govern/install.sh
           cp govern/install.sh release/govern-install.sh
+          archives=()
+          for archive in release/govern-"$GOVERN_VERSION"-*.tar.gz release/govern-"$GOVERN_VERSION"-*.zip; do
+            archives+=(--archive "$archive")
+          done
+          node scripts/GovernSbom.mjs --version "$GOVERN_VERSION" --tag "$RELEASE_TAG" \
+            --out "release/govern-$GOVERN_VERSION.cdx.json" "${archives[@]}"
+          node scripts/AssertReleaseSbom.mjs "release/govern-$GOVERN_VERSION.cdx.json" govern "$GOVERN_VERSION" 2
       - name: Package the Helm chart
         if: steps.release.outputs.exists != 'true'
         id: chart
@@ -1403,7 +1453,18 @@ jobs:
         id: govern_provenance
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
-          subject-path: release/govern-*.tar.gz
+          subject-path: |
+            release/govern-*.tar.gz
+            release/govern-*.zip
+      - name: Attest govern SBOM
+        if: steps.release.outputs.exists != 'true'
+        id: govern_sbom
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            release/govern-*.tar.gz
+            release/govern-*.zip
+          sbom-path: release/govern-${{ steps.release.outputs.govern_version }}.cdx.json
       - name: Set up QEMU
         if: steps.release.outputs.exists != 'true'
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
@@ -1586,7 +1647,7 @@ jobs:
           # The manifest the action pins the archives by, from the same checksums.
           node scripts/RenderGovernRelease.mjs --version "$GOVERN_VERSION" --tag "$RELEASE_TAG" \
             --sums release/SHA256SUMS --out release/govern-release.json
-          jq -e --arg v "$GOVERN_VERSION" '.version == $v and (.sha256 | length) == 4' release/govern-release.json
+          jq -e --arg v "$GOVERN_VERSION" '.version == $v and (.sha256 | length) == 5' release/govern-release.json
       # The runtime package's first publication cannot use trusted publishing:
       # npm attaches a trusted publisher to a package that already exists. A
       # granular NPM_TOKEN (publish, bypass 2FA) carries that one publication
@@ -1750,7 +1811,7 @@ jobs:
             echo "go install github.com/$GH_REPO/govern/v2/cmd/govern@v$GOVERN_VERSION"
             echo '```'
             echo
-            echo "Govern $GOVERN_VERSION, the workflow gate, is attached as the \`govern-<version>-<os>-<arch>.tar.gz\` archives, one static binary each, listed in \`SHA256SUMS\` and attested by this workflow; \`govern-install.sh\` is the installer at this tag. Its Go module tag, \`$GOVERN_TAG\`, is signed the same way as the release tag and points at this commit. The Homebrew formula and the manifest the action pins these archives by are opened as one pull request from the \`dist/govern-<version>\` branch."
+            echo "Govern $GOVERN_VERSION, the workflow gate, is attached as the \`govern-<version>-<os>-<arch>.tar.gz\` archives for macOS and Linux and \`govern-<version>-windows-x64.zip\` for Windows, one static binary each, listed in \`SHA256SUMS\` and attested by this workflow; \`govern-<version>.cdx.json\` is its CycloneDX SBOM, read from the shipped executables' own build information and attested beside them; \`govern-install.sh\` is the installer at this tag (macOS and Linux; on Windows, download the zip, check it against \`SHA256SUMS\`, and put \`govern.exe\` on the path). Its Go module tag, \`$GOVERN_TAG\`, is signed the same way as the release tag and points at this commit. The Homebrew formula and the manifest the action pins these archives by are opened as one pull request from the \`dist/govern-<version>\` branch."
             echo
             echo "## Verifiable artifacts"
             echo

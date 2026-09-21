@@ -15,7 +15,7 @@ pipeline {
       steps {
         // The release's binary for this agent's platform, verified against the
         // release's SHA256SUMS before it is installed; GOVERN_VERSION pins it.
-        sh 'curl -fsSL https://raw.githubusercontent.com/decionis/agent-safe-pipeline/master/govern/install.sh | GOVERN_VERSION=2.0.0 GOVERN_INSTALL_PREFIX="$WORKSPACE/.govern" sh'
+        sh 'curl -fsSL https://raw.githubusercontent.com/decionis/agent-safe-pipeline/master/govern/install.sh | GOVERN_VERSION=2.1.0 GOVERN_INSTALL_PREFIX="$WORKSPACE/.govern" sh'
         sh 'PATH="$WORKSPACE/.govern/bin:$PATH" govern run --payload "{\\"service\\":\\"api\\",\\"sha\\":\\"$GIT_COMMIT\\"}" -- ./scripts/deploy.sh'
       }
     }

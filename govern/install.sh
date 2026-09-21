@@ -14,6 +14,9 @@
 # A pipeline that does not run scripts from the network downloads the archive
 # and SHA256SUMS itself and verifies them the same way; govern/README.md
 # says how, and `go install` builds the same version from its signed tag.
+# Windows has no installer: its archive is a zip, govern-<version>-windows-x64.zip,
+# to download from the release, check against SHA256SUMS, and unpack where
+# the path reaches govern.exe; the GitHub action does that itself.
 #
 # Govern is versioned on its own, and its archives ride on the repository's
 # releases, which are tagged by the library's version. Which release carries
@@ -21,7 +24,7 @@
 # never guessed from the version.
 #
 # Settings, all optional:
-#   GOVERN_VERSION         a govern version such as 2.0.0; the latest release's otherwise
+#   GOVERN_VERSION         a govern version such as 2.1.0; the latest release's otherwise
 #   GOVERN_RELEASE_TAG     the release the archive lives in, for a mirror or a test that has no listing
 #   GOVERN_INSTALL_PREFIX  where bin/govern and lib/govern/<version> go
 #   GOVERN_RELEASE_BASE    the release download base, for a mirror or a test
@@ -43,6 +46,7 @@ need uname
 case "$(uname -s)" in
   Darwin) os="darwin" ;;
   Linux) os="linux" ;;
+  MINGW* | MSYS* | CYGWIN* | Windows_NT) die "on Windows, download govern-<version>-windows-x64.zip from the release and check it against SHA256SUMS; there is no installer" ;;
   *) die "unsupported operating system: $(uname -s)" ;;
 esac
 case "$(uname -m)" in

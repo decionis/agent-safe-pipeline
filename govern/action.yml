@@ -54,9 +54,11 @@ inputs:
     required: false
     default: ""
   shell:
-    description: "`bash` (default) or `sh`."
+    description: >-
+      The shell `run` goes through: `bash` (the default on macOS and Linux),
+      `sh`, `pwsh`, `powershell` (the default on Windows) or `cmd`.
     required: false
-    default: "bash"
+    default: ""
   fail-on:
     description: >-
       For a step without `run`: which verdicts fail it. `block` (default),
@@ -178,7 +180,8 @@ runs:
     # the bytes it runs the way a commit-pinned action names its code; the
     # same bytes built from this commit with the pinned toolchain otherwise
     # (a version not yet released, or a runner without an archive), which
-    # the release's double build holds to the archive's bytes.
+    # the release's double build holds to the archive's bytes. The archive is
+    # a tarball, or a zip on Windows, where the binary is govern.exe.
     - name: Resolve the govern binary
       id: resolve
       shell: bash
@@ -191,8 +194,12 @@ runs:
           Linux/ARM64) target=linux-arm64 ;;
           macOS/ARM64) target=darwin-arm64 ;;
           macOS/X64) target=darwin-x64 ;;
+          Windows/X64) target=windows-x64 ;;
           *) target="" ;;
         esac
+        executable="$RUNNER_TEMP/govern"
+        if [ "$RUNNER_OS" = Windows ]; then executable="$RUNNER_TEMP/govern.exe"; fi
+        echo "executable=$executable" >> "$GITHUB_OUTPUT"
         pinned="$(jq -r '.version' release.json)"
         sum=""
         if [ -n "$target" ]; then sum="$(jq -r --arg t "$target" '.sha256[$t] // empty' release.json)"; fi
@@ -203,16 +210,28 @@ runs:
         fi
         tag="$(jq -r '.tag' release.json)"
         base="$(jq -r '.base' release.json)"
-        archive="govern-$version-$target.tar.gz"
+        case "$target" in
+          windows-*) archive="govern-$version-$target.zip" ;;
+          *) archive="govern-$version-$target.tar.gz" ;;
+        esac
         curl --proto '=https' --tlsv1.2 -fsSL --retry 3 -o "$RUNNER_TEMP/$archive" "$base/$tag/$archive"
         if command -v sha256sum >/dev/null 2>&1; then
           echo "$sum  $RUNNER_TEMP/$archive" | sha256sum --check --strict
         else
           echo "$sum  $RUNNER_TEMP/$archive" | shasum -a 256 --check --strict
         fi
-        tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
-        mv "$RUNNER_TEMP/govern-$version-$target/govern" "$RUNNER_TEMP/govern"
-        chmod 0755 "$RUNNER_TEMP/govern"
+        case "$target" in
+          windows-*)
+            # Windows' own tar reads a zip; the Git Bash tar on the runner does not.
+            "${SYSTEMROOT:-C:/Windows}/System32/tar.exe" -xf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+            mv "$RUNNER_TEMP/govern-$version-$target/govern.exe" "$executable"
+            ;;
+          *)
+            tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+            mv "$RUNNER_TEMP/govern-$version-$target/govern" "$executable"
+            chmod 0755 "$executable"
+            ;;
+        esac
         echo "govern $version for $target: release $tag, SHA-256 $sum verified."
         echo "source=release" >> "$GITHUB_OUTPUT"
     - name: Set up Go
@@ -225,11 +244,14 @@ runs:
       if: steps.resolve.outputs.source == 'build'
       shell: bash
       working-directory: ${{ github.action_path }}
-      run: CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w" -o "$RUNNER_TEMP/govern" ./cmd/govern
+      env:
+        GOVERN_EXECUTABLE: ${{ steps.resolve.outputs.executable }}
+      run: CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w" -o "$GOVERN_EXECUTABLE" ./cmd/govern
     - name: Govern the step
       id: gate
       shell: bash
       env:
+        GOVERN_EXECUTABLE: ${{ steps.resolve.outputs.executable }}
         DECIONIS_API_KEY: ${{ inputs.api-key }}
         DECIONIS_TENANT_ID: ${{ inputs.tenant-id }}
         DECIONIS_API_URL: ${{ inputs.api-url }}
@@ -251,4 +273,4 @@ runs:
         GOVERN_INTENT_TTL: ${{ inputs.intent-ttl }}
         GOVERN_REPORT: ${{ inputs.report }}
         GOVERN_HOST: github
-      run: '"$RUNNER_TEMP/govern" run'
+      run: '"$GOVERN_EXECUTABLE" run'
