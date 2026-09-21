@@ -247,7 +247,10 @@ transactions. Callers cannot supply replacement dates, policies or raw
 transactions. Reuse the same idempotency key only for a retry of the same
 assessment, then read its `assessment_id` to retrieve the stored result.
 
-Summaries retain missing costs, excluded timestamps and evaluation failures.
+The current `cost_scope` is `merchandise_margin`: subtotal less discounts and
+reported item cost. Shipping, tax, payment fees and platform fees are excluded;
+the result is not total transaction profit. Summaries retain missing costs,
+excluded timestamps and evaluation failures.
 Synthetic results identify a sample policy; real-store results identify the
 merchant policy. Historical `PROCEED` is a retrospective classification, not
 permission to execute an action. Evidence includes at most 100 records with

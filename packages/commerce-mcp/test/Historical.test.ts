@@ -33,6 +33,7 @@ const SOURCES = {
   ],
 };
 const ASSESSMENT = {
+  cost_scope: "merchandise_margin",
   assessment_id: ID,
   status: "completed",
   mode: "historical_only",
@@ -202,6 +203,7 @@ describe("historical response boundary", () => {
     expect(fixture.fixture_only).toBe(true);
     expect(historicalAssessmentResponse(fixture.completed)).toEqual(fixture.completed);
     expect(historicalAssessmentResponse(fixture.failed)).toEqual(fixture.failed);
+    expect(fixture.completed.cost_scope).toBe("merchandise_margin");
     expect(fixture.completed.summary.missing_cost).toBe(9);
     expect(fixture.completed.coverage.complete).toBe(false);
     expect(
@@ -263,6 +265,7 @@ describe("historical response boundary", () => {
     expect(historicalAssessmentResponse(ASSESSMENT, ID)).toEqual(ASSESSMENT);
     for (const value of [
       { ...ASSESSMENT, mode: "ENFORCED" },
+      { ...ASSESSMENT, cost_scope: "net_profit" },
       { ...ASSESSMENT, window: { ...ASSESSMENT.window, days: 91 } },
       { ...ASSESSMENT, window: { ...ASSESSMENT.window, end: "2026-04-02T00:00:00.000Z" } },
       { ...ASSESSMENT, policy: { ...ASSESSMENT.policy, kind: "merchant" } },

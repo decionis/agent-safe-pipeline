@@ -21,6 +21,7 @@ export interface HistoricalSources {
   connected_store_required: boolean;
 }
 export interface HistoricalAssessment {
+  cost_scope: "merchandise_margin";
   assessment_id: string;
   status: "completed" | "failed";
   mode: "historical_only";
@@ -183,6 +184,7 @@ export function historicalAssessmentResponse(
     !record(value) ||
     !exact(value, [
       "assessment_id",
+      "cost_scope",
       "status",
       "mode",
       "window",
@@ -194,6 +196,7 @@ export function historicalAssessmentResponse(
       "coverage",
       "error_code",
     ]) ||
+    value.cost_scope !== "merchandise_margin" ||
     typeof value.assessment_id !== "string" ||
     !UUID.test(value.assessment_id) ||
     (expectedId !== undefined && value.assessment_id !== expectedId) ||
@@ -277,6 +280,7 @@ export function historicalAssessmentResponse(
     invalidResponse();
   return {
     assessment_id: value.assessment_id,
+    cost_scope: "merchandise_margin",
     status: value.status as HistoricalAssessment["status"],
     mode: "historical_only",
     window: { days: 90, start: window.start, end: window.end, timestamp_field: "transaction_at" },
