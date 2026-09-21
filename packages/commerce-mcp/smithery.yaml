@@ -1,7 +1,9 @@
-# Public npm-backed Smithery manifest for @decionis/commerce@0.1.3.
+# Public npm-backed Smithery manifest for @decionis/commerce@0.1.4.
 # The stable version is pinned so installations cannot drift across releases.
 # The server starts without credentials for capability discovery. ERP guard calls
-# require apiKey; Protocol tenant calls fail closed until apiKey and orgId are provided.
+# require owned access. Unconfigured local STDIO provisions provisional Shadow
+# access on its first valid evaluation and persists it in a private AgentOps directory.
+# Calls fail closed on invalid access; errors never create replacement identities.
 startCommand:
   type: stdio
   configSchema:
@@ -9,17 +11,17 @@ startCommand:
     properties:
       apiKey:
         type: string
-        description: Decionis API key for ERP guard and Protocol calls.
+        description: Existing workspace key; omit for provisional local Shadow first-use access.
       orgId:
         type: string
         description: Organization UUID that binds Protocol evaluation and evidence calls.
       apiBase:
         type: string
-        description: Optional API origin; defaults to https://api.decionis.com.
+        description: Optional HTTPS API origin or exact /aws gateway prefix; defaults to https://api.decionis.com.
   commandFunction: |-
     (config) => ({
       command: "npx",
-      args: ["-y", "@decionis/commerce@0.1.3"],
+      args: ["-y", "@decionis/commerce@0.1.4"],
       env: {
         ...(config.apiKey ? { DECIONIS_API_KEY: config.apiKey } : {}),
         ...(config.orgId ? { DECIONIS_ORG_ID: config.orgId } : {}),

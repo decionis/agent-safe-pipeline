@@ -608,9 +608,13 @@ export class CommerceGateClient implements CommerceGateApi {
       idempotencyKey?: string;
       authentication?: { type: "bearer" } | { type: "erp_guard"; region: string };
       bindOrganization?: boolean;
+      allowProvision?: boolean;
     } = {},
   ): Promise<unknown> {
     const authentication = options.authentication ?? { type: "bearer" as const };
+    await this.configuration.resolveAccess(
+      authentication.type === "erp_guard" ? "erp" : options.allowProvision ? "shadow" : "read",
+    );
     const connection =
       authentication.type === "erp_guard"
         ? this.configuration.requireApiConnection()
@@ -633,19 +637,22 @@ export class CommerceGateClient implements CommerceGateApi {
         : { authorization: `Bearer ${connection.apiKey}` };
 
     try {
-      const response = await this.fetchImpl(new URL(path, `${connection.apiBaseUrl}/`), {
-        method: options.method ?? "GET",
-        headers: {
-          ...authenticationHeaders,
-          accept: "application/json",
-          ...(body ? { "content-type": "application/json" } : {}),
-          ...(options.idempotencyKey ? { "idempotency-key": options.idempotencyKey } : {}),
-          "user-agent": `decionis-commercegate-mcp/${MCP_SERVER_VERSION}`,
+      const response = await this.fetchImpl(
+        new URL(path.replace(/^\//, ""), `${connection.apiBaseUrl}/`),
+        {
+          method: options.method ?? "GET",
+          headers: {
+            ...authenticationHeaders,
+            accept: "application/json",
+            ...(body ? { "content-type": "application/json" } : {}),
+            ...(options.idempotencyKey ? { "idempotency-key": options.idempotencyKey } : {}),
+            "user-agent": `decionis-commercegate-mcp/${MCP_SERVER_VERSION}`,
+          },
+          ...(body ? { body: JSON.stringify(body) } : {}),
+          redirect: "error",
+          signal: controller.signal,
         },
-        ...(body ? { body: JSON.stringify(body) } : {}),
-        redirect: "error",
-        signal: controller.signal,
-      });
+      );
 
       const responseText = await readBoundedResponse(response, controller);
       if (!response.ok) throw upstreamError(response.status);
@@ -683,6 +690,7 @@ export class CommerceGateClient implements CommerceGateApi {
       method: "POST",
       body: request,
       idempotencyKey: input.action.idempotency_key,
+      allowProvision: true,
     });
     return validateEvaluationResponse(response, input.policy_version);
   }
@@ -698,6 +706,7 @@ export class CommerceGateClient implements CommerceGateApi {
   }
 
   async getDossier(dossierId: string): Promise<unknown> {
+    await this.configuration.resolveAccess("read");
     const tenant = this.configuration.requireTenantConnection();
     const query = new URLSearchParams({ org_id: tenant.orgId });
     const path = DOSSIER_OPERATION.path.replace("{dossierId}", encodeURIComponent(dossierId));
@@ -705,6 +714,7 @@ export class CommerceGateClient implements CommerceGateApi {
   }
 
   async getProofPacket(dossierId: string): Promise<unknown> {
+    await this.configuration.resolveAccess("read");
     const tenant = this.configuration.requireTenantConnection();
     const query = new URLSearchParams({ org_id: tenant.orgId });
     const path = PROOF_PACKET_OPERATION.path.replace("{dossierId}", encodeURIComponent(dossierId));
@@ -720,6 +730,7 @@ export class CommerceGateClient implements CommerceGateApi {
   }
 
   private async shadowReportsRequest(path: string, input: ShadowReportQuery): Promise<unknown> {
+    await this.configuration.resolveAccess("read");
     const tenant = this.configuration.requireTenantConnection();
     const query = new URLSearchParams({ org_id: tenant.orgId });
     if (input.days) query.set("days", String(input.days));

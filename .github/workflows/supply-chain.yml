@@ -41,7 +41,9 @@ jobs:
           # dependency of Kong's plugin development kit in verifiers/kong, is BSD-3-Clause with
           # Google's Go patent grant, the PATENTS file Go itself ships under: a grant of rights
           # the review reads as an unknown licence, not a restriction.
-          allow-dependencies-licenses: pkg:npm/caniuse-lite, pkg:npm/node-forge, pkg:npm/type-fest, pkg:maven/jakarta.servlet/jakarta.servlet-api, pkg:golang/google.golang.org/protobuf
+          # bowser 2.14.1 ships unmodified under MIT / MITNFA; retain its LICENSE.
+          # The version-specific review is recorded in license-policy.json.
+          allow-dependencies-licenses: pkg:npm/bowser@2.14.1, pkg:npm/caniuse-lite, pkg:npm/node-forge, pkg:npm/type-fest, pkg:maven/jakarta.servlet/jakarta.servlet-api, pkg:golang/google.golang.org/protobuf
           fail-on-severity: low
           fail-on-scopes: runtime
       - name: Review toolchain dependency changes
@@ -55,7 +57,9 @@ jobs:
           # dependency of Kong's plugin development kit in verifiers/kong, is BSD-3-Clause with
           # Google's Go patent grant, the PATENTS file Go itself ships under: a grant of rights
           # the review reads as an unknown licence, not a restriction.
-          allow-dependencies-licenses: pkg:npm/caniuse-lite, pkg:npm/node-forge, pkg:npm/type-fest, pkg:maven/jakarta.servlet/jakarta.servlet-api, pkg:golang/google.golang.org/protobuf
+          # bowser 2.14.1 ships unmodified under MIT / MITNFA; retain its LICENSE.
+          # The version-specific review is recorded in license-policy.json.
+          allow-dependencies-licenses: pkg:npm/bowser@2.14.1, pkg:npm/caniuse-lite, pkg:npm/node-forge, pkg:npm/type-fest, pkg:maven/jakarta.servlet/jakarta.servlet-api, pkg:golang/google.golang.org/protobuf
           fail-on-severity: moderate
           fail-on-scopes: development
 

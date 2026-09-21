@@ -92,7 +92,7 @@ describe("CommerceGateConfiguration", () => {
     expect(loopback.describe().configuration_issues).toEqual([]);
   });
 
-  it("rejects API origins containing paths or embedded credentials", () => {
+  it("rejects API bases containing unapproved paths or embedded credentials", () => {
     const withPath = new CommerceGateConfiguration({
       DECIONIS_API_BASE: "https://api.example.test/v1",
     });
@@ -100,9 +100,36 @@ describe("CommerceGateConfiguration", () => {
       DECIONIS_API_BASE: "https://user:password@api.example.test",
     });
 
-    expect(withPath.describe().configuration_issues[0]).toContain("without a path");
+    expect(withPath.describe().configuration_issues[0]).toContain("exact /aws gateway path");
     expect(withCredentials.describe().configuration_issues[0]).toContain(
       "must not contain credentials",
     );
+  });
+
+  it("accepts only the exact Marketplace gateway prefix without URL normalization escapes", () => {
+    for (const path of ["/aws", "/aws/"]) {
+      expect(
+        new CommerceGateConfiguration({
+          DECIONIS_API_BASE: `https://api.example.test${path}`,
+        }).describe(),
+      ).toMatchObject({ api_base: "https://api.example.test/aws", configuration_issues: [] });
+    }
+    for (const path of [
+      "/aws/..",
+      "/aws/%2e%2e",
+      "/%61ws",
+      "/other/../aws",
+      "//aws",
+      "/aws//",
+      "/aws/extra",
+      "/aws?key=secret",
+      "/aws#fragment",
+    ]) {
+      expect(
+        new CommerceGateConfiguration({
+          DECIONIS_API_BASE: `https://api.example.test${path}`,
+        }).describe().configuration_issues.length,
+      ).toBeGreaterThan(0);
+    }
   });
 });

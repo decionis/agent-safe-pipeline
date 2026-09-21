@@ -16,7 +16,7 @@ describe("CommerceGate distribution metadata", () => {
 
     expect(packageJson).toMatchObject({
       name: "@decionis/commerce",
-      version: "0.1.3",
+      version: "0.1.4",
       mcpName: "com.decionis/commerce-gate",
       author: "Decionis",
       bin: { "commercegate-mcp": "dist/Index.js" },
@@ -62,6 +62,12 @@ describe("CommerceGate distribution metadata", () => {
       expect.objectContaining({ name: "DECIONIS_API_KEY", isRequired: false, isSecret: true }),
       expect.objectContaining({ name: "DECIONIS_ORG_ID", isRequired: false, isSecret: false }),
       expect.objectContaining({ name: "DECIONIS_API_BASE", isRequired: false, isSecret: false }),
+      expect.objectContaining({ name: "AGENTOPS_HOME", isRequired: false, isSecret: false }),
+      expect.objectContaining({
+        name: "AGENTOPS_AUTO_PROVISION",
+        isRequired: false,
+        isSecret: false,
+      }),
     ]);
   });
 
@@ -78,13 +84,13 @@ describe("CommerceGate distribution metadata", () => {
     expect(readme).toContain("enforced `ALLOW`/`BLOCK`");
     expect(readme).toContain("It never writes the transaction to Dynamics 365");
     expect(readme).toContain("APPROVE` is evidence, not user consent");
-    expect(readme).toContain("npx -y @decionis/commerce@0.1.3");
+    expect(readme).toContain("npx -y @decionis/commerce@0.1.4");
     expect(readme).toContain("https://www.npmjs.com/package/@decionis/commerce");
     expect(readme).toContain("## Support and license");
     expect(readme).not.toContain("local-source-only");
     expect(smithery).toContain("fail closed");
     expect(smithery).toContain('command: "npx"');
-    expect(smithery).toContain('args: ["-y", "@decionis/commerce@0.1.3"]');
+    expect(smithery).toContain('args: ["-y", "@decionis/commerce@0.1.4"]');
     expect(smithery).not.toContain('command: "pnpm"');
     expect(registryManifest.description.length).toBeLessThanOrEqual(100);
     expect(registryManifest.description).toContain("Commerce preflights");

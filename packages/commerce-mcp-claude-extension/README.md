@@ -3,7 +3,7 @@
 Check a price change, order, refund or return against your commerce policy before an agent acts. Never writes to a marketplace.
 
 This workspace package is the dedicated MIT-licensed Claude Desktop extension wrapper for
-[`@decionis/commerce@0.1.3`](https://github.com/decionis/agent-safe-pipeline/tree/master/packages/commerce-mcp),
+[`@decionis/commerce@0.1.4`](https://github.com/decionis/agent-safe-pipeline/tree/master/packages/commerce-mcp),
 the Apache-2.0 CommerceGate MCP runtime. The licenses do not blend: the small loader, extension
 manifest, packaging checks, and extension documentation are MIT; the separately bundled
 CommerceGate runtime remains Apache-2.0 and ships with its own package metadata, license, and
@@ -28,7 +28,7 @@ For Dynamics 365 Business Central, a separate tool returns an enforced ALLOW or 
 
 What it never does: CommerceGate does not accept, ship, cancel, refund, reprice or change stock on any platform. It evaluates and reads evidence; a person or the connected system still executes. A PROCEED is a policy result, not consent.
 
-Setup: runs locally as a Node.js process. Capability discovery works with no credentials. Tenant checks need DECIONIS_API_KEY and DECIONIS_ORG_ID from your Decionis workspace (free Shadow Mode, no time limit).
+Setup: runs locally as a Node.js process. Capability discovery works with no credentials. On macOS, the first valid local Shadow evaluation can create a provisional workspace without registration and securely reuse it. Windows requires existing credentials until secure local persistence is supported. Trial limits apply; ERP requires owned access. Existing DECIONIS_API_KEY and DECIONIS_ORG_ID remain supported.
 
 Built by Decionis for marketplace operations, pricing, finance and automation teams on Walmart Marketplace, Shopify, Adobe Commerce and Dynamics 365 Business Central. Documentation: https://commerce.decionis.com/mcp
 
@@ -59,8 +59,7 @@ and a connector implements and enables that path.
 
 ## Configuration
 
-The extension can start without credentials for capability discovery. Authenticated tools read
-configuration only from the extension environment:
+The extension can start without credentials. On macOS, its first valid Shadow evaluation can create a provisional workspace, stored privately under `~/.config/agentops` (or `AGENTOPS_HOME`, honoring `XDG_CONFIG_HOME`). Discovery, reads, ERP, and invalid input never provision access. Automatic provisioning is unavailable on Windows; use existing credentials there. Existing environment configuration takes precedence:
 
 | Variable            | Secret | Purpose                                                      |
 | ------------------- | ------ | ------------------------------------------------------------ |
@@ -101,16 +100,14 @@ analytics, crash reporting, or other network destination. The full Decionis priv
 
 **What it collects.** Nothing on its own. It sends only the facts supplied in a tool call: commerce
 facts being checked, an actor identifier, platform, idempotency key, dossier UUID for evidence
-reads, and report window for Shadow reports. It never reads files, browser data, the clipboard, or
-unrelated machine data.
+reads, and report window for Shadow reports. It reads its own private access files; it does not read browser data, the clipboard, or unrelated machine data. Initial trial setup sends the fixed agent name "AgentOps MCP Shadow" to Decionis.
 
 **Where it goes and why.** Tool inputs go over HTTPS to the Decionis API for policy evaluation or to
-read evidence owned by the configured organization. Credentials come from the extension environment
-and are never written to disk or returned in tool results.
+read evidence owned by the configured organization. Existing credentials come from the extension environment; provisional credentials are persisted in the private AgentOps directory (0700 directory and 0600 file on POSIX). Keys and claim tokens are never returned in tool results.
 
 **What is stored and retention.** Decionis stores policy evaluations as signed Decision Dossiers in
 the organization's workspace. Retention follows the customer's Decionis plan and the Decionis
-privacy policy. The local extension stores no cache, log file, analytics record, or database.
+privacy policy. The local extension stores only provisional access and setup coordination files, with no tool-input cache, log file, analytics record, or evidence database. It reuses credentials after restart and never silently replaces them after revocation, quota errors, or failed setup.
 
 **Third parties.** None. The extension contacts no third-party service. Claude Desktop may retain
 tool-call history under Anthropic's own policy.
@@ -118,8 +115,7 @@ tool-call history under Anthropic's own policy.
 **Personal data.** Commerce facts can include order identifiers and customer-related amounts if
 supplied. Submit only the bounded facts needed for the policy check.
 
-**Your controls.** Remove `DECIONIS_API_KEY` and `DECIONIS_ORG_ID` to leave only unauthenticated
-capability discovery, or uninstall the extension to stop processing. For access, correction,
+**Your controls.** Set `AGENTOPS_AUTO_PROVISION=0` in the launch environment to disable new trial creation. To leave only capability discovery, also remove configured access and securely remove the stored credential while keeping its attempt marker. Uninstall the extension to stop processing. For access, correction,
 deletion, or privacy questions, email <commerce@decionis.com>. Security reports go to
 <security@decionis.com>.
 
@@ -129,4 +125,4 @@ deletion, or privacy questions, email <commerce@decionis.com>. Security reports 
 - Support: <https://decionis.com/contact>
 - Extension source: <https://github.com/decionis/agent-safe-pipeline/tree/master/packages/commerce-mcp-claude-extension>
 - Extension wrapper: [MIT](./LICENSE)
-- Bundled CommerceGate runtime: `@decionis/commerce@0.1.3`, [Apache-2.0 source](https://github.com/decionis/agent-safe-pipeline/tree/master/packages/commerce-mcp), retained in the MCPB with its package metadata at `vendor/commerce-mcp/package.json`, license at `vendor/commerce-mcp/LICENSE`, and attribution notice at `vendor/commerce-mcp/NOTICE`
+- Bundled CommerceGate runtime: `@decionis/commerce@0.1.4`, [Apache-2.0 source](https://github.com/decionis/agent-safe-pipeline/tree/master/packages/commerce-mcp), retained in the MCPB with its package metadata at `vendor/commerce-mcp/package.json`, license at `vendor/commerce-mcp/LICENSE`, and attribution notice at `vendor/commerce-mcp/NOTICE`

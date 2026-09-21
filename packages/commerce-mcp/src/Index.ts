@@ -5,8 +5,15 @@ import { CommerceGateConfiguration } from "./Configuration.js";
 import { CommerceGateHttpServer, DEFAULT_HTTP_HOST, DEFAULT_HTTP_PORT } from "./Http.js";
 import { createMcpHandler, CommerceGateStdioServer } from "./Server.js";
 import { CommerceGateTools } from "./Tools.js";
+import { runtimeAccess } from "./Access.js";
 
-const configuration = new CommerceGateConfiguration();
+const transport = process.argv.includes("--http")
+  ? "http"
+  : (process.env.MCP_TRANSPORT ?? "stdio").trim().toLowerCase();
+const configuration = new CommerceGateConfiguration(
+  process.env,
+  runtimeAccess(process.env, transport),
+);
 const client = new CommerceGateClient(configuration);
 const tools = new CommerceGateTools(configuration, client).build();
 const handler = createMcpHandler(tools);
@@ -14,9 +21,6 @@ const handler = createMcpHandler(tools);
 // Stdio for a desktop or a local agent; streamable HTTP (`--http`, or
 // MCP_TRANSPORT=http) for a container Amazon Bedrock AgentCore Runtime proxies
 // to, on 0.0.0.0:8000/mcp with /ping as its health check.
-const transport = process.argv.includes("--http")
-  ? "http"
-  : (process.env.MCP_TRANSPORT ?? "stdio").trim().toLowerCase();
 if (transport === "http") {
   const port = Number.parseInt(process.env.PORT ?? String(DEFAULT_HTTP_PORT), 10);
   const host = process.env.HOST?.trim() || DEFAULT_HTTP_HOST;
