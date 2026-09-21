@@ -1,8 +1,9 @@
 // Package cli is the command line: `govern run` gates one command or one
-// verdict, `govern version` prints the version. Settings come from flags, or
-// from GOVERN_* and the DECIONIS_* variables the runtime uses, flags winning;
-// the API key comes only from DECIONIS_API_KEY or DECIONIS_API_KEY_FILE, never
-// from a flag a process listing could show.
+// verdict, `govern init` writes a repository's starter files, `govern
+// version` prints the version. Settings come from flags, or from GOVERN_*
+// and the DECIONIS_* variables the runtime uses, flags winning; the API key
+// comes only from DECIONIS_API_KEY or DECIONIS_API_KEY_FILE, never from a
+// flag a process listing could show.
 package cli
 
 import (
@@ -27,6 +28,7 @@ import (
 	"github.com/decionis/agent-safe-pipeline/govern/v2/internal/host/github"
 	"github.com/decionis/agent-safe-pipeline/govern/v2/internal/host/gitlab"
 	"github.com/decionis/agent-safe-pipeline/govern/v2/internal/host/jenkins"
+	"github.com/decionis/agent-safe-pipeline/govern/v2/internal/scaffold"
 )
 
 // Exit codes the command itself uses; a gated command's own code passes through.
@@ -79,6 +81,8 @@ func Main(ctx context.Context, p Process) int {
 		return ExitOK
 	case "run":
 		return runCommand(ctx, p, p.Args[1:])
+	case "init":
+		return initCommand(p, p.Args[1:])
 	}
 	fmt.Fprintf(p.Stderr, "govern: unknown command %q\n\n%s", p.Args[0], usage)
 	return ExitUsage
@@ -88,11 +92,25 @@ const usage = `govern — one verdict before a workflow step runs, with a signed
 
 Usage:
   govern run [flags] [-- command [args...]]
+  govern init [flags]
   govern version
 
 The gated command runs only on an ALLOW whose grant this process claimed
 (enforcement), or runs at once while the verdict is recorded beside it
 (shadow). Without a command, the step's exit code follows --fail-on.
+
+govern init writes a repository's starter files and nothing else: a
+shadow-mode workflow for its runner (GitHub Actions, GitLab CI or Jenkins,
+detected from the tree) and DECIONIS_POLICY.md at its root. It never
+overwrites a file unless told to, and never touches git.
+  --host github|gitlab|jenkins  the runner; detected otherwise
+  --mode shadow|enforce         default shadow
+  --action <type>               the starter step's action type; default workflow.step
+  --branch <name>               the default branch a GitHub workflow's push trigger names; detected otherwise
+  --dir <path>                  the repository root; default .
+  --no-policy                   write no DECIONIS_POLICY.md
+  --force                       overwrite files that exist
+  --dry-run                     say what would be written, write nothing
 
 Flags (each also reads a variable; flags win):
   --mode shadow|enforce         GOVERN_MODE            default enforce
@@ -358,7 +376,7 @@ func configure(s settings, rest []string, p Process) (gate.Config, string, error
 		cfg.Attribution = attribution
 	}
 	cfg.ReportPath = s.value("report", "GOVERN_REPORT")
-	cfg.TenantID = strings.TrimSpace(s.value("tenant", "DECIONIS_TENANT_ID", "DECIONIS_ORG_ID", "GOVERN_TENANT"))
+	cfg.TenantID = sanitizeCredential(s.value("tenant", "DECIONIS_TENANT_ID", "DECIONIS_ORG_ID", "GOVERN_TENANT"))
 	if timeout := s.value("timeout", "GOVERN_TIMEOUT"); timeout != "" {
 		d, err := parseDuration(timeout)
 		if err != nil || d <= 0 {
@@ -455,7 +473,7 @@ func shellQuote(arg string) string {
 
 // readKey reads the credential from the environment or the file it names.
 func readKey(env host.Environment) (string, error) {
-	if key := strings.TrimSpace(env("DECIONIS_API_KEY")); key != "" {
+	if key := sanitizeCredential(env("DECIONIS_API_KEY")); key != "" {
 		return key, nil
 	}
 	if path := env("DECIONIS_API_KEY_FILE"); path != "" {
@@ -463,11 +481,54 @@ func readKey(env host.Environment) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("DECIONIS_API_KEY_FILE: %w", err)
 		}
-		key := strings.TrimSpace(string(content))
+		key := sanitizeCredential(string(content))
 		if key == "" {
 			return "", errors.New("DECIONIS_API_KEY_FILE names an empty file")
 		}
 		return key, nil
 	}
 	return "", nil
+}
+
+// sanitizeCredential strips the whitespace and wrapping quotes, straight or
+// smart, that ride along when a secret is pasted as "key": no credential
+// legitimately carries them, and a smart quote in an Authorization header is
+// a request the authority cannot even read (the v1 action learnt this from
+// its users).
+func sanitizeCredential(value string) string {
+	return strings.Trim(value, " \t\r\n\"'\u201c\u201d\u2018\u2019")
+}
+
+func initCommand(p Process, args []string) int {
+	fs := flag.NewFlagSet("govern init", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	host := fs.String("host", "", "")
+	mode := fs.String("mode", "shadow", "")
+	action := fs.String("action", "workflow.step", "")
+	branch := fs.String("branch", "", "")
+	dir := fs.String("dir", ".", "")
+	noPolicy := fs.Bool("no-policy", false, "")
+	force := fs.Bool("force", false, "")
+	dryRun := fs.Bool("dry-run", false, "")
+	if err := fs.Parse(args); err != nil {
+		return usageError(p, err.Error())
+	}
+	if fs.NArg() > 0 {
+		return usageError(p, "govern init takes flags only")
+	}
+	_, err := scaffold.Run(scaffold.Options{
+		Dir:     *dir,
+		Host:    *host,
+		Mode:    *mode,
+		Action:  *action,
+		Branch:  *branch,
+		Version: p.Version,
+		Policy:  !*noPolicy,
+		Force:   *force,
+		DryRun:  *dryRun,
+	}, p.Stdout)
+	if err != nil {
+		return usageError(p, err.Error())
+	}
+	return ExitOK
 }

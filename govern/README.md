@@ -72,9 +72,13 @@ cover a deploy, `terraform apply` on the plan's blast radius, a release held for
 manager, a shadow comment on every pull request, agent-authored pull requests, and Dependabot
 auto-merge.
 
-The action currently builds the binary from this pinned commit with the Go toolchain
-(`actions/setup-go`, about twenty seconds, cached); the next phase has it download the release's
-archive and verify it against the release's `SHA256SUMS` instead.
+The action runs the bytes its commit names: [`release.json`](./release.json) beside it pins each
+platform archive's SHA-256, the first step downloads the archive for the runner and verifies it
+before extracting (a second or so), and only a version the manifest does not name yet, or a runner
+without an archive, is built from the commit with the pinned Go toolchain (`actions/setup-go`,
+about twenty seconds, cached) — the same bytes, which the release's double build holds the
+archive to. The release workflow renders the manifest from the release's `SHA256SUMS` and opens it
+with the Homebrew formula as one pull request.
 
 ## GitLab CI, Jenkins, and any other runner
 
@@ -132,30 +136,30 @@ A release is verified the way the runtime's is: `shasum -a 256 -c SHA256SUMS`, a
 
 Every setting is a flag or a variable; flags win. `govern run --help` lists them.
 
-| Flag                            | Variable                                     | Meaning                                                                                   |
-| ------------------------------- | -------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| —                               | `DECIONIS_API_KEY` / `DECIONIS_API_KEY_FILE` | The workspace's key; never a flag, so no process listing shows it                         |
-| `--tenant`                      | `DECIONIS_TENANT_ID`                         | The workspace (organization) the key belongs to, a UUID; required beside the key          |
-| `--api-url`                     | `DECIONIS_API_URL`                           | `https://api.decionis.com` unless self-hosted                                             |
-| `--mode`                        | `GOVERN_MODE`                                | `enforce` (default) or `shadow`                                                           |
-| `--action`                      | `GOVERN_ACTION`                              | The action's type as the record names it (`[a-z][a-z0-9._:-]*`); default `workflow.step`  |
-| `--resource`                    | `GOVERN_RESOURCE`                            | What it acts on; default: the command                                                     |
-| `--payload`                     | `GOVERN_PAYLOAD`                             | A JSON object (or `@file`): the action's parameters                                       |
-| `--environment`                 | `GOVERN_ENVIRONMENT`                         | The deployment environment; GitLab's `CI_ENVIRONMENT_NAME` otherwise                      |
-| `--run` or `-- <command>`       | `GOVERN_RUN`                                 | The gated command                                                                         |
-| `--shell`                       | `GOVERN_SHELL`                               | `bash` (default) or `sh`, run with `-e -c`                                                |
-| `--fail-on`                     | `GOVERN_FAIL_ON`                             | For a step without a command: `block` (default), `escalate`, `block_or_escalate`, `never` |
-| `--escalation`                  | `GOVERN_ESCALATION`                          | `managed`: hold an `ESCALATE` for Decionis' approval flow                                 |
-| `--approver`, `--approver-role` | `GOVERN_APPROVER`, `GOVERN_APPROVER_ROLE`    | Who approves a managed escalation; either implies `managed`                               |
-| `--policy-file`                 | `GOVERN_POLICY_FILE`                         | Default `DECIONIS_POLICY.md` (`.yaml`/`.yml` tried); `""` disables                        |
-| `--workspace`                   | `GOVERN_WORKSPACE`                           | The checkout; the runner's own variable otherwise                                         |
-| `--comment`                     | `GOVERN_COMMENT`                             | Post the verdict on the change request                                                    |
-| `--no-attribution`              | `GOVERN_ATTRIBUTION=false`                   | Drop the footer from the comment                                                          |
-| `--report`                      | `GOVERN_REPORT`                              | Write the JSON record (`agent-safe.govern-report/1`); `-` for stdout                      |
-| `--timeout`                     | `GOVERN_TIMEOUT`                             | Per authority call; default `20s`                                                         |
-| `--intent-ttl`                  | `GOVERN_INTENT_TTL`                          | How long the intent stays decidable; at most `5m`                                         |
-| `--actor-id`, `--actor-type`    | `GOVERN_ACTOR_ID`, `GOVERN_ACTOR_TYPE`       | Who proposes the action; default the workflow's identity, type `WORKFLOW`                 |
-| `--host`                        | `GOVERN_HOST`                                | `github`, `gitlab`, `jenkins`, `generic`; detected otherwise                              |
+| Flag                            | Variable                                     | Meaning                                                                                                      |
+| ------------------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| —                               | `DECIONIS_API_KEY` / `DECIONIS_API_KEY_FILE` | The workspace's key; never a flag, so no process listing shows it; pasted quotes and whitespace are stripped |
+| `--tenant`                      | `DECIONIS_TENANT_ID`                         | The workspace (organization) the key belongs to, a UUID; required beside the key                             |
+| `--api-url`                     | `DECIONIS_API_URL`                           | `https://api.decionis.com` unless self-hosted                                                                |
+| `--mode`                        | `GOVERN_MODE`                                | `enforce` (default) or `shadow`                                                                              |
+| `--action`                      | `GOVERN_ACTION`                              | The action's type as the record names it (`[a-z][a-z0-9._:-]*`); default `workflow.step`                     |
+| `--resource`                    | `GOVERN_RESOURCE`                            | What it acts on; default: the command                                                                        |
+| `--payload`                     | `GOVERN_PAYLOAD`                             | A JSON object (or `@file`): the action's parameters                                                          |
+| `--environment`                 | `GOVERN_ENVIRONMENT`                         | The deployment environment; GitLab's `CI_ENVIRONMENT_NAME` otherwise                                         |
+| `--run` or `-- <command>`       | `GOVERN_RUN`                                 | The gated command                                                                                            |
+| `--shell`                       | `GOVERN_SHELL`                               | `bash` (default) or `sh`, run with `-e -c`                                                                   |
+| `--fail-on`                     | `GOVERN_FAIL_ON`                             | For a step without a command: `block` (default), `escalate`, `block_or_escalate`, `never`                    |
+| `--escalation`                  | `GOVERN_ESCALATION`                          | `managed`: hold an `ESCALATE` for Decionis' approval flow                                                    |
+| `--approver`, `--approver-role` | `GOVERN_APPROVER`, `GOVERN_APPROVER_ROLE`    | Who approves a managed escalation; either implies `managed`                                                  |
+| `--policy-file`                 | `GOVERN_POLICY_FILE`                         | Default `DECIONIS_POLICY.md` (`.yaml`/`.yml` tried); `""` disables                                           |
+| `--workspace`                   | `GOVERN_WORKSPACE`                           | The checkout; the runner's own variable otherwise                                                            |
+| `--comment`                     | `GOVERN_COMMENT`                             | Post the verdict on the change request                                                                       |
+| `--no-attribution`              | `GOVERN_ATTRIBUTION=false`                   | Drop the footer from the comment                                                                             |
+| `--report`                      | `GOVERN_REPORT`                              | Write the JSON record (`agent-safe.govern-report/1`); `-` for stdout                                         |
+| `--timeout`                     | `GOVERN_TIMEOUT`                             | Per authority call; default `20s`                                                                            |
+| `--intent-ttl`                  | `GOVERN_INTENT_TTL`                          | How long the intent stays decidable; at most `5m`                                                            |
+| `--actor-id`, `--actor-type`    | `GOVERN_ACTOR_ID`, `GOVERN_ACTOR_TYPE`       | Who proposes the action; default the workflow's identity, type `WORKFLOW`                                    |
+| `--host`                        | `GOVERN_HOST`                                | `github`, `gitlab`, `jenkins`, `generic`; detected otherwise                                                 |
 
 The command's environment carries `DECIONIS_INTENT_ID`, `DECIONIS_INTENT_HASH`,
 `DECIONIS_DECISION_ID`, `DECIONIS_DOSSIER_ID`, `DECIONIS_GRANT_ID`, `GOVERN_MODE` and, in
@@ -222,7 +226,19 @@ test runs the built binary against `LocalAuthority` from `@decionis/agent-safe-p
 which re-hashes every binding with its own canonicalizer and validates every request against the
 contract's strict shapes: what passes is a client another implementation of the contract accepts.
 
-`govern init`, which writes a starter workflow and policy file into a repository the way the v1
-action's onboarding installer did, is the next phase.
+## Starting a repository: `govern init`
+
+```sh
+govern init --action production-deploy
+```
+
+It writes a repository's starter files and nothing else: a shadow-mode workflow for the runner the
+tree is set up for (`.github/workflows/decionis-govern.yml` when `.github/workflows` exists,
+`.gitlab/ci/decionis-govern.yml` to include from `.gitlab-ci.yml` when that file exists,
+`jenkins/decionis-govern.groovy` to paste into a Jenkinsfile when one exists; `--host` says
+otherwise) and `DECIONIS_POLICY.md` at the root, then prints what is left to a person: the key and
+the tenant, the commit. A file that exists is kept unless `--force` says otherwise; `--dry-run`
+writes nothing; `--mode`, `--action` and `--branch` shape the starter; `--no-policy` skips the
+policy file; git is never touched.
 
 Built by [Decionis](https://decionis.com?source=govern_readme) · Apache-2.0

@@ -1,0 +1,33 @@
+# Decionis govern: one verdict before this workflow's governed step runs, with
+# a signed Decision Dossier of it. Written by `govern init`; edit freely.
+#
+# Shadow first: the step below never fails a build, and until the secrets
+# exist it records nothing. Add DECIONIS_API_KEY (a secret) and
+# DECIONIS_TENANT_ID (a variable) from https://decionis.com/quickstart, watch
+# the verdicts on pull requests, then set `mode: enforce` and give the step a
+# `run:` command to gate.
+name: Decionis govern
+
+on:
+  pull_request:
+  push:
+    branches: [{{BRANCH}}]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  govern:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Govern
+        uses: decionis/govern@v2
+        with:
+          api-key: ${{ secrets.DECIONIS_API_KEY }}
+          tenant-id: ${{ vars.DECIONIS_TENANT_ID }}
+          mode: {{MODE}}
+          action: {{ACTION}}
+          comment: "true"
+          # run: ./scripts/deploy.sh   # the command the verdict gates, once you enforce
