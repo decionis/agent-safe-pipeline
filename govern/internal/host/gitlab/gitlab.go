@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/decionis/agent-safe-pipeline/govern/internal/host"
+	"github.com/decionis/agent-safe-pipeline/govern/v2/internal/host"
 )
 
 // Host is one GitLab CI job.

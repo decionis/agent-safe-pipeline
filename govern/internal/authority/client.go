@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/decionis/agent-safe-pipeline/govern/internal/intent"
+	"github.com/decionis/agent-safe-pipeline/govern/v2/internal/intent"
 )
 
 // Mode is how the authority is asked: to record only, or to decide and grant.

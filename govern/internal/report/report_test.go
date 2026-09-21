@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/decionis/agent-safe-pipeline/govern/internal/host"
+	"github.com/decionis/agent-safe-pipeline/govern/v2/internal/host"
 )
 
 func sample() Report {

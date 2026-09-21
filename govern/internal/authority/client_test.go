@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/decionis/agent-safe-pipeline/govern/internal/authority/authoritytest"
-	"github.com/decionis/agent-safe-pipeline/govern/internal/intent"
+	"github.com/decionis/agent-safe-pipeline/govern/v2/internal/authority/authoritytest"
+	"github.com/decionis/agent-safe-pipeline/govern/v2/internal/intent"
 )
 
 func capture(t *testing.T, amountMinor int) intent.Captured {

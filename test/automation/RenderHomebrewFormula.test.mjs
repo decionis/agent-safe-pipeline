@@ -1,10 +1,19 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { describe, it } from "node:test";
-import { parseSums, renderFormula, TARGETS } from "../../scripts/RenderHomebrewFormula.mjs";
+import {
+  parseSums,
+  PRODUCTS,
+  renderFormula,
+  TARGETS,
+} from "../../scripts/RenderHomebrewFormula.mjs";
 
 const template = await readFile(
   new URL("../../packaging/homebrew/agentsafe.rb.tmpl", import.meta.url),
+  "utf8",
+);
+const governTemplate = await readFile(
+  new URL("../../packaging/homebrew/govern.rb.tmpl", import.meta.url),
   "utf8",
 );
 const sum = (character) => character.repeat(64);
@@ -60,5 +69,47 @@ describe("the Homebrew formula renderer", () => {
     );
     assert.throws(() => renderFormula(template, "v1.2.3", "v4.5.6", sums), /not a version/);
     assert.throws(() => renderFormula(template, "1.2.3", "4.5.6", sums), /not a release tag/);
+  });
+
+  it("renders govern's formula from govern's archives, and never from the runtime's", () => {
+    assert.deepEqual(PRODUCTS, ["agentsafe", "govern"]);
+    const governSums = new Map(
+      TARGETS.map((target, index) => [`govern-2.0.0-${target}.tar.gz`, sum("efgh"[index])]),
+    );
+    const formula = renderFormula(
+      governTemplate,
+      "2.0.0",
+      "v4.5.6",
+      governSums,
+      undefined,
+      "govern",
+    );
+    assert.match(formula, /^class Govern < Formula$/m);
+    assert.match(formula, /version "2\.0\.0"/);
+    for (const [index, target] of TARGETS.entries()) {
+      assert.ok(
+        formula.includes(
+          `https://github.com/decionis/agent-safe-pipeline/releases/download/v4.5.6/govern-2.0.0-${target}.tar.gz`,
+        ),
+        target,
+      );
+      assert.ok(formula.includes(`sha256 "${sum("efgh"[index])}"`), target);
+    }
+    assert.doesNotMatch(formula, /\{\{/);
+    assert.match(formula, /bin\.install_symlink libexec\/"govern"/);
+    assert.match(formula, /govern run --mode shadow --host generic -- true/);
+    // The runtime's checksums never satisfy govern's formula, nor the reverse.
+    assert.throws(
+      () => renderFormula(governTemplate, "2.0.0", "v4.5.6", sums, undefined, "govern"),
+      /does not list govern-2\.0\.0-darwin-arm64/,
+    );
+    assert.throws(
+      () => renderFormula(template, "1.2.3", "v4.5.6", governSums),
+      /does not list agentsafe-1\.2\.3-darwin-arm64/,
+    );
+    assert.throws(
+      () => renderFormula(governTemplate, "2.0.0", "v4.5.6", governSums, undefined, "gover"),
+      /not a product/,
+    );
   });
 });

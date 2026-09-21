@@ -906,12 +906,145 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # Govern, the workflow gate, built for each target on that target's runner
+  # with the toolchain go.mod pins, archived the way the runtime is, smoke-
+  # tested offline, and, on Linux, installed by its installer over a local
+  # mirror before the archive is kept. One static binary per target: the
+  # same bytes from any runner, which the two-build comparison holds it to.
+  govern-distribution:
+    name: Govern ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x64
+            runner: ubuntu-latest
+          - target: linux-arm64
+            runner: ubuntu-24.04-arm
+          - target: darwin-arm64
+            runner: macos-15
+          - target: darwin-x64
+            runner: macos-15-intel
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - name: Harden runner
+        if: runner.os == 'Linux'
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: govern/go.mod
+          cache-dependency-path: govern/go.sum
+      - name: Build, archive and smoke-test the binary
+        env:
+          TARGET: ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(cat govern/VERSION)"
+          case "$TARGET" in
+            linux-x64) goos=linux; goarch=amd64 ;;
+            linux-arm64) goos=linux; goarch=arm64 ;;
+            darwin-arm64) goos=darwin; goarch=arm64 ;;
+            darwin-x64) goos=darwin; goarch=amd64 ;;
+            *) echo "unexpected target $TARGET" >&2; exit 1 ;;
+          esac
+          (
+            cd govern
+            go version
+            # Two builds, one binary: the archive is reproducible or it is not shipped.
+            for pass in first second; do
+              CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
+                go build -trimpath -buildvcs=false -ldflags="-s -w" -o "$RUNNER_TEMP/govern.$pass" ./cmd/govern
+            done
+            cmp "$RUNNER_TEMP/govern.first" "$RUNNER_TEMP/govern.second"
+          )
+          mkdir -p release
+          node scripts/ArchiveExecutable.mjs --executable "$RUNNER_TEMP/govern.first" --target "$TARGET" \
+            --out release --name govern --version "$version"
+          extracted="$RUNNER_TEMP/extracted"
+          mkdir -p "$extracted"
+          tar -xzf "release/govern-$version-$TARGET.tar.gz" -C "$extracted"
+          test -s "$extracted/govern-$version-$TARGET/LICENSE"
+          test -s "$extracted/govern-$version-$TARGET/NOTICE"
+          packaging/smoke/Govern.sh "$extracted/govern-$version-$TARGET/govern" "$version"
+      # The installer, end to end, against this build served the way a release
+      # or a mirror serves it, exactly as the runtime's is: it downloads the
+      # archive and the checksums, verifies, installs under a prefix, links the
+      # binary, the smoke test runs on what it linked, and a tampered archive
+      # is refused before anything is installed.
+      - name: Run the installer against this build over a local mirror
+        if: runner.os == 'Linux'
+        env:
+          TARGET: ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(cat govern/VERSION)"
+          mirror="$RUNNER_TEMP/mirror"
+          tag="v0.0.0-mirror"
+          mkdir -p "$mirror/$tag"
+          cp "release/govern-$version-$TARGET.tar.gz" "$mirror/$tag/"
+          (cd "$mirror/$tag" && sha256sum "govern-$version-$TARGET.tar.gz" > SHA256SUMS)
+          openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 1 \
+            -subj "/CN=mirror.localhost" -addext "subjectAltName=IP:127.0.0.1,DNS:localhost" \
+            -keyout "$RUNNER_TEMP/mirror.key" -out "$RUNNER_TEMP/mirror.crt" >/dev/null 2>&1
+          node -e '
+            const https = require("node:https"); const fs = require("node:fs"); const path = require("node:path");
+            const root = process.argv[1];
+            const server = https.createServer({ key: fs.readFileSync(process.argv[2]), cert: fs.readFileSync(process.argv[3]) }, (req, res) => {
+              const file = path.join(root, path.normalize(req.url.replace(/^\/download/, "")));
+              if (!file.startsWith(root) || !fs.existsSync(file)) { res.writeHead(404); res.end(); return; }
+              res.writeHead(200); fs.createReadStream(file).pipe(res);
+            });
+            server.listen(0, "127.0.0.1", () => { fs.writeFileSync(process.argv[4], String(server.address().port)); });
+          ' "$mirror" "$RUNNER_TEMP/mirror.key" "$RUNNER_TEMP/mirror.crt" "$RUNNER_TEMP/mirror.port" &
+          server=$!
+          for _ in $(seq 1 50); do [ -s "$RUNNER_TEMP/mirror.port" ] && break; sleep 0.1; done
+          port="$(cat "$RUNNER_TEMP/mirror.port")"
+          prefix="$RUNNER_TEMP/installed"
+          mkdir -p "$prefix/bin" "$prefix/lib"
+          GOVERN_RELEASE_BASE="https://127.0.0.1:$port/download" \
+            GOVERN_RELEASE_CA="$RUNNER_TEMP/mirror.crt" \
+            GOVERN_RELEASE_TAG="$tag" \
+            GOVERN_VERSION="$version" \
+            GOVERN_INSTALL_PREFIX="$prefix" \
+            sh govern/install.sh
+          [ "$("$prefix/bin/govern" version)" = "govern $version" ]
+          [ -L "$prefix/bin/govern" ]
+          packaging/smoke/Govern.sh "$prefix/bin/govern" "$version"
+          printf 'tampered' >> "$mirror/$tag/govern-$version-$TARGET.tar.gz"
+          rm -rf "$prefix" && mkdir -p "$prefix/bin" "$prefix/lib"
+          if GOVERN_RELEASE_BASE="https://127.0.0.1:$port/download" GOVERN_RELEASE_CA="$RUNNER_TEMP/mirror.crt" \
+            GOVERN_RELEASE_TAG="$tag" GOVERN_VERSION="$version" GOVERN_INSTALL_PREFIX="$prefix" \
+            sh govern/install.sh 2>"$RUNNER_TEMP/refusal.txt"; then
+            echo "the installer installed a tampered archive" >&2
+            exit 1
+          fi
+          grep -q "checksum mismatch" "$RUNNER_TEMP/refusal.txt"
+          [ ! -e "$prefix/bin/govern" ]
+          kill "$server"
+      - name: Upload govern artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: govern-${{ matrix.target }}
+          path: release/govern-*.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
   release:
     name: Release
     if: >-
       (github.event_name == 'push' && github.ref == 'refs/heads/master') ||
       (github.event_name == 'workflow_dispatch' && inputs.release_dry_run)
-    needs: [verify, assurance, image, distribution]
+    needs: [verify, assurance, image, distribution, govern-distribution]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -968,6 +1101,22 @@ jobs:
             exit 1
           fi
 
+          # Govern's version is its own; its Go module tag, govern/v<version>,
+          # is what `go install ...@v<version>` resolves, so it is signed and
+          # pushed by the release that first ships that version and left
+          # alone by every later one.
+          govern_version="$(tr -d '[:space:]' < govern/VERSION)"
+          if [[ ! "$govern_version" =~ $semver ]]; then
+            echo "govern/VERSION is not valid semantic versioning: $govern_version" >&2
+            exit 1
+          fi
+          govern_tag="govern/v${govern_version}"
+          if gh api "repos/$GH_REPO/git/ref/tags/$govern_tag" >/dev/null 2>&1; then
+            govern_tag_exists=true
+          else
+            govern_tag_exists=false
+          fi
+
           {
             echo "exists=false"
             echo "package=$package_name"
@@ -975,6 +1124,9 @@ jobs:
             echo "tag=$release_tag"
             echo "stem=agent-safe-pipeline-$package_version"
             echo "tarball=decionis-agent-safe-pipeline-$package_version.tgz"
+            echo "govern_version=$govern_version"
+            echo "govern_tag=$govern_tag"
+            echo "govern_tag_exists=$govern_tag_exists"
           } >> "$GITHUB_OUTPUT"
       - name: Install pnpm
         if: steps.release.outputs.exists != 'true'
@@ -1042,6 +1194,31 @@ jobs:
             --certificate-identity "$EXPECTED_IDENTITY" \
             --certificate-oidc-issuer "$EXPECTED_ISSUER" \
             "$RELEASE_TAG"
+      # Govern's module tag, signed the same way and by the same identity,
+      # when this release is the first to ship its version: a `go install`
+      # resolves the tag, and its commit is the one the archives were built from.
+      - name: Create and verify the signed govern module tag
+        if: steps.release.outputs.exists != 'true' && github.event_name == 'push' && steps.release.outputs.govern_tag_exists != 'true'
+        env:
+          GITSIGN_TOKEN_PROVIDER: github-actions
+          GOVERN_TAG: ${{ steps.release.outputs.govern_tag }}
+          GOVERN_VERSION: ${{ steps.release.outputs.govern_version }}
+          TARGET_SHA: ${{ github.sha }}
+          EXPECTED_IDENTITY: https://github.com/decionis/agent-safe-pipeline/.github/workflows/deploy.yml@refs/heads/master
+          EXPECTED_ISSUER: https://token.actions.githubusercontent.com
+        shell: bash
+        run: |
+          set -euo pipefail
+          git tag --sign "$GOVERN_TAG" "$TARGET_SHA" --message "Govern $GOVERN_VERSION"
+          tag_target="$(git rev-list -n 1 "$GOVERN_TAG")"
+          if [[ "$tag_target" != "$TARGET_SHA" ]]; then
+            echo "Signed tag target $tag_target does not match release target $TARGET_SHA." >&2
+            exit 1
+          fi
+          gitsign verify-tag \
+            --certificate-identity "$EXPECTED_IDENTITY" \
+            --certificate-oidc-issuer "$EXPECTED_ISSUER" \
+            "$GOVERN_TAG"
       - name: Install dependencies without lifecycle scripts
         if: steps.release.outputs.exists != 'true'
         run: pnpm install --frozen-lockfile --ignore-scripts
@@ -1154,6 +1331,31 @@ jobs:
             echo "version=$runtime_version"
             echo "tarball=decionis-agentsafe-$runtime_version.tgz"
           } >> "$GITHUB_OUTPUT"
+      # Govern: the archives the govern distribution job built and smoke-tested
+      # on every platform, one static binary each, checked against the version
+      # the release names for it.
+      - name: Download the govern artifacts
+        if: steps.release.outputs.exists != 'true'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: govern-*
+          path: release
+          merge-multiple: true
+      - name: Check the govern artifacts
+        if: steps.release.outputs.exists != 'true'
+        env:
+          GOVERN_VERSION: ${{ steps.release.outputs.govern_version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for target in linux-x64 linux-arm64 darwin-arm64 darwin-x64; do
+            test -s "release/govern-$GOVERN_VERSION-$target.tar.gz"
+          done
+          mkdir -p "$RUNNER_TEMP/govern-check"
+          tar -xzf "release/govern-$GOVERN_VERSION-linux-x64.tar.gz" -C "$RUNNER_TEMP/govern-check"
+          packaging/smoke/Govern.sh "$RUNNER_TEMP/govern-check/govern-$GOVERN_VERSION-linux-x64/govern" "$GOVERN_VERSION"
+          sh -n govern/install.sh
+          cp govern/install.sh release/govern-install.sh
       - name: Package the Helm chart
         if: steps.release.outputs.exists != 'true'
         id: chart
@@ -1196,6 +1398,12 @@ jobs:
             release/agentsafe-*.rpm
             release/decionis-agentsafe-*.tgz
             release/agentsafe-${{ steps.chart.outputs.version }}.tgz
+      - name: Attest govern provenance
+        if: steps.release.outputs.exists != 'true'
+        id: govern_provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: release/govern-*.tar.gz
       - name: Set up QEMU
         if: steps.release.outputs.exists != 'true'
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
@@ -1362,6 +1570,7 @@ jobs:
         if: steps.release.outputs.exists != 'true'
         env:
           RUNTIME_VERSION: ${{ steps.runtime.outputs.version }}
+          GOVERN_VERSION: ${{ steps.release.outputs.govern_version }}
           RELEASE_TAG: v${{ steps.release.outputs.version }}
         shell: bash
         run: |
@@ -1371,6 +1580,9 @@ jobs:
           node scripts/RenderHomebrewFormula.mjs --version "$RUNTIME_VERSION" --tag "$RELEASE_TAG" \
             --sums release/SHA256SUMS --out release/agentsafe.rb
           ruby -c release/agentsafe.rb
+          node scripts/RenderHomebrewFormula.mjs --product govern --version "$GOVERN_VERSION" --tag "$RELEASE_TAG" \
+            --sums release/SHA256SUMS --out release/govern.rb
+          ruby -c release/govern.rb
       # The runtime package's first publication cannot use trusted publishing:
       # npm attaches a trusted publisher to a package that already exists. A
       # granular NPM_TOKEN (publish, bypass 2FA) carries that one publication
@@ -1489,11 +1701,17 @@ jobs:
           IMAGE_VERSION: ${{ steps.runtime.outputs.version }}
           DOCKERHUB_PUBLISH_ENABLED: ${{ vars.DOCKERHUB_PUBLISH_ENABLED }}
           DOCKERHUB_IMAGE_NAME: docker.io/${{ github.repository_owner }}/agentsafe
+          GOVERN_VERSION: ${{ steps.release.outputs.govern_version }}
+          GOVERN_TAG: ${{ steps.release.outputs.govern_tag }}
+          GOVERN_TAG_EXISTS: ${{ steps.release.outputs.govern_tag_exists }}
         shell: bash
         run: |
           set -euo pipefail
           gh auth setup-git
           git push origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          if [[ "$GOVERN_TAG_EXISTS" != "true" ]]; then
+            git push origin "refs/tags/$GOVERN_TAG:refs/tags/$GOVERN_TAG"
+          fi
 
           npm_url="https://www.npmjs.com/package/$NPM_PACKAGE/v/$RELEASE_VERSION"
           if [[ "$NPM_PUBLISH_ENABLED" == "true" ]]; then
@@ -1519,6 +1737,16 @@ jobs:
             echo '```'
             echo
             echo "The \`agentsafe-<version>-<os>-<arch>.tar.gz\` archives, the \`.deb\` and \`.rpm\` packages, the npm tarball of \`@decionis/agentsafe\` and the Helm chart \`agentsafe-<chart version>.tgz\` (also at \`oci://ghcr.io/decionis/charts/agentsafe\`) are attached, listed in \`SHA256SUMS\`, and attested by this workflow; \`agentsafe-<version>.cdx.json\` is the runtime's CycloneDX SBOM. The Homebrew formula for this release is opened as a pull request from the \`homebrew/agentsafe-<version>\` branch."
+            echo
+            echo "## Install govern"
+            echo
+            echo '```sh'
+            echo "curl -fsSL https://raw.githubusercontent.com/$GH_REPO/$RELEASE_TAG/govern/install.sh | sh"
+            echo "brew tap decionis/agent-safe https://github.com/$GH_REPO && brew install govern"
+            echo "go install github.com/$GH_REPO/govern/v2/cmd/govern@v$GOVERN_VERSION"
+            echo '```'
+            echo
+            echo "Govern $GOVERN_VERSION, the workflow gate, is attached as the \`govern-<version>-<os>-<arch>.tar.gz\` archives, one static binary each, listed in \`SHA256SUMS\` and attested by this workflow; \`govern-install.sh\` is the installer at this tag. Its Go module tag, \`$GOVERN_TAG\`, is signed the same way as the release tag and points at this commit. The Homebrew formula is opened as a pull request from the \`homebrew/govern-<version>\` branch."
             echo
             echo "## Verifiable artifacts"
             echo
@@ -1574,6 +1802,28 @@ jobs:
           cp release/agentsafe.rb Formula/agentsafe.rb
           git add Formula/agentsafe.rb
           git commit -s -m "dist(homebrew): pin the agentsafe formula to $RELEASE_TAG" \
+            -m "Rendered by the release workflow from the release's SHA256SUMS."
+          git push origin "$branch"
+      - name: Open the govern Homebrew formula for review
+        if: steps.release.outputs.exists != 'true' && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GOVERN_VERSION: ${{ steps.release.outputs.govern_version }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch="homebrew/govern-$GOVERN_VERSION"
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            echo "$branch exists; nothing to open."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch" "$GITHUB_SHA"
+          cp release/govern.rb Formula/govern.rb
+          git add Formula/govern.rb
+          git commit -s -m "dist(homebrew): pin the govern formula to $RELEASE_TAG" \
             -m "Rendered by the release workflow from the release's SHA256SUMS."
           git push origin "$branch"
       - name: Upload verified dry-run assets

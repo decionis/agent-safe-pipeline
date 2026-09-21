@@ -68,9 +68,11 @@ not imply a release date.
   Go as one binary for GitHub Actions, GitLab CI, Jenkins and other runners, speaking the execution
   contract the runtime speaks (intent, decision, grant, execution, Decision Dossier) rather than the
   evaluate-decision API, with the repository policy file still a bound input and no local policy
-  engine. Still to come: distribution with the runtime's releases (archives, checksums,
-  attestations, Homebrew, the installer), the action fetching that pinned binary instead of building
-  it, `govern init` in place of the v1 onboarding installer, and `decionis/govern` kept as the
+  engine; distributed with the runtime's releases (one static binary per platform, built twice and
+  shipped only when identical, listed in `SHA256SUMS`, attested, a Homebrew formula from the same
+  tap, an installer that verifies before it installs, and a signed `govern/v<version>` module tag
+  for `go install`). Still to come: the action fetching that pinned binary instead of building it,
+  `govern init` in place of the v1 onboarding installer, and `decionis/govern` kept as the
   Marketplace address, a thin action that fetches the binary.
 - Make native verification a deployment location rather than a product: the
   [Verifying Provider Profile](./docs/authority/verifying-provider.md) states the provider's half

@@ -36,3 +36,12 @@ pnpm reproducible:compare \
   /path/to/second/decionis-agent-safe-pipeline-<version>.tgz \
   /tmp/reproducibility-report.json
 ```
+
+## Govern's binaries
+
+Govern, the workflow gate under `govern/`, is a Go module, and its release archives are held to
+the same standard by a different mechanism: the `Govern <target>` jobs build the binary twice on
+the target's own runner with `CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w"`
+under the toolchain `govern/go.mod` pins, compare the two with `cmp`, and archive only a binary
+both builds agree on. The same command with the same toolchain reproduces the shipped bytes from
+the commit the release's `govern/v<version>` tag names, on any machine.

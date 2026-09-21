@@ -7,8 +7,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/decionis/agent-safe-pipeline/govern"
-	"github.com/decionis/agent-safe-pipeline/govern/internal/cli"
+	"github.com/decionis/agent-safe-pipeline/govern/v2"
+	"github.com/decionis/agent-safe-pipeline/govern/v2/internal/cli"
 )
 
 func main() {

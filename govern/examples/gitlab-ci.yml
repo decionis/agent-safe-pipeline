@@ -5,7 +5,9 @@ stages: [deploy]
 
 deploy:production:
   stage: deploy
-  image: golang:1.22
+  image: alpine:3
+  before_script:
+    - apk add --no-cache curl tar
   environment: production
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
@@ -16,9 +18,13 @@ deploy:production:
     GOVERN_ENVIRONMENT: production
     GOVERN_OUTPUT_FILE: govern.env
     GOVERN_COMMENT: "true"
+    # The image has no bash; the gated command runs through sh.
+    GOVERN_SHELL: sh
   script:
-    # Pin the version the release names; the release job publishes it as a binary too.
-    - go install github.com/decionis/agent-safe-pipeline/govern/cmd/govern@latest
+    # The release's binary for this platform, verified against the release's
+    # SHA256SUMS before it is installed; GOVERN_VERSION pins the version.
+    - curl -fsSL https://raw.githubusercontent.com/decionis/agent-safe-pipeline/master/govern/install.sh | GOVERN_VERSION=2.0.0 GOVERN_INSTALL_PREFIX="$CI_PROJECT_DIR/.govern" sh
+    - export PATH="$CI_PROJECT_DIR/.govern/bin:$PATH"
     - govern run --payload "{\"service\":\"api\",\"sha\":\"$CI_COMMIT_SHA\"}" -- ./scripts/deploy.sh
   artifacts:
     reports:

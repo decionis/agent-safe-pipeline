@@ -180,7 +180,13 @@ describe("the workflow", () => {
     assert.match(packages.run, /cp "\$extracted\/agentsafe" packaging\/linux\/build\/agentsafe/);
     assert.match(packages.run, /sudo dpkg -i/);
     assert.match(packages.run, /packaging\/smoke\/Smoke\.sh \/usr\/bin\/agentsafe/);
-    assert.deepEqual(workflow.jobs.release.needs, ["verify", "assurance", "image", "distribution"]);
+    assert.deepEqual(workflow.jobs.release.needs, [
+      "verify",
+      "assurance",
+      "image",
+      "distribution",
+      "govern-distribution",
+    ]);
     const releaseSteps = workflow.jobs.release.steps.map((step) => step.name);
     for (const name of [
       "Download the runtime artifacts",
@@ -411,5 +417,132 @@ describe("the workflow", () => {
     ]) {
       assert.ok(smoke.includes(expectation), expectation);
     }
+  });
+});
+
+/**
+ * Govern rides the same release: one static binary per target, archived the
+ * way the runtime is, its installer and its formula verifying the same
+ * SHA256SUMS, its Go module tag signed by the same identity as the release tag.
+ */
+describe("govern's distribution", () => {
+  it("has an installer that is POSIX sh, fails closed on verification, and modifies nothing but the binary", async () => {
+    const script = await read("govern/install.sh");
+    assert.equal(spawnSync("sh", ["-n", "-"], { input: script, encoding: "utf8" }).status, 0);
+    assert.match(script, /^set -eu$/m);
+    assert.match(script, /curl --proto '=https' --tlsv1\.2/);
+    assert.match(script, /checksum mismatch .* refusing to install/);
+    assert.match(script, /does not list .* refusing to install/);
+    assert.match(script, /^REPO="decionis\/agent-safe-pipeline"$/m);
+    assert.match(script, /"\$BASE\/\$tag\/\$archive"/);
+    assert.match(script, /"\$BASE\/\$tag\/SHA256SUMS"/);
+    assert.doesNotMatch(script, /\$BASE\/v\$version/);
+    assert.match(script, /GOVERN_RELEASE_TAG/);
+    assert.match(script, /GOVERN_INSTALL_PREFIX/);
+    assert.doesNotMatch(script, /\bsudo\b/);
+    assert.doesNotMatch(script, /\.bashrc|\.zshrc|\.profile|systemctl|launchctl/);
+    assert.match(script, /lib="\$prefix\/lib\/govern\/\$version"/);
+    assert.match(script, /ln -sf "\$lib\/govern"/);
+    assert.match(script, /"\$bin\/govern" version/);
+    // The v1 onboarding installer wrote workflow files; this one never does.
+    assert.doesNotMatch(script, /\.github\/workflows|DECIONIS_POLICY\.md|--inject|--pr\b/);
+  });
+
+  it("builds each target on its own runner, twice, and installs it over a mirror before a release", async () => {
+    const workflow = parse(await read(".github/workflows/deploy.yml"));
+    const job = workflow.jobs["govern-distribution"];
+    const targets = job.strategy.matrix.include.map((entry) => entry.target).sort();
+    assert.deepEqual(targets, ["darwin-arm64", "darwin-x64", "linux-arm64", "linux-x64"]);
+    const setupGo = job.steps.find((step) => step.name === "Set up Go");
+    assert.equal(setupGo.with["go-version-file"], "govern/go.mod");
+    const build = job.steps.find(
+      (step) => step.name === "Build, archive and smoke-test the binary",
+    );
+    assert.match(build.run, /CGO_ENABLED=0 GOOS="\$goos" GOARCH="\$goarch"/);
+    assert.match(build.run, /go build -trimpath -buildvcs=false -ldflags="-s -w"/);
+    assert.match(build.run, /cmp "\$RUNNER_TEMP\/govern\.first" "\$RUNNER_TEMP\/govern\.second"/);
+    assert.match(
+      build.run,
+      // The archive line wraps; the name and version follow on its continuation.
+      /scripts\/ArchiveExecutable\.mjs .*\\\n\s+--out release --name govern --version "\$version"/,
+    );
+    assert.match(build.run, /packaging\/smoke\/Govern\.sh/);
+    const installer = job.steps.find(
+      (step) => step.name === "Run the installer against this build over a local mirror",
+    );
+    assert.equal(installer.if, "runner.os == 'Linux'");
+    assert.match(installer.run, /GOVERN_RELEASE_BASE="https:\/\/127\.0\.0\.1:\$port\/download"/);
+    assert.match(installer.run, /GOVERN_RELEASE_CA="\$RUNNER_TEMP\/mirror\.crt"/);
+    assert.match(installer.run, /sh govern\/install\.sh/);
+    assert.match(installer.run, /packaging\/smoke\/Govern\.sh "\$prefix\/bin\/govern" "\$version"/);
+    assert.match(installer.run, /grep -q "checksum mismatch"/);
+    const upload = job.steps.find((step) => step.name === "Upload govern artifacts");
+    assert.equal(upload.with.name, "govern-${{ matrix.target }}");
+    for (const step of job.steps) {
+      if (step.uses !== undefined) assert.match(step.uses, /@[0-9a-f]{40}( #|$)/, step.uses);
+    }
+    const releaseSteps = workflow.jobs.release.steps;
+    const names = releaseSteps.map((step) => step.name);
+    for (const name of [
+      "Create and verify the signed govern module tag",
+      "Download the govern artifacts",
+      "Check the govern artifacts",
+      "Attest govern provenance",
+      "Open the govern Homebrew formula for review",
+    ]) {
+      assert.ok(names.includes(name), name);
+    }
+    // The module tag is signed by the release identity, only when this
+    // release is the first to ship govern's version, and pushed with the
+    // release tag; `go install ...@v<version>` resolves it.
+    const resolve = releaseSteps.find((step) => step.name === "Resolve release version");
+    assert.match(resolve.run, /govern_version="\$\(tr -d '\[:space:\]' < govern\/VERSION\)"/);
+    assert.match(resolve.run, /govern_tag="govern\/v\$\{govern_version\}"/);
+    const tag = releaseSteps.find(
+      (step) => step.name === "Create and verify the signed govern module tag",
+    );
+    assert.match(tag.if, /steps\.release\.outputs\.govern_tag_exists != 'true'/);
+    assert.match(tag.run, /git tag --sign "\$GOVERN_TAG" "\$TARGET_SHA"/);
+    assert.match(tag.run, /gitsign verify-tag/);
+    assert.equal(
+      tag.env.EXPECTED_IDENTITY,
+      "https://github.com/decionis/agent-safe-pipeline/.github/workflows/deploy.yml@refs/heads/master",
+    );
+    const create = releaseSteps.find((step) => step.name === "Create verified GitHub release");
+    assert.match(create.run, /git push origin "refs\/tags\/\$GOVERN_TAG:refs\/tags\/\$GOVERN_TAG"/);
+    assert.match(create.run, /govern\/install\.sh \| sh/);
+    assert.match(
+      create.run,
+      /go install github\.com\/\$GH_REPO\/govern\/v2\/cmd\/govern@v\$GOVERN_VERSION/,
+    );
+    const check = releaseSteps.find((step) => step.name === "Check the govern artifacts");
+    assert.match(check.run, /for target in linux-x64 linux-arm64 darwin-arm64 darwin-x64/);
+    assert.match(check.run, /packaging\/smoke\/Govern\.sh/);
+    const attest = releaseSteps.find((step) => step.name === "Attest govern provenance");
+    assert.equal(attest.with["subject-path"], "release/govern-*.tar.gz");
+    const formula = releaseSteps.find((step) => step.name === "Render the Homebrew formula");
+    assert.match(
+      formula.run,
+      /RenderHomebrewFormula\.mjs --product govern --version "\$GOVERN_VERSION"/,
+    );
+    assert.match(formula.run, /ruby -c release\/govern\.rb/);
+    const open = releaseSteps.find(
+      (step) => step.name === "Open the govern Homebrew formula for review",
+    );
+    assert.match(open.run, /branch="homebrew\/govern-\$GOVERN_VERSION"/);
+    assert.match(open.run, /cp release\/govern\.rb Formula\/govern\.rb/);
+  });
+
+  it("keeps the smoke test runnable and the module's toolchain pinned", async () => {
+    const smoke = await read("packaging/smoke/Govern.sh");
+    assert.equal(spawnSync("bash", ["-n", "-"], { input: smoke, encoding: "utf8" }).status, 0);
+    assert.match(smoke, /^set -euo pipefail$/m);
+    assert.match(smoke, /--mode shadow/);
+    assert.match(smoke, /enforcement needs DECIONIS_API_KEY/);
+    const mod = await read("govern/go.mod");
+    assert.match(mod, /^module github\.com\/decionis\/agent-safe-pipeline\/govern\/v2$/m);
+    assert.match(mod, /^toolchain go\d+\.\d+\.\d+$/m);
+    const version = (await read("govern/VERSION")).trim();
+    assert.match(version, /^2\.\d+\.\d+(?:-[\w.-]+)?$/);
   });
 });

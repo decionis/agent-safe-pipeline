@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/decionis/agent-safe-pipeline/govern/internal/authority"
-	"github.com/decionis/agent-safe-pipeline/govern/internal/authority/authoritytest"
-	"github.com/decionis/agent-safe-pipeline/govern/internal/command"
-	"github.com/decionis/agent-safe-pipeline/govern/internal/host"
+	"github.com/decionis/agent-safe-pipeline/govern/v2/internal/authority"
+	"github.com/decionis/agent-safe-pipeline/govern/v2/internal/authority/authoritytest"
+	"github.com/decionis/agent-safe-pipeline/govern/v2/internal/command"
+	"github.com/decionis/agent-safe-pipeline/govern/v2/internal/host"
 )
 
 // fakeHost records every surface the gate writes.

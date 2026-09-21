@@ -48,6 +48,16 @@ the target commit shown by the corresponding GitHub release before using the
 attached tarball or SBOM. A valid cryptographic signature with a different
 identity, issuer, or target does not satisfy this policy.
 
+## Govern's module tag
+
+Govern, the workflow gate under `govern/`, is a Go module, and `go install` resolves a
+version through a tag of its own, `govern/v<version>`. The release that first ships a govern
+version creates that tag the same way as the release tag, in the same job, with the same
+identity and issuer, on the same commit, and verifies it before it builds anything; a later
+release that ships the same govern version leaves the existing tag alone. The commands above
+verify it with `tag=govern/vX.Y.Z`. A `go install` of a version whose tag does not verify
+against this policy is a build of someone else's commit.
+
 ## Maintainer signing and rotation
 
 Release tags are created only by `.github/workflows/deploy.yml` on a push to
