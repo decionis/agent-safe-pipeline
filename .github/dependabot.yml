@@ -49,11 +49,13 @@ updates:
 
   # The verifying provider for Envoy is a Go module with one dependency, the
   # RFC 8785 canonicaliser, and the Kong plugin is a second module that imports
-  # it and Kong's plugin development kit; their go.sum files pin them.
+  # it and Kong's plugin development kit; Govern, the workflow gate, is a third
+  # with the same one dependency. Their go.sum files pin them.
   - package-ecosystem: gomod
     directories:
       - "/verifiers/envoy"
       - "/verifiers/kong"
+      - "/govern"
     schedule:
       interval: weekly
       day: monday

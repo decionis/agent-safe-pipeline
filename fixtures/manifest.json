@@ -375,6 +375,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "govern/test/Contract.test.mjs",
+      "family": "Govern contract test against the loopback Decionis",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/Index.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",

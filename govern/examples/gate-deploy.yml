@@ -1,38 +1,42 @@
-# Enforce a production deploy with Decionis — the deploy runs THROUGH the gate.
-#
-# Because the deploy command is passed to `run:`, it cannot execute without an
-# authorizing verdict. There is no `if:` to delete: on block/escalate the
-# command never runs and the job fails. Drop into .github/workflows/.
-
-name: Deploy (governed)
+# A production deploy that cannot run without Decionis authorizing it: the
+# deploy script runs through the gate, so an ALLOW is a claimed grant and a
+# BLOCK is a step that fails with the command never started. What happened is
+# finalized with Decionis afterwards and joins the signed Decision Dossier.
+name: Deploy to production
 
 on:
   push:
     branches: [main]
-  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
-  govern-and-deploy:
+  deploy:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    environment: production
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - name: Govern + deploy
-        uses: decionis/govern@v1
+      - name: Govern the deploy
+        id: gate
+        uses: decionis/govern@v2
         with:
           api-key: ${{ secrets.DECIONIS_API_KEY }}
-          org-id: ${{ secrets.DECIONIS_ORG_ID }}
-          workflow-key: github_deploy_approval
+          tenant-id: ${{ vars.DECIONIS_TENANT_ID }}
           action: production-deploy
-          mode: enforce
+          resource: service:api
+          environment: production
           payload: |
             {
-              "environment": "production",
               "service": "api",
-              "blast_radius": "high"
+              "ref": "${{ github.ref }}",
+              "sha": "${{ github.sha }}",
+              "actor": "${{ github.actor }}"
             }
-          # Decionis runs this ONLY if it authorizes the deploy. On block or
-          # escalate it never runs and the step fails — no skippable `if:`.
-          run: ./scripts/deploy.sh
+          run: ./scripts/deploy.sh # runs only on an ALLOW whose grant this step claimed
+
+      - name: Record the proof
+        if: always()
+        run: |
+          echo "decision=${{ steps.gate.outputs.decision }} dossier=${{ steps.gate.outputs.dossier-id }} outcome=${{ steps.gate.outputs.outcome }}"

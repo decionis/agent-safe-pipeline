@@ -1,30 +1,34 @@
-# Run Decionis in shadow mode and post the verdict as a PR comment so the
-# reviewer sees what the governed verdict would have been — without ever
-# failing the build.
-#
-# Pattern: install shadow first, observe verdicts on PRs for a sprint, then
-# flip `mode` to `enforce`.
-
-name: Decionis (shadow on PRs)
+# Shadow: nothing is enforced and no build fails for the gate's sake. Every
+# pull request gets the verdict Decionis would have given, as a comment that
+# updates in place, so a team sees what governing would do before it does.
+name: Decionis shadow
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
 
 jobs:
-  shadow-verdict:
+  shadow:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - name: Decionis shadow verdict
-        uses: decionis/govern@v1
+      - name: What would Decionis say?
+        uses: decionis/govern@v2
         with:
           api-key: ${{ secrets.DECIONIS_API_KEY }}
-          org-id: ${{ secrets.DECIONIS_ORG_ID }}
-          workflow-key: github_pr_change_intent
+          tenant-id: ${{ vars.DECIONIS_TENANT_ID }}
           mode: shadow
-          comment-pr: "true"
+          action: pull-request-change
+          resource: pr:${{ github.event.pull_request.number }}
+          payload: |
+            {
+              "title": ${{ toJSON(github.event.pull_request.title) }},
+              "author": "${{ github.event.pull_request.user.login }}",
+              "changed_files": ${{ github.event.pull_request.changed_files }},
+              "base": "${{ github.base_ref }}"
+            }
+          comment: "true"

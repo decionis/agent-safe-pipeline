@@ -1,6 +1,6 @@
-name: "Decionis Action Gate"
+name: "Govern"
 author: "Decionis"
-description: "Runtime guardrail for autonomous AI agents & CI/CD — gate deploys, migrations & infra before they run, with signed proof."
+description: "One verdict before a workflow step runs — a deploy, a migration, an infrastructure change, an agent's action — with a signed Decision Dossier of it. Speaks the Decionis execution contract."
 
 branding:
   icon: "shield"
@@ -9,196 +9,208 @@ branding:
 inputs:
   api-key:
     description: >-
-      Decionis API key with `protocol:evaluate` scope. Pass as a workflow secret
-      (`${{ secrets.DECIONIS_API_KEY }}`). Never hard-code.
-    required: true
-  org-id:
-    description: "Decionis org id (UUID) the decision belongs to."
-    required: true
-  workflow-key:
+      Decionis API key for the workspace. Pass a secret
+      (`${{ secrets.DECIONIS_API_KEY }}`); never write it in the workflow.
+    required: false
+    default: ""
+  tenant-id:
     description: >-
-      The workflow key registered in Decionis policy (e.g.
-      `github_deploy_approval`). Drives which policy bundle is evaluated.
-    required: true
+      The workspace (organization) the key belongs to, a UUID. Not a secret,
+      but a repository variable keeps it in one place.
+    required: false
+    default: ""
+  mode:
+    description: >-
+      `enforce` (default): the command runs only on an ALLOW whose grant this
+      step claimed. `shadow`: the command starts at once, the verdict is
+      recorded beside it, and the step never fails for the gate's sake.
+    required: false
+    default: "enforce"
   action:
     description: >-
-      Short label for the action being gated (e.g. `production-deploy`,
-      `terraform-apply`, `ai-generated-pr`). Recorded on the dossier and shown
-      in the verdict. Optional — purely for readability and reporting.
+      The action's type as the record names it, e.g. `production-deploy`,
+      `terraform-apply`, `database-migration` (lowercase, `[a-z][a-z0-9._:-]*`).
     required: false
-    default: ""
-  run:
-    description: >-
-      Shell command(s) that Decionis executes ONLY if it authorizes the action.
-      The gated command runs through Decionis, so it executes on `allow` and is
-      held on block/escalate (the step then fails). In shadow mode the command
-      always runs while Decionis records the verdict.
-    required: false
-    default: ""
-  shell:
-    description: "Shell used to run the `run` command. `bash` (default) or `sh`."
-    required: false
-    default: "bash"
-  request-grant:
-    description: >-
-      When `true` and the verdict authorizes the action, request a short-lived,
-      single-use signed Execution Grant. It is exposed as the `execution-grant`
-      output and injected into the `run` command's environment as
-      `DECIONIS_EXECUTION_GRANT` so the deploy target can verify the
-      authorization before acting.
-    required: false
-    default: "false"
-  grant-audience:
-    description: >-
-      Optional audience to bind the Execution Grant to (e.g. a target/env id
-      like `prod-us-east`). The target verifies the grant was minted for it.
+    default: "workflow.step"
+  resource:
+    description: "What the action acts on, e.g. `service:api` or `env:production`. Default: the command."
     required: false
     default: ""
   payload:
     description: >-
-      JSON string describing the action being gated. Free-form fields per the
-      workflow's policy schema (resource, actor, requested change, etc.). When
-      omitted, a minimal payload is built from the workflow context
-      (repo / ref / sha / event / actor / run id).
+      A JSON object describing the action: the parameters the record keeps and
+      policy reads (`{"service":"api","replicas":3}`).
     required: false
     default: ""
+  environment:
+    description: "The deployment environment the action lands in, e.g. `production`."
+    required: false
+    default: ""
+  run:
+    description: >-
+      The command to gate. It runs through this step, so it cannot run without
+      an authorizing verdict; there is no `if:` to delete.
+    required: false
+    default: ""
+  shell:
+    description: "`bash` (default) or `sh`."
+    required: false
+    default: "bash"
   fail-on:
     description: >-
-      Which verdicts cause this Action to fail the step. One of:
-      `block` (default), `escalate`, `block_or_escalate`, `never`.
+      For a step without `run`: which verdicts fail it. `block` (default),
+      `escalate`, `block_or_escalate`, `never`.
     required: false
     default: "block"
-  mode:
+  escalation:
     description: >-
-      `enforce` (default) or `shadow`. In shadow mode the Action records a
-      verdict but never fails the step — useful for week-one rollouts. Shadow
-      is also speculative: a `run` command starts immediately while the verdict
-      resolves in the background, so the gate adds ~zero latency; evaluation
-      failures (API errors, missing credentials) become notices, never step
-      failures, and the step's exit code is exactly the command's.
+      `managed`: on an ESCALATE, Decionis orchestrates the approval and the
+      step holds for it, at most until the intent expires (five minutes).
+      `none` (default): an ESCALATE ends the step like `fail-on` says.
     required: false
-    default: "enforce"
-  comment-pr:
+    default: "none"
+  approver:
+    description: "The principal who approves a managed escalation."
+    required: false
+    default: ""
+  approver-role:
+    description: "Or the role that does, e.g. `RELEASE_MANAGER`."
+    required: false
+    default: ""
+  policy-file:
     description: >-
-      When `true` and this run was triggered by a pull_request event, post (and
-      update in place) the verdict as a PR comment with the dossier verify URL.
-      Requires `pull-requests: write` permission on the workflow.
+      The repository's policy file, whose path and SHA-256 travel in the
+      intent so the dossier records the exact revision. Default
+      `DECIONIS_POLICY.md` (`.yaml`/`.yml` siblings are tried); `""` disables.
+    required: false
+    default: "DECIONIS_POLICY.md"
+  comment:
+    description: "`true`: post (and update in place) the verdict on the pull request. Needs `pull-requests: write`."
     required: false
     default: "false"
   show-attribution:
-    description: >-
-      When `true` (default), the PR comment includes a small "Governed by
-      Decionis" footer linking back to the action. Set `false` for a bare
-      comment with no attribution.
+    description: "`false` drops the footer from the comment."
     required: false
     default: "true"
-  api-base-url:
-    description: "Override the Decionis API base URL (for staging / self-host)."
+  api-url:
+    description: "The Decionis API base URL (https), for self-hosting."
     required: false
     default: "https://api.decionis.com"
-  site-base-url:
-    description: "Override the public site base URL (for staging / self-host)."
+  timeout:
+    description: "Per authority call, e.g. `20s`."
     required: false
-    default: "https://decionis.com"
-  request-timeout-ms:
+    default: "20s"
+  intent-ttl:
+    description: "How long the intent stays decidable; at most `5m`."
+    required: false
+    default: "5m"
+  report:
+    description: "Where to write the JSON record of the run; empty for none."
+    required: false
+    default: ""
+  go-version:
     description: >-
-      Timeout for the evaluate-decision call, in milliseconds. Also budgets the
-      post-command grace window for background notarization (capped at 10s).
+      The Go release this step builds the binary with until the release
+      binary ships; a `go.mod`-compatible version.
     required: false
-    default: "20000"
-  policy-file:
-    description: >-
-      Path (relative to the repo root) to a `DECIONIS_POLICY.md` policy file to
-      inject into the decision. The file is read, content-hashed, and carried
-      with the evaluation so the gate governs against — and the Decision Dossier
-      records — your repo's policy. The sha256 is the version handle: change the
-      file, get a new recorded revision. Set to an empty string to disable.
-      A missing or unreadable file never fails the gate. A YAML policy file is
-      also accepted — with the default path, `DECIONIS_POLICY.yaml` / `.yml`
-      siblings are tried too.
-    required: false
-    default: "DECIONIS_POLICY.md"
-  policy-enforce:
-    description: >-
-      When `true`, the structured ```decionis``` rules block in the policy file
-      is compiled into an ACTIVE enforced policy bundle for this org +
-      workflow-key (true GitOps — committing the file changes enforcement, no
-      dashboard). Idempotent by content hash. Default `false` (the file is
-      recorded/versioned but not auto-enforcing). Prose without a rules block is
-      never enforced.
-    required: false
-    default: "false"
-  local-eval:
-    description: >-
-      Local policy engine mode. `auto` (default): the ```decionis``` rules
-      block in your policy file is evaluated in-process (microseconds); a
-      deterministic allow/block from an explicitly matched rule acts
-      immediately and the API call becomes an async notarization off the
-      critical path — the signed dossier, verify URL, and badge still arrive,
-      and a disagreeing API verdict sets `verdict-mismatch=true` with a
-      warning. `strict`: deterministic local verdicts skip the network
-      entirely (offline-capable; no dossier for those runs). `off`: v1.8
-      behavior — every verdict comes from the blocking API call.
-      Escalate/restrain matches, no-match, unknown operators, malformed or
-      YAML policies, and rules that depend on server-side state ALWAYS fall
-      back to the API. `request-grant: true` always forces the blocking path.
-    required: false
-    default: "auto"
+    default: "1.22"
 
 outputs:
   decision:
-    description: >-
-      Verdict — one of: allow, block, escalate, restrain, review (the API's
-      REVIEW outcome). API outcomes are normalized (APPROVE→allow,
-      REJECT→block, REQUIRE_REVIEW→review).
-  decision-source:
-    description: >-
-      Where the acting verdict came from — `local` (deterministic rule from
-      the repo's policy file, evaluated in-process) or `api`.
-  verdict-mismatch:
-    description: >-
-      "true" when a deterministic local verdict acted but the notarizing API
-      call returned a different verdict (org-level policy may add rules).
-      Emitted with a `::warning::` — the signed dossier records the API
-      verdict.
+    description: "`ALLOW`, `ESCALATE` or `BLOCK`; empty when the authority was not asked."
+    value: ${{ steps.gate.outputs.decision }}
+  decision-id:
+    description: "The authority's decision id."
+    value: ${{ steps.gate.outputs.decision-id }}
   dossier-id:
-    description: "Signed Decision Dossier id for this evaluation."
+    description: "The signed Decision Dossier's id."
+    value: ${{ steps.gate.outputs.dossier-id }}
+  dossier-url:
+    description: "The authenticated path of the dossier."
+    value: ${{ steps.gate.outputs.dossier-url }}
   verify-url:
-    description: >-
-      Public verify URL with `?sig=` — opens the branded verification page;
-      unfurls with the OG card in Slack / Teams / LinkedIn / X.
+    description: "A page anyone can open to verify the decision, when the authority attached one."
+    value: ${{ steps.gate.outputs.verify-url }}
+  intent-id:
+    description: "The intent's id (the grant issuance boundary)."
+    value: ${{ steps.gate.outputs.intent-id }}
+  intent-hash:
+    description: "The canonical intent's SHA-256, what every record names."
+    value: ${{ steps.gate.outputs.intent-hash }}
+  reason-codes:
+    description: "The authority's reason codes, comma separated."
+    value: ${{ steps.gate.outputs.reason-codes }}
   policy-version:
-    description: "Policy version (string) that produced the verdict."
+    description: "The policy version the decision was made under."
+    value: ${{ steps.gate.outputs.policy-version }}
   policy-sha256:
-    description: >-
-      sha256 of the injected `DECIONIS_POLICY.md` content (empty if no policy
-      file was found). The content-addressed version handle for the repo policy.
+    description: "The SHA-256 of the repository policy file the intent carried."
+    value: ${{ steps.gate.outputs.policy-sha256 }}
   policy-path:
-    description: "Repo-relative path of the injected policy file, if any."
-  policy-enforced:
-    description: >-
-      "true" when `policy-enforce` was set and a policy file was found (the
-      file's rules block is published as the active enforced bundle).
-  reason-code:
-    description: "Stable reason code (string) for the verdict, if returned."
-  badge-markdown:
-    description: >-
-      Ready-to-paste Markdown for a "Governed by Decionis" badge linking to the
-      signed verify URL — drop it in a README or release notes. When a policy
-      file is present the link is pinned to its sha256 (`&policy=sha256:…`), so
-      the badge cryptographically binds the decision to the repo policy state.
+    description: "Its path."
+    value: ${{ steps.gate.outputs.policy-path }}
+  mode:
+    description: "`SHADOW` or `ENFORCEMENT`."
+    value: ${{ steps.gate.outputs.mode }}
+  fail-closed:
+    description: "`true` when no authoritative decision was reached and the gate refused."
+    value: ${{ steps.gate.outputs.fail-closed }}
   executed:
-    description: >-
-      `true` if a `run` command was authorized and executed, `false` if it was
-      blocked. Empty when no `run` command was supplied.
-  execution-grant:
-    description: >-
-      The short-lived, single-use signed Execution Grant (EdDSA JWT), when
-      `request-grant: true` and the verdict authorizes. A target verifies it
-      against the public JWKS before acting. Empty otherwise.
-  grant-expires-at:
-    description: "ISO timestamp when the Execution Grant expires."
+    description: "`true` when the command ran, `false` when it did not; empty without a command."
+    value: ${{ steps.gate.outputs.executed }}
+  claimed:
+    description: "`true` when a grant was claimed for the run."
+    value: ${{ steps.gate.outputs.claimed }}
+  exit-code:
+    description: "The command's exit code."
+    value: ${{ steps.gate.outputs.exit-code }}
+  outcome:
+    description: "`COMMITTED`, `FAILED` or `INDETERMINATE`, as finalized with the authority."
+    value: ${{ steps.gate.outputs.outcome }}
+  finalization:
+    description: "`RECORDED` when the authority recorded the outcome, `PENDING` when it did not."
+    value: ${{ steps.gate.outputs.finalization }}
+  badge-markdown:
+    description: "A “Governed by Decionis” badge, linking to the proof."
+    value: ${{ steps.gate.outputs.badge-markdown }}
 
 runs:
-  using: "node20"
-  main: "src/index.mjs"
+  using: "composite"
+  steps:
+    # Until the release binary ships, the step builds it from this pinned
+    # commit: no download, no registry, the source you can read.
+    - name: Set up Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version: ${{ inputs.go-version }}
+        cache-dependency-path: ${{ github.action_path }}/go.sum
+    - name: Build govern
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: CGO_ENABLED=0 go build -trimpath -o "$RUNNER_TEMP/govern" ./cmd/govern
+    - name: Govern the step
+      id: gate
+      shell: bash
+      env:
+        DECIONIS_API_KEY: ${{ inputs.api-key }}
+        DECIONIS_TENANT_ID: ${{ inputs.tenant-id }}
+        DECIONIS_API_URL: ${{ inputs.api-url }}
+        GOVERN_MODE: ${{ inputs.mode }}
+        GOVERN_ACTION: ${{ inputs.action }}
+        GOVERN_RESOURCE: ${{ inputs.resource }}
+        GOVERN_PAYLOAD: ${{ inputs.payload }}
+        GOVERN_ENVIRONMENT: ${{ inputs.environment }}
+        GOVERN_RUN: ${{ inputs.run }}
+        GOVERN_SHELL: ${{ inputs.shell }}
+        GOVERN_FAIL_ON: ${{ inputs.fail-on }}
+        GOVERN_ESCALATION: ${{ inputs.escalation }}
+        GOVERN_APPROVER: ${{ inputs.approver }}
+        GOVERN_APPROVER_ROLE: ${{ inputs.approver-role }}
+        GOVERN_POLICY_FILE: ${{ inputs.policy-file }}
+        GOVERN_COMMENT: ${{ inputs.comment }}
+        GOVERN_ATTRIBUTION: ${{ inputs.show-attribution }}
+        GOVERN_TIMEOUT: ${{ inputs.timeout }}
+        GOVERN_INTENT_TTL: ${{ inputs.intent-ttl }}
+        GOVERN_REPORT: ${{ inputs.report }}
+        GOVERN_HOST: github
+      run: '"$RUNNER_TEMP/govern" run'

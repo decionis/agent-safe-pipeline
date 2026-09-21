@@ -1,46 +1,40 @@
-# Only auto-merge a Dependabot PR when Decionis returns `allow`. The verdict can
-# weigh the update type (patch vs major), advisories, and your own policy — so
-# low-risk bumps merge themselves while risky ones wait for a human.
-
-name: Dependabot auto-merge (governed)
+# A dependency update merges itself only when Decionis allows it: the update's
+# kind and size are the intent's parameters, and the merge is the verdict's
+# consequence rather than a bot's default.
+name: Dependabot auto-merge
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
 
 permissions:
   contents: write
   pull-requests: write
 
 jobs:
-  govern-and-merge:
-    runs-on: ubuntu-latest
+  govern:
     if: github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
     steps:
-      - name: Fetch update metadata
-        id: meta
+      - name: Read the update
+        id: metadata
         uses: dependabot/fetch-metadata@v2
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Decionis verdict
+      - name: Decide
         id: gate
-        uses: decionis/govern@v1
+        uses: decionis/govern@v2
         with:
           api-key: ${{ secrets.DECIONIS_API_KEY }}
-          org-id: ${{ secrets.DECIONIS_ORG_ID }}
-          workflow-key: dependency_auto_merge
-          comment-pr: "true"
-          fail-on: never # don't fail the PR; gate the merge step instead
+          tenant-id: ${{ vars.DECIONIS_TENANT_ID }}
+          action: dependency-merge
+          resource: pr:${{ github.event.pull_request.number }}
+          comment: "true"
           payload: |
             {
-              "dependency": "${{ steps.meta.outputs.dependency-names }}",
-              "update_type": "${{ steps.meta.outputs.update-type }}",
-              "ecosystem": "${{ steps.meta.outputs.package-ecosystem }}"
+              "dependency": "${{ steps.metadata.outputs.dependency-names }}",
+              "update_type": "${{ steps.metadata.outputs.update-type }}",
+              "ecosystem": "${{ steps.metadata.outputs.package-ecosystem }}"
             }
-
-      - name: Enable auto-merge (only if allowed)
-        if: steps.gate.outputs.decision == 'allow'
-        run: gh pr merge --auto --squash "${{ github.event.pull_request.html_url }}"
+          # The merge is the gated command: it does not run on a BLOCK.
+          run: gh pr merge --auto --squash "${{ github.event.pull_request.html_url }}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

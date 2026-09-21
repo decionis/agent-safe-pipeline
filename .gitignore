@@ -44,3 +44,8 @@ verifiers/rust/Cargo.lock
 # .NET build output of the .NET verifier
 verifiers/dotnet/**/bin/
 verifiers/dotnet/**/obj/
+
+# Govern: the binary `go build ./cmd/govern` leaves beside the module, and a
+# run's dotenv report written where the pipeline asked
+govern/govern
+govern/*.env

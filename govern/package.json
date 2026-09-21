@@ -1,7 +1,7 @@
 {
-  "name": "@decionis/github-action",
-  "version": "1.9.0",
-  "description": "Govern a GitHub Actions step on a Decionis Decision Dossier — gate deploys, releases, infra changes, and agent-triggered actions on a signed verdict.",
+  "name": "@decionis/govern-contract",
+  "version": "2.0.0",
+  "description": "Govern's test against the pipeline's loopback Decionis: the Go binary speaking the execution contract to another implementation of it.",
   "private": true,
   "type": "module",
   "repository": {
@@ -10,24 +10,13 @@
     "directory": "govern"
   },
   "scripts": {
-    "test": "node --test test/*.test.mjs",
-    "lint": "eslint src test",
-    "format": "prettier --check . --ignore-path ../.prettierignore",
-    "format:fix": "prettier --write . --ignore-path ../.prettierignore"
+    "test": "node --test test/*.test.mjs"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.14.0"
   },
-  "files": [
-    "action.yml",
-    "install.sh",
-    "src",
-    "assets",
-    "README.md",
-    "LICENSE",
-    "SECURITY.md",
-    "SUPPORT.md"
-  ],
   "license": "Apache-2.0",
-  "homepage": "https://decionis.com/marketplace/github"
+  "devDependencies": {
+    "@decionis/agent-safe-pipeline": "workspace:*"
+  }
 }
