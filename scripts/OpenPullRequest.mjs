@@ -10,12 +10,15 @@ const maxAttemptsLimit = 3;
 const maxPages = 3;
 const perPage = 100;
 /**
- * The commit listing that stands in for a comparison too large to read: pages
- * small enough to stay inside the ordinary response bound, and enough of them
- * to reach a base within the default branch's recent history.
+ * The commit listing that stands in for a comparison too large to read. One
+ * entry is about 8 KiB here: the message, the signature verification that
+ * repeats it as its payload, and the URLs; so a page of twenty is about
+ * 160 KiB, inside the wider bound the listing shares with the comparison,
+ * with room for messages twice as long. Six pages reach a base within the
+ * default branch's last hundred and twenty commits.
  */
-const commitsPerPage = 40;
-const maxCommitPages = 3;
+const commitsPerPage = 20;
+const maxCommitPages = 6;
 const branchCreationWorkflow = ".github/workflows/PullRequestBot.yml";
 export const compareMaxJsonResponseBytes = 512 * 1024;
 /** GitHub accepts a longer title; 72 keeps it readable in a list and in a terminal. */
@@ -24,10 +27,13 @@ const maxTitleLength = 72;
 const maxDescriptionBytes = 48 * 1024;
 
 function jsonResponseOptions(method, pathname) {
-  // GitHub embeds textual patches in compare responses. Keep the wider bound
-  // specific to that read-only endpoint; every other response retains 100 KiB.
+  // GitHub embeds textual patches in compare responses, and a commit listing
+  // carries each commit's message twice (once as the signature's payload).
+  // Keep the wider bound specific to those two read-only endpoints; every
+  // other response retains 100 KiB.
   const isCompare = method === "GET" && /^\/repos\/[^/]+\/[^/]+\/compare\/[^/]+$/.test(pathname);
-  return isCompare ? { maxBytes: compareMaxJsonResponseBytes } : undefined;
+  const isCommitListing = method === "GET" && /^\/repos\/[^/]+\/[^/]+\/commits$/.test(pathname);
+  return isCompare || isCommitListing ? { maxBytes: compareMaxJsonResponseBytes } : undefined;
 }
 
 export class GitHubApiError extends Error {
