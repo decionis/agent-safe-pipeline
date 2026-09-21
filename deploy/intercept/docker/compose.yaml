@@ -20,7 +20,7 @@
 # REQUESTS_CA_BUNDLE). docs/gateway/transparent-interception.md walks through it.
 services:
   agentsafe-intercept:
-    image: ghcr.io/decionis/agentsafe:${AGENTSAFE_VERSION:?the runtime version, for example 0.2.2}
+    image: ghcr.io/decionis/agentsafe:${AGENTSAFE_VERSION:?the runtime version, for example 0.2.3}
     command: ["intercept"]
     environment:
       AGENTSAFE_LOG_FORMAT: json
@@ -30,7 +30,7 @@ services:
     user: "65532:65532"
 
   agentsafe-redirect:
-    image: ghcr.io/decionis/agentsafe:${AGENTSAFE_VERSION:?the runtime version, for example 0.2.2}-init
+    image: ghcr.io/decionis/agentsafe:${AGENTSAFE_VERSION:?the runtime version, for example 0.2.3}-init
     network_mode: "service:agentsafe-intercept"
     depends_on:
       agentsafe-intercept:

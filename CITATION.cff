@@ -11,8 +11,8 @@ authors:
     given-names: Festus B.
     affiliation: Decionis, Inc.
     orcid: https://orcid.org/0009-0006-4895-6046
-version: 0.3.2
-date-released: 2026-09-20
+version: 0.3.3
+date-released: 2026-09-21
 license: Apache-2.0
 repository-code: https://github.com/decionis/agent-safe-pipeline
 url: https://github.com/decionis/agent-safe-pipeline
@@ -35,10 +35,16 @@ abstract: >-
   reaches, and, for the destinations an operator names, terminates TLS under
   an authority the operator holds and runs the gateway's lifecycle over each
   request, with the redirect published as an init image and sidecar shapes
-  for Kubernetes and Docker. This release adds that govern phase, the shadow
-  report on its own cadence with the Compromised Principal Test observed in
-  it, a provisional workspace minted from the command line, and the boundary
-  test with Decionis deciding.
+  for Kubernetes and Docker, with the shadow report on its own cadence, a
+  provisional workspace minted from the command line, and the boundary test
+  with Decionis deciding. This release adds Govern, the workflow gate: one
+  static binary for GitHub Actions, GitLab CI, Jenkins and any other runner
+  that captures a CI step as an execution intent, obtains a Decionis decision
+  on exactly that intent, runs the command only on a claimed single-use
+  grant, holds an escalated step for a verified person, and finalizes the
+  outcome into the signed Decision Dossier, with no local policy engine;
+  shipped per platform with reproducible builds, a Homebrew formula, a
+  verifying installer and a signed Go module tag.
 keywords:
   - execution authority
   - agentic AI
@@ -55,3 +61,6 @@ keywords:
   - sidecar
   - TLS termination
   - shadow mode
+  - workflow gate
+  - continuous integration
+  - GitHub Actions
