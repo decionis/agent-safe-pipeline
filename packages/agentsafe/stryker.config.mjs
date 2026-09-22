@@ -45,7 +45,11 @@ export default {
   // Decision Dossier names as having admitted an effect: a mutant that lets
   // an id move with a container, or that carries an ephemeral instance into
   // the signal an intent binds, either attributes an effect to a boundary
-  // that never admitted it or writes the host into signed evidence.
+  // that never admitted it or writes the host into signed evidence. The
+  // provenance contract is here for the claim it makes on AgentSafe's behalf:
+  // it decides what trust level reaches a policy, and a mutant that let a
+  // declared value through as anything stronger than `supplied` would have
+  // this package asserting it verified something it never looked at.
   mutate: [
     "src/http/ExecutorHttpServer.ts",
     "src/identity/PrincipalRegistry.ts",
@@ -70,6 +74,7 @@ export default {
     "src/intercept/LeafIssuer.ts",
     "src/http/InterceptGovernor.ts",
     "src/boundary/BoundaryIdentity.ts",
+    "src/provenance/ProvenanceProvider.ts",
   ],
   reporters: ["clear-text", "progress"],
   coverageAnalysis: "perTest",

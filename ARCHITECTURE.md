@@ -30,6 +30,39 @@ Agent proposal                         runtime identity/config
                     downstream credential
 ```
 
+## Access is not authority
+
+Four questions, four layers. Each is answered by something that already exists and is good at it,
+and the fourth is the one AgentSafe and Decionis exist for.
+
+| Question                                              | Layer               | Answered by                                    |
+| ----------------------------------------------------- | ------------------- | ---------------------------------------------- |
+| **Who is this?**                                      | Authentication      | an identity provider, mTLS, a workload JWT     |
+| **What may it reach?**                                | Access control      | IAM, scopes, network policy, API authorization |
+| **Where may it run?**                                 | Sandbox / runtime   | Docker, Kubernetes, a container runtime        |
+| **Is this exact consequential action permitted now?** | Execution authority | AgentSafe and Decionis                         |
+
+The first three can all be satisfied while the fourth is not. A sandbox may correctly permit a
+treasury agent to reach `POST /payments` at its bank with a valid credential, and still have no
+opinion about whether _this_ payment, of _this_ amount, to _this_ beneficiary, is one the
+institution authorized right now. That gap is where a consequential action goes wrong, and it is
+the only gap this project is about.
+
+Stated as the repository's own test: a principal that is authenticated, credentialed and permitted
+proposes an action policy does not allow, and nothing executes — see
+[the Compromised Principal Test](./docs/compromised-principal-test.md).
+
+In a containerized deployment the division of labour is:
+
+> **Docker establishes what is running. AgentSafe captures what it intends to do. Decionis
+> establishes what that workload is authorized to cause.**
+
+AgentSafe does not absorb the other three layers. It consumes what they know as signals — the
+[enforcement boundary](./docs/authority/enforcement-boundary.md) it runs as, the
+[workload provenance](./docs/authority/workload-provenance.md) a runtime reported — and binds them
+to the exact action, so a policy can reason about them and evidence can record them, while the
+systems that established them remain authoritative for their own domains.
+
 ## Components
 
 `IntentCapture` validates the limited agent proposal separately from trusted context, assigns UUID/timestamps, applies a maximum five-minute lifetime, canonicalizes sorted-key JSON, and hashes the authority binding with SHA-256.

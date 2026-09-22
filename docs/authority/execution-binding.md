@@ -18,6 +18,7 @@ guarantees on the way out.
 | `context.claimed_principal`                                        | the configured principal header's value, unverified, when present                                                                            |
 | `context.idempotency_key`                                          | the client's `Idempotency-Key`, else a fresh one                                                                                             |
 | `context.enforcement_boundary`                                     | which boundary captured it: id, versions, deployment type, environment, stable placement ([enforcement boundary](./enforcement-boundary.md)) |
+| `context.workload`                                                 | what software proposed it, when a runtime declared one, with its trust source ([workload provenance](./workload-provenance.md))              |
 | `actor`, `tenant_id`                                               | the configuration's actor and the key's organization                                                                                         |
 | `downstream_target`                                                | the upstream as `system`, the action as `operation`, the configured `environment`, the upstream URL as `endpoint`                            |
 | `expires_at`                                                       | `intentTtlSeconds` after capture, at most 300 seconds                                                                                        |
@@ -40,6 +41,9 @@ pin it, and the intent hash is what every later record names.
 - **The boundary is the one that admitted it.** The enforcement boundary is inside the canonical
   bytes, so an authority issued at one boundary is bound to an intent naming that boundary, and
   `SafeExecutor` refuses one captured elsewhere with `BOUNDARY_MISMATCH` before the claim.
+- **The workload is the one that proposed it.** Where a workload identity is bound, the
+  artifact's digest is inside the canonical bytes, and an executor given its own digest
+  refuses an intent proposed by another with `WORKLOAD_MISMATCH` before the claim.
 - **A stale authorization does nothing.** The intent expires; a grant is bound to the intent's
   expiry and refused after it; a decision is refused for an intent that expired before evaluation.
 - **Policy-version drift is visible.** The Decision Dossier records the policy version the decision

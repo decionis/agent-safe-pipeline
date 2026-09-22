@@ -166,6 +166,55 @@ describe("the Helm chart", { skip: available ? false : "helm is not installed" }
     );
   });
 
+  it("names the boundary and the workload, and reads the pod from the downward API", () => {
+    const digest = `sha256:${"a".repeat(64)}`;
+    const env = byKind(
+      render({
+        ...base,
+        "image.digest": digest,
+        "boundary.id": "prod-payments-eu",
+        "boundary.clusterId": "eu-1",
+        "boundary.region": "eu-west-1",
+      }),
+      "Deployment",
+    )[0].spec.template.spec.containers[0].env;
+    const named = Object.fromEntries(env.map((entry) => [entry.name, entry]));
+
+    assert.equal(named["AGENTSAFE_BOUNDARY_ID"].value, "prod-payments-eu");
+    assert.equal(named["AGENTSAFE_CLUSTER_ID"].value, "eu-1");
+    assert.equal(named["AGENTSAFE_REGION"].value, "eu-west-1");
+    assert.equal(named["AGENTSAFE_WORKLOAD_DIGEST"].value, digest);
+    assert.match(named["AGENTSAFE_WORKLOAD_IMAGE"].value, /@sha256:a{64}$/);
+    // The pod, its namespace and its node come from the API server, not from
+    // anything the container could write about itself.
+    assert.equal(named["AGENTSAFE_NAMESPACE"].valueFrom.fieldRef.fieldPath, "metadata.namespace");
+    assert.equal(named["AGENTSAFE_POD_ID"].valueFrom.fieldRef.fieldPath, "metadata.name");
+    assert.equal(named["AGENTSAFE_NODE_ID"].valueFrom.fieldRef.fieldPath, "spec.nodeName");
+  });
+
+  it("says nothing about a boundary or a workload nobody configured", () => {
+    const env = byKind(render(base), "Deployment")[0].spec.template.spec.containers[0].env;
+    const named = new Set(env.map((entry) => entry.name));
+
+    // An unpinned image has no digest to report, and a boundary nobody named
+    // is derived by the runtime rather than asserted by the chart.
+    assert.equal(named.has("AGENTSAFE_WORKLOAD_DIGEST"), false);
+    assert.equal(named.has("AGENTSAFE_BOUNDARY_ID"), false);
+    assert.equal(named.has("AGENTSAFE_CLUSTER_ID"), false);
+
+    const quiet = byKind(
+      render({ ...base, "boundary.downwardApi": false, "boundary.reportWorkload": false }),
+      "Deployment",
+    )[0].spec.template.spec.containers[0].env;
+    for (const name of ["AGENTSAFE_NAMESPACE", "AGENTSAFE_POD_ID", "AGENTSAFE_WORKLOAD_IMAGE"]) {
+      assert.equal(
+        quiet.some((entry) => entry.name === name),
+        false,
+        name,
+      );
+    }
+  });
+
   it("renders the objects the values promise, and only those", () => {
     const kinds = (objects) => objects.map((object) => object.kind).sort();
     assert.deepEqual(kinds(render(base)), [

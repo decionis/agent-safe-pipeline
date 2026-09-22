@@ -706,6 +706,62 @@ describe("which enforcement boundary admitted the effect", () => {
     await gateway.close();
   }, 20_000);
 
+  it("binds the workload a runtime declared, with its trust source, and nothing when none did", async () => {
+    await upstream.start();
+    await authority.start();
+    const digest = `sha256:${"a".repeat(64)}`;
+    const env = {
+      DECIONIS_API_KEY: LOCAL_AUTHORITY_API_KEY,
+      DECIONIS_API_URL: authority.baseUrl,
+      DECIONIS_ALLOW_INSECURE_LOOPBACK: "true",
+      DECIONIS_TENANT_ID: TENANT_ID,
+      AGENTSAFE_WORKLOAD_IMAGE: "ghcr.io/example/payments-agent:1.4.2",
+      AGENTSAFE_WORKLOAD_DIGEST: digest,
+    };
+    const described = await Gateway.create(testConfig(upstream.baseUrl, { env }), {
+      env,
+      io: collectedIo(),
+      version: "9.9.9",
+      surface: "docker",
+    });
+    let before = authority.requests.length;
+    await described.govern(request("POST", "/payments", { amount: 5 }), "http.post");
+    await settle();
+    const call = authority.requests
+      .slice(before)
+      .find((seen) => seen.path.endsWith("/enforce-and-bind"));
+    expect((call?.body as { context: Record<string, unknown> }).context["workload"]).toEqual({
+      runtime: "docker",
+      artifact_type: "oci",
+      image: "ghcr.io/example/payments-agent:1.4.2",
+      digest,
+      provenance: { source: "docker", trust_level: "supplied" },
+    });
+    await described.close();
+
+    // Nothing described the workload, so the key is absent rather than a
+    // placeholder a policy could match on.
+    const bare: Record<string, string> = { ...env };
+    delete bare["AGENTSAFE_WORKLOAD_IMAGE"];
+    delete bare["AGENTSAFE_WORKLOAD_DIGEST"];
+    const undescribed = await Gateway.create(testConfig(upstream.baseUrl, { env: bare }), {
+      env: bare,
+      io: collectedIo(),
+      version: "9.9.9",
+      surface: "docker",
+    });
+    before = authority.requests.length;
+    await undescribed.govern(request("POST", "/payments", { amount: 5 }), "http.post");
+    await settle();
+    const quiet = authority.requests
+      .slice(before)
+      .find((seen) => seen.path.endsWith("/enforce-and-bind"));
+    const context = (quiet?.body as { context: Record<string, unknown> }).context;
+    expect(Object.hasOwn(context, "workload")).toBe(false);
+    expect(Object.hasOwn(context, "enforcement_boundary")).toBe(true);
+    await undescribed.close();
+  }, 20_000);
+
   it("is a different boundary, and a different intent hash, at another door", async () => {
     await upstream.start();
     await authority.start();

@@ -2,7 +2,7 @@ import type { GateDecision } from "../decision/DecisionAuthority.js";
 import type { AuditEventType, AuditRecorder } from "../audit/AuditRecorder.js";
 import { CanonicalIntentHasher } from "../intent/CanonicalIntentHasher.js";
 import type { CapturedIntent } from "../intent/ExecutionIntent.js";
-import { boundaryOf } from "../intent/ExecutionSignals.js";
+import { boundaryOf, workloadOf } from "../intent/ExecutionSignals.js";
 import type { ActionRegistry } from "./ActionRegistry.js";
 import type {
   AuthorizationVerifier,
@@ -20,6 +20,7 @@ export type ExecutionBlockReason =
   | "AUTHORIZATION_INVALID"
   | "RECOVERY_BINDING_MISMATCH"
   | "BOUNDARY_MISMATCH"
+  | "WORKLOAD_MISMATCH"
   | "AUDIT_UNAVAILABLE";
 
 /**
@@ -34,6 +35,14 @@ export type ExecutionBlockReason =
  */
 export interface SafeExecutorOptions {
   readonly boundaryId?: string;
+  /**
+   * The digest of the workload this executor runs as. When it is set, an
+   * intent proposed by a different artifact is refused: authority granted to
+   * one signed workload is not authority for the next one to reuse. Absent,
+   * as it is wherever no runtime describes the artifact, nothing is checked —
+   * a policy that requires provenance refuses at the authority instead.
+   */
+  readonly workloadDigest?: string;
 }
 
 export type ExecutionPreDispatchFailureReason =
@@ -139,6 +148,7 @@ export class SafeExecutor {
   private readonly hasher = new CanonicalIntentHasher();
 
   private readonly boundaryId: string | null;
+  private readonly workloadDigest: string | null;
 
   public constructor(
     private readonly registry: ActionRegistry,
@@ -147,6 +157,7 @@ export class SafeExecutor {
     options?: SafeExecutorOptions,
   ) {
     this.boundaryId = options?.boundaryId ?? null;
+    this.workloadDigest = options?.workloadDigest ?? null;
   }
 
   public async run<TResult = unknown>(
@@ -190,6 +201,9 @@ export class SafeExecutor {
     // intent must leave the authority intact for the boundary that owns it.
     if (!this.boundaryMatches(captured)) {
       return await this.block(captured, decision, "BOUNDARY_MISMATCH", startedAt);
+    }
+    if (!this.workloadMatches(captured)) {
+      return await this.block(captured, decision, "WORKLOAD_MISMATCH", startedAt);
     }
     this.registry.validate(captured);
     let authorization: VerifiedAuthorization | null;
@@ -480,6 +494,16 @@ export class SafeExecutor {
   private boundaryMatches(captured: CapturedIntent): boolean {
     if (this.boundaryId === null) return true;
     return boundaryOf(captured.intent.context)?.boundary_id === this.boundaryId;
+  }
+
+  /**
+   * Whether the workload that proposed the intent is the one running it. Like
+   * the boundary, the digest is read back out of the hashed context, so an
+   * intent whose workload was edited after capture fails conformance first.
+   */
+  private workloadMatches(captured: CapturedIntent): boolean {
+    if (this.workloadDigest === null) return true;
+    return workloadOf(captured.intent.context)?.digest === this.workloadDigest;
   }
 
   private intentConforms(captured: CapturedIntent): boolean {

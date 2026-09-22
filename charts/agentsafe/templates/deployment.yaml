@@ -71,6 +71,44 @@ spec:
               value: json
             - name: AGENTSAFE_SURFACE
               value: kubernetes
+            {{- if .Values.boundary.id }}
+            - name: AGENTSAFE_BOUNDARY_ID
+              value: {{ .Values.boundary.id | quote }}
+            {{- end }}
+            {{- if .Values.boundary.clusterId }}
+            - name: AGENTSAFE_CLUSTER_ID
+              value: {{ .Values.boundary.clusterId | quote }}
+            {{- end }}
+            {{- if .Values.boundary.region }}
+            - name: AGENTSAFE_REGION
+              value: {{ .Values.boundary.region | quote }}
+            {{- end }}
+            {{- if .Values.boundary.workloadId }}
+            - name: AGENTSAFE_WORKLOAD_ID
+              value: {{ .Values.boundary.workloadId | quote }}
+            {{- end }}
+            {{- if .Values.boundary.downwardApi }}
+            - name: AGENTSAFE_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: AGENTSAFE_POD_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: AGENTSAFE_NODE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            {{- end }}
+            {{- if .Values.boundary.reportWorkload }}
+            - name: AGENTSAFE_WORKLOAD_IMAGE
+              value: {{ include "agentsafe.image" . | quote }}
+            {{- if .Values.image.digest }}
+            - name: AGENTSAFE_WORKLOAD_DIGEST
+              value: {{ .Values.image.digest | quote }}
+            {{- end }}
+            {{- end }}
             - name: DECIONIS_API_KEY_FILE
               value: /var/run/agent-safe/secrets/{{ .Values.decionis.apiKeySecretRef.key }}
             {{- if .Values.metrics.tokenSecretRef.name }}

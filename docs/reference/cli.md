@@ -90,7 +90,9 @@ configuration derived it, the runtime, the versions, the environment, the confor
 the stable placement the manifest declared. `--json` prints it as data. It reads the gateway
 configuration when there is one and describes what it would resolve to when there is not, so it
 can be run before anything is configured. The container, pod and node appear beneath the report
-and are bound into no intent and signed into no evidence. Exit `0`; see
+and are bound into no intent and signed into no evidence. When a runtime declared the artifact this
+process runs as, the workload appears too, with its trust source beside it — `supplied`, never
+`verified` ([workload provenance](../authority/workload-provenance.md)). Exit `0`; see
 [the enforcement boundary](../authority/enforcement-boundary.md).
 
 ### `agentsafe test [name=host:port]...`

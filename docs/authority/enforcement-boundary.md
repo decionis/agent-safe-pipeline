@@ -127,13 +127,15 @@ Leaving `boundaryId` unset is the behaviour that existed before this page, exact
 ## What it does not do
 
 The boundary says which door an action came through. It does not say the door was configured
-well, that the workload behind it is the one it claims to be, or that the operator who set
+well, that the workload behind it is the one it claims to be — that is
+[workload provenance](./workload-provenance.md) — or that the operator who set
 `AGENTSAFE_BOUNDARY_ID` was entitled to that name. A boundary id is an identifier inside a
 workspace, not a credential; the key the gateway presents is what authenticates it to Decionis.
 
 ## See also
 
 - [ADR 0006](../architecture/decisions/0006-enforcement-boundary-identity.md) — the decision, and the two options not taken
+- [Workload provenance](./workload-provenance.md) — the other signal on the same seam
 - [ExecutionBinding](./execution-binding.md) — everything else an intercepted request binds
 - [Telemetry](../reference/telemetry.md) — `BOUNDARY_IDENTIFIED`, and what never leaves the process
 - [CLI reference](../reference/cli.md) — `agentsafe identity`

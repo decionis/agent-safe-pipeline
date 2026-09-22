@@ -5,6 +5,11 @@ import {
   type EnforcementBoundary,
 } from "../boundary/BoundaryIdentity.js";
 import { processSurface } from "../gateway/InstallSurface.js";
+import { DockerProvenanceProvider } from "../provenance/DockerProvenanceProvider.js";
+import { KubernetesProvenanceProvider } from "../provenance/KubernetesProvenanceProvider.js";
+import { NoneProvenanceProvider } from "../provenance/NoneProvenanceProvider.js";
+import { resolveWorkload, type ProvenanceProvider } from "../provenance/ProvenanceProvider.js";
+import type { WorkloadSignal } from "@decionis/agent-safe-pipeline";
 import { packageVersion } from "../Version.js";
 import { parseArguments, ArgumentError } from "./Arguments.js";
 import type { CliProcess } from "./CliProcess.js";
@@ -29,6 +34,12 @@ export interface IdentityReport {
   readonly placement: BoundaryPlacement | null;
   readonly instance: BoundaryInstance | null;
   /**
+   * What software this boundary stands in front of, as a runtime reported it,
+   * with the trust source beside it. Null when nothing trustworthy described
+   * it, which is an answer and not a gap.
+   */
+  readonly workload: WorkloadSignal | null;
+  /**
    * Whether the boundary was resolved from a usable gateway configuration.
    * Without one there is no upstream to stand in front of, so the derived id
    * is the one this process would use if nothing else changed — worth saying
@@ -37,7 +48,11 @@ export interface IdentityReport {
   readonly configured: boolean;
 }
 
-export function identityReport(boundary: EnforcementBoundary, configured: boolean): IdentityReport {
+export function identityReport(
+  boundary: EnforcementBoundary,
+  workload: WorkloadSignal | null,
+  configured: boolean,
+): IdentityReport {
   return {
     version: IDENTITY_REPORT_VERSION,
     boundary_id: boundary.boundaryId,
@@ -49,6 +64,7 @@ export function identityReport(boundary: EnforcementBoundary, configured: boolea
     environment: boundary.environment,
     placement: boundary.placement,
     instance: boundary.instance,
+    workload,
     configured,
   };
 }
@@ -74,6 +90,18 @@ export function renderIdentityReport(
     row("environment", report.environment ?? "none"),
     row("conformance", report.conformance_version),
   ];
+  const workload = report.workload;
+  if (workload !== null) {
+    if (workload.image !== undefined) lines.push(row("workload_image", workload.image));
+    if (workload.digest !== undefined) lines.push(row("workload_digest", workload.digest));
+    if (workload.publisher !== undefined) lines.push(row("workload_publisher", workload.publisher));
+    lines.push(
+      row(
+        "workload_trust",
+        `${workload.provenance.trust_level} (reported by ${workload.provenance.source})`,
+      ),
+    );
+  }
   const placement = report.placement;
   if (placement !== null) {
     for (const [label, value] of [
@@ -151,7 +179,12 @@ export function runIdentity(io: CliProcess, argv: readonly string[]): IdentityRe
     upstreamOrigin,
     configuredId,
   });
-  const report = identityReport(boundary, configured);
+  const providers: readonly ProvenanceProvider[] = [
+    ...(boundary.deploymentType === "docker" ? [new DockerProvenanceProvider()] : []),
+    ...(boundary.deploymentType === "kubernetes" ? [new KubernetesProvenanceProvider()] : []),
+    new NoneProvenanceProvider(),
+  ];
+  const report = identityReport(boundary, resolveWorkload(providers, { env }), configured);
   io.stdout(json ? `${JSON.stringify(report)}\n` : renderIdentityReport(report, io));
   io.exit(0);
   return report;

@@ -3,89 +3,210 @@
   "title": "AgentSafe gateway values",
   "type": "object",
   "properties": {
-    "replicaCount": { "type": "integer", "minimum": 1 },
+    "replicaCount": {
+      "type": "integer",
+      "minimum": 1
+    },
     "image": {
       "type": "object",
       "properties": {
-        "repository": { "type": "string", "minLength": 1 },
-        "tag": { "type": "string" },
-        "digest": { "type": "string", "pattern": "^(sha256:[0-9a-f]{64})?$" },
-        "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] }
+        "repository": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tag": {
+          "type": "string"
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^(sha256:[0-9a-f]{64})?$"
+        },
+        "pullPolicy": {
+          "type": "string",
+          "enum": ["Always", "IfNotPresent", "Never"]
+        }
       }
     },
     "decionis": {
       "type": "object",
       "properties": {
-        "endpoint": { "type": "string", "pattern": "^https://" },
-        "tenantId": { "type": "string" },
+        "endpoint": {
+          "type": "string",
+          "pattern": "^https://"
+        },
+        "tenantId": {
+          "type": "string"
+        },
         "apiKeySecretRef": {
           "type": "object",
           "properties": {
-            "name": { "type": "string", "minLength": 1 },
-            "key": { "type": "string", "minLength": 1 }
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1
+            }
           },
           "required": ["name", "key"]
         },
-        "timeoutMs": { "type": "integer", "minimum": 1, "maximum": 15000 }
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 15000
+        }
       },
       "required": ["endpoint", "apiKeySecretRef"]
     },
     "gateway": {
       "type": "object",
       "properties": {
-        "mode": { "type": "string", "enum": ["shadow", "enforcement"] },
-        "failurePolicy": { "type": "string", "enum": ["FailClosed", "FailOpen"] },
-        "listenPort": { "type": "integer", "minimum": 1, "maximum": 65535 },
-        "unmatched": { "type": "string", "enum": ["govern", "passthrough"] },
+        "mode": {
+          "type": "string",
+          "enum": ["shadow", "enforcement"]
+        },
+        "failurePolicy": {
+          "type": "string",
+          "enum": ["FailClosed", "FailOpen"]
+        },
+        "listenPort": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "unmatched": {
+          "type": "string",
+          "enum": ["govern", "passthrough"]
+        },
         "routes": {
           "type": "array",
           "items": {
             "type": "object",
             "properties": {
-              "path": { "type": "string", "pattern": "^/" },
-              "action": { "type": "string", "pattern": "^[a-z][a-z0-9._:-]*$" },
+              "path": {
+                "type": "string",
+                "pattern": "^/"
+              },
+              "action": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9._:-]*$"
+              },
               "methods": {
                 "type": "array",
-                "items": { "type": "string", "enum": ["POST", "PUT", "PATCH", "DELETE"] }
+                "items": {
+                  "type": "string",
+                  "enum": ["POST", "PUT", "PATCH", "DELETE"]
+                }
               }
             },
             "required": ["path", "action"]
           }
         },
-        "maxBodyBytes": { "type": "integer", "minimum": 1 },
-        "maxEmbeddedBodyBytes": { "type": "integer", "minimum": 1 },
-        "intentTtlSeconds": { "type": "integer", "minimum": 1, "maximum": 300 }
+        "maxBodyBytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "maxEmbeddedBodyBytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "intentTtlSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 300
+        }
       },
       "required": ["mode", "failurePolicy"]
     },
     "upstream": {
       "type": "object",
       "properties": {
-        "service": { "type": "string" },
-        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
-        "namespace": { "type": "string" },
-        "scheme": { "type": "string", "enum": ["http", "https"] },
-        "url": { "type": "string", "pattern": "^(https?://.+)?$" },
-        "timeoutMs": { "type": "integer", "minimum": 1, "maximum": 120000 }
+        "service": {
+          "type": "string"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "scheme": {
+          "type": "string",
+          "enum": ["http", "https"]
+        },
+        "url": {
+          "type": "string",
+          "pattern": "^(https?://.+)?$"
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 120000
+        }
       }
     },
     "presence": {
       "type": "object",
       "properties": {
-        "managed": { "type": "boolean" },
-        "approverId": { "type": "string" },
-        "approverRole": { "type": "string" },
-        "level": { "type": "string", "enum": ["standard", "high_confidence"] },
+        "managed": {
+          "type": "boolean"
+        },
+        "approverId": {
+          "type": "string"
+        },
+        "approverRole": {
+          "type": "string"
+        },
+        "level": {
+          "type": "string",
+          "enum": ["standard", "high_confidence"]
+        },
         "methods": {
           "type": "array",
-          "items": { "type": "string", "enum": ["webauthn", "active_liveness"] }
+          "items": {
+            "type": "string",
+            "enum": ["webauthn", "active_liveness"]
+          }
         }
       }
     },
     "service": {
       "type": "object",
       "properties": {
-        "sessionAffinity": { "type": "string", "enum": ["ClientIP", "None"] }
+        "sessionAffinity": {
+          "type": "string",
+          "enum": ["ClientIP", "None"]
+        }
+      }
+    },
+    "boundary": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^$|^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$"
+        },
+        "clusterId": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "region": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "workloadId": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "downwardApi": {
+          "type": "boolean"
+        },
+        "reportWorkload": {
+          "type": "boolean"
+        }
       }
     }
   },

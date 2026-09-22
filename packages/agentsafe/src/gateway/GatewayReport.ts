@@ -89,6 +89,23 @@ export interface BoundaryIdentifiedReport {
   readonly conformance_version: string;
 }
 
+/**
+ * What software this boundary is standing in front of, said once at start.
+ * Identifiers and digests only, and `trust_level` is always beside them: a
+ * reader must never have to guess whether a digest was checked.
+ */
+export interface WorkloadResolvedReport {
+  readonly event: "WORKLOAD_RESOLVED";
+  readonly at: string;
+  readonly runtime: string | null;
+  readonly artifact_type: string | null;
+  readonly image: string | null;
+  readonly digest: string | null;
+  readonly publisher: string | null;
+  readonly source: string;
+  readonly trust_level: string;
+}
+
 export interface ActivationMilestoneReport {
   readonly event: "ACTIVATION";
   readonly milestone: string;
@@ -99,6 +116,7 @@ export type GatewayReport =
   | InterceptionReport
   | StartedReport
   | BoundaryIdentifiedReport
+  | WorkloadResolvedReport
   | NoteReport
   | StoppedReport
   | ActivationMilestoneReport
@@ -190,6 +208,12 @@ export function renderHuman(report: GatewayReport, options: RenderOptions): stri
           "Runtime",
           `${report.deployment_type}${report.environment === null ? "" : `, ${report.environment}`}`,
         ),
+        "",
+      ].join("\n");
+    case "WORKLOAD_RESOLVED":
+      return [
+        row("Workload", report.image ?? report.digest ?? "declared"),
+        row("Provenance", `${report.source}, ${report.trust_level}`),
         "",
       ].join("\n");
     case "GATEWAY_STOPPED":

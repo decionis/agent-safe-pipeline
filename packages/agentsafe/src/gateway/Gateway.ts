@@ -14,12 +14,17 @@ import {
   type SafeExecutionResult,
   type ShadowObservation,
   type TrustedIntentContext,
+  type WorkloadSignal,
 } from "@decionis/agent-safe-pipeline";
 import {
   boundarySignal,
   resolveBoundary,
   type EnforcementBoundary,
 } from "../boundary/BoundaryIdentity.js";
+import { DockerProvenanceProvider } from "../provenance/DockerProvenanceProvider.js";
+import { KubernetesProvenanceProvider } from "../provenance/KubernetesProvenanceProvider.js";
+import { NoneProvenanceProvider } from "../provenance/NoneProvenanceProvider.js";
+import { resolveWorkload, type ProvenanceProvider } from "../provenance/ProvenanceProvider.js";
 import { ChainJournal } from "../audit/ChainJournal.js";
 import { HashChain } from "../audit/HashChain.js";
 import { EVIDENCE_STREAM, HashChainedAuditSink } from "../audit/HashChainedAuditSink.js";
@@ -108,6 +113,8 @@ export interface GatewayDependencies {
    * absent, and `null` when it is not one of the named surfaces.
    */
   readonly surface?: InstallSurface | null;
+  /** The provenance providers to ask, in order; the surface picks them when unset. */
+  readonly provenance?: readonly ProvenanceProvider[];
   /**
    * What a hosted call names as the example, `agentsafe-gateway@<version>`
    * when absent; `agentsafe test --hosted` names itself, so the authority's
@@ -187,6 +194,7 @@ export class Gateway {
     private readonly version: string,
     private readonly surface: InstallSurface | null,
     public readonly boundary: EnforcementBoundary,
+    public readonly workload: WorkloadSignal | null,
   ) {
     this.lastShadowReportAt = clock();
     this.capture = new IntentCapture({ audit, ttlSeconds: config.intentTtlSeconds });
@@ -203,6 +211,7 @@ export class Gateway {
     // authority issued at one door is not presentable at the next.
     this.executor = new SafeExecutor(registry, verifier, audit, {
       boundaryId: boundary.boundaryId,
+      ...(workload?.digest === undefined ? {} : { workloadDigest: workload.digest }),
     });
     this.shadow =
       config.authority.mode === "SHADOW"
@@ -351,6 +360,15 @@ export class Gateway {
       upstreamOrigin: new URL(config.upstream.url).origin,
       configuredId: config.boundary.id,
     });
+    // The providers this runtime can honestly ask, in order. A surface that
+    // describes no artifact reaches `NoneProvenanceProvider` and the intent
+    // carries no workload at all, which is the answer a policy needs.
+    const providers: readonly ProvenanceProvider[] = [
+      ...(surface === "docker" ? [new DockerProvenanceProvider()] : []),
+      ...(surface === "kubernetes" ? [new KubernetesProvenanceProvider()] : []),
+      new NoneProvenanceProvider(),
+    ];
+    const workload = resolveWorkload(dependencies.provenance ?? providers, { env });
     const gateway = new Gateway(
       config,
       upstream,
@@ -371,6 +389,7 @@ export class Gateway {
       version,
       surface,
       boundary,
+      workload,
     );
     return gateway;
   }
@@ -413,6 +432,19 @@ export class Gateway {
       protocol_version: this.boundary.protocolVersion,
       conformance_version: this.boundary.conformanceVersion,
     });
+    if (this.workload !== null) {
+      this.report({
+        event: "WORKLOAD_RESOLVED",
+        at: new Date(this.clock()).toISOString(),
+        runtime: this.workload.runtime ?? null,
+        artifact_type: this.workload.artifact_type ?? null,
+        image: this.workload.image ?? null,
+        digest: this.workload.digest ?? null,
+        publisher: this.workload.publisher ?? null,
+        source: this.workload.provenance.source,
+        trust_level: this.workload.provenance.trust_level,
+      });
+    }
     this.link({
       event: "GATEWAY_STARTED",
       mode: this.config.authority.mode,
@@ -649,7 +681,10 @@ export class Gateway {
       },
       idempotencyKey: normalized.idempotencyKey ?? randomUUID(),
       ...(normalized.correlationId === null ? {} : { correlationId: normalized.correlationId }),
-      signals: { boundary: boundarySignal(this.boundary) },
+      signals: {
+        boundary: boundarySignal(this.boundary),
+        ...(this.workload === null ? {} : { workload: this.workload }),
+      },
     };
     return this.capture.capture(normalized.proposal, trusted);
   }
