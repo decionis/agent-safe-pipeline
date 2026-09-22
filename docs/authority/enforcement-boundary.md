@@ -132,6 +132,20 @@ well, that the workload behind it is the one it claims to be — that is
 `AGENTSAFE_BOUNDARY_ID` was entitled to that name. A boundary id is an identifier inside a
 workspace, not a credential; the key the gateway presents is what authenticates it to Decionis.
 
+## Compatibility
+
+Nothing here is required of an existing deployment, and nothing turns itself on.
+
+| If you have                                 | What changes                                                                                  |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| No `AGENTSAFE_BOUNDARY_ID`                  | one is derived and carried; your intent hashes change, which nothing compares across captures |
+| No container, no Kubernetes                 | `deployment_type` is whatever `InstallSurface` already said, or `unknown`                     |
+| A `SafeExecutor` built with three arguments | exactly the behaviour it had before: no boundary is checked                                   |
+| Published conformance vectors               | still hold; an intent that carries no boundary hashes byte for byte as before                 |
+
+An estate with one gateway can leave all of this alone. An estate with more than one should name
+each boundary once, in the manifest, and read `agentsafe identity` to confirm it.
+
 ## See also
 
 - [ADR 0006](../architecture/decisions/0006-enforcement-boundary-identity.md) — the decision, and the two options not taken

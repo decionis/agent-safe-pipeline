@@ -30,6 +30,7 @@ import {
   type BoundaryTestReport,
   type PassOutcome,
 } from "../gateway/BoundaryTest.js";
+import { runAuthorityAttacks, type AttackReport } from "../gateway/AuthorityAttacks.js";
 import { executionLabel, stateLabel } from "../gateway/GatewayReport.js";
 import {
   HostedTestError,
@@ -49,6 +50,12 @@ export const TEST_ARGUMENTS = { valued: [], flags: ["json", "hosted"] } as const
 /** The report the command prints: the synthetic run, and the containment probe when asked. */
 export interface TestReport extends BoundaryTestReport {
   readonly containment: ContainmentReport | null;
+  /**
+   * The six attacks that live inside the lifecycle rather than in a request:
+   * each needs an authority to exist before it can be attempted, so none of
+   * them can be expressed as bytes sent at a target.
+   */
+  readonly attacks: AttackReport;
   /** 0 when the boundary holds and no named target answered; 1 otherwise. */
   readonly exit: 0 | 1;
   /**
@@ -70,6 +77,7 @@ export interface TestOptions {
   readonly run?: (options: BoundaryTestOptions) => Promise<BoundaryTestReport>;
   readonly runHosted?: (options: HostedBoundaryTestOptions) => Promise<HostedBoundaryTestReport>;
   readonly dial?: typeof tcpDial;
+  readonly attacks?: () => Promise<AttackReport>;
   readonly timeoutMs?: number;
 }
 
@@ -202,13 +210,43 @@ export function renderTestReport(report: TestReport, options: { readonly color: 
       );
     }
   }
+  // The attacks that need an authority before they can be attempted. They are
+  // not requests, so they are not rows in the table above.
+  const attackWidth = Math.max(
+    ...report.attacks.results.map((result) => result.title.length),
+    "After the authority is issued".length,
+  );
+  lines.push(
+    "",
+    options.color
+      ? `${BOLD}After the authority is issued${RESET}`
+      : "After the authority is issued",
+    "",
+  );
+  for (const result of report.attacks.results) {
+    const mark = result.held ? "✓" : "✗";
+    const said = result.refusal ?? "NOTHING REFUSED";
+    lines.push(
+      `${options.color ? (result.held ? GREEN : RED) : ""}${mark}${options.color ? RESET : ""} ${result.title.padEnd(attackWidth)}  ${result.attempt}`,
+    );
+    lines.push(`${" ".repeat(attackWidth + 3)}${dim(`${result.expected}: ${said}`)}`);
+  }
+  lines.push(
+    "",
+    row(
+      "Attacks",
+      `${report.attacks.results.filter((result) => result.held).length} of ${report.attacks.attempts} refused; ${report.attacks.executions} authorized execution, which the replay needed`,
+    ),
+  );
   const holds = report.exit === 0;
   const verdict =
     report.verdict === "BOUNDARY_BROKEN"
       ? "BOUNDARY BROKEN: something adversarial got through under enforcement"
-      : report.containment !== null && !report.containment.noneReachable
-        ? "BOUNDARY HOLDS, BUT A TARGET ANSWERS DIRECTLY"
-        : "BOUNDARY HOLDS";
+      : !report.attacks.held
+        ? "BOUNDARY BROKEN: an authority was reused or an action changed after it was issued"
+        : report.containment !== null && !report.containment.noneReachable
+          ? "BOUNDARY HOLDS, BUT A TARGET ANSWERS DIRECTLY"
+          : "BOUNDARY HOLDS";
   lines.push(
     "",
     row(
@@ -220,7 +258,7 @@ export function renderTestReport(report: TestReport, options: { readonly color: 
     dim(
       holds
         ? "Next: agentsafe proxy --upstream <your service> --mode shadow, then --mode enforcement."
-        : report.verdict === "BOUNDARY_BROKEN"
+        : report.verdict === "BOUNDARY_BROKEN" || !report.attacks.held
           ? "This is a defect in the runtime, not in your service; please report it with agentsafe test --json."
           : "Put the gateway where the agent must pass through it, and the target where only the gateway reaches it.",
     ),
@@ -450,13 +488,17 @@ export async function runTest(
           dial: options.dial ?? tcpDial,
           ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
         });
+  const attacks = await (options.attacks ?? runAuthorityAttacks)();
   const exit: 0 | 1 =
-    boundary.verdict === "BOUNDARY_HOLDS" && (containment === null || containment.noneReachable)
+    boundary.verdict === "BOUNDARY_HOLDS" &&
+    attacks.held &&
+    (containment === null || containment.noneReachable)
       ? 0
       : 1;
   const report: TestReport = {
     ...boundary,
     containment,
+    attacks,
     exit,
     activation: { milestone: "boundary_tested", at: boundary.at },
   };

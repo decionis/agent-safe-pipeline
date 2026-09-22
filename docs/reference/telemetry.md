@@ -52,6 +52,34 @@ Beside the boundary, and only when a provider had something to say:
 was checked ([workload provenance](../authority/workload-provenance.md)). A workload nobody
 described produces no line at all.
 
+## Where each lifecycle event is recorded
+
+There is no single event stream and no plan for one: the runtime keeps four, each with a different
+audience and a different retention, and a fifth would be a fifth place for a secret to end up.
+This table says which stream carries each step of the lifecycle, so an integrator wiring a
+collector knows where to look rather than where to guess.
+
+| Step                           | Stream                                 | Record                                                                                              |
+| ------------------------------ | -------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `gateway_started`              | report (`agent-safe.gateway-events/1`) | `GATEWAY_STARTED`                                                                                   |
+| `boundary_identified`          | report                                 | `BOUNDARY_IDENTIFIED`                                                                               |
+| `workload_resolved`            | report                                 | `WORKLOAD_RESOLVED`, when a provider had something to say                                           |
+| `intent_intercepted`           | report / audit                         | `INTERCEPTED`; `INTENT_CAPTURED` on the evidence chain                                              |
+| `authority_requested`          | audit (`agent-safe.audit/1`)           | `AUTHORITY_DECISION`, or `AUTHORITY_FAILED_CLOSED` when it failed closed                            |
+| `allow` / `block` / `escalate` | report + metrics                       | `INTERCEPTED.state` and `.verdict`; `agentsafe_decisions_total{verdict}`                            |
+| `claim_succeeded`              | audit                                  | `GRANT_CONSUMED`                                                                                    |
+| `claim_refused`                | report + metrics                       | `INTERCEPTED.state`; `agentsafe_authority_errors_total{code}`                                       |
+| `dispatch_started`             | audit                                  | `EXECUTION_STARTED`                                                                                 |
+| `dispatch_completed`           | audit                                  | `EXECUTION_COMPLETED`                                                                               |
+| `dispatch_failed`              | audit                                  | `EXECUTION_FAILED_BEFORE_DISPATCH`, `EXECUTION_REFUSED_AFTER_DISPATCH`, `EXECUTION_OUTCOME_UNKNOWN` |
+| `finalized`                    | audit + report                         | the finalization on the execution event; `INTERCEPTED.finalization`                                 |
+| `verification_failed`          | security (`agent-safe.security/1`)     | `EFFECT_MISMATCH`, `EFFECT_RECEIPT_MISMATCH`, `PROVIDER_REFUSED`                                    |
+
+Every one of these carries identifiers, codes, digests and counts. None carries a parameter, a
+header, a body, a credential or a caller's address: the security stream's schema has no field one
+could ride in, and the audit recorder refuses a metadata key matching `authorization`,
+`credential`, `password`, `secret`, `token`, `parameters`, `context` or a provider result.
+
 ## Activation milestones
 
 The runtime reports, once each, the steps of its own adoption, on the report stream, as a name and

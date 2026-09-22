@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { CONTAINMENT_STREAM } from "../../src/containment/ContainmentProbe.js";
 import {
+  ATTACK_VERSION,
+  type AttackReport,
+  type AttackResult,
+} from "../../src/gateway/AuthorityAttacks.js";
+import {
   renderTestReport,
   runTest,
   type HostedTestReport,
@@ -103,6 +108,24 @@ const holding: BoundaryTestReport = {
 };
 
 const run = (report: BoundaryTestReport) => () => Promise.resolve(report);
+
+/** Six attacks, all refused: what the shipped runner produces on a good day. */
+const attacksHeld: AttackReport = {
+  version: ATTACK_VERSION,
+  results: [
+    {
+      id: "exact-action-mutation",
+      title: "The amount changed after authorization",
+      attempt: "payment.amount 50000 authorized, 100000 dispatched",
+      expected: "dispatch refused",
+      refusal: "INTENT_BINDING_MISMATCH",
+      held: true,
+    },
+  ],
+  attempts: 1,
+  executions: 1,
+  held: true,
+};
 
 describe("agentsafe test", () => {
   it("prints the report, exits 0 when the boundary holds, and says what comes next", async () => {
@@ -224,7 +247,7 @@ describe("agentsafe test", () => {
 
   it("colors the terminal rendering when the process has color", () => {
     const colored = renderTestReport(
-      { ...holding, containment: null, exit: 0, activation: tested },
+      { ...holding, containment: null, attacks: attacksHeld, exit: 0, activation: tested },
       { color: true },
     );
     expect(colored).toContain(`${ESC}[32m`);
@@ -237,6 +260,7 @@ describe("agentsafe test", () => {
         exposure: { adversarial: 1, direct: 1, shadow: 1, enforcement: 1 },
         verdict: "BOUNDARY_BROKEN",
         containment: null,
+        attacks: attacksHeld,
         exit: 1,
         activation: tested,
       },
@@ -257,6 +281,7 @@ describe("agentsafe test", () => {
           ),
         ],
         containment: null,
+        attacks: attacksHeld,
         exit: 0,
         activation: tested,
       },
@@ -264,6 +289,29 @@ describe("agentsafe test", () => {
     );
     expect(failed).toContain("BLOCK no answer");
     expect(failed).toContain("marked nothing");
+  });
+
+  it("calls the boundary broken when an attack was not refused, whatever the requests did", () => {
+    const text = renderTestReport(
+      {
+        ...holding,
+        containment: null,
+        attacks: {
+          ...attacksHeld,
+          results: [{ ...(attacksHeld.results[0] as AttackResult), refusal: null, held: false }],
+          held: false,
+        },
+        exit: 1,
+        activation: tested,
+      },
+      { color: false },
+    );
+    expect(text).toContain("NOTHING REFUSED");
+    expect(text).toContain(
+      "BOUNDARY BROKEN: an authority was reused or an action changed after it was issued",
+    );
+    expect(text).toContain("0 of 1 refused");
+    expect(text).toContain("defect in the runtime");
   });
 
   it("explains a run the synthetic authority refused, and exits 2", async () => {

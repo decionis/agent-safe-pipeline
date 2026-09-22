@@ -1,0 +1,119 @@
+{
+  "vector_version": "agent-safe.cross-runtime/1",
+  "description": "The same intent, the same policy and the same trusted signals, evaluated through the same gateway lifecycle in four runtimes. The claim under test is that execution authority does not depend on where AgentSafe happens to run: for each case the verdict, the state and the execution disposition MUST be identical in every runtime. Runtime metadata is expected to differ, and does: each runtime binds its own enforcement boundary and, where one was declared, its own workload, so the intent hashes differ by exactly those fields. A different hash is not a different decision.",
+  "invariant": {
+    "identical": ["verdict", "state", "execution", "reason_codes"],
+    "may_differ": ["intent_hash", "context.enforcement_boundary", "context.workload"],
+    "must_be_identical_in_the_binding": [
+      "action.type",
+      "action.resource",
+      "action.parameters",
+      "downstream_target"
+    ]
+  },
+  "runtimes": [
+    {
+      "name": "native",
+      "surface": null,
+      "environment": {},
+      "note": "A Linux host or a laptop: nothing describes an artifact, so the intent carries no workload at all."
+    },
+    {
+      "name": "docker",
+      "surface": "docker",
+      "environment": {
+        "AGENTSAFE_BOUNDARY_ID": "prod-payments-eu",
+        "AGENTSAFE_WORKLOAD_IMAGE": "ghcr.io/example/payments-agent:1.4.2",
+        "AGENTSAFE_WORKLOAD_DIGEST": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "note": "A container whose operator declared the artifact it runs as."
+    },
+    {
+      "name": "kubernetes",
+      "surface": "kubernetes",
+      "environment": {
+        "AGENTSAFE_BOUNDARY_ID": "prod-payments-eu",
+        "AGENTSAFE_CLUSTER_ID": "eu-1",
+        "AGENTSAFE_NAMESPACE": "payments",
+        "AGENTSAFE_REGION": "eu-west-1",
+        "AGENTSAFE_POD_ID": "agentsafe-7c9f-xk2",
+        "AGENTSAFE_NODE_ID": "ip-10-0-4-21",
+        "AGENTSAFE_WORKLOAD_IMAGE": "ghcr.io/example/payments-agent:1.4.2",
+        "AGENTSAFE_WORKLOAD_DIGEST": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "note": "A pod with the downward API wired, a different digest, and an instance that reaches no intent."
+    },
+    {
+      "name": "hosted",
+      "surface": "npm",
+      "environment": {
+        "AGENTSAFE_BOUNDARY_ID": "prod-payments-eu"
+      },
+      "note": "The runtime installed from npm, standing in front of the same upstream."
+    }
+  ],
+  "cases": [
+    {
+      "id": "routine-payment",
+      "description": "A payment inside the autonomous ceiling.",
+      "request": {
+        "method": "POST",
+        "path": "/payments",
+        "body": {
+          "amount": 25
+        }
+      },
+      "expected": {
+        "verdict": "ALLOW",
+        "state": "ALLOW",
+        "execution": "FORWARDED"
+      }
+    },
+    {
+      "id": "payment-above-human-ceiling",
+      "description": "A payment above the ceiling no human may raise. The adversarial row: a valid principal, a permitted API, an action policy refuses.",
+      "request": {
+        "method": "POST",
+        "path": "/payments",
+        "body": {
+          "amount": 25000
+        }
+      },
+      "expected": {
+        "verdict": "BLOCK",
+        "state": "BLOCK",
+        "execution": "NOT_FORWARDED"
+      }
+    },
+    {
+      "id": "payment-above-autonomous-ceiling",
+      "description": "A payment a person may approve and an agent may not.",
+      "request": {
+        "method": "POST",
+        "path": "/payments",
+        "body": {
+          "amount": 750
+        }
+      },
+      "expected": {
+        "verdict": "ESCALATE",
+        "state": "ESCALATE",
+        "execution": "HELD"
+      }
+    },
+    {
+      "id": "destructive-delete",
+      "description": "Deleting a customer record.",
+      "request": {
+        "method": "DELETE",
+        "path": "/customers/synthetic-42",
+        "body": null
+      },
+      "expected": {
+        "verdict": "ESCALATE",
+        "state": "ESCALATE",
+        "execution": "HELD"
+      }
+    }
+  ]
+}
