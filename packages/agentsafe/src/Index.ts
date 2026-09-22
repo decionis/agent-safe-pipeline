@@ -522,6 +522,20 @@ export {
   type ActivationStep,
 } from "./gateway/Activation.js";
 export {
+  MAX_REPORTED_TRUST,
+  TRUST_ORDER,
+  WORKLOAD_ENVIRONMENT,
+  assertReportable,
+  declaredWorkload,
+  resolveWorkload,
+  type ProvenanceFacts,
+  type ProvenanceProvider,
+} from "./provenance/ProvenanceProvider.js";
+export { DockerProvenanceProvider } from "./provenance/DockerProvenanceProvider.js";
+export { KubernetesProvenanceProvider } from "./provenance/KubernetesProvenanceProvider.js";
+export { NoneProvenanceProvider } from "./provenance/NoneProvenanceProvider.js";
+export { StaticProvenanceProvider } from "./provenance/StaticProvenanceProvider.js";
+export {
   BOUNDARY_CONFORMANCE,
   BOUNDARY_ENVIRONMENT,
   BOUNDARY_PROTOCOL,
@@ -565,6 +579,7 @@ export {
   stateLabel,
   type ActivationMilestoneReport,
   type BoundaryIdentifiedReport,
+  type WorkloadResolvedReport,
   type ExecutionDisposition,
   type GatewayReport,
   type GatewayState,

@@ -104,6 +104,15 @@ ENV NODE_ENV=production
 # The surface a hosted call names beside the version: this image. The chart
 # overrides it with `kubernetes`; nothing about the host is derived from it.
 ENV AGENTSAFE_SURFACE=docker
+# What this image is, for a policy that reasons about the software proposing
+# an action. Docker and OCI tooling remain the authority for all of it: these
+# are slots an operator's `docker run`, compose file or manifest fills, and
+# what AgentSafe reports from them is `supplied` and never `verified`. No
+# socket is opened and no label is read as provenance, because a label is not
+# one. See docs/authority/workload-provenance.md.
+ENV AGENTSAFE_WORKLOAD_IMAGE="" \
+    AGENTSAFE_WORKLOAD_DIGEST="" \
+    AGENTSAFE_WORKLOAD_PUBLISHER=""
 COPY --from=builder /app/deploy ./
 # The gateway listens on 8080 in plain HTTP behind the platform's TLS; the
 # executor's listener is TLS on 8443 with its certificate and key mounted.

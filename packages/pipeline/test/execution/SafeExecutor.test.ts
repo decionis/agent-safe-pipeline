@@ -14,7 +14,10 @@ import type {
   VerifiedAuthorization,
 } from "../../src/execution/AuthorizationVerifier.js";
 import { SafeExecutor } from "../../src/execution/SafeExecutor.js";
-import type { EnforcementBoundarySignal } from "../../src/intent/ExecutionSignals.js";
+import type {
+  EnforcementBoundarySignal,
+  WorkloadSignal,
+} from "../../src/intent/ExecutionSignals.js";
 import { IntentCapture } from "../../src/intent/IntentCapture.js";
 
 function boundary(id: string): EnforcementBoundarySignal {
@@ -25,6 +28,37 @@ function boundary(id: string): EnforcementBoundarySignal {
     deployment_type: "docker",
     environment: "production",
   };
+}
+
+const DIGEST_A = `sha256:${"a".repeat(64)}`;
+const DIGEST_B = `sha256:${"b".repeat(64)}`;
+
+function workload(digest: string): WorkloadSignal {
+  return {
+    runtime: "docker",
+    artifact_type: "oci",
+    image: "ghcr.io/example/payments-agent:1.4.2",
+    digest,
+    provenance: { source: "docker", trust_level: "supplied" },
+  };
+}
+
+function capturedFor(digest: string | null) {
+  return new IntentCapture({ ttlSeconds: 120 }).capture(
+    {
+      action: "refund_order",
+      target: "shopify:order:58291",
+      parameters: { amount: 350, currency: "USD" },
+    },
+    {
+      tenantId: "00000000-0000-4000-8000-000000000002",
+      actor: { id: "synthetic-refund-agent", type: "AI_AGENT" },
+      downstreamTarget: { system: "shopify", operation: "refund" },
+      idempotencyKey: "refund-350",
+      context: {},
+      ...(digest === null ? {} : { signals: { workload: workload(digest) } }),
+    },
+  );
 }
 
 function captured(amount = 350, boundaryId: string | null = null) {
@@ -168,6 +202,55 @@ describe("SafeExecutor", () => {
 
     expect(result).toMatchObject({ outcome: "COMPLETED", executed: true });
     expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it("executes an intent the workload it runs as proposed", async () => {
+    const parts = setup();
+    const executor = new SafeExecutor(parts.registry, parts.pair.verifier, undefined, {
+      workloadDigest: DIGEST_A,
+    });
+    const intent = capturedFor(DIGEST_A);
+    const result = await executor.run(intent, await parts.pair.authority.evaluate(intent));
+
+    expect(result).toMatchObject({ outcome: "COMPLETED", executed: true });
+    expect(parts.execute).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses an intent proposed by another workload, before consuming its grant", async () => {
+    const parts = setup();
+    const executor = new SafeExecutor(parts.registry, parts.pair.verifier, undefined, {
+      workloadDigest: DIGEST_A,
+    });
+    // Authority granted to one signed artifact is not authority for the next
+    // one to reuse, however valid the grant itself is.
+    const other = capturedFor(DIGEST_B);
+    const decision = await parts.pair.authority.evaluate(other);
+    const result = await executor.run(other, decision);
+
+    expect(result).toMatchObject({ executed: false, reason: "WORKLOAD_MISMATCH" });
+    expect(parts.execute).not.toHaveBeenCalled();
+    const owner = new SafeExecutor(setup().registry, parts.pair.verifier, undefined, {
+      workloadDigest: DIGEST_B,
+    });
+    expect(await owner.run(other, decision)).toMatchObject({ outcome: "COMPLETED" });
+  });
+
+  it("refuses an intent naming no workload where one is bound, and checks none where it is not", async () => {
+    const bound = setup();
+    const executor = new SafeExecutor(bound.registry, bound.pair.verifier, undefined, {
+      workloadDigest: DIGEST_A,
+    });
+    const anonymous = capturedFor(null);
+    expect(
+      await executor.run(anonymous, await bound.pair.authority.evaluate(anonymous)),
+    ).toMatchObject({ executed: false, reason: "WORKLOAD_MISMATCH" });
+    expect(bound.execute).not.toHaveBeenCalled();
+
+    const unbound = setup();
+    const elsewhere = capturedFor(DIGEST_B);
+    expect(
+      await unbound.executor.run(elsewhere, await unbound.pair.authority.evaluate(elsewhere)),
+    ).toMatchObject({ outcome: "COMPLETED", executed: true });
   });
 
   it("rejects approval swapping and altered action parameters", async () => {

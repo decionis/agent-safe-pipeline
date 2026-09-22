@@ -41,6 +41,17 @@ process happens to be are reported only by `agentsafe identity`, on the operator
 and reach neither this line nor any intent ([the enforcement
 boundary](../authority/enforcement-boundary.md)).
 
+## The workload, when a runtime described one
+
+Beside the boundary, and only when a provider had something to say:
+`{"event":"WORKLOAD_RESOLVED","at":"...","runtime":"docker","artifact_type":"oci",
+"image":"...","digest":"sha256:...","publisher":null,"source":"docker",
+"trust_level":"supplied"}`.
+
+`trust_level` is always beside the digest, because a reader must never have to guess whether it
+was checked ([workload provenance](../authority/workload-provenance.md)). A workload nobody
+described produces no line at all.
+
 ## Activation milestones
 
 The runtime reports, once each, the steps of its own adoption, on the report stream, as a name and

@@ -99,6 +99,46 @@ The two `inspect` digests are equal for every version; a difference is a reason 
 report it. Mirror the image into your own registry before a cluster pulls it; the
 [kit](../../deploy/README.md#getting-the-image) says why.
 
+## What Docker establishes, and what AgentSafe adds
+
+Docker answers what is running, where, and what it can reach. AgentSafe answers what the workload
+is trying to cause, and Decionis whether that exact action is authorized now. They are different
+questions, and the division is deliberate:
+
+> **Docker establishes what is running. AgentSafe captures what it intends to do. Decionis
+> establishes what that workload is authorized to cause.**
+
+AgentSafe is not a sandbox, a scanner, an SBOM generator or a registry. It never opens the Docker
+socket, reads `/proc`, or treats an image label as provenance. What it does is let an operator
+hand it what Docker already knows, so a policy can use it.
+
+Declare the artifact on the container, and the gateway binds it into every intent it captures,
+with its trust source attached:
+
+```bash
+docker run --rm -p 8080:8080 \
+  -e AGENTSAFE_BOUNDARY_ID=prod-payments-eu \
+  -e AGENTSAFE_WORKLOAD_IMAGE="$IMAGE" \
+  -e AGENTSAFE_WORKLOAD_DIGEST="$(docker buildx imagetools inspect "$IMAGE" --format '{{ "{{json .Manifest.Digest}}" }}' | tr -d '"')" \
+  -e AGENTSAFE_UPSTREAM=http://host.docker.internal:3000 \
+  ghcr.io/decionis/agentsafe:<version>
+```
+
+`agentsafe identity` reports what the container resolved:
+
+```bash
+docker run --rm ghcr.io/decionis/agentsafe:<version> identity
+```
+
+Two things it will say, and both are the point. The boundary id is of the _configured logical
+boundary_, so it survives a restart and a rescheduling — see
+[the enforcement boundary](../authority/enforcement-boundary.md). The workload's trust level is
+`supplied`, not `verified`: an environment variable an orchestrator set is a claim this process
+cannot check, and it says so rather than implying otherwise — see
+[workload provenance](../authority/workload-provenance.md). A policy written against provenance
+should say what strength of claim it accepts, and it can, because the strength travels with the
+claim.
+
 ## Send your first governed action
 
 With the gateway running in the container and a service on the host at port 3000:

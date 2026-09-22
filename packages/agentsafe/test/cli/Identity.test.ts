@@ -9,6 +9,7 @@ import {
   DERIVED_BOUNDARY_PREFIX,
 } from "../../src/boundary/BoundaryIdentity.js";
 import { SURFACE_ENVIRONMENT } from "../../src/gateway/InstallSurface.js";
+import { WORKLOAD_ENVIRONMENT } from "../../src/provenance/ProvenanceProvider.js";
 import { fakeProcess } from "../support/GatewayHarness.js";
 
 const UPSTREAM = ["--upstream", "https://payments.internal.example"];
@@ -46,6 +47,29 @@ describe("agentsafe identity", () => {
     expect(report?.configured).toBe(false);
     expect(report?.boundary_id).toMatch(new RegExp(`^${DERIVED_BOUNDARY_PREFIX}[0-9a-f]{16}$`));
     expect(io.out.join("")).toContain("No usable gateway configuration");
+  });
+
+  it("reports the workload the runtime declared, with the trust source beside it", () => {
+    const io = fakeProcess({
+      env: {
+        [SURFACE_ENVIRONMENT]: "docker",
+        [WORKLOAD_ENVIRONMENT.image]: "ghcr.io/example/payments-agent:1.4.2",
+        [WORKLOAD_ENVIRONMENT.digest]: `sha256:${"a".repeat(64)}`,
+      },
+    });
+    const report = runIdentity(io, [...UPSTREAM, "--json"]);
+
+    expect(report?.workload).toMatchObject({
+      runtime: "docker",
+      digest: `sha256:${"a".repeat(64)}`,
+      provenance: { source: "docker", trust_level: "supplied" },
+    });
+  });
+
+  it("says nothing about a workload nothing described", () => {
+    const io = fakeProcess({ env: { [SURFACE_ENVIRONMENT]: "linux" } });
+    expect(runIdentity(io, UPSTREAM)?.workload).toBeNull();
+    expect(io.out.join("")).not.toContain("workload_");
   });
 
   it("refuses an option it does not know", () => {
@@ -89,6 +113,7 @@ describe("agentsafe identity", () => {
         environment: null,
         placement: null,
         instance: null,
+        workload: null,
         configured: false,
       },
       { color: false },
@@ -109,12 +134,22 @@ describe("agentsafe identity", () => {
         environment: "production",
         placement: { clusterId: null, namespace: "payments", region: null, workloadId: null },
         instance: { containerId: "3f2a91c4bb01", podId: null, nodeId: null },
+        workload: {
+          runtime: "docker",
+          artifact_type: "oci",
+          image: "ghcr.io/example/payments-agent:1.4.2",
+          digest: `sha256:${"a".repeat(64)}`,
+          publisher: "Example Ltd",
+          provenance: { source: "docker", trust_level: "supplied" },
+        },
         configured: true,
       },
       { color: true },
     );
     expect(painted).toContain(String.fromCharCode(27));
     expect(painted).toContain("namespace            payments");
+    expect(painted).toContain("workload_image       ghcr.io/example/payments-agent:1.4.2");
+    expect(painted).toContain("workload_trust       supplied (reported by docker)");
     expect(painted).toContain("container            3f2a91c4bb01");
     expect(painted).not.toContain("cluster ");
   });

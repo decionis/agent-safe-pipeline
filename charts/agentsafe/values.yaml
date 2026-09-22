@@ -56,6 +56,29 @@ gateway:
     id: agentsafe-gateway
     type: GATEWAY
 
+# Which enforcement boundary this release is, and what software it stands in
+# front of. Both reach signed evidence; see docs/authority/enforcement-boundary.md
+# and docs/authority/workload-provenance.md.
+boundary:
+  # What to call this boundary. Empty derives one from the deployment type,
+  # the environment and the upstream, which is stable across restarts and
+  # reschedules; name it once an estate has more than one.
+  id: ""
+  # Stable placement, bound into every intent. Empty is omitted, never guessed.
+  clusterId: ""
+  region: ""
+  workloadId: ""
+  # The pod, its namespace and its node, from the downward API. They are
+  # reported by `agentsafe identity` and bound into no intent: an effect's
+  # evidence should name the boundary, not the pod that happened to serve it.
+  # The namespace is the exception: it is stable placement and is bound.
+  downwardApi: true
+  # Report this release's own image and digest as the workload proposing
+  # actions. What AgentSafe reports from them is `supplied`: the admission
+  # controller that pinned image.digest is the authority for it, not this
+  # process. Nothing is scanned, signed or verified here.
+  reportWorkload: true
+
 upstream:
   # The Service the gateway forwards to, in the release namespace unless
   # `namespace` says otherwise. `url` overrides all three.
