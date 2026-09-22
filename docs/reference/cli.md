@@ -121,6 +121,14 @@ line, `✓ boundary tested`). The `Caller` line above the verdict says what the 
 same caller on every row, never the reason anything was refused
 ([the Compromised Principal Test](../compromised-principal-test.md)).
 
+Beneath the table, **After the authority is issued**: six attacks that cannot be expressed as bytes
+sent at a target, because each needs an authority to exist before it can be attempted. The amount
+changed after authorization, the beneficiary changed, a consumed grant presented again, another
+workload reusing an approved release's authority, an authority admitted at one boundary presented
+at another, and a valid principal proposing an action policy refuses. They are executed, not
+described: real intents, real decisions, real claims, and the refusal each produced is printed.
+The verdict is `BOUNDARY BROKEN` if any of them was not refused, whatever the requests did.
+
 ### `agentsafe test --hosted`
 
 The same requests, without the outage case, sent two ways at the same synthetic target: directly,

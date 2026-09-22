@@ -535,6 +535,12 @@ export {
   type UnmatchedPolicy,
 } from "./gateway/GatewayConfig.js";
 export {
+  ATTACK_VERSION,
+  runAuthorityAttacks,
+  type AttackReport,
+  type AttackResult,
+} from "./gateway/AuthorityAttacks.js";
+export {
   ACTIVATION_MILESTONES,
   ACTIVATION_PATH,
   ActivationFunnel,

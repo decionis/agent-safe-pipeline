@@ -5,6 +5,7 @@ describe("public surface", () => {
   it("exports exactly the documented names", () => {
     const expected = [
       "ACTION_NAME",
+      "ATTACK_VERSION",
       "ACTIVATION_MILESTONES",
       "ATTESTATION_COMPONENT",
       "ActivationFunnel",
@@ -259,6 +260,7 @@ describe("public surface", () => {
       "resolveGateway",
       "routesFromOpenApi",
       "runConfig",
+      "runAuthorityAttacks",
       "runDoctor",
       "runGatewayCommand",
       "runInit",

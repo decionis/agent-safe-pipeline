@@ -213,6 +213,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "conformance/runtime/demo-policy.json",
+      "family": "Cross-runtime conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "conformance/vectors/composed-vs-decomposed.json",
       "family": "Intent conformance vector",
       "source": "synthetic",
@@ -286,6 +292,12 @@
     },
     {
       "path": "dossiers/vectors/owned-execution-bound.json",
+      "family": "Decision Dossier conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "dossiers/vectors/runtime-signals.json",
       "family": "Decision Dossier conformance vector",
       "source": "synthetic",
       "containsCustomerData": false
@@ -633,6 +645,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/conformance/CrossRuntime.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/containment/ContainmentProbe.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
@@ -682,6 +700,12 @@
     },
     {
       "path": "packages/agentsafe/test/gateway/Activation.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/gateway/AuthorityAttacks.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false

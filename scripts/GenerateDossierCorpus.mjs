@@ -50,6 +50,40 @@ const CASES = [
     issuerTier: "owned",
     executionBound: true,
   },
+  {
+    slug: "runtime-signals",
+    outcome: "ALLOW",
+    action: "payment.send",
+    target: "synthetic-beneficiary-1005",
+    amountMinor: 50_000,
+    reasonCodes: ["SYNTHETIC_POLICY_ALLOW"],
+    executionGrantIssued: true,
+    issuerTier: "owned",
+    executionBound: true,
+    // The enforcement boundary that admitted the effect and the workload that
+    // proposed it, as they reach evidence: inside the intent, therefore inside
+    // the inputs snapshot the proof bundle signs. The offline verifier needs
+    // no change to check them, because it verifies the artifacts it is given
+    // rather than a fixed set of fields.
+    signals: {
+      enforcement_boundary: {
+        boundary_id: "synthetic-boundary-prod-eu",
+        agentsafe_version: "0.0.0-synthetic",
+        protocol_version: "agent-safe.intent/1",
+        deployment_type: "kubernetes",
+        environment: "synthetic-production",
+        conformance_version: "agent-safe-intent-v1",
+        placement: { cluster_id: "synthetic-eu-1", namespace: "synthetic-payments" },
+      },
+      workload: {
+        runtime: "kubernetes",
+        artifact_type: "oci",
+        image: "ghcr.io/example/synthetic-payments-agent:1.4.2",
+        digest: `sha256:${"5".repeat(64)}`,
+        provenance: { source: "kubernetes", trust_level: "supplied" },
+      },
+    },
+  },
 ];
 
 function canonicalize(value) {
@@ -138,6 +172,7 @@ function createVector(testCase, privateKey) {
     action: testCase.action,
     target: testCase.target,
     amount_minor: testCase.amountMinor,
+    ...(testCase.signals ? { signals: testCase.signals } : {}),
   };
   const routingDecision = {
     decision_id: decisionId,

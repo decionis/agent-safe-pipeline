@@ -145,7 +145,13 @@ describe("Decision Dossier conformance corpus", () => {
     const files = (await readdir(VECTORS_DIRECTORY)).filter((name) => name.endsWith(".json"));
     const outcomes = new Set<string>();
     expect(new Set(files)).toEqual(
-      new Set(["allow.json", "block.json", "escalate.json", "owned-execution-bound.json"]),
+      new Set([
+        "allow.json",
+        "block.json",
+        "escalate.json",
+        "owned-execution-bound.json",
+        "runtime-signals.json",
+      ]),
     );
 
     for (const file of files) {
@@ -219,6 +225,42 @@ describe("Decision Dossier conformance corpus", () => {
     }
 
     expect(outcomes).toEqual(new Set(["ALLOW", "BLOCK", "ESCALATE"]));
+  });
+
+  /**
+   * The evidence chain from artifact provenance to dossier, verified offline
+   * with no change to `@decionis/verify`. The boundary and the workload are
+   * inside the intent, so they are inside the inputs snapshot the proof
+   * bundle signs; the verifier checks the artifacts it is given rather than a
+   * fixed set of fields, which is why a new signal needs no new version.
+   */
+  it("carries the enforcement boundary and the workload into signed evidence", async () => {
+    const vector = await readJson<DossierVector>(
+      new URL("runtime-signals.json", VECTORS_DIRECTORY),
+    );
+    const jwks = await readJson<CorpusJwks>(new URL("corpus-jwks.json", DOSSIERS_DIRECTORY));
+    const signals = record(record(vector.dossier_payload["inputs_snapshot"])["signals"]);
+
+    expect(record(signals["enforcement_boundary"])["boundary_id"]).toBe(
+      "synthetic-boundary-prod-eu",
+    );
+    expect(record(record(signals["workload"])["provenance"])["trust_level"]).toBe("supplied");
+
+    const verification = verifyDossierProofBundle({
+      dossier_payload: vector.dossier_payload,
+      public_jwks: jwks,
+    });
+    expect(verification.verified).toBe(true);
+
+    // And they are signed, not merely present: one character of the boundary
+    // id is a bundle that no longer verifies.
+    const mutated = structuredClone(vector.dossier_payload);
+    record(record(record(mutated["inputs_snapshot"])["signals"])["enforcement_boundary"])[
+      "boundary_id"
+    ] = "synthetic-boundary-somewhere-else";
+    expect(verifyDossierProofBundle({ dossier_payload: mutated, public_jwks: jwks }).verified).toBe(
+      false,
+    );
   });
 
   it("fails closed when signed issuer context is rewritten", async () => {
@@ -330,6 +372,6 @@ describe("Decision Dossier conformance corpus", () => {
     });
     expect(result.stderr).toBe("");
     expect(result.status).toBe(0);
-    expect(result.stdout).toContain("Verified 4 reproducible synthetic dossier vectors.");
+    expect(result.stdout).toContain("Verified 5 reproducible synthetic dossier vectors.");
   });
 });
