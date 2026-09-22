@@ -5,28 +5,28 @@
 class Govern < Formula
   desc "Workflow gate: one Decionis verdict before a CI step runs, with a signed record"
   homepage "https://github.com/decionis/agent-safe-pipeline/tree/master/govern"
-  version "2.0.0"
+  version "2.1.0"
   license "Apache-2.0"
 
   on_macos do
     on_arm do
-      url "https://github.com/decionis/agent-safe-pipeline/releases/download/v0.3.3/govern-2.0.0-darwin-arm64.tar.gz"
-      sha256 "5386efc796768dd27f05919ed7731674ea28cbb302b3b94c3758a3babfb2774a"
+      url "https://github.com/decionis/agent-safe-pipeline/releases/download/v0.3.4/govern-2.1.0-darwin-arm64.tar.gz"
+      sha256 "b8be13a39c029b065ae09c20ba1c0ba6c293cea28504c07fbf68016d08bf6b6d"
     end
     on_intel do
-      url "https://github.com/decionis/agent-safe-pipeline/releases/download/v0.3.3/govern-2.0.0-darwin-x64.tar.gz"
-      sha256 "133f64715683c6874823d7cf2b5170cfdc0ef099fbcda7f68271d8891e823b02"
+      url "https://github.com/decionis/agent-safe-pipeline/releases/download/v0.3.4/govern-2.1.0-darwin-x64.tar.gz"
+      sha256 "2ab89966d1ef6a85155ed4e10f7349add629fb28248aee7578f1adca5d12999e"
     end
   end
 
   on_linux do
     on_arm do
-      url "https://github.com/decionis/agent-safe-pipeline/releases/download/v0.3.3/govern-2.0.0-linux-arm64.tar.gz"
-      sha256 "fe1532a74db7649ef7be7f63863152bd28ca4bd9b03fe910f9ac639c035e2eac"
+      url "https://github.com/decionis/agent-safe-pipeline/releases/download/v0.3.4/govern-2.1.0-linux-arm64.tar.gz"
+      sha256 "b6ecb7767f132a18583120b6707e43752329eeeebb498b3cd98ef4e9d4a4f181"
     end
     on_intel do
-      url "https://github.com/decionis/agent-safe-pipeline/releases/download/v0.3.3/govern-2.0.0-linux-x64.tar.gz"
-      sha256 "3b5d8a79cd50d4333abab3e6e994f7e9fd455be464d5245116d19dd03c9edad1"
+      url "https://github.com/decionis/agent-safe-pipeline/releases/download/v0.3.4/govern-2.1.0-linux-x64.tar.gz"
+      sha256 "e43038057e110d0e7b91eb230900cf9e0ac574699a60d1b61f8ea13271447faa"
     end
   end
 
