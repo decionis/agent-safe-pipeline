@@ -29,6 +29,7 @@ describe("the command dispatch", () => {
       "status",
       "doctor",
       "test",
+      "identity",
       "config",
       "login",
       "logout",
@@ -61,6 +62,9 @@ describe("the command dispatch", () => {
     const doctor = fakeProcess();
     await runGatewayCommand("doctor", ["--nope"], doctor);
     expect(doctor.exits).toEqual([2]);
+    const identity = fakeProcess();
+    await runGatewayCommand("identity", ["--nope"], identity);
+    expect(identity.exits).toEqual([2]);
     const config = fakeProcess();
     await runGatewayCommand("config", ["--upstream", "http://localhost:1"], config);
     expect(config.exits).toEqual([0]);

@@ -74,6 +74,21 @@ export interface StoppedReport {
   readonly signal: string;
 }
 
+/**
+ * Which enforcement boundary this process is, said once at start. It carries
+ * identifiers and versions only: no address, no host, no container.
+ */
+export interface BoundaryIdentifiedReport {
+  readonly event: "BOUNDARY_IDENTIFIED";
+  readonly at: string;
+  readonly boundary_id: string;
+  readonly boundary_source: "configured" | "derived";
+  readonly deployment_type: string;
+  readonly environment: string | null;
+  readonly protocol_version: string;
+  readonly conformance_version: string;
+}
+
 export interface ActivationMilestoneReport {
   readonly event: "ACTIVATION";
   readonly milestone: string;
@@ -83,6 +98,7 @@ export interface ActivationMilestoneReport {
 export type GatewayReport =
   | InterceptionReport
   | StartedReport
+  | BoundaryIdentifiedReport
   | NoteReport
   | StoppedReport
   | ActivationMilestoneReport
@@ -165,6 +181,15 @@ export function renderHuman(report: GatewayReport, options: RenderOptions): stri
         row("Status", "READY"),
         "",
         dim("Waiting for consequential actions..."),
+        "",
+      ].join("\n");
+    case "BOUNDARY_IDENTIFIED":
+      return [
+        row("Boundary", `${report.boundary_id} (${report.boundary_source})`),
+        row(
+          "Runtime",
+          `${report.deployment_type}${report.environment === null ? "" : `, ${report.environment}`}`,
+        ),
         "",
       ].join("\n");
     case "GATEWAY_STOPPED":

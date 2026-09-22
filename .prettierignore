@@ -3,6 +3,7 @@ coverage
 node_modules
 pnpm-lock.yaml
 brief.pipeline.md
+brief.docker-ecosystem.md
 .stryker-tmp
 packaging/sea/out
 packaging/sea/cache

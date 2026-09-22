@@ -31,6 +31,44 @@ const base: InterceptionReport = {
   authority_ms: 12,
 };
 
+describe("the boundary the gateway says it is", () => {
+  const identified = {
+    event: "BOUNDARY_IDENTIFIED",
+    at: "2026-01-01T00:00:00.000Z",
+    boundary_id: "prod-payments-eu",
+    boundary_source: "configured",
+    deployment_type: "docker",
+    environment: "production",
+    protocol_version: "agent-safe.intent/1",
+    conformance_version: "agent-safe-intent-v1",
+  } as const;
+
+  it("names the boundary and how it got its name", () => {
+    expect(renderHuman(identified, { color: false })).toBe(
+      ["Boundary     prod-payments-eu (configured)", "Runtime      docker, production", ""].join(
+        "\n",
+      ),
+    );
+    expect(JSON.parse(renderJson(identified))).toEqual(identified);
+  });
+
+  it("says the runtime alone when no environment was configured", () => {
+    expect(
+      renderHuman(
+        { ...identified, environment: null, boundary_source: "derived" },
+        { color: false },
+      ),
+    ).toBe(["Boundary     prod-payments-eu (derived)", "Runtime      docker", ""].join("\n"));
+  });
+
+  it("carries no address, host or container", () => {
+    const line = renderJson(identified);
+    for (const key of ["gateway", "upstream", "host", "container", "pod", "node"]) {
+      expect(line).not.toContain(key);
+    }
+  });
+});
+
 describe("the gateway's reports", () => {
   it("renders an interception as the brief shows it", () => {
     const text = renderHuman(base, { color: false });

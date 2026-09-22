@@ -28,6 +28,19 @@ itself produced, never anything a caller sent.
 The two latency families are a running sum and a count, from which a scraper computes rates and
 means between scrapes.
 
+## The boundary, said once
+
+At start, beside the banner, the gateway says which enforcement boundary it is, on the report
+stream: `{"event":"BOUNDARY_IDENTIFIED","at":"...","boundary_id":"prod-payments-eu",
+"boundary_source":"configured","deployment_type":"kubernetes","environment":"production",
+"protocol_version":"agent-safe.intent/1","conformance_version":"agent-safe-intent-v1"}`. On a
+terminal it is two rows under the banner.
+
+The line carries identifiers and versions and nothing else. The container, pod and node this
+process happens to be are reported only by `agentsafe identity`, on the operator's own terminal,
+and reach neither this line nor any intent ([the enforcement
+boundary](../authority/enforcement-boundary.md)).
+
 ## Activation milestones
 
 The runtime reports, once each, the steps of its own adoption, on the report stream, as a name and

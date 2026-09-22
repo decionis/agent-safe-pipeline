@@ -2,6 +2,7 @@ import type { GateDecision } from "../decision/DecisionAuthority.js";
 import type { AuditEventType, AuditRecorder } from "../audit/AuditRecorder.js";
 import { CanonicalIntentHasher } from "../intent/CanonicalIntentHasher.js";
 import type { CapturedIntent } from "../intent/ExecutionIntent.js";
+import { boundaryOf } from "../intent/ExecutionSignals.js";
 import type { ActionRegistry } from "./ActionRegistry.js";
 import type {
   AuthorizationVerifier,
@@ -18,7 +19,22 @@ export type ExecutionBlockReason =
   | "AUTHORIZATION_MISSING"
   | "AUTHORIZATION_INVALID"
   | "RECOVERY_BINDING_MISMATCH"
+  | "BOUNDARY_MISMATCH"
   | "AUDIT_UNAVAILABLE";
+
+/**
+ * What this executor is, beyond the registry and the verifier it was given.
+ *
+ * `boundaryId` names the enforcement boundary this process is. When it is
+ * set, an intent is executable here only if it was captured here: an
+ * authority issued through one boundary cannot be presented at another, and
+ * an intent that names no boundary at all is not executable by a boundary
+ * that expects to be named. Leaving it unset is the existing behaviour
+ * exactly, which is what a deployment with one gateway wants.
+ */
+export interface SafeExecutorOptions {
+  readonly boundaryId?: string;
+}
 
 export type ExecutionPreDispatchFailureReason =
   "HANDLER_FAILED_BEFORE_DISPATCH" | "AUDIT_UNAVAILABLE";
@@ -122,11 +138,16 @@ export type ExecutionReconciliationResult<TResult = unknown> =
 export class SafeExecutor {
   private readonly hasher = new CanonicalIntentHasher();
 
+  private readonly boundaryId: string | null;
+
   public constructor(
     private readonly registry: ActionRegistry,
     private readonly verifier: AuthorizationVerifier,
     private readonly audit?: AuditRecorder,
-  ) {}
+    options?: SafeExecutorOptions,
+  ) {
+    this.boundaryId = options?.boundaryId ?? null;
+  }
 
   public async run<TResult = unknown>(
     captured: CapturedIntent,
@@ -164,6 +185,11 @@ export class SafeExecutor {
     }
     if (!this.intentConforms(captured)) {
       return await this.block(captured, decision, "INTENT_CONFORMANCE_FAILED", startedAt);
+    }
+    // Before the grant is consumed, not after: a boundary that refuses an
+    // intent must leave the authority intact for the boundary that owns it.
+    if (!this.boundaryMatches(captured)) {
+      return await this.block(captured, decision, "BOUNDARY_MISMATCH", startedAt);
     }
     this.registry.validate(captured);
     let authorization: VerifiedAuthorization | null;
@@ -443,6 +469,17 @@ export class SafeExecutor {
       readonly mode?: unknown;
     };
     return candidate.authority !== "OBSERVATIONAL" && candidate.mode !== "SHADOW";
+  }
+
+  /**
+   * Whether this boundary is the one the intent was captured through. The
+   * boundary is read back out of the hashed context, so an intent whose
+   * boundary was edited after capture fails conformance before it reaches
+   * here, and one that never named a boundary cannot acquire one now.
+   */
+  private boundaryMatches(captured: CapturedIntent): boolean {
+    if (this.boundaryId === null) return true;
+    return boundaryOf(captured.intent.context)?.boundary_id === this.boundaryId;
   }
 
   private intentConforms(captured: CapturedIntent): boolean {
