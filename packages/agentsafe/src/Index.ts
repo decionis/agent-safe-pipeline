@@ -123,6 +123,28 @@ export {
   type ExecutionReasonCode,
 } from "./adapters/banking/ReasonCodes.js";
 export {
+  McpGuard,
+  type McpGuardOptions,
+  type McpOutcome,
+  type McpRefusal,
+  type McpTool,
+} from "./adapters/mcp/McpGuard.js";
+export {
+  McpBindingError,
+  bindMcpInvocation,
+  bindingFor,
+  type BoundMcpInvocation,
+  type McpBindingCode,
+  type McpTrustedContext,
+} from "./adapters/mcp/McpIntentBinder.js";
+export {
+  MAX_TEMPLATE_PLACEHOLDERS,
+  McpInvocationSchema,
+  fillTarget,
+  type McpInvocation,
+  type McpToolBinding,
+} from "./adapters/mcp/McpInvocation.js";
+export {
   ChainJournal,
   type ChainJournalFs,
   type ChainJournalOptions,

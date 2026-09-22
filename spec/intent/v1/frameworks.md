@@ -1,6 +1,6 @@
 # Framework coverage
 
-What three agent frameworks' tool-call records carry of an Agent-Safe Intent binding, and what
+What four agent frameworks' and protocols' tool-call records carry of an Agent-Safe Intent binding, and what
 the adapter adds. This is a description, not a grade: no framework was designed to carry
 execution authority, and none of these needs to change for a producer built on it to conform.
 Each row is a vector under [`conformance/frameworks/`](../../../conformance/frameworks) that
@@ -12,18 +12,23 @@ The record shapes were read from the frameworks' own public documentation and so
 **2026-09-19** and are quoted from there; a change on their side is a correction here, reported
 as §10 of the [specification](./README.md) says.
 
+MCP is the one column whose adapter is not an integration's to write: `@decionis/agentsafe` ships
+it as `bindMcpInvocation`, so the vector is reproduced from the outside by the reference
+implementation and from the inside by the shipped adapter
+([MCP interception](../../../docs/authority/mcp-interception.md)).
+
 ## The matrix
 
-| Capability           | OpenAI Responses API / Agents SDK      | Vercel AI SDK                         | LangChain                               |
-| -------------------- | -------------------------------------- | ------------------------------------- | --------------------------------------- |
-| `action_identity`    | native: `name`                         | native: `toolName`                    | native: `name`                          |
-| `parameters`         | adapter: `arguments` is a JSON string  | native: `input` is an object          | native: `args` is an object             |
-| `target_identity`    | adapter                                | adapter                               | adapter                                 |
-| `principal`          | adapter                                | adapter                               | adapter                                 |
-| `expiry`             | adapter                                | adapter                               | adapter                                 |
-| `idempotency`        | adapter (`call_id` is the model's)     | adapter (`toolCallId` is the model's) | adapter (`id` is the model's, optional) |
-| `intent_digest`      | adapter                                | adapter                               | adapter                                 |
-| `effect_correlation` | native: `function_call_output.call_id` | native: `tool-result.toolCallId`      | native: `ToolMessage.tool_call_id`      |
+| Capability           | OpenAI Responses API / Agents SDK      | Vercel AI SDK                         | LangChain                               | MCP (`tools/call`)                      |
+| -------------------- | -------------------------------------- | ------------------------------------- | --------------------------------------- | --------------------------------------- |
+| `action_identity`    | native: `name`                         | native: `toolName`                    | native: `name`                          | native: `params.name`                   |
+| `parameters`         | adapter: `arguments` is a JSON string  | native: `input` is an object          | native: `args` is an object             | native: `params.arguments` is an object |
+| `target_identity`    | adapter                                | adapter                               | adapter                                 | adapter: the shipped binder's template  |
+| `principal`          | adapter                                | adapter                               | adapter                                 | adapter                                 |
+| `expiry`             | adapter                                | adapter                               | adapter                                 | adapter                                 |
+| `idempotency`        | adapter (`call_id` is the model's)     | adapter (`toolCallId` is the model's) | adapter (`id` is the model's, optional) | adapter (the caller's, when it has one) |
+| `intent_digest`      | adapter                                | adapter                               | adapter                                 | adapter                                 |
+| `effect_correlation` | native: `function_call_output.call_id` | native: `tool-result.toolCallId`      | native: `ToolMessage.tool_call_id`      | native: the JSON-RPC `id`               |
 
 Read down a column: every framework names the action and correlates the result with the call;
 two of the three hand over the arguments as the object that is hashed and one hands over text.
