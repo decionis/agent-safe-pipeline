@@ -11,7 +11,7 @@ authors:
     given-names: Festus B.
     affiliation: Decionis, Inc.
     orcid: https://orcid.org/0009-0006-4895-6046
-version: 0.3.4
+version: 0.3.5
 date-released: 2026-09-22
 license: Apache-2.0
 repository-code: https://github.com/decionis/agent-safe-pipeline
@@ -44,10 +44,20 @@ abstract: >-
   escalated step for a verified person, and finalizes the outcome into the
   signed Decision Dossier, with no local policy engine; shipped per platform
   with reproducible builds, a Homebrew formula, a verifying installer and a
-  signed Go module tag. This release adds Govern's Windows build, PowerShell
-  and cmd as shells it runs a step's command through, and its CycloneDX
-  software bill of materials, read from the shipped executables' own build
-  information and attested beside the archives.
+  signed Go module tag. Govern also ships a Windows build, PowerShell and cmd
+  as shells it runs a step's command through, and a CycloneDX software bill
+  of materials read from the shipped executables' own build information. This
+  release gives the boundary an identity of its own, stable across restarts
+  and rescheduling, and carries it inside the intent hash, so a Decision
+  Dossier establishes which enforcement boundary admitted an effect; it
+  carries what a runtime reported about the software that proposed the action
+  with the trust source attached and never raised, leaving container and OCI
+  tooling the authority for provenance; it makes an MCP tool invocation an
+  execution surface, where arguments that change after the authority is
+  issued invalidate it; and it holds the whole of it to a cross-runtime
+  conformance suite in which the same intent, policy and signals decide
+  identically on a host, in a container, in a pod and through the hosted
+  runtime.
 keywords:
   - execution authority
   - agentic AI
@@ -68,3 +78,7 @@ keywords:
   - continuous integration
   - GitHub Actions
   - software bill of materials
+  - enforcement boundary
+  - workload provenance
+  - Model Context Protocol
+  - OCI
