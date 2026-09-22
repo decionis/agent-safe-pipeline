@@ -7,19 +7,20 @@ guarantees on the way out.
 
 ## What is bound
 
-| Intent field                                                       | From an intercepted request                                                                                       |
-| ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
-| `action.type`                                                      | the route's action, or `http.<method>`                                                                            |
-| `action.resource`                                                  | `<METHOD> <path>`                                                                                                 |
-| `action.parameters`                                                | `method`, `path`, `query`, and `body` when it is JSON within the embedding limit                                  |
-| `context.body_sha256`                                              | SHA-256 over the raw bytes, embedded or not                                                                       |
-| `context.body_bytes`                                               | their length                                                                                                      |
-| `context.content_type`, `context.body_embedded`, `context.ingress` | what kind of body, whether policy can see its fields, `http`                                                      |
-| `context.claimed_principal`                                        | the configured principal header's value, unverified, when present                                                 |
-| `context.idempotency_key`                                          | the client's `Idempotency-Key`, else a fresh one                                                                  |
-| `actor`, `tenant_id`                                               | the configuration's actor and the key's organization                                                              |
-| `downstream_target`                                                | the upstream as `system`, the action as `operation`, the configured `environment`, the upstream URL as `endpoint` |
-| `expires_at`                                                       | `intentTtlSeconds` after capture, at most 300 seconds                                                             |
+| Intent field                                                       | From an intercepted request                                                                                                                  |
+| ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `action.type`                                                      | the route's action, or `http.<method>`                                                                                                       |
+| `action.resource`                                                  | `<METHOD> <path>`                                                                                                                            |
+| `action.parameters`                                                | `method`, `path`, `query`, and `body` when it is JSON within the embedding limit                                                             |
+| `context.body_sha256`                                              | SHA-256 over the raw bytes, embedded or not                                                                                                  |
+| `context.body_bytes`                                               | their length                                                                                                                                 |
+| `context.content_type`, `context.body_embedded`, `context.ingress` | what kind of body, whether policy can see its fields, `http`                                                                                 |
+| `context.claimed_principal`                                        | the configured principal header's value, unverified, when present                                                                            |
+| `context.idempotency_key`                                          | the client's `Idempotency-Key`, else a fresh one                                                                                             |
+| `context.enforcement_boundary`                                     | which boundary captured it: id, versions, deployment type, environment, stable placement ([enforcement boundary](./enforcement-boundary.md)) |
+| `actor`, `tenant_id`                                               | the configuration's actor and the key's organization                                                                                         |
+| `downstream_target`                                                | the upstream as `system`, the action as `operation`, the configured `environment`, the upstream URL as `endpoint`                            |
+| `expires_at`                                                       | `intentTtlSeconds` after capture, at most 300 seconds                                                                                        |
 
 Request headers are not bound: a credential to the upstream is the client's business with the
 upstream and never reaches the authority or the evidence. The canonical form is RFC 8785 over the
@@ -36,6 +37,9 @@ pin it, and the intent hash is what every later record names.
   and compares it, with the method and the path, to what the intent bound; a mismatch fails before
   dispatch. `SafeExecutor` re-checks the intent's own conformance immediately before the handler
   runs.
+- **The boundary is the one that admitted it.** The enforcement boundary is inside the canonical
+  bytes, so an authority issued at one boundary is bound to an intent naming that boundary, and
+  `SafeExecutor` refuses one captured elsewhere with `BOUNDARY_MISMATCH` before the claim.
 - **A stale authorization does nothing.** The intent expires; a grant is bound to the intent's
   expiry and refused after it; a decision is refused for an intent that expired before evaluation.
 - **Policy-version drift is visible.** The Decision Dossier records the policy version the decision

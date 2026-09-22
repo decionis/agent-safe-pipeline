@@ -15,6 +15,11 @@ import {
   type ShadowObservation,
   type TrustedIntentContext,
 } from "@decionis/agent-safe-pipeline";
+import {
+  boundarySignal,
+  resolveBoundary,
+  type EnforcementBoundary,
+} from "../boundary/BoundaryIdentity.js";
 import { ChainJournal } from "../audit/ChainJournal.js";
 import { HashChain } from "../audit/HashChain.js";
 import { EVIDENCE_STREAM, HashChainedAuditSink } from "../audit/HashChainedAuditSink.js";
@@ -181,6 +186,7 @@ export class Gateway {
     private readonly clock: () => number,
     private readonly version: string,
     private readonly surface: InstallSurface | null,
+    public readonly boundary: EnforcementBoundary,
   ) {
     this.lastShadowReportAt = clock();
     this.capture = new IntentCapture({ audit, ttlSeconds: config.intentTtlSeconds });
@@ -193,7 +199,11 @@ export class Gateway {
       routes.actions(),
       httpForwardHandler(upstream, this.holder),
     );
-    this.executor = new SafeExecutor(registry, verifier, audit);
+    // The executor refuses an intent captured through another boundary: an
+    // authority issued at one door is not presentable at the next.
+    this.executor = new SafeExecutor(registry, verifier, audit, {
+      boundaryId: boundary.boundaryId,
+    });
     this.shadow =
       config.authority.mode === "SHADOW"
         ? new ShadowPipeline(gate, { audit, timeoutMs: config.authority.timeoutMs })
@@ -333,6 +343,14 @@ export class Gateway {
       sink: new HashChainedAuditSink(emitLine, evidence),
       failurePolicy: config.evidence.enabled ? "REQUIRE_BEFORE_EXECUTION" : "BEST_EFFORT",
     });
+    const boundary = resolveBoundary({
+      env,
+      version,
+      deploymentType: surface,
+      environment: config.upstream.environment,
+      upstreamOrigin: new URL(config.upstream.url).origin,
+      configuredId: config.boundary.id,
+    });
     const gateway = new Gateway(
       config,
       upstream,
@@ -352,6 +370,7 @@ export class Gateway {
       clock,
       version,
       surface,
+      boundary,
     );
     return gateway;
   }
@@ -383,6 +402,16 @@ export class Gateway {
       routes: this.config.interception.routes.length,
       evidence: this.evidenceLabel,
       version: this.version,
+    });
+    this.report({
+      event: "BOUNDARY_IDENTIFIED",
+      at: new Date(this.clock()).toISOString(),
+      boundary_id: this.boundary.boundaryId,
+      boundary_source: this.boundary.boundarySource,
+      deployment_type: this.boundary.deploymentType,
+      environment: this.boundary.environment,
+      protocol_version: this.boundary.protocolVersion,
+      conformance_version: this.boundary.conformanceVersion,
     });
     this.link({
       event: "GATEWAY_STARTED",
@@ -620,6 +649,7 @@ export class Gateway {
       },
       idempotencyKey: normalized.idempotencyKey ?? randomUUID(),
       ...(normalized.correlationId === null ? {} : { correlationId: normalized.correlationId }),
+      signals: { boundary: boundarySignal(this.boundary) },
     };
     return this.capture.capture(normalized.proposal, trusted);
   }

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { JsonObjectSchema, type JsonObject } from "./JsonValue.js";
+import { ExecutionSignalsSchema } from "./ExecutionSignals.js";
 
 const boundedId = z.string().trim().min(1).max(200);
 const actionName = z
@@ -53,6 +54,12 @@ export const TrustedIntentContextSchema = z
     correlationId: boundedId.optional(),
     expectedEffectDigest: sha256Digest.optional(),
     idempotencyKey: z.string().trim().min(1).max(180),
+    /**
+     * What the trusted runtime knows about itself and the workload it is
+     * standing in front of. The capture stamps these into the hashed context
+     * under reserved keys; a caller may not write those keys by hand.
+     */
+    signals: ExecutionSignalsSchema.optional(),
   })
   .strict();
 

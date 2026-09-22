@@ -41,7 +41,11 @@ export default {
   // about to expire fails a client at the handshake. The governor is the seam
   // where that leaf is presented and the plaintext handed to the gateway: a
   // mutant there hands bytes past the boundary, or holds a connection the
-  // client has left.
+  // client has left. The boundary identity is here because it is what a
+  // Decision Dossier names as having admitted an effect: a mutant that lets
+  // an id move with a container, or that carries an ephemeral instance into
+  // the signal an intent binds, either attributes an effect to a boundary
+  // that never admitted it or writes the host into signed evidence.
   mutate: [
     "src/http/ExecutorHttpServer.ts",
     "src/identity/PrincipalRegistry.ts",
@@ -65,6 +69,7 @@ export default {
     "src/intercept/Der.ts",
     "src/intercept/LeafIssuer.ts",
     "src/http/InterceptGovernor.ts",
+    "src/boundary/BoundaryIdentity.ts",
   ],
   reporters: ["clear-text", "progress"],
   coverageAnalysis: "perTest",

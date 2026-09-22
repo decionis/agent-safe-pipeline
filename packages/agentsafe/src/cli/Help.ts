@@ -12,6 +12,7 @@ export function usage(version: string): string {
     "  intercept            Run the transparent interceptor: observe every destination, govern the listed ones",
     "  status               Ask a running gateway what it is doing",
     "  doctor               Check the binary, configuration, upstream, Decionis and credentials",
+    "  identity             Print which enforcement boundary this process is",
     "  test                 Show what reaches a target without the boundary and what enforcement prevents",
     "  config               Print the effective configuration and where each setting came from",
     "  login | logout       Store or remove a Decionis key for this user (--provision mints a free workspace)",

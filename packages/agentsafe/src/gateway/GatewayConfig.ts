@@ -78,6 +78,12 @@ export interface GatewayConfig {
     readonly principalHeader: string | null;
   };
   readonly actor: { readonly id: string; readonly type: string; readonly runtime: string };
+  /**
+   * What the operator calls this enforcement boundary. Null leaves it to be
+   * derived from the configuration, which is stable across restarts; see
+   * `boundary/BoundaryIdentity.ts`.
+   */
+  readonly boundary: { readonly id: string | null };
   readonly intentTtlSeconds: number;
   readonly escalation: EscalationConfig;
   readonly evidence: { readonly enabled: boolean; readonly journalDir: string | null };
@@ -169,6 +175,17 @@ export const GatewayFileSchema = z.strictObject({
       type: z.string().trim().min(1).max(200).optional(),
     })
     .optional(),
+  boundary: z
+    .strictObject({
+      id: z
+        .string()
+        .trim()
+        .min(1)
+        .max(200)
+        .regex(/^[a-z0-9][\w.:/-]*$/i)
+        .optional(),
+    })
+    .optional(),
   intentTtlSeconds: positiveInt.max(300).optional(),
   presence: PresenceSchema.optional(),
   evidence: z
@@ -254,6 +271,7 @@ const ENVIRONMENT = {
   evidenceDir: "AGENTSAFE_EVIDENCE_DIR",
   actorId: "AGENTSAFE_ACTOR_ID",
   actorType: "AGENTSAFE_ACTOR_TYPE",
+  boundaryId: "AGENTSAFE_BOUNDARY_ID",
   principalHeader: "AGENTSAFE_PRINCIPAL_HEADER",
   presenceApproverId: "PRESENCE_APPROVER_ID",
   presenceApproverRole: "PRESENCE_APPROVER_ROLE",
@@ -756,6 +774,16 @@ export class GatewayConfigLoader {
         timeoutMs,
         allowInsecureLoopback,
         provisional,
+      },
+      boundary: {
+        id: resolve<string | null>(
+          "boundary.id",
+          [
+            { source: "environment", raw: env[ENVIRONMENT.boundaryId]?.trim() },
+            { source: "file", raw: file?.boundary?.id },
+          ],
+          null,
+        ),
       },
       interception: {
         http: resolve(

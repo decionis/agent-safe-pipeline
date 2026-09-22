@@ -650,6 +650,97 @@ describe("what a hosted call says about where the runtime came from", () => {
   }, 20_000);
 });
 
+describe("which enforcement boundary admitted the effect", () => {
+  const upstream = new UpstreamDouble();
+  const authority = new LocalAuthority({ policy: demoPolicy });
+  afterAll(async () => {
+    await authority.stop();
+    await upstream.stop();
+  });
+
+  it("names itself once at start and binds itself into every intent it captures", async () => {
+    await upstream.start();
+    await authority.start();
+    const env = {
+      DECIONIS_API_KEY: LOCAL_AUTHORITY_API_KEY,
+      DECIONIS_API_URL: authority.baseUrl,
+      DECIONIS_ALLOW_INSECURE_LOOPBACK: "true",
+      DECIONIS_TENANT_ID: TENANT_ID,
+      AGENTSAFE_BOUNDARY_ID: "prod-payments-eu",
+      AGENTSAFE_NAMESPACE: "payments",
+      AGENTSAFE_POD_ID: "agentsafe-7c9f-xk2",
+    };
+    const io = collectedIo();
+    const gateway = await Gateway.create(testConfig(upstream.baseUrl, { env }), {
+      env,
+      io,
+      version: "9.9.9",
+      surface: "kubernetes",
+    });
+    gateway.started("http://127.0.0.1:1");
+    const announced = io.out
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+      .find((line) => line["event"] === "BOUNDARY_IDENTIFIED");
+    expect(announced).toMatchObject({
+      boundary_id: "prod-payments-eu",
+      boundary_source: "configured",
+      deployment_type: "kubernetes",
+      environment: "local",
+    });
+
+    await gateway.govern(request("POST", "/payments", { amount: 5 }), "http.post");
+    await settle();
+    const call = authority.requests.find((seen) => seen.path.endsWith("/enforce-and-bind"));
+    const context = (call?.body as { context: Record<string, unknown> }).context;
+    expect(context["enforcement_boundary"]).toEqual({
+      boundary_id: "prod-payments-eu",
+      agentsafe_version: "9.9.9",
+      protocol_version: "agent-safe.intent/1",
+      deployment_type: "kubernetes",
+      environment: "local",
+      conformance_version: "agent-safe-intent-v1",
+      placement: { namespace: "payments" },
+    });
+    // The pod is this instance, not the boundary: it is nowhere on the wire.
+    expect(JSON.stringify(call?.body)).not.toContain("agentsafe-7c9f-xk2");
+    await gateway.close();
+  }, 20_000);
+
+  it("is a different boundary, and a different intent hash, at another door", async () => {
+    await upstream.start();
+    await authority.start();
+    const env = {
+      DECIONIS_API_KEY: LOCAL_AUTHORITY_API_KEY,
+      DECIONIS_API_URL: authority.baseUrl,
+      DECIONIS_ALLOW_INSECURE_LOOPBACK: "true",
+      DECIONIS_TENANT_ID: TENANT_ID,
+    };
+    const hashes: string[] = [];
+    for (const boundaryId of ["prod-payments-eu", "staging-payments-us"]) {
+      const gateway = await Gateway.create(testConfig(upstream.baseUrl, { env }), {
+        env: { ...env, AGENTSAFE_BOUNDARY_ID: boundaryId },
+        io: collectedIo(),
+        version: "9.9.9",
+        surface: "docker",
+      });
+      const before = authority.requests.length;
+      await gateway.govern(
+        request("POST", "/payments", { amount: 5 }, { "idempotency-key": "pay-same" }),
+        "http.post",
+      );
+      await settle();
+      const call = authority.requests
+        .slice(before)
+        .find((seen) => seen.path.endsWith("/enforce-and-bind"));
+      hashes.push((call?.body as { intent_hash: string }).intent_hash);
+      await gateway.close();
+    }
+    // The same request at two boundaries is two different intents, so an
+    // authority issued at one cannot be presented at the other.
+    expect(hashes[0]).not.toBe(hashes[1]);
+  }, 20_000);
+});
+
 describe("the forwarded bytes are the bytes the intent bound", () => {
   it("refuses before dispatch when the held request no longer matches the captured intent", async () => {
     const upstream = new UpstreamDouble();

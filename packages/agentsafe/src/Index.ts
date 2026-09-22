@@ -522,6 +522,18 @@ export {
   type ActivationStep,
 } from "./gateway/Activation.js";
 export {
+  BOUNDARY_CONFORMANCE,
+  BOUNDARY_ENVIRONMENT,
+  BOUNDARY_PROTOCOL,
+  DERIVED_BOUNDARY_PREFIX,
+  boundarySignal,
+  resolveBoundary,
+  type BoundaryFacts,
+  type BoundaryInstance,
+  type BoundaryPlacement,
+  type EnforcementBoundary,
+} from "./boundary/BoundaryIdentity.js";
+export {
   INSTALL_SURFACES,
   SURFACE_ENVIRONMENT,
   installSurface,
@@ -552,6 +564,7 @@ export {
   renderJson,
   stateLabel,
   type ActivationMilestoneReport,
+  type BoundaryIdentifiedReport,
   type ExecutionDisposition,
   type GatewayReport,
   type GatewayState,
@@ -622,6 +635,14 @@ export {
 } from "./cli/Credentials.js";
 export { effectiveConfig, runConfig } from "./cli/ConfigCommand.js";
 export { DOCTOR_ARGUMENTS, runDoctor, type DoctorCheck, type DoctorOptions } from "./cli/Doctor.js";
+export {
+  IDENTITY_ARGUMENTS,
+  IDENTITY_REPORT_VERSION,
+  identityReport,
+  renderIdentityReport,
+  runIdentity,
+  type IdentityReport,
+} from "./cli/Identity.js";
 export { usage } from "./cli/Help.js";
 export {
   INIT_ARGUMENTS,

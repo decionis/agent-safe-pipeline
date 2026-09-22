@@ -9,6 +9,7 @@ import {
   type CapturedIntent,
   type TrustedIntentContext,
 } from "./ExecutionIntent.js";
+import { RESERVED_CONTEXT_KEYS, signalContext } from "./ExecutionSignals.js";
 import { CanonicalIntentHasher } from "./CanonicalIntentHasher.js";
 
 export interface IntentCaptureOptions {
@@ -39,7 +40,11 @@ export class IntentCapture {
     this.hasher.assertInputBounded(trustedInput);
     const proposal = AgentProposalSchema.parse(proposalInput);
     const trusted = TrustedIntentContextSchema.parse(trustedInput);
-    if (Object.hasOwn(trusted.context, RESERVED_CONTEXT_IDEMPOTENCY_KEY)) {
+    // The reserved keys are the runtime's to write. A caller that sets one by
+    // hand is describing a boundary or a workload the capture did not observe,
+    // so the proposal is refused rather than silently overwritten.
+    const reserved = [RESERVED_CONTEXT_IDEMPOTENCY_KEY, ...RESERVED_CONTEXT_KEYS];
+    if (reserved.some((key) => Object.hasOwn(trusted.context, key))) {
       throw new Error("INTENT_CONTEXT_KEY_RESERVED");
     }
     const capturedAt = this.clock();
@@ -55,7 +60,10 @@ export class IntentCapture {
       target: proposal.target,
       parameters: proposal.parameters,
       downstreamTarget: trusted.downstreamTarget,
-      context: trusted.context,
+      context:
+        trusted.signals === undefined
+          ? trusted.context
+          : { ...trusted.context, ...signalContext(trusted.signals) },
       ...(trusted.correlationId === undefined ? {} : { correlationId: trusted.correlationId }),
       ...(trusted.expectedEffectDigest === undefined
         ? {}

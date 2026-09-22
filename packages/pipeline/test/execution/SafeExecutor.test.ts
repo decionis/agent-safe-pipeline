@@ -14,9 +14,20 @@ import type {
   VerifiedAuthorization,
 } from "../../src/execution/AuthorizationVerifier.js";
 import { SafeExecutor } from "../../src/execution/SafeExecutor.js";
+import type { EnforcementBoundarySignal } from "../../src/intent/ExecutionSignals.js";
 import { IntentCapture } from "../../src/intent/IntentCapture.js";
 
-function captured(amount = 350) {
+function boundary(id: string): EnforcementBoundarySignal {
+  return {
+    boundary_id: id,
+    agentsafe_version: "0.0.0-test",
+    protocol_version: "agent-safe.intent/1",
+    deployment_type: "docker",
+    environment: "production",
+  };
+}
+
+function captured(amount = 350, boundaryId: string | null = null) {
   return new IntentCapture({ ttlSeconds: 120 }).capture(
     {
       action: "refund_order",
@@ -29,6 +40,7 @@ function captured(amount = 350) {
       downstreamTarget: { system: "shopify", operation: "refund" },
       idempotencyKey: `refund-${amount}`,
       context: {},
+      ...(boundaryId === null ? {} : { signals: { boundary: boundary(boundaryId) } }),
     },
   );
 }
@@ -54,6 +66,15 @@ function setup(verdict: "ALLOW" | "BLOCK" | "ESCALATE" = "ALLOW") {
     unsafeAllowDevelopmentFixture: true,
   });
   return { execute, pair, registry, executor: new SafeExecutor(registry, pair.verifier) };
+}
+
+/** The same setup, standing at a named enforcement boundary. */
+function setupAt(boundaryId: string) {
+  const parts = setup();
+  return {
+    ...parts,
+    executor: new SafeExecutor(parts.registry, parts.pair.verifier, undefined, { boundaryId }),
+  };
 }
 
 function authorizationFor(
@@ -103,6 +124,50 @@ describe("SafeExecutor", () => {
       expect(result).toMatchObject({ executed: false, reason: "DECISION_NOT_ALLOW" });
       expect(execute).not.toHaveBeenCalled();
     }
+  });
+
+  it("executes an intent captured at this boundary", async () => {
+    const { execute, pair, executor } = setupAt("prod-payments-eu");
+    const intent = captured(350, "prod-payments-eu");
+    const result = await executor.run(intent, await pair.authority.evaluate(intent));
+
+    expect(result).toMatchObject({ outcome: "COMPLETED", executed: true });
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses an authority issued through another boundary, before consuming it", async () => {
+    const { execute, pair, executor } = setupAt("prod-payments-eu");
+    // The authority is real and the intent conforms; it was simply admitted
+    // somewhere else. Boundary B may not spend boundary A's grant.
+    const elsewhere = captured(350, "staging-payments-us");
+    const decision = await pair.authority.evaluate(elsewhere);
+    const result = await executor.run(elsewhere, decision);
+
+    expect(result).toMatchObject({ executed: false, reason: "BOUNDARY_MISMATCH" });
+    expect(execute).not.toHaveBeenCalled();
+    // The grant was not consumed, so the boundary that owns it can still use it.
+    const owner = new SafeExecutor(setup().registry, pair.verifier, undefined, {
+      boundaryId: "staging-payments-us",
+    });
+    expect(await owner.run(elsewhere, decision)).toMatchObject({ outcome: "COMPLETED" });
+  });
+
+  it("refuses an intent that names no boundary at a boundary that expects to be named", async () => {
+    const { execute, pair, executor } = setupAt("prod-payments-eu");
+    const anonymous = captured(350);
+    const result = await executor.run(anonymous, await pair.authority.evaluate(anonymous));
+
+    expect(result).toMatchObject({ executed: false, reason: "BOUNDARY_MISMATCH" });
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("ignores the boundary entirely when the executor was not given one", async () => {
+    const { execute, pair, executor } = setup();
+    const elsewhere = captured(350, "some-other-boundary");
+    const result = await executor.run(elsewhere, await pair.authority.evaluate(elsewhere));
+
+    expect(result).toMatchObject({ outcome: "COMPLETED", executed: true });
+    expect(execute).toHaveBeenCalledTimes(1);
   });
 
   it("rejects approval swapping and altered action parameters", async () => {

@@ -38,6 +38,7 @@ const COMMANDS = [
   "status",
   "doctor",
   "test",
+  "identity",
   "config",
   "login",
   "logout",

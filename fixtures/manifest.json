@@ -507,6 +507,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/boundary/BoundaryIdentity.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/cli/Arguments.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
@@ -544,6 +550,12 @@
     },
     {
       "path": "packages/agentsafe/test/cli/Doctor.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/cli/Identity.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false
@@ -1174,6 +1186,12 @@
     },
     {
       "path": "packages/pipeline/test/http/StoredCredentials.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/pipeline/test/intent/ExecutionSignals.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false

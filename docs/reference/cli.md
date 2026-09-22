@@ -83,6 +83,16 @@ is minted: `401`/`403` is a rejected key, `400`/`422` an accepted one); the Pres
 the evidence configuration. Each failure says what to do. `--no-network` skips the three probes;
 `--json` prints the checks as data. Exit `1` when any check fails.
 
+### `agentsafe identity`
+
+Which enforcement boundary this process is: the id and whether an operator named it or the
+configuration derived it, the runtime, the versions, the environment, the conformance profile, and
+the stable placement the manifest declared. `--json` prints it as data. It reads the gateway
+configuration when there is one and describes what it would resolve to when there is not, so it
+can be run before anything is configured. The container, pod and node appear beneath the report
+and are bound into no intent and signed into no evidence. Exit `0`; see
+[the enforcement boundary](../authority/enforcement-boundary.md).
+
 ### `agentsafe test [name=host:port]...`
 
 The boundary test: a fixed set of consequential requests sent three ways at a synthetic loopback
