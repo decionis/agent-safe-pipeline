@@ -54,6 +54,19 @@ intercept`, the redirect as the `<version>-init` image, a Kubernetes Component a
   information and attested beside the archives. The library (0.3.4) and the runtime (0.2.4) carry
   no change of their own
   ([tag v0.3.4](https://github.com/decionis/agent-safe-pipeline/releases/tag/v0.3.4)).
+- `v0.3.5` gives the enforcement boundary an identity of its own — stable across a restart, a
+  rescheduling and a scale-out, derived from configuration and never from the machine — and binds
+  it inside the intent hash, so a Decision Dossier establishes which boundary admitted an effect
+  (`agentsafe identity`, ADR 0006). It carries what a runtime reported about the software that
+  proposed the action, with the trust source always attached and never raised: environment-declared
+  provenance is `supplied`, never `verified`, and Docker and OCI tooling remain the authority for
+  the artifact (ADR 0007). It makes an MCP tool invocation a first-class execution surface, where
+  arguments that change after the authority is issued invalidate it. And it holds all of it to a
+  cross-runtime conformance suite in which the same intent, policy and signals decide identically
+  on a host, in a container, in a pod and through the hosted runtime, while each binds its own
+  runtime metadata; `agentsafe test` now runs six attacks that need an authority before they can be
+  attempted, rather than describing them
+  ([tag v0.3.5](https://github.com/decionis/agent-safe-pipeline/releases/tag/v0.3.5)).
 
 See [GitHub Releases](https://github.com/decionis/agent-safe-pipeline/releases) and the
 [release-verification guide](./CONTRIBUTING.md#releases) for immutable artifacts and verification

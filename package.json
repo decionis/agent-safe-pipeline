@@ -1,6 +1,6 @@
 {
   "name": "agent-safe-pipeline-workspace",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "private": true,
   "description": "Reference architecture for executing AI-agent actions through an independent authorization boundary.",
   "license": "Apache-2.0",
