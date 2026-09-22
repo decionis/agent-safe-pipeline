@@ -49,7 +49,11 @@ export default {
   // provenance contract is here for the claim it makes on AgentSafe's behalf:
   // it decides what trust level reaches a policy, and a mutant that let a
   // declared value through as anything stronger than `supplied` would have
-  // this package asserting it verified something it never looked at.
+  // this package asserting it verified something it never looked at. The MCP
+  // binder is the banking binder's counterpart for tool calls: it decides
+  // which action a tool name becomes and which resource the arguments point
+  // at, so a mutant there is a model describing one thing and a system of
+  // record being asked for another.
   mutate: [
     "src/http/ExecutorHttpServer.ts",
     "src/identity/PrincipalRegistry.ts",
@@ -75,6 +79,7 @@ export default {
     "src/http/InterceptGovernor.ts",
     "src/boundary/BoundaryIdentity.ts",
     "src/provenance/ProvenanceProvider.ts",
+    "src/adapters/mcp/McpIntentBinder.ts",
   ],
   reporters: ["clear-text", "progress"],
   coverageAnalysis: "perTest",

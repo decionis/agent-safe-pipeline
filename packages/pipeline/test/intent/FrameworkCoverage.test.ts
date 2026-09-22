@@ -28,8 +28,10 @@ const CAPABILITIES = [
 const LABELS = new Set(["native", "adapter", "not_represented", "not_tested"]);
 
 interface CoverageFile {
-  readonly framework: "openai" | "vercel" | "langchain";
+  readonly framework: "openai" | "vercel" | "langchain" | "mcp";
   readonly record: Record<string, unknown>;
+  /** MCP only: what an operator declared about the tool, which the shipped binder reads. */
+  readonly tool_binding?: { readonly action: string; readonly target: string };
   readonly proposal: AgentProposal;
   readonly trusted_context: TrustedIntentContext;
   readonly capture: { intent_id: string; captured_at: string; ttl_seconds: number };
@@ -44,10 +46,18 @@ function target(parameters: JsonObject): string {
   return `shopify:order:${String(parameters["orderId"])}`;
 }
 
-/** Each adapter, as an integration would write it: a few lines from the record to the proposal. */
+/**
+ * Each adapter, as an integration would write it: a few lines from the record
+ * to the proposal. MCP is the exception and is marked as one — its mapping is
+ * not an integration's to write, because `@decionis/agentsafe` ships it as
+ * `bindMcpInvocation`. What is reproduced here is the same vector from the
+ * outside: given the tool binding an operator declared, these are the
+ * proposal, the bytes and the hash, and the package's own test holds the
+ * shipped binder to them.
+ */
 const adapters: Record<
   CoverageFile["framework"],
-  (record: Record<string, unknown>) => AgentProposal
+  (record: Record<string, unknown>, file: CoverageFile) => AgentProposal
 > = {
   openai: (record) => {
     // A Responses API function_call item: the arguments are a JSON string.
@@ -64,6 +74,19 @@ const adapters: Record<
     const parameters = record["args"] as JsonObject;
     return { action: record["name"] as string, target: target(parameters), parameters };
   },
+  mcp: (record, file) => {
+    // An MCP tools/call request. The tool names itself and its arguments are
+    // an object; the action and the target come from the operator's binding,
+    // never from the caller.
+    const parameters = (record["params"] as JsonObject)["arguments"] as JsonObject;
+    const declared = file.tool_binding;
+    if (declared === undefined) throw new Error("MCP_TOOL_BINDING_MISSING");
+    return {
+      action: declared.action,
+      target: declared.target.replace("{customerId}", String(parameters["customerId"])),
+      parameters,
+    };
+  },
 };
 
 async function files(): Promise<readonly CoverageFile[]> {
@@ -77,9 +100,10 @@ async function files(): Promise<readonly CoverageFile[]> {
 }
 
 describe("framework coverage", () => {
-  it("covers the three frameworks the specification names", async () => {
+  it("covers the frameworks the specification names", async () => {
     expect((await files()).map((file) => file.framework)).toEqual([
       "langchain",
+      "mcp",
       "openai",
       "vercel",
     ]);
@@ -87,7 +111,7 @@ describe("framework coverage", () => {
 
   it("reproduces every file: record to proposal to binding to hash", async () => {
     for (const file of await files()) {
-      const proposal = adapters[file.framework](file.record);
+      const proposal = adapters[file.framework](file.record, file);
       expect(proposal, file.framework).toEqual(file.proposal);
       const capture = new IntentCapture({
         clock: () => new Date(file.capture.captured_at),
@@ -114,7 +138,10 @@ describe("framework coverage", () => {
       expect(file.trusted_context.context["tool_call_id"]).toBeDefined();
       // "native" parameters means the record holds the object that is hashed;
       // "adapter" means the adapter had to produce it (here, by parsing text).
-      const recordParameters = file.record["input"] ?? file.record["args"];
+      const recordParameters =
+        file.record["input"] ??
+        file.record["args"] ??
+        (file.record["params"] as JsonObject | undefined)?.["arguments"];
       if (file.coverage["parameters"] === "native") {
         expect(recordParameters).toEqual(file.proposal.parameters);
       } else {

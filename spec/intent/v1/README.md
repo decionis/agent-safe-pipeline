@@ -197,7 +197,11 @@ Labels: **native**, the framework's own record carries it; **adapter**, the prod
 the OpenAI Responses API and Agents SDK, the Vercel AI SDK and LangChain, from the vectors under
 [`conformance/frameworks/`](../../../conformance/frameworks), each of which carries the
 framework's own record, the proposal it becomes, the trusted context, and the binding and hash
-that result. The Model Context Protocol is covered by [`examples/mcp-tool-gate`](../../../examples/mcp-tool-gate).
+that result. The Model Context Protocol has a vector of its own there, and is the one case where
+the record-to-proposal mapping is not an integration's to write: `@decionis/agentsafe` ships it as
+`bindMcpInvocation`, so the vector is reproduced from the outside by the reference implementation
+and from the inside by the shipped adapter ([MCP interception](../../../docs/authority/mcp-interception.md),
+[`examples/mcp-tool-gate`](../../../examples/mcp-tool-gate)).
 
 ## 9. Versioning
 

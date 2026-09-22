@@ -21,6 +21,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "conformance/frameworks/mcp.json",
+      "family": "Framework coverage vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "conformance/frameworks/openai.json",
       "family": "Framework coverage vector",
       "source": "synthetic",
@@ -478,6 +484,24 @@
     },
     {
       "path": "packages/agentsafe/test/adapters/banking/Money.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/adapters/mcp/McpConformance.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/adapters/mcp/McpGuard.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/adapters/mcp/McpIntentBinder.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false
