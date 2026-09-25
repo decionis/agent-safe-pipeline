@@ -380,7 +380,7 @@ To verify the distinct production claim, obtain a live dossier through an author
 the pinned verifier against the live JWKS without committing the dossier:
 
 ```bash
-npx -y @decionis/verify@0.3.0 \
+npx -y @decionis/verify@0.4.0 \
   --file /absolute/path/to/live-decision-dossier.json \
   --jwks https://api.decionis.com/v1/.well-known/decision-dossier-jwks.json
 ```

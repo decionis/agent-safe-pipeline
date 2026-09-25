@@ -21,7 +21,6 @@ import {
   assessDossierIssuer,
   assessDossierReproducibility,
   resolveJwksUrl,
-  verifiedArtifactKinds,
   verifyDossierProofBundle,
 } from "@decionis/verify";
 import { readBoundedJsonResponse } from "./BoundedJsonResponse.mjs";
@@ -158,8 +157,10 @@ export async function verifyDossier({
   const jwks = await fetchJson(fetchImpl, jwksUrl, {});
 
   const result = verifyDossierProofBundle({ dossier_payload: payload, public_jwks: jwks });
-  const issuer = assessDossierIssuer(payload, verifiedArtifactKinds(result));
-  const reproducibility = assessDossierReproducibility(payload);
+  // Both assessments count only the document paths the proof bundle verified.
+  const verifiedPaths = new Set(result.verified_artifact_paths ?? []);
+  const issuer = assessDossierIssuer(payload, verifiedPaths);
+  const reproducibility = assessDossierReproducibility(payload, verifiedPaths);
 
   out.write(`dossier: ${dossierId}\n`);
   out.write(`record:  ${recordUrl}\n`);

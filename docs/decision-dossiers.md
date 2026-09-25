@@ -62,11 +62,12 @@ The dossier, as the record keeps it:
 ```text
 dossier_id                          synthetic-dossier-owned-execution-bound-001
 routing_decision.decision_id        synthetic-decision-owned-execution-bound-001
-routing_decision.outcome            ALLOW
+machine_readable.verdict            ALLOW
+routing_decision.outcome            APPROVE
 routing_decision.execution_grant_issued   true
 execution_binding.payload.digest    sha256:9eef89f55e857c7d72a88860a6136a3c53e741cd1e22ea39cc92c5a5cca85356
 execution_binding.expires_at        2026-09-04T10:05:00.000Z
-execution_binding.idempotency_key   fixture_0001
+execution_binding.idempotency_key   fixture_owned-execution-bound
 ```
 
 The record says that a grant was issued, to which intent, and until when. It does not contain the

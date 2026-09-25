@@ -1,6 +1,6 @@
 {
   "vector_version": "agent-safe.decision-dossier-conformance/1",
-  "description": "Synthetic ALLOW Decision Dossier from an owned workspace with signed portable JSON, inputs snapshot, JSON-LD, and RFC 8785/JCS execution-binding artifacts.",
+  "description": "Synthetic ALLOW Decision Dossier (Protocol 1.1) from an owned workspace, execution-eligible, with signed portable JSON, inputs snapshot, JSON-LD, and an RFC 8785/JCS execution binding.",
   "expected": {
     "verified": true,
     "artifacts_checked": 4,
@@ -12,112 +12,85 @@
       "unknown_tier": null,
       "signature_covered": true,
       "provisional": false,
-      "label": "Owned workspace"
+      "label": "Claimed owned workspace"
     }
   },
   "expected_artifacts": [
     {
       "artifact_kind": "portable_artifact",
       "document_path": "/portable_artifact",
-      "canonical_json": "{\"artifact_type\":\"decionis.decision_dossier.portable\",\"dossier_id\":\"synthetic-dossier-runtime-signals-001\",\"generated_at\":\"2026-09-04T10:00:00.000Z\",\"governance\":{\"policy_snapshot\":{\"evaluated_at\":\"2026-09-04T10:00:00.000Z\",\"policy_id\":\"synthetic-policy-runtime-signals-v1\",\"policy_version\":\"synthetic-policy-runtime-signals-v1\",\"rules_sha256\":\"17f91238c188c04378e5ae764ff3ed9c70f50689348736874064c7f9a8747e73\"}},\"inputs_snapshot\":{\"action\":\"payment.send\",\"actor_id\":\"synthetic-dossier-corpus-agent\",\"amount_minor\":50000,\"signals\":{\"enforcement_boundary\":{\"agentsafe_version\":\"0.0.0-synthetic\",\"boundary_id\":\"synthetic-boundary-prod-eu\",\"conformance_version\":\"agent-safe-intent-v1\",\"deployment_type\":\"kubernetes\",\"environment\":\"synthetic-production\",\"placement\":{\"cluster_id\":\"synthetic-eu-1\",\"namespace\":\"synthetic-payments\"},\"protocol_version\":\"agent-safe.intent/1\"},\"workload\":{\"artifact_type\":\"oci\",\"digest\":\"sha256:5555555555555555555555555555555555555555555555555555555555555555\",\"image\":\"ghcr.io/example/synthetic-payments-agent:1.4.2\",\"provenance\":{\"source\":\"kubernetes\",\"trust_level\":\"supplied\"},\"runtime\":\"kubernetes\"}},\"target\":\"synthetic-beneficiary-1005\",\"tenant_id\":\"00000000-0000-4000-8000-000000000004\"},\"machine_readable\":{\"issuer_context\":{\"tier\":\"owned\"}},\"routing_decision\":{\"authority\":\"AUTHORITATIVE\",\"decision_id\":\"synthetic-decision-runtime-signals-001\",\"execution_grant_issued\":true,\"outcome\":\"ALLOW\",\"policy_evaluation\":{\"evaluated_at\":\"2026-09-04T10:00:00.000Z\"},\"policy_version\":\"synthetic-policy-runtime-signals-v1\",\"reason_codes\":[\"SYNTHETIC_POLICY_ALLOW\"]},\"version\":\"2.0\"}",
-      "canonical_document_sha256": "4833fdbab8383e9d35d542211d4a5091bbe752dab698ede99d602b6e2f7f18eb",
-      "signature": "nQUNbVf-W6pkAfHGKJupZT1FNu283CACtzrs_9s_95mfFudujARqMs-jVzZHhvw1v2-sEu7WyslhVvuPMu8zCQ"
+      "canonical_json": "{\"artifact_type\":\"decionis.decision_dossier.portable\",\"dossier_id\":\"synthetic-dossier-runtime-signals-001\",\"generated_at\":\"2026-09-04T10:00:00.000Z\",\"governance\":{\"policy_snapshot\":{\"evaluated_at\":\"2026-09-04T10:00:00.000Z\",\"parameters_sha256\":\"7ff6143113499fc6166201bab04848a30d3e370508540abf3ef1fdad86ea49fe\",\"policy_bundle_id\":\"synthetic-policy-runtime-signals-v1\",\"policy_version\":\"synthetic-policy-runtime-signals-v1\",\"rules_sha256\":\"17f91238c188c04378e5ae764ff3ed9c70f50689348736874064c7f9a8747e73\"}},\"inputs_snapshot\":{\"amount\":500,\"channel\":\"api\",\"context\":{\"action\":\"payment.send\",\"actor_id\":\"synthetic-dossier-corpus-agent\",\"amount_minor\":50000,\"signals\":{\"enforcement_boundary\":{\"agentsafe_version\":\"0.0.0-synthetic\",\"boundary_id\":\"synthetic-boundary-prod-eu\",\"conformance_version\":\"agent-safe-intent-v1\",\"deployment_type\":\"kubernetes\",\"environment\":\"synthetic-production\",\"placement\":{\"cluster_id\":\"synthetic-eu-1\",\"namespace\":\"synthetic-payments\"},\"protocol_version\":\"agent-safe.intent/1\"},\"workload\":{\"artifact_type\":\"oci\",\"digest\":\"sha256:5555555555555555555555555555555555555555555555555555555555555555\",\"image\":\"ghcr.io/example/synthetic-payments-agent:1.4.2\",\"provenance\":{\"source\":\"kubernetes\",\"trust_level\":\"supplied\"},\"runtime\":\"kubernetes\"}},\"target\":\"synthetic-beneficiary-1005\",\"tenant_id\":\"00000000-0000-4000-8000-000000000004\"},\"decision_band\":null,\"decision_type\":\"PAYMENT_SEND\",\"mode\":\"ENFORCEMENT\",\"objective_profile\":\"synthetic\",\"policy_version\":\"synthetic-policy-runtime-signals-v1\",\"risk_score\":0.1,\"source\":\"agent-safe-dossier-corpus\",\"transaction_type\":\"payment.send\",\"vertical_pack\":null,\"workflow_key\":null},\"machine_readable\":{\"authority_classification\":\"AUTHORITATIVE\",\"dossier_id\":\"synthetic-dossier-runtime-signals-001\",\"evaluation_id\":\"synthetic-decision-runtime-signals-001\",\"evaluation_semantics\":{\"canonicalization\":\"RFC8785/JCS\",\"digest_algorithm\":\"SHA-256\",\"evaluator_version\":\"policy-graph/1.1\",\"policy_schema_version\":\"1.0\",\"protocol_version\":\"1.1\",\"signal_normalization_version\":\"external-signal-envelope/1.0\"},\"execution_binding_digest\":\"sha256:c5f9799b9baf1f7a05da62017f01b811bdcebe461d26a38da33703ba66e26c92\",\"execution_eligible\":true,\"generated_at\":\"2026-09-04T10:00:00.000Z\",\"input_snapshot_digest\":\"sha256:387bd8ac45d32e18cff6dd37a0c49cd55c25c3d39aca847fac1accf3b33ca6e1\",\"issuer_context\":{\"tier\":\"owned\"},\"mode\":\"ENFORCEMENT\",\"outcome\":\"APPROVE\",\"policy_reference\":{\"digest\":\"sha256:9b9642e2cd3749d96c93f02b1872a4ba4a49af8eb42ee6769ba0d9c2bfff77c2\",\"policy_id\":\"synthetic-policy-runtime-signals-v1\",\"revision_id\":\"synthetic-policy-runtime-signals-v1\",\"version\":\"synthetic-policy-runtime-signals-v1\"},\"policy_snapshot\":{\"evaluated_at\":\"2026-09-04T10:00:00.000Z\",\"parameters_sha256\":\"7ff6143113499fc6166201bab04848a30d3e370508540abf3ef1fdad86ea49fe\",\"policy_bundle_id\":\"synthetic-policy-runtime-signals-v1\",\"policy_version\":\"synthetic-policy-runtime-signals-v1\",\"rules_sha256\":\"17f91238c188c04378e5ae764ff3ed9c70f50689348736874064c7f9a8747e73\"},\"policy_version\":\"synthetic-policy-runtime-signals-v1\",\"protocol_version\":\"1.1\",\"verdict\":\"ALLOW\"},\"routing_decision\":{\"authority\":\"AUTHORITATIVE\",\"decision_id\":\"synthetic-decision-runtime-signals-001\",\"evaluation_id\":\"synthetic-decision-runtime-signals-001\",\"execution_grant_issued\":true,\"outcome\":\"APPROVE\",\"policy_evaluation\":{\"evaluated_at\":\"2026-09-04T10:00:00.000Z\"},\"policy_snapshot\":{\"evaluated_at\":\"2026-09-04T10:00:00.000Z\",\"parameters_sha256\":\"7ff6143113499fc6166201bab04848a30d3e370508540abf3ef1fdad86ea49fe\",\"policy_bundle_id\":\"synthetic-policy-runtime-signals-v1\",\"policy_version\":\"synthetic-policy-runtime-signals-v1\",\"rules_sha256\":\"17f91238c188c04378e5ae764ff3ed9c70f50689348736874064c7f9a8747e73\"},\"policy_version\":\"synthetic-policy-runtime-signals-v1\",\"reason_codes\":[\"SYNTHETIC_POLICY_ALLOW\"]},\"version\":\"2.0\"}",
+      "canonical_document_sha256": "b6ef0af13954d70b690c2594eb7b36e68aefdac440fc9a5d0c9af8d092e74391",
+      "signature": "vKy3mC131F2dwPqmJfTnfhBVx3RSzDToh2B8jt9qsEZYoKu5IZpoGfHi-xBAmd7cXVHwSUUZkCEd4BlzbIKbCA"
     },
     {
       "artifact_kind": "inputs_snapshot",
       "document_path": "/inputs_snapshot",
-      "canonical_json": "{\"action\":\"payment.send\",\"actor_id\":\"synthetic-dossier-corpus-agent\",\"amount_minor\":50000,\"signals\":{\"enforcement_boundary\":{\"agentsafe_version\":\"0.0.0-synthetic\",\"boundary_id\":\"synthetic-boundary-prod-eu\",\"conformance_version\":\"agent-safe-intent-v1\",\"deployment_type\":\"kubernetes\",\"environment\":\"synthetic-production\",\"placement\":{\"cluster_id\":\"synthetic-eu-1\",\"namespace\":\"synthetic-payments\"},\"protocol_version\":\"agent-safe.intent/1\"},\"workload\":{\"artifact_type\":\"oci\",\"digest\":\"sha256:5555555555555555555555555555555555555555555555555555555555555555\",\"image\":\"ghcr.io/example/synthetic-payments-agent:1.4.2\",\"provenance\":{\"source\":\"kubernetes\",\"trust_level\":\"supplied\"},\"runtime\":\"kubernetes\"}},\"target\":\"synthetic-beneficiary-1005\",\"tenant_id\":\"00000000-0000-4000-8000-000000000004\"}",
-      "canonical_document_sha256": "910e988b852ab31924578dd1e3c2ce343b6cefe1182fbfb87cfcc0a6f4b5ac1f",
-      "signature": "k3NuoO4L-7GxOUZN9afpokV_02VhfL-bVO5aSZCRFylkMLg9ELlwcdfHYeKuU6eGhAf5OCYGgtieH8mirnlzBQ"
+      "canonical_json": "{\"amount\":500,\"channel\":\"api\",\"context\":{\"action\":\"payment.send\",\"actor_id\":\"synthetic-dossier-corpus-agent\",\"amount_minor\":50000,\"signals\":{\"enforcement_boundary\":{\"agentsafe_version\":\"0.0.0-synthetic\",\"boundary_id\":\"synthetic-boundary-prod-eu\",\"conformance_version\":\"agent-safe-intent-v1\",\"deployment_type\":\"kubernetes\",\"environment\":\"synthetic-production\",\"placement\":{\"cluster_id\":\"synthetic-eu-1\",\"namespace\":\"synthetic-payments\"},\"protocol_version\":\"agent-safe.intent/1\"},\"workload\":{\"artifact_type\":\"oci\",\"digest\":\"sha256:5555555555555555555555555555555555555555555555555555555555555555\",\"image\":\"ghcr.io/example/synthetic-payments-agent:1.4.2\",\"provenance\":{\"source\":\"kubernetes\",\"trust_level\":\"supplied\"},\"runtime\":\"kubernetes\"}},\"target\":\"synthetic-beneficiary-1005\",\"tenant_id\":\"00000000-0000-4000-8000-000000000004\"},\"decision_band\":null,\"decision_type\":\"PAYMENT_SEND\",\"mode\":\"ENFORCEMENT\",\"objective_profile\":\"synthetic\",\"policy_version\":\"synthetic-policy-runtime-signals-v1\",\"risk_score\":0.1,\"source\":\"agent-safe-dossier-corpus\",\"transaction_type\":\"payment.send\",\"vertical_pack\":null,\"workflow_key\":null}",
+      "canonical_document_sha256": "387bd8ac45d32e18cff6dd37a0c49cd55c25c3d39aca847fac1accf3b33ca6e1",
+      "signature": "TOIaYHszmRzxkuQ2_7T0IgN1mF88ylPGxGR16NBuu6rEqNVgriGj2gBfyc-vpvOv1sN-GNuXFzMBTrbrgySvCg"
     },
     {
       "artifact_kind": "json_ld",
       "document_path": "/linked_data/document",
-      "canonical_json": "{\"@context\":\"https://schema.example/decionis/decision-dossier/v2\",\"@type\":\"DecisionDossier\",\"decision\":\"ALLOW\",\"decisionId\":\"synthetic-decision-runtime-signals-001\",\"dossierId\":\"synthetic-dossier-runtime-signals-001\",\"generatedAt\":\"2026-09-04T10:00:00.000Z\",\"intentHash\":\"sha256:910e988b852ab31924578dd1e3c2ce343b6cefe1182fbfb87cfcc0a6f4b5ac1f\",\"policyVersion\":\"synthetic-policy-runtime-signals-v1\"}",
-      "canonical_document_sha256": "03558cd86de0bb0cfd04a567847ec955e9fc71d0c1f50df2dbd0af9a259211e0",
-      "signature": "z6dWVKOaMO3JaVInYR5XXiSsDKTHf9XjA1RZIWtKOG7JsdLFkTVIcw30CQzLJyJSjL_fQAuvqfus3VhMxs9YAw"
+      "canonical_json": "{\"@context\":\"https://schema.example/decionis/decision-dossier/v2\",\"@type\":\"DecisionDossier\",\"decision\":\"ALLOW\",\"decisionId\":\"synthetic-decision-runtime-signals-001\",\"dossierId\":\"synthetic-dossier-runtime-signals-001\",\"generatedAt\":\"2026-09-04T10:00:00.000Z\",\"intentHash\":\"sha256:387bd8ac45d32e18cff6dd37a0c49cd55c25c3d39aca847fac1accf3b33ca6e1\",\"policyVersion\":\"synthetic-policy-runtime-signals-v1\"}",
+      "canonical_document_sha256": "bd0d67aacbfcd2439f90ea5e148d4b5544e0a11d5ffc9c4c60139e5ab0862a45",
+      "signature": "DEYvm4WRSb9SbLJmpl6ofPR8qLZfL_NJ9aHK5eDHYBG4SsCldDZ2GVnAdP_is0ZkSLk6YKsVilcxD6BMKuLUDw"
     },
     {
       "artifact_kind": "execution_binding",
       "document_path": "/execution_binding",
       "canonicalization_profile": "RFC8785/JCS",
-      "canonical_json": "{\"authorization_state_digest\":\"sha256:2c45361b752670a6bb40fc7a63b891ad926ae50eaed90f70d2004562084b138e\",\"binding_schema_version\":\"1.0\",\"concurrency_scope_digest\":\"sha256:338cbb3eabc65153dcbc28f9b9e64137646757cf9129d02ccca1ca716c253436\",\"dossier_id\":\"synthetic-dossier-runtime-signals-001\",\"evaluation_id\":\"synthetic-decision-runtime-signals-001\",\"execution_correlation_id\":\"synthetic-execution-correlation-owned-001\",\"execution_target\":{\"endpoint\":\"/synthetic/wires\",\"environment\":\"synthetic-production\",\"operation\":\"payment.send\",\"resource\":\"synthetic-beneficiary-1005\",\"system\":\"synthetic-bank-core\"},\"expires_at\":\"2026-09-04T10:05:00.000Z\",\"idempotency_key\":\"fixture_0001\",\"issued_at\":\"2026-09-04T10:00:00.000Z\",\"material_signals\":[{\"evidence_digest\":null,\"observed_at\":\"2026-09-04T10:00:00.000Z\",\"signal_id\":\"synthetic-daily-limit-signal\",\"value_digest\":\"sha256:ae7b11a21743f907ba5a1f8201f3a2047a8e7186c455b09dbba377a5f6d9759a\",\"version\":\"synthetic-signal-v1\"}],\"nonce\":\"sssssssssssssssssssssssssssssssssssssssssss\",\"not_before\":\"2026-09-04T10:00:00.000Z\",\"payload\":{\"canonicalization_profile\":\"RFC8785/JCS\",\"digest\":\"sha256:910e988b852ab31924578dd1e3c2ce343b6cefe1182fbfb87cfcc0a6f4b5ac1f\",\"digest_algorithm\":\"SHA-256\"},\"policy\":{\"digest\":\"sha256:17f91238c188c04378e5ae764ff3ed9c70f50689348736874064c7f9a8747e73\",\"digest_algorithm\":\"SHA-256\",\"identifier\":\"synthetic-policy-runtime-signals-v1\",\"version\":\"synthetic-policy-runtime-signals-v1\"},\"presence_approval\":null}",
-      "canonical_document_sha256": "20ccfad31bd68c8d9cfe11e7525f776a02a82f79e87de167fca59644903a8fc7",
-      "signature": "_HxYxdqo3XOQ6WLVt3CZXahAjLA_86pGyXMcIixVQSaLCiNJln0o_q5Twylq6a8Y1dVAcV5nRVSjOHhtAq8HAg"
+      "canonical_json": "{\"authorization_state_digest\":\"sha256:2c45361b752670a6bb40fc7a63b891ad926ae50eaed90f70d2004562084b138e\",\"binding_schema_version\":\"1.0\",\"concurrency_scope_digest\":\"sha256:338cbb3eabc65153dcbc28f9b9e64137646757cf9129d02ccca1ca716c253436\",\"dossier_id\":\"synthetic-dossier-runtime-signals-001\",\"evaluation_id\":\"synthetic-decision-runtime-signals-001\",\"execution_correlation_id\":\"synthetic-execution-correlation-runtime-signals-001\",\"execution_target\":{\"endpoint\":\"/synthetic/wires\",\"environment\":\"synthetic-production\",\"operation\":\"payment.send\",\"resource\":\"synthetic-beneficiary-1005\",\"system\":\"synthetic-bank-core\"},\"expires_at\":\"2026-09-04T10:05:00.000Z\",\"idempotency_key\":\"fixture_runtime-signals\",\"issued_at\":\"2026-09-04T10:00:00.000Z\",\"material_signals\":[{\"evidence_digest\":null,\"observed_at\":\"2026-09-04T10:00:00.000Z\",\"signal_id\":\"synthetic-daily-limit-signal\",\"value_digest\":\"sha256:ae7b11a21743f907ba5a1f8201f3a2047a8e7186c455b09dbba377a5f6d9759a\",\"version\":\"synthetic-signal-v1\"}],\"nonce\":\"sssssssssssssssssssssssssssssssssssssssssss\",\"not_before\":\"2026-09-04T10:00:00.000Z\",\"payload\":{\"canonicalization_profile\":\"RFC8785/JCS\",\"digest\":\"sha256:910e988b852ab31924578dd1e3c2ce343b6cefe1182fbfb87cfcc0a6f4b5ac1f\",\"digest_algorithm\":\"SHA-256\"},\"policy\":{\"digest\":\"sha256:9b9642e2cd3749d96c93f02b1872a4ba4a49af8eb42ee6769ba0d9c2bfff77c2\",\"digest_algorithm\":\"SHA-256\",\"identifier\":\"synthetic-policy-runtime-signals-v1\",\"version\":\"synthetic-policy-runtime-signals-v1\"},\"presence_approval\":null}",
+      "canonical_document_sha256": "c5f9799b9baf1f7a05da62017f01b811bdcebe461d26a38da33703ba66e26c92",
+      "signature": "HJD3H1beAq45LJBAzd0iSH0538dRq3ltE_B0vdRial2k09XxSoozJGVOpoJYcRfYhVJQOE45NS7azE4Zg1LzBQ"
     }
   ],
   "dossier_payload": {
     "schema_version": "decionis.decision_dossier/2.1",
     "dossier_id": "synthetic-dossier-runtime-signals-001",
+    "evaluation_id": "synthetic-decision-runtime-signals-001",
     "generated_at": "2026-09-04T10:00:00.000Z",
     "routing_decision": {
       "decision_id": "synthetic-decision-runtime-signals-001",
-      "outcome": "ALLOW",
+      "evaluation_id": "synthetic-decision-runtime-signals-001",
+      "outcome": "APPROVE",
       "authority": "AUTHORITATIVE",
       "policy_version": "synthetic-policy-runtime-signals-v1",
+      "policy_snapshot": {
+        "policy_bundle_id": "synthetic-policy-runtime-signals-v1",
+        "policy_version": "synthetic-policy-runtime-signals-v1",
+        "rules_sha256": "17f91238c188c04378e5ae764ff3ed9c70f50689348736874064c7f9a8747e73",
+        "parameters_sha256": "7ff6143113499fc6166201bab04848a30d3e370508540abf3ef1fdad86ea49fe",
+        "evaluated_at": "2026-09-04T10:00:00.000Z"
+      },
       "reason_codes": ["SYNTHETIC_POLICY_ALLOW"],
       "execution_grant_issued": true,
       "policy_evaluation": { "evaluated_at": "2026-09-04T10:00:00.000Z" }
     },
     "governance": {
       "policy_snapshot": {
-        "policy_id": "synthetic-policy-runtime-signals-v1",
+        "policy_bundle_id": "synthetic-policy-runtime-signals-v1",
         "policy_version": "synthetic-policy-runtime-signals-v1",
         "rules_sha256": "17f91238c188c04378e5ae764ff3ed9c70f50689348736874064c7f9a8747e73",
+        "parameters_sha256": "7ff6143113499fc6166201bab04848a30d3e370508540abf3ef1fdad86ea49fe",
         "evaluated_at": "2026-09-04T10:00:00.000Z"
       }
     },
     "inputs_snapshot": {
-      "tenant_id": "00000000-0000-4000-8000-000000000004",
-      "actor_id": "synthetic-dossier-corpus-agent",
-      "action": "payment.send",
-      "target": "synthetic-beneficiary-1005",
-      "amount_minor": 50000,
-      "signals": {
-        "enforcement_boundary": {
-          "boundary_id": "synthetic-boundary-prod-eu",
-          "agentsafe_version": "0.0.0-synthetic",
-          "protocol_version": "agent-safe.intent/1",
-          "deployment_type": "kubernetes",
-          "environment": "synthetic-production",
-          "conformance_version": "agent-safe-intent-v1",
-          "placement": {
-            "cluster_id": "synthetic-eu-1",
-            "namespace": "synthetic-payments"
-          }
-        },
-        "workload": {
-          "runtime": "kubernetes",
-          "artifact_type": "oci",
-          "image": "ghcr.io/example/synthetic-payments-agent:1.4.2",
-          "digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
-          "provenance": { "source": "kubernetes", "trust_level": "supplied" }
-        }
-      }
-    },
-    "portable_artifact": {
-      "artifact_type": "decionis.decision_dossier.portable",
-      "version": "2.0",
-      "dossier_id": "synthetic-dossier-runtime-signals-001",
-      "generated_at": "2026-09-04T10:00:00.000Z",
-      "routing_decision": {
-        "decision_id": "synthetic-decision-runtime-signals-001",
-        "outcome": "ALLOW",
-        "authority": "AUTHORITATIVE",
-        "policy_version": "synthetic-policy-runtime-signals-v1",
-        "reason_codes": ["SYNTHETIC_POLICY_ALLOW"],
-        "execution_grant_issued": true,
-        "policy_evaluation": { "evaluated_at": "2026-09-04T10:00:00.000Z" }
-      },
-      "governance": {
-        "policy_snapshot": {
-          "policy_id": "synthetic-policy-runtime-signals-v1",
-          "policy_version": "synthetic-policy-runtime-signals-v1",
-          "rules_sha256": "17f91238c188c04378e5ae764ff3ed9c70f50689348736874064c7f9a8747e73",
-          "evaluated_at": "2026-09-04T10:00:00.000Z"
-        }
-      },
-      "inputs_snapshot": {
+      "decision_type": "PAYMENT_SEND",
+      "amount": 500,
+      "risk_score": 0.1,
+      "channel": "api",
+      "source": "agent-safe-dossier-corpus",
+      "policy_version": "synthetic-policy-runtime-signals-v1",
+      "objective_profile": "synthetic",
+      "vertical_pack": null,
+      "workflow_key": null,
+      "mode": "ENFORCEMENT",
+      "decision_band": null,
+      "transaction_type": "payment.send",
+      "context": {
         "tenant_id": "00000000-0000-4000-8000-000000000004",
         "actor_id": "synthetic-dossier-corpus-agent",
         "action": "payment.send",
@@ -144,8 +117,145 @@
             "provenance": { "source": "kubernetes", "trust_level": "supplied" }
           }
         }
+      }
+    },
+    "portable_artifact": {
+      "artifact_type": "decionis.decision_dossier.portable",
+      "version": "2.0",
+      "dossier_id": "synthetic-dossier-runtime-signals-001",
+      "generated_at": "2026-09-04T10:00:00.000Z",
+      "routing_decision": {
+        "decision_id": "synthetic-decision-runtime-signals-001",
+        "evaluation_id": "synthetic-decision-runtime-signals-001",
+        "outcome": "APPROVE",
+        "authority": "AUTHORITATIVE",
+        "policy_version": "synthetic-policy-runtime-signals-v1",
+        "policy_snapshot": {
+          "policy_bundle_id": "synthetic-policy-runtime-signals-v1",
+          "policy_version": "synthetic-policy-runtime-signals-v1",
+          "rules_sha256": "17f91238c188c04378e5ae764ff3ed9c70f50689348736874064c7f9a8747e73",
+          "parameters_sha256": "7ff6143113499fc6166201bab04848a30d3e370508540abf3ef1fdad86ea49fe",
+          "evaluated_at": "2026-09-04T10:00:00.000Z"
+        },
+        "reason_codes": ["SYNTHETIC_POLICY_ALLOW"],
+        "execution_grant_issued": true,
+        "policy_evaluation": { "evaluated_at": "2026-09-04T10:00:00.000Z" }
       },
-      "machine_readable": { "issuer_context": { "tier": "owned" } }
+      "governance": {
+        "policy_snapshot": {
+          "policy_bundle_id": "synthetic-policy-runtime-signals-v1",
+          "policy_version": "synthetic-policy-runtime-signals-v1",
+          "rules_sha256": "17f91238c188c04378e5ae764ff3ed9c70f50689348736874064c7f9a8747e73",
+          "parameters_sha256": "7ff6143113499fc6166201bab04848a30d3e370508540abf3ef1fdad86ea49fe",
+          "evaluated_at": "2026-09-04T10:00:00.000Z"
+        }
+      },
+      "inputs_snapshot": {
+        "decision_type": "PAYMENT_SEND",
+        "amount": 500,
+        "risk_score": 0.1,
+        "channel": "api",
+        "source": "agent-safe-dossier-corpus",
+        "policy_version": "synthetic-policy-runtime-signals-v1",
+        "objective_profile": "synthetic",
+        "vertical_pack": null,
+        "workflow_key": null,
+        "mode": "ENFORCEMENT",
+        "decision_band": null,
+        "transaction_type": "payment.send",
+        "context": {
+          "tenant_id": "00000000-0000-4000-8000-000000000004",
+          "actor_id": "synthetic-dossier-corpus-agent",
+          "action": "payment.send",
+          "target": "synthetic-beneficiary-1005",
+          "amount_minor": 50000,
+          "signals": {
+            "enforcement_boundary": {
+              "boundary_id": "synthetic-boundary-prod-eu",
+              "agentsafe_version": "0.0.0-synthetic",
+              "protocol_version": "agent-safe.intent/1",
+              "deployment_type": "kubernetes",
+              "environment": "synthetic-production",
+              "conformance_version": "agent-safe-intent-v1",
+              "placement": {
+                "cluster_id": "synthetic-eu-1",
+                "namespace": "synthetic-payments"
+              }
+            },
+            "workload": {
+              "runtime": "kubernetes",
+              "artifact_type": "oci",
+              "image": "ghcr.io/example/synthetic-payments-agent:1.4.2",
+              "digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+              "provenance": {
+                "source": "kubernetes",
+                "trust_level": "supplied"
+              }
+            }
+          }
+        }
+      },
+      "machine_readable": {
+        "dossier_id": "synthetic-dossier-runtime-signals-001",
+        "evaluation_id": "synthetic-decision-runtime-signals-001",
+        "protocol_version": "1.1",
+        "outcome": "APPROVE",
+        "policy_version": "synthetic-policy-runtime-signals-v1",
+        "policy_snapshot": {
+          "policy_bundle_id": "synthetic-policy-runtime-signals-v1",
+          "policy_version": "synthetic-policy-runtime-signals-v1",
+          "rules_sha256": "17f91238c188c04378e5ae764ff3ed9c70f50689348736874064c7f9a8747e73",
+          "parameters_sha256": "7ff6143113499fc6166201bab04848a30d3e370508540abf3ef1fdad86ea49fe",
+          "evaluated_at": "2026-09-04T10:00:00.000Z"
+        },
+        "generated_at": "2026-09-04T10:00:00.000Z",
+        "mode": "ENFORCEMENT",
+        "verdict": "ALLOW",
+        "authority_classification": "AUTHORITATIVE",
+        "execution_eligible": true,
+        "policy_reference": {
+          "policy_id": "synthetic-policy-runtime-signals-v1",
+          "revision_id": "synthetic-policy-runtime-signals-v1",
+          "version": "synthetic-policy-runtime-signals-v1",
+          "digest": "sha256:9b9642e2cd3749d96c93f02b1872a4ba4a49af8eb42ee6769ba0d9c2bfff77c2"
+        },
+        "evaluation_semantics": {
+          "protocol_version": "1.1",
+          "evaluator_version": "policy-graph/1.1",
+          "policy_schema_version": "1.0",
+          "canonicalization": "RFC8785/JCS",
+          "digest_algorithm": "SHA-256",
+          "signal_normalization_version": "external-signal-envelope/1.0"
+        },
+        "input_snapshot_digest": "sha256:387bd8ac45d32e18cff6dd37a0c49cd55c25c3d39aca847fac1accf3b33ca6e1",
+        "execution_binding_digest": "sha256:c5f9799b9baf1f7a05da62017f01b811bdcebe461d26a38da33703ba66e26c92",
+        "issuer_context": { "tier": "owned" }
+      }
+    },
+    "authority_evidence": {
+      "protocol_version": "1.1",
+      "evaluation_id": "synthetic-decision-runtime-signals-001",
+      "dossier_id": "synthetic-dossier-runtime-signals-001",
+      "evaluation_mode": "ENFORCEMENT",
+      "authority_classification": "AUTHORITATIVE",
+      "verdict": "ALLOW",
+      "execution_eligible": true,
+      "policy_reference": {
+        "policy_id": "synthetic-policy-runtime-signals-v1",
+        "revision_id": "synthetic-policy-runtime-signals-v1",
+        "version": "synthetic-policy-runtime-signals-v1",
+        "digest": "sha256:9b9642e2cd3749d96c93f02b1872a4ba4a49af8eb42ee6769ba0d9c2bfff77c2"
+      },
+      "evaluation_semantics": {
+        "protocol_version": "1.1",
+        "evaluator_version": "policy-graph/1.1",
+        "policy_schema_version": "1.0",
+        "canonicalization": "RFC8785/JCS",
+        "digest_algorithm": "SHA-256",
+        "signal_normalization_version": "external-signal-envelope/1.0"
+      },
+      "input_snapshot_digest": "sha256:387bd8ac45d32e18cff6dd37a0c49cd55c25c3d39aca847fac1accf3b33ca6e1",
+      "execution_binding_digest": "sha256:c5f9799b9baf1f7a05da62017f01b811bdcebe461d26a38da33703ba66e26c92"
     },
     "linked_data": {
       "document": {
@@ -156,7 +266,7 @@
         "decision": "ALLOW",
         "policyVersion": "synthetic-policy-runtime-signals-v1",
         "generatedAt": "2026-09-04T10:00:00.000Z",
-        "intentHash": "sha256:910e988b852ab31924578dd1e3c2ce343b6cefe1182fbfb87cfcc0a6f4b5ac1f"
+        "intentHash": "sha256:387bd8ac45d32e18cff6dd37a0c49cd55c25c3d39aca847fac1accf3b33ca6e1"
       }
     },
     "execution_binding": {
@@ -178,7 +288,7 @@
       "policy": {
         "identifier": "synthetic-policy-runtime-signals-v1",
         "version": "synthetic-policy-runtime-signals-v1",
-        "digest": "sha256:17f91238c188c04378e5ae764ff3ed9c70f50689348736874064c7f9a8747e73",
+        "digest": "sha256:9b9642e2cd3749d96c93f02b1872a4ba4a49af8eb42ee6769ba0d9c2bfff77c2",
         "digest_algorithm": "SHA-256"
       },
       "material_signals": [
@@ -194,8 +304,8 @@
       "not_before": "2026-09-04T10:00:00.000Z",
       "expires_at": "2026-09-04T10:05:00.000Z",
       "nonce": "sssssssssssssssssssssssssssssssssssssssssss",
-      "idempotency_key": "fixture_0001",
-      "execution_correlation_id": "synthetic-execution-correlation-owned-001",
+      "idempotency_key": "fixture_runtime-signals",
+      "execution_correlation_id": "synthetic-execution-correlation-runtime-signals-001",
       "concurrency_scope_digest": "sha256:338cbb3eabc65153dcbc28f9b9e64137646757cf9129d02ccca1ca716c253436",
       "authorization_state_digest": "sha256:2c45361b752670a6bb40fc7a63b891ad926ae50eaed90f70d2004562084b138e",
       "presence_approval": null
@@ -208,42 +318,42 @@
         "algorithm": "Ed25519",
         "key_id": "agent-safe-synthetic-dossier-corpus-v1",
         "rotation_policy": {
-          "strategy": "STATIC_PUBLIC_CORPUS_KEY",
+          "strategy": "JWKS_OVERLAP",
           "active_key_id": "agent-safe-synthetic-dossier-corpus-v1",
           "previous_key_ids": [],
-          "verification_grace_period_days": 0,
+          "verification_grace_period_days": 30,
           "rotated_at": null,
-          "public_jwks_path": "/dossiers/corpus-jwks.json"
+          "public_jwks_path": "/.well-known/decision-dossier-jwks.json"
         },
         "artifacts": [
           {
             "artifact_kind": "portable_artifact",
             "media_type": "application/json",
             "document_path": "/portable_artifact",
-            "canonical_document_sha256": "4833fdbab8383e9d35d542211d4a5091bbe752dab698ede99d602b6e2f7f18eb",
-            "signature": "nQUNbVf-W6pkAfHGKJupZT1FNu283CACtzrs_9s_95mfFudujARqMs-jVzZHhvw1v2-sEu7WyslhVvuPMu8zCQ"
+            "canonical_document_sha256": "b6ef0af13954d70b690c2594eb7b36e68aefdac440fc9a5d0c9af8d092e74391",
+            "signature": "vKy3mC131F2dwPqmJfTnfhBVx3RSzDToh2B8jt9qsEZYoKu5IZpoGfHi-xBAmd7cXVHwSUUZkCEd4BlzbIKbCA"
           },
           {
             "artifact_kind": "inputs_snapshot",
             "media_type": "application/json",
             "document_path": "/inputs_snapshot",
-            "canonical_document_sha256": "910e988b852ab31924578dd1e3c2ce343b6cefe1182fbfb87cfcc0a6f4b5ac1f",
-            "signature": "k3NuoO4L-7GxOUZN9afpokV_02VhfL-bVO5aSZCRFylkMLg9ELlwcdfHYeKuU6eGhAf5OCYGgtieH8mirnlzBQ"
+            "canonical_document_sha256": "387bd8ac45d32e18cff6dd37a0c49cd55c25c3d39aca847fac1accf3b33ca6e1",
+            "signature": "TOIaYHszmRzxkuQ2_7T0IgN1mF88ylPGxGR16NBuu6rEqNVgriGj2gBfyc-vpvOv1sN-GNuXFzMBTrbrgySvCg"
           },
           {
             "artifact_kind": "json_ld",
             "media_type": "application/ld+json",
             "document_path": "/linked_data/document",
-            "canonical_document_sha256": "03558cd86de0bb0cfd04a567847ec955e9fc71d0c1f50df2dbd0af9a259211e0",
-            "signature": "z6dWVKOaMO3JaVInYR5XXiSsDKTHf9XjA1RZIWtKOG7JsdLFkTVIcw30CQzLJyJSjL_fQAuvqfus3VhMxs9YAw"
+            "canonical_document_sha256": "bd0d67aacbfcd2439f90ea5e148d4b5544e0a11d5ffc9c4c60139e5ab0862a45",
+            "signature": "DEYvm4WRSb9SbLJmpl6ofPR8qLZfL_NJ9aHK5eDHYBG4SsCldDZ2GVnAdP_is0ZkSLk6YKsVilcxD6BMKuLUDw"
           },
           {
             "artifact_kind": "execution_binding",
             "media_type": "application/json",
             "document_path": "/execution_binding",
             "canonicalization_profile": "RFC8785/JCS",
-            "canonical_document_sha256": "20ccfad31bd68c8d9cfe11e7525f776a02a82f79e87de167fca59644903a8fc7",
-            "signature": "_HxYxdqo3XOQ6WLVt3CZXahAjLA_86pGyXMcIixVQSaLCiNJln0o_q5Twylq6a8Y1dVAcV5nRVSjOHhtAq8HAg"
+            "canonical_document_sha256": "c5f9799b9baf1f7a05da62017f01b811bdcebe461d26a38da33703ba66e26c92",
+            "signature": "HJD3H1beAq45LJBAzd0iSH0538dRq3ltE_B0vdRial2k09XxSoozJGVOpoJYcRfYhVJQOE45NS7azE4Zg1LzBQ"
           }
         ]
       }

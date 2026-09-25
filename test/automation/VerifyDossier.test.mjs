@@ -57,7 +57,7 @@ function authority({ payload, record, jwksBody } = {}) {
       }
       return record ?? new Response(JSON.stringify(recordBody(payload)), { status: 200 });
     }
-    if (pathname === "/dossiers/corpus-jwks.json") {
+    if (pathname === "/.well-known/decision-dossier-jwks.json") {
       return new Response(JSON.stringify(jwksBody ?? jwks), { status: 200 });
     }
     return new Response("not found", { status: 404 });
@@ -84,19 +84,19 @@ describe("pnpm decionis:verify", () => {
     for (const [key, value] of Object.entries(vector.expected.issuer)) {
       assert.equal(outcome.issuer[key], value, key);
     }
-    assert.equal(outcome.jwksUrl, `${API_URL}/dossiers/corpus-jwks.json`);
+    assert.equal(outcome.jwksUrl, `${API_URL}/.well-known/decision-dossier-jwks.json`);
 
     assert.equal(requests.length, 2);
     assert.equal(requests[0].url, `${API_URL}/v1/protocol/dossiers/${DOSSIER_ID}?org_id=${ORG_ID}`);
     assert.equal(requests[0].headers.authorization, `Bearer ${ENV.DECIONIS_API_KEY}`);
-    assert.equal(requests[1].url, `${API_URL}/dossiers/corpus-jwks.json`);
+    assert.equal(requests[1].url, `${API_URL}/.well-known/decision-dossier-jwks.json`);
     assert.equal(requests[1].headers.authorization, undefined);
 
     const text = lines.join("");
     assert.match(text, /^dossier: synthetic-dossier-allow-001\n/);
     assert.match(
       text,
-      /\nVERIFIED: 3 signed artifact\(s\), key agent-safe-synthetic-dossier-corpus-v1\n$/,
+      /\nVERIFIED: 4 signed artifact\(s\), key agent-safe-synthetic-dossier-corpus-v1\n$/,
     );
     assert.match(text, /issuer: Issuer not stated/);
     assert.doesNotMatch(text, /synthetic-authority-key/);

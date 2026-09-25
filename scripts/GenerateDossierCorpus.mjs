@@ -48,7 +48,6 @@ const CASES = [
     reasonCodes: ["SYNTHETIC_EXECUTION_BINDING_VALID"],
     executionGrantIssued: true,
     issuerTier: "owned",
-    executionBound: true,
   },
   {
     slug: "runtime-signals",
@@ -59,12 +58,11 @@ const CASES = [
     reasonCodes: ["SYNTHETIC_POLICY_ALLOW"],
     executionGrantIssued: true,
     issuerTier: "owned",
-    executionBound: true,
     // The enforcement boundary that admitted the effect and the workload that
-    // proposed it, as they reach evidence: inside the intent, therefore inside
-    // the inputs snapshot the proof bundle signs. The offline verifier needs
-    // no change to check them, because it verifies the artifacts it is given
-    // rather than a fixed set of fields.
+    // proposed it, as they reach evidence: inside the intent, which the inputs
+    // snapshot carries as its context, so the proof bundle signs them. The
+    // offline verifier needs no change to check them, because it verifies the
+    // artifacts it is given rather than a fixed set of fields.
     signals: {
       enforcement_boundary: {
         boundary_id: "synthetic-boundary-prod-eu",
@@ -157,74 +155,96 @@ function signedArtifact(
   };
 }
 
+/** The ledger outcome each wire verdict is recorded under (Decionis AuthoritySemantics). */
+const LEDGER_OUTCOME = { ALLOW: "APPROVE", BLOCK: "REJECT", ESCALATE: "ESCALATE" };
+
+/** Protocol 1.1's evaluator commitments, as the Decionis authority signs them. */
+const EVALUATION_SEMANTICS = {
+  protocol_version: "1.1",
+  evaluator_version: "policy-graph/1.1",
+  policy_schema_version: "1.0",
+  canonicalization: "RFC8785/JCS",
+  digest_algorithm: "SHA-256",
+  signal_normalization_version: "external-signal-envelope/1.0",
+};
+
+/**
+ * One synthetic Decision Dossier in the shape the Decionis authority issues
+ * under Protocol 1.1: the signed portable artifact carries the verdict, the
+ * immutable policy reference, the evaluator semantics and a commitment to the
+ * inputs snapshot, so a verifier can check that the record is complete enough
+ * to reproduce. Every ALLOW is execution-eligible and so carries an RFC 8785
+ * execution binding (proof bundle 2.1); BLOCK and ESCALATE are not eligible and
+ * carry none (2.0). The proof bundle declares the same JWKS_OVERLAP rotation
+ * policy production does; the synthetic key itself is published in
+ * corpus-jwks.json and passed to a verifier explicitly.
+ */
 function createVector(testCase, privateKey) {
   const dossierId = `synthetic-dossier-${testCase.slug}-001`;
-  const decisionId = `synthetic-decision-${testCase.slug}-001`;
+  const evaluationId = `synthetic-decision-${testCase.slug}-001`;
   const policyId = `synthetic-policy-${testCase.slug}-v1`;
+  const verdict = testCase.outcome;
+  const executionEligible = verdict === "ALLOW";
   const rules = {
     policy_id: policyId,
     condition: `synthetic-${testCase.slug}-condition`,
-    outcome: testCase.outcome,
+    outcome: verdict,
   };
-  const inputsSnapshot = {
-    tenant_id: FIXTURE_TENANT_ID,
-    actor_id: "synthetic-dossier-corpus-agent",
-    action: testCase.action,
-    target: testCase.target,
-    amount_minor: testCase.amountMinor,
-    ...(testCase.signals ? { signals: testCase.signals } : {}),
-  };
-  const routingDecision = {
-    decision_id: decisionId,
-    outcome: testCase.outcome,
-    authority: "AUTHORITATIVE",
+  const parameters = { policy_id: policyId, synthetic_case: testCase.slug };
+  const rulesSha256 = sha256(stableJsonStringify(rules));
+  const parametersSha256 = sha256(stableJsonStringify(parameters));
+  const policySnapshot = {
+    policy_bundle_id: policyId,
     policy_version: policyId,
-    reason_codes: testCase.reasonCodes,
-    execution_grant_issued: testCase.executionGrantIssued,
-    policy_evaluation: { evaluated_at: FIXED_TIME },
+    rules_sha256: rulesSha256,
+    parameters_sha256: parametersSha256,
+    evaluated_at: FIXED_TIME,
   };
-  const governance = {
-    policy_snapshot: {
-      policy_id: policyId,
-      policy_version: policyId,
-      rules_sha256: sha256(stableJsonStringify(rules)),
-      evaluated_at: FIXED_TIME,
+  const policyReference = {
+    policy_id: policyId,
+    revision_id: policyId,
+    version: policyId,
+    digest: `sha256:${sha256(
+      jcsCanonicalize({
+        identifier: policyId,
+        version: policyId,
+        rules_sha256: rulesSha256,
+        parameters_sha256: parametersSha256,
+      }),
+    )}`,
+  };
+  // The evaluator's canonical input, which Protocol 1.1 replays, with the
+  // proposed action itself embedded as its context.
+  const inputsSnapshot = {
+    decision_type: testCase.action.toUpperCase().replace(/[.-]/g, "_"),
+    amount: testCase.amountMinor / 100,
+    risk_score: 0.1,
+    channel: "api",
+    source: "agent-safe-dossier-corpus",
+    policy_version: policyId,
+    objective_profile: "synthetic",
+    vertical_pack: null,
+    workflow_key: null,
+    mode: "ENFORCEMENT",
+    decision_band: null,
+    transaction_type: testCase.action,
+    context: {
+      tenant_id: FIXTURE_TENANT_ID,
+      actor_id: "synthetic-dossier-corpus-agent",
+      action: testCase.action,
+      target: testCase.target,
+      amount_minor: testCase.amountMinor,
+      ...(testCase.signals ? { signals: testCase.signals } : {}),
     },
   };
-  const issuerContext = testCase.issuerTier ? { tier: testCase.issuerTier } : null;
-  const portableArtifact = {
-    artifact_type: "decionis.decision_dossier.portable",
-    version: "2.0",
-    dossier_id: dossierId,
-    generated_at: FIXED_TIME,
-    routing_decision: routingDecision,
-    governance,
-    inputs_snapshot: inputsSnapshot,
-    ...(issuerContext
-      ? {
-          machine_readable: {
-            issuer_context: issuerContext,
-          },
-        }
-      : {}),
-  };
-  const jsonLd = {
-    "@context": "https://schema.example/decionis/decision-dossier/v2",
-    "@type": "DecisionDossier",
-    dossierId,
-    decisionId,
-    decision: testCase.outcome,
-    policyVersion: policyId,
-    generatedAt: FIXED_TIME,
-    intentHash: `sha256:${sha256(stableJsonStringify(inputsSnapshot))}`,
-  };
-  const executionBinding = testCase.executionBound
+  const inputSnapshotDigest = `sha256:${sha256(jcsCanonicalize(inputsSnapshot))}`;
+  const executionBinding = executionEligible
     ? {
         binding_schema_version: "1.0",
         dossier_id: dossierId,
-        evaluation_id: decisionId,
+        evaluation_id: evaluationId,
         payload: {
-          digest: `sha256:${sha256(jcsCanonicalize(inputsSnapshot))}`,
+          digest: `sha256:${sha256(jcsCanonicalize(inputsSnapshot.context))}`,
           digest_algorithm: "SHA-256",
           canonicalization_profile: "RFC8785/JCS",
         },
@@ -238,7 +258,7 @@ function createVector(testCase, privateKey) {
         policy: {
           identifier: policyId,
           version: policyId,
-          digest: `sha256:${sha256(jcsCanonicalize(rules))}`,
+          digest: policyReference.digest,
           digest_algorithm: "SHA-256",
         },
         material_signals: [
@@ -254,17 +274,85 @@ function createVector(testCase, privateKey) {
         not_before: FIXED_TIME,
         expires_at: FIXED_EXPIRY,
         nonce: "s".repeat(43),
-        idempotency_key: "fixture_0001",
-        execution_correlation_id: "synthetic-execution-correlation-owned-001",
+        idempotency_key: `fixture_${testCase.slug}`,
+        execution_correlation_id: `synthetic-execution-correlation-${testCase.slug}-001`,
         concurrency_scope_digest: `sha256:${sha256(
           jcsCanonicalize({ resource: testCase.target }),
         )}`,
         authorization_state_digest: `sha256:${sha256(
-          jcsCanonicalize({ policy: policyId, outcome: testCase.outcome }),
+          jcsCanonicalize({ policy: policyId, outcome: verdict }),
         )}`,
         presence_approval: null,
       }
     : null;
+  const executionBindingDigest = executionBinding
+    ? `sha256:${sha256(jcsCanonicalize(executionBinding))}`
+    : null;
+  // What the authority committed to, exactly as AuthorityEvidenceSchema
+  // states it: the signed portable artifact carries the same fields.
+  const authorityEvidence = {
+    protocol_version: "1.1",
+    evaluation_id: evaluationId,
+    dossier_id: dossierId,
+    evaluation_mode: "ENFORCEMENT",
+    authority_classification: "AUTHORITATIVE",
+    verdict,
+    execution_eligible: executionEligible,
+    policy_reference: policyReference,
+    evaluation_semantics: EVALUATION_SEMANTICS,
+    input_snapshot_digest: inputSnapshotDigest,
+    execution_binding_digest: executionBindingDigest,
+  };
+  const routingDecision = {
+    decision_id: evaluationId,
+    evaluation_id: evaluationId,
+    outcome: LEDGER_OUTCOME[verdict],
+    authority: "AUTHORITATIVE",
+    policy_version: policyId,
+    policy_snapshot: policySnapshot,
+    reason_codes: testCase.reasonCodes,
+    execution_grant_issued: testCase.executionGrantIssued,
+    policy_evaluation: { evaluated_at: FIXED_TIME },
+  };
+  const governance = { policy_snapshot: policySnapshot };
+  const issuerContext = testCase.issuerTier ? { tier: testCase.issuerTier } : null;
+  const portableArtifact = {
+    artifact_type: "decionis.decision_dossier.portable",
+    version: "2.0",
+    dossier_id: dossierId,
+    generated_at: FIXED_TIME,
+    routing_decision: routingDecision,
+    governance,
+    inputs_snapshot: inputsSnapshot,
+    machine_readable: {
+      dossier_id: dossierId,
+      evaluation_id: evaluationId,
+      protocol_version: "1.1",
+      outcome: LEDGER_OUTCOME[verdict],
+      policy_version: policyId,
+      policy_snapshot: policySnapshot,
+      generated_at: FIXED_TIME,
+      mode: "ENFORCEMENT",
+      verdict,
+      authority_classification: "AUTHORITATIVE",
+      execution_eligible: executionEligible,
+      policy_reference: policyReference,
+      evaluation_semantics: EVALUATION_SEMANTICS,
+      input_snapshot_digest: inputSnapshotDigest,
+      execution_binding_digest: executionBindingDigest,
+      ...(issuerContext ? { issuer_context: issuerContext } : {}),
+    },
+  };
+  const jsonLd = {
+    "@context": "https://schema.example/decionis/decision-dossier/v2",
+    "@type": "DecisionDossier",
+    dossierId,
+    decisionId: evaluationId,
+    decision: verdict,
+    policyVersion: policyId,
+    generatedAt: FIXED_TIME,
+    intentHash: `sha256:${sha256(stableJsonStringify(inputsSnapshot))}`,
+  };
   const artifacts = [
     signedArtifact(
       privateKey,
@@ -299,11 +387,13 @@ function createVector(testCase, privateKey) {
       ? "decionis.decision_dossier/2.1"
       : "decionis.decision_dossier/2.0",
     dossier_id: dossierId,
+    evaluation_id: evaluationId,
     generated_at: FIXED_TIME,
     routing_decision: routingDecision,
     governance,
     inputs_snapshot: inputsSnapshot,
     portable_artifact: portableArtifact,
+    authority_evidence: authorityEvidence,
     linked_data: { document: jsonLd },
     ...(executionBinding ? { execution_binding: executionBinding } : {}),
     integrity: {
@@ -314,23 +404,24 @@ function createVector(testCase, privateKey) {
         algorithm: "Ed25519",
         key_id: KEY_ID,
         rotation_policy: {
-          strategy: "STATIC_PUBLIC_CORPUS_KEY",
+          strategy: "JWKS_OVERLAP",
           active_key_id: KEY_ID,
           previous_key_ids: [],
-          verification_grace_period_days: 0,
+          verification_grace_period_days: 30,
           rotated_at: null,
-          public_jwks_path: "/dossiers/corpus-jwks.json",
+          public_jwks_path: "/.well-known/decision-dossier-jwks.json",
         },
         artifacts: artifacts.map(({ proof }) => proof),
       },
     },
   };
 
+  const issuer = issuerContext ? " from an owned workspace" : "";
   return {
     vector_version: "agent-safe.decision-dossier-conformance/1",
     description: executionBinding
-      ? "Synthetic ALLOW Decision Dossier from an owned workspace with signed portable JSON, inputs snapshot, JSON-LD, and RFC 8785/JCS execution-binding artifacts."
-      : `Synthetic ${testCase.outcome} Decision Dossier with signed portable JSON, inputs snapshot, and JSON-LD artifacts.`,
+      ? `Synthetic ALLOW Decision Dossier (Protocol 1.1)${issuer}, execution-eligible, with signed portable JSON, inputs snapshot, JSON-LD, and an RFC 8785/JCS execution binding.`
+      : `Synthetic ${verdict} Decision Dossier (Protocol 1.1) with signed portable JSON, inputs snapshot, and JSON-LD artifacts; not execution-eligible, so it carries no execution binding.`,
     expected: {
       verified: true,
       artifacts_checked: artifacts.length,
@@ -343,7 +434,9 @@ function createVector(testCase, privateKey) {
             unknown_tier: null,
             signature_covered: true,
             provisional: false,
-            label: "Owned workspace",
+            // A caller-selected key cannot establish who issued a dossier, so
+            // a signed owned-workspace claim is reported as a claim.
+            label: "Claimed owned workspace",
           }
         : {
             tier: null,
