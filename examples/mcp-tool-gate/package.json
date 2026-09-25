@@ -13,6 +13,6 @@
     "@decionis/agent-safe-pipeline": "workspace:*",
     "@decionis/agentsafe": "workspace:*",
     "@modelcontextprotocol/sdk": "1.30.0",
-    "zod": "^4.5.4"
+    "zod": "^4.6.5"
   }
 }
