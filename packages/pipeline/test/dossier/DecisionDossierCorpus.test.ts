@@ -11,16 +11,18 @@ import type {
 import { describe, expect, it } from "vitest";
 
 interface VerifyModule {
+  // Both assessments take the document paths the proof bundle verified
+  // (VerifyResult.verified_artifact_paths), as the published CLI passes them.
   readonly assessDossierIssuer: (
     dossierPayload: Record<string, unknown>,
-    verifiedArtifactKinds?: ReadonlySet<string>,
+    verifiedArtifactPaths?: ReadonlySet<string>,
   ) => IssuerAssessment;
   readonly assessDossierReproducibility: (
     dossierPayload: Record<string, unknown>,
+    verifiedArtifactPaths?: ReadonlySet<string>,
   ) => ReproducibilityAssessment;
   readonly jcsCanonicalize: (value: unknown) => string;
   readonly stableJsonStringify: (value: unknown) => string;
-  readonly verifiedArtifactKinds: (result: VerifyResult) => Set<string>;
   readonly verifyDossierProofBundle: (input: {
     dossier_payload: Record<string, unknown>;
     public_jwks?: Jwks | null;
@@ -35,7 +37,6 @@ const {
   assessDossierReproducibility,
   jcsCanonicalize,
   stableJsonStringify,
-  verifiedArtifactKinds,
   verifyDossierProofBundle,
 } = (await import(
   new URL("../../../../node_modules/@decionis/verify/dist/index.js", import.meta.url).href
@@ -176,12 +177,14 @@ describe("Decision Dossier conformance corpus", () => {
         artifacts_checked: vector.expected.artifacts_checked,
       });
       expect(verification.checks.every(({ verified }) => verified)).toBe(true);
-      expect(assessDossierReproducibility(vector.dossier_payload).posture).toBe(
+      expect(verification.required_artifact_coverage_verified, `${file}: coverage`).toBe(true);
+      const verifiedPaths = new Set(verification.verified_artifact_paths ?? []);
+      expect(assessDossierReproducibility(vector.dossier_payload, verifiedPaths).posture).toBe(
         vector.expected.reproducibility,
       );
-      expect(
-        assessDossierIssuer(vector.dossier_payload, verifiedArtifactKinds(verification)),
-      ).toMatchObject(vector.expected.issuer);
+      expect(assessDossierIssuer(vector.dossier_payload, verifiedPaths)).toMatchObject(
+        vector.expected.issuer,
+      );
 
       const proofBundle = record(record(vector.dossier_payload["integrity"])["proof_bundle"]);
       expect(proofBundle["version"]).toBe(vector.expected.proof_bundle_version);
@@ -221,7 +224,16 @@ describe("Decision Dossier conformance corpus", () => {
       expect(portableArtifact["inputs_snapshot"]).toEqual(
         vector.dossier_payload["inputs_snapshot"],
       );
-      outcomes.add(String(record(vector.dossier_payload["routing_decision"])["outcome"]));
+      // The signed verdict is the wire token; the routing decision records the
+      // ledger outcome it maps to, as Protocol 1.1 dossiers do.
+      const machineReadable = record(portableArtifact["machine_readable"]);
+      const verdict = String(machineReadable["verdict"]);
+      outcomes.add(verdict);
+      expect(record(vector.dossier_payload["routing_decision"])["outcome"]).toBe(
+        { ALLOW: "APPROVE", BLOCK: "REJECT", ESCALATE: "ESCALATE" }[verdict],
+      );
+      expect(machineReadable["protocol_version"]).toBe("1.1");
+      expect(machineReadable["execution_eligible"]).toBe(verdict === "ALLOW");
     }
 
     expect(outcomes).toEqual(new Set(["ALLOW", "BLOCK", "ESCALATE"]));
@@ -230,8 +242,8 @@ describe("Decision Dossier conformance corpus", () => {
   /**
    * The evidence chain from artifact provenance to dossier, verified offline
    * with no change to `@decionis/verify`. The boundary and the workload are
-   * inside the intent, so they are inside the inputs snapshot the proof
-   * bundle signs; the verifier checks the artifacts it is given rather than a
+   * inside the intent, which the inputs snapshot carries as its context, so
+   * the proof bundle signs them; the verifier checks the artifacts it is given rather than a
    * fixed set of fields, which is why a new signal needs no new version.
    */
   it("carries the enforcement boundary and the workload into signed evidence", async () => {
@@ -239,7 +251,9 @@ describe("Decision Dossier conformance corpus", () => {
       new URL("runtime-signals.json", VECTORS_DIRECTORY),
     );
     const jwks = await readJson<CorpusJwks>(new URL("corpus-jwks.json", DOSSIERS_DIRECTORY));
-    const signals = record(record(vector.dossier_payload["inputs_snapshot"])["signals"]);
+    const signals = record(
+      record(record(vector.dossier_payload["inputs_snapshot"])["context"])["signals"],
+    );
 
     expect(record(signals["enforcement_boundary"])["boundary_id"]).toBe(
       "synthetic-boundary-prod-eu",
@@ -255,9 +269,11 @@ describe("Decision Dossier conformance corpus", () => {
     // And they are signed, not merely present: one character of the boundary
     // id is a bundle that no longer verifies.
     const mutated = structuredClone(vector.dossier_payload);
-    record(record(record(mutated["inputs_snapshot"])["signals"])["enforcement_boundary"])[
-      "boundary_id"
-    ] = "synthetic-boundary-somewhere-else";
+    record(
+      record(record(record(mutated["inputs_snapshot"])["context"])["signals"])[
+        "enforcement_boundary"
+      ],
+    )["boundary_id"] = "synthetic-boundary-somewhere-else";
     expect(verifyDossierProofBundle({ dossier_payload: mutated, public_jwks: jwks }).verified).toBe(
       false,
     );
@@ -282,7 +298,9 @@ describe("Decision Dossier conformance corpus", () => {
         ({ key, verified }) => key === "portable_artifact:signature" && !verified,
       ),
     ).toBe(true);
-    expect(assessDossierIssuer(mutated, verifiedArtifactKinds(verification))).toMatchObject({
+    expect(
+      assessDossierIssuer(mutated, new Set(verification.verified_artifact_paths ?? [])),
+    ).toMatchObject({
       tier: "provisional_anonymous",
       provisional: true,
       signature_covered: false,
