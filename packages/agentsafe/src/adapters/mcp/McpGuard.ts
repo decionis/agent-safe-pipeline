@@ -1,6 +1,7 @@
 import {
   ActionRegistry,
   IntentCapture,
+  PreDispatchRefusal,
   SafeExecutor,
   type AuditRecorder,
   type AuthorizationVerifier,
@@ -128,7 +129,9 @@ export class McpGuard {
           // could have edited, and their canonical digest is compared here to
           // the one binding recorded. Arguments that drifted between
           // authorization and dispatch fail before the grant is spent.
-          if (jcsDigest(parameters) !== held.digest) throw new Error("MCP_ARGUMENTS_MISMATCH");
+          if (jcsDigest(parameters) !== held.digest) {
+            throw new PreDispatchRefusal("MCP_ARGUMENTS_MISMATCH");
+          }
           return await dispatch.run(async () => await held.tool.invoke(parameters));
         },
       });
@@ -217,7 +220,12 @@ export class McpGuard {
       intentHash,
       verdict: decision.verdict,
       dossierId: decision.dossierId,
-      reason: execution.reason,
+      // A refusal before dispatch names itself (MCP_ARGUMENTS_MISMATCH),
+      // rather than the generic HANDLER_FAILED_BEFORE_DISPATCH.
+      reason:
+        execution.outcome === "FAILED_BEFORE_DISPATCH" && execution.code !== undefined
+          ? execution.code
+          : execution.reason,
     };
   }
 }

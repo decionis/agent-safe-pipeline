@@ -2,6 +2,7 @@ import { z } from "zod";
 import { describe, expect, it, vi } from "vitest";
 import {
   ActionRegistry,
+  PreDispatchRefusal,
   ProviderRefusal,
   type ProviderDispatch,
 } from "../../src/execution/ActionRegistry.js";
@@ -160,6 +161,45 @@ describe("ActionRegistry", () => {
         return "never";
       }),
     ).resolves.toEqual({ status: "FAILED_BEFORE_DISPATCH" });
+  });
+
+  it("keeps a handler's refusal code before the dispatch, and only before it", async () => {
+    const attempts = async (body: (dispatch: ProviderDispatch) => Promise<unknown>) => {
+      const registry = new ActionRegistry()
+        .register("refund_order", {
+          parametersSchema: z.object({ amount: z.number() }),
+          execute: async ({ dispatch }) => await body(dispatch),
+        })
+        .seal();
+      return await registry.executeTracked(captured(), authorization);
+    };
+    // Refused before anything was sent: the code says why.
+    await expect(
+      attempts(async () => {
+        throw new PreDispatchRefusal("PAYLOAD_BINDING_MISMATCH");
+      }),
+    ).resolves.toEqual({ status: "FAILED_BEFORE_DISPATCH", code: "PAYLOAD_BINDING_MISMATCH" });
+    // Any other error before the dispatch is still a failure before dispatch, with no code.
+    await expect(
+      attempts(async () => {
+        throw new Error("credential store unavailable");
+      }),
+    ).resolves.toEqual({ status: "FAILED_BEFORE_DISPATCH" });
+    // Inside the dispatch the request has left: the outcome is unknown, whatever was thrown.
+    await expect(
+      attempts(async (dispatch) =>
+        dispatch.run(() => {
+          throw new PreDispatchRefusal("PAYLOAD_BINDING_MISMATCH");
+        }),
+      ),
+    ).resolves.toEqual({ status: "UNKNOWN_AFTER_DISPATCH", receipt: null });
+  });
+
+  it("never lets a refusal code carry free text into the audit trail", () => {
+    expect(new PreDispatchRefusal("MCP_ARGUMENTS_MISMATCH").code).toBe("MCP_ARGUMENTS_MISMATCH");
+    for (const code of ["", "lower_case", "HAS SPACE", "X", "A".repeat(65), "PAN-4111"]) {
+      expect(new PreDispatchRefusal(code).code, code).toBe("HANDLER_FAILED_BEFORE_DISPATCH");
+    }
   });
 
   it("converts malformed or rejected reconciliation into UNKNOWN", async () => {

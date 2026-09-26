@@ -1126,11 +1126,16 @@ export class Gateway {
     }
     // Blocked at the claim, or failed before anything was sent: nothing reached the upstream.
     const reason = "reason" in outcome ? outcome.reason : "EXECUTION_BLOCKED";
+    // A handler's own refusal code follows the category (PAYLOAD_BINDING_MISMATCH).
+    const reasonCodes =
+      outcome.outcome === "FAILED_BEFORE_DISPATCH" && outcome.code !== undefined
+        ? [reason, outcome.code]
+        : [reason];
     const state: GatewayState = outcome.outcome === "BLOCKED" ? "ERROR" : "EXECUTION_FAILED";
     this.report({
       ...base,
       state,
-      reason_codes: [reason],
+      reason_codes: reasonCodes,
       execution: "NOT_FORWARDED",
       upstream_status: null,
       finalization,
@@ -1138,7 +1143,7 @@ export class Gateway {
     return this.own(outcome.outcome === "BLOCKED" ? 503 : 502, {
       state,
       verdict: "ALLOW",
-      reason_codes: [reason],
+      reason_codes: reasonCodes,
       execution: "NOT_FORWARDED",
       intent_id: intentId,
       intent_hash: captured.intentHash,

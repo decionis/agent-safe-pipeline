@@ -47,6 +47,7 @@ const EXPECTED_RUNTIME = [
   "LocalAuthorizationVerifier",
   "LocalGrants",
   "PostgresReplayStore",
+  "PreDispatchRefusal",
   "PresenceApprovalCoordinator",
   "ProviderRefusal",
   "ProvisionError",

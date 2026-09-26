@@ -5,6 +5,7 @@ import type { GateDecision } from "../../src/decision/DecisionAuthority.js";
 import { createFixtureAuthorityPair } from "../../src/decision/FixtureDecisionAuthority.js";
 import {
   ActionRegistry,
+  PreDispatchRefusal,
   ProviderRefusal,
   type ActionExecutionContext,
 } from "../../src/execution/ActionRegistry.js";
@@ -607,15 +608,41 @@ describe("SafeExecutor", () => {
       unsafeAllowDevelopmentFixture: true,
     });
     const intent = captured();
-    expect(
-      await new SafeExecutor(registry, pair.verifier).run(
-        intent,
-        await pair.authority.evaluate(intent),
-      ),
-    ).toMatchObject({
+    const result = await new SafeExecutor(registry, pair.verifier).run(
+      intent,
+      await pair.authority.evaluate(intent),
+    );
+    expect(result).toMatchObject({
       outcome: "FAILED_BEFORE_DISPATCH",
       executed: false,
       reason: "HANDLER_FAILED_BEFORE_DISPATCH",
+    });
+    // A refusal that names no code carries no code key at all, not an undefined one.
+    expect("code" in result).toBe(false);
+  });
+
+  it("carries a handler's refusal code on the result, beside the category", async () => {
+    const registry = new ActionRegistry()
+      .register("refund_order", {
+        parametersSchema: z.object({ amount: z.number(), currency: z.string() }),
+        execute: () => {
+          throw new PreDispatchRefusal("PAYLOAD_BINDING_MISMATCH");
+        },
+      })
+      .seal();
+    const pair = createFixtureAuthorityPair(() => "ALLOW", {
+      unsafeAllowDevelopmentFixture: true,
+    });
+    const intent = captured();
+    const result = await new SafeExecutor(registry, pair.verifier).run(
+      intent,
+      await pair.authority.evaluate(intent),
+    );
+    expect(result).toMatchObject({
+      outcome: "FAILED_BEFORE_DISPATCH",
+      executed: false,
+      reason: "HANDLER_FAILED_BEFORE_DISPATCH",
+      code: "PAYLOAD_BINDING_MISMATCH",
     });
   });
 
@@ -646,6 +673,21 @@ describe("SafeExecutor", () => {
         commit: "FAILED",
         eventType: "EXECUTION_FAILED_BEFORE_DISPATCH",
         reasonCodes: ["HANDLER_FAILED_BEFORE_DISPATCH", "COMMIT_FINALIZATION_RECORDED"],
+      },
+      {
+        // A handler that refuses before the dispatch says why, and the code
+        // follows the category into the audit trail.
+        execute: async () => {
+          throw new PreDispatchRefusal("PAYLOAD_BINDING_MISMATCH");
+        },
+        outcome: "FAILED_BEFORE_DISPATCH",
+        commit: "FAILED",
+        eventType: "EXECUTION_FAILED_BEFORE_DISPATCH",
+        reasonCodes: [
+          "HANDLER_FAILED_BEFORE_DISPATCH",
+          "PAYLOAD_BINDING_MISMATCH",
+          "COMMIT_FINALIZATION_RECORDED",
+        ],
       },
       {
         execute: async ({ dispatch }) =>

@@ -118,6 +118,8 @@ export type SafeExecutionResult<TResult = unknown> =
       readonly outcome: "FAILED_BEFORE_DISPATCH";
       readonly executed: false;
       readonly reason: ExecutionPreDispatchFailureReason;
+      /** Why the handler refused, when it threw a `PreDispatchRefusal`. */
+      readonly code?: string;
       readonly result: null;
       readonly authorization: VerifiedAuthorization;
       readonly finalization: ExecutionFinalization;
@@ -275,6 +277,7 @@ export class SafeExecutor {
         authorization,
         "HANDLER_FAILED_BEFORE_DISPATCH",
         startedAt,
+        attempt.code,
       );
     }
     if (attempt.status === "REFUSED_AFTER_DISPATCH") {
@@ -545,6 +548,7 @@ export class SafeExecutor {
     authorization: VerifiedAuthorization,
     reason: ExecutionPreDispatchFailureReason,
     startedAt: number,
+    code?: string,
   ): Promise<Extract<SafeExecutionResult<never>, { outcome: "FAILED_BEFORE_DISPATCH" }>> {
     // The grant was consumed but no side effect was attempted.
     const finalization = await this.finalize(captured, decision, authorization, "FAILED");
@@ -554,7 +558,11 @@ export class SafeExecutor {
       captured,
       decision,
       authorization,
-      reasonCodes: [reason, SafeExecutor.finalizationCode(finalization)],
+      reasonCodes: [
+        reason,
+        ...(code === undefined ? [] : [code]),
+        SafeExecutor.finalizationCode(finalization),
+      ],
       durationMs: Date.now() - startedAt,
     });
     // Stryker restore all
@@ -562,6 +570,7 @@ export class SafeExecutor {
       outcome: "FAILED_BEFORE_DISPATCH",
       executed: false,
       reason,
+      ...(code === undefined ? {} : { code }),
       result: null,
       authorization,
       finalization,

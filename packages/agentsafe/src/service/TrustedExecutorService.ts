@@ -1260,6 +1260,7 @@ export class TrustedExecutorService {
       reason_codes: [
         ...decision.reasonCodes,
         ...("reason" in outcome && outcome.reason !== "DECISION_NOT_ALLOW" ? [outcome.reason] : []),
+        ...("code" in outcome && outcome.code !== undefined ? [outcome.code] : []),
         ...TrustedExecutorService.effectReasons(effect),
         ...extraReasonCodes,
       ],
