@@ -141,7 +141,9 @@ export function httpForwardHandler(
         // like any other upstream header.
         const receipt = response.headers.find(([name]) => name === EFFECT_RECEIPT_HEADER);
         if (receipt !== undefined) dispatch.receipt(receipt[1]);
-        if (response.status >= 500) {
+        // A 408 is a timeout, not a refusal: the upstream may have acted, so it
+        // is as unknown as a 5xx (docs/execution-outcomes.md).
+        if (response.status >= 500 || response.status === 408) {
           held.outcome = { response, failure: "UPSTREAM_ERROR" };
           throw new UpstreamIndeterminate();
         }

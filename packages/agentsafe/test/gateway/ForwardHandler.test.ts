@@ -162,6 +162,13 @@ describe("the exact-forward handler", () => {
       failure: "UPSTREAM_ERROR",
       response: { status: 500 },
     });
+    // A 408 is a timeout: the upstream may have acted, so it is unknown, never a refusal.
+    holder.hold("00000000-0000-4000-8000-000000000001", request({ path: "/timeout" }), {});
+    await expect(handler.execute(at("/timeout"))).rejects.toThrow("UPSTREAM_STATUS_5XX");
+    expect(holder.release("00000000-0000-4000-8000-000000000001")).toMatchObject({
+      failure: "UPSTREAM_ERROR",
+      response: { status: 408 },
+    });
     holder.hold("00000000-0000-4000-8000-000000000001", request({ path: "/big" }), {});
     await expect(handler.execute(at("/big"))).rejects.toThrow("UPSTREAM_RESPONSE_TOO_LARGE");
     expect(holder.release("00000000-0000-4000-8000-000000000001")).toEqual({

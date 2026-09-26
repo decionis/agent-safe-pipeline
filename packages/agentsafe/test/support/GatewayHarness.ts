@@ -20,7 +20,7 @@ export interface SeenRequest {
 
 /**
  * A loopback stand-in for the service behind the gateway. It answers by
- * path: `/fail` with 500, `/refuse` with 422, `/slow` after a delay,
+ * path: `/fail` with 500, `/refuse` with 422, `/timeout` with 408, `/slow` after a delay,
  * `/redirect` with 302, `/big` with more bytes than the relay allows,
  * `/hang` never; anything else with 201 for a write and 200 for a read,
  * echoing what it received so a test can check the bytes.
@@ -76,11 +76,13 @@ export class UpstreamDouble {
     }
     const status = path.startsWith("/fail")
       ? 500
-      : path.startsWith("/refuse") || path.startsWith("/receipt/refuse")
-        ? 422
-        : request.method === "GET"
-          ? 200
-          : 201;
+      : path.startsWith("/timeout")
+        ? 408
+        : path.startsWith("/refuse") || path.startsWith("/receipt/refuse")
+          ? 422
+          : request.method === "GET"
+            ? 200
+            : 201;
     response.writeHead(status, {
       "content-type": "application/json",
       "x-upstream": "double",

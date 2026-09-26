@@ -32,6 +32,16 @@ refusal, and throwing `ProviderRefusal` for one of those would turn "nobody know
 Thrown before the dispatch it is a handler failure like any other, because nothing was sent for
 anyone to refuse.
 
+The reference `forward_request` handler reads HTTP statuses this way:
+
+- a 2xx completes and is finalized `COMMITTED`;
+- a 4xx is the provider's refusal (`UPSTREAM_STATUS_<n>`) and is finalized `FAILED`;
+- a 408, a 5xx or any other status is an unknown outcome and is finalized `INDETERMINATE`, because
+  a timeout, or an error after the provider applied the effect, proves nothing either way.
+
+The gateway applies the same table, and a provider's receipt rides on the attempt whichever way it
+ended.
+
 ## Finalization
 
 Every outcome that consumed a grant also reports `finalization`. After the attempt, `SafeExecutor`
