@@ -6,7 +6,7 @@ Help with the **Decionis Action Gate** (`decionis/govern`).
 
 - **Quickstart + free API keys:** <https://decionis.com/quickstart?source=github_action>
 - **Action docs:** the [README](./README.md) and copy-paste workflows in [`examples/`](./examples/)
-- **GitHub Action page:** <https://decionis.com/marketplace/github>
+- **GitHub Action page:** <https://decionis.ai/govern>
 
 ## Get help
 
