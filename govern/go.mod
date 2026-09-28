@@ -7,4 +7,4 @@ go 1.22
 // installed one differs, and the CI job installs the same.
 toolchain go1.26.4
 
-require github.com/gowebpki/jcs v1.0.1
+require github.com/gowebpki/jcs v1.0.2
