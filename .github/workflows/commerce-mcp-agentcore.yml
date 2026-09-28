@@ -106,7 +106,7 @@ jobs:
       - name: Decionis Action Gate (shadow)
         if: ${{ inputs.mode == 'publish' }}
         continue-on-error: true
-        uses: decionis/govern@6bc8bd3fc0dab105703fe3dc8c6c7a1d738bcf29 # v1.9.3
+        uses: decionis/govern@8834bf99bc977cd7b721269d1d4d1b0cfb9cbb43 # v2.0.0
         with:
           api-key: ${{ secrets.DECIONIS_API_KEY }}
           org-id: ${{ secrets.DECIONIS_ORG_ID }}
