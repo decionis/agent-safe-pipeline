@@ -22,7 +22,7 @@
   <properties>
     <maven.compiler.release>17</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <jackson.version>2.22.2</jackson.version>
+    <jackson.version>2.22.3</jackson.version>
     <testng.version>7.12.0</testng.version>
   </properties>
 
