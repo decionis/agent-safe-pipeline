@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from "node:crypto";
 import { once } from "node:events";
 import {
   createServer,
@@ -31,7 +32,11 @@ class GuardError extends Error {
 }
 
 export interface GatewayHttpServerOptions {
-  /** A bearer token the metrics route requires; open when null, which is the local default. */
+  /**
+   * A bearer token the metrics route requires; open when null, which is the
+   * local default. A hosted gateway's status and metrics answer only this
+   * token, the operator's, and are not there at all without one.
+   */
   readonly metricsToken?: string | null;
 }
 
@@ -180,10 +185,14 @@ export class GatewayHttpServer {
         return GatewayHttpServer.reply(response, readiness.ready ? 200 : 503, readiness.body);
       }
       case "status":
+        // Status names the upstream, the routes and the shadow tally: the
+        // tenant's business, and a hosted gateway answers it to the operator only.
+        if (gateway.config.hosted) this.requireOperator(request);
         return GatewayHttpServer.reply(response, 200, gateway.status());
       case "metrics": {
+        if (gateway.config.hosted) this.requireOperator(request);
         const token = this.options.metricsToken ?? null;
-        if (token !== null && request.headers.authorization !== `Bearer ${token}`) {
+        if (token !== null && !GatewayHttpServer.bearerIs(request, token)) {
           throw new GuardError(401, "UNAUTHORIZED");
         }
         response.writeHead(200, { ...RESPONSE_HEADERS, "content-type": METRICS_CONTENT_TYPE });
@@ -191,6 +200,19 @@ export class GatewayHttpServer {
         return;
       }
     }
+  }
+
+  /** The operator's token, or the route is not there (no token) or refused (another one). */
+  private requireOperator(request: IncomingMessage): void {
+    const token = this.options.metricsToken ?? null;
+    if (token === null) throw new GuardError(404, "NOT_FOUND");
+    if (!GatewayHttpServer.bearerIs(request, token)) throw new GuardError(401, "UNAUTHORIZED");
+  }
+
+  /** Whether the request presents exactly this bearer token, compared in constant time. */
+  private static bearerIs(request: IncomingMessage, token: string): boolean {
+    const digest = (value: string): Buffer => createHash("sha256").update(value, "utf8").digest();
+    return timingSafeEqual(digest(request.headers.authorization ?? ""), digest(`Bearer ${token}`));
   }
 
   /** The whole body under a bound; declared or streamed, the bound is the bound. */

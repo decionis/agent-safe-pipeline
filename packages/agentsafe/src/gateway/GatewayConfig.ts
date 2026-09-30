@@ -46,6 +46,12 @@ export interface RouteConfig {
  */
 export interface GatewayConfig {
   readonly listen: { readonly host: string; readonly port: number };
+  /**
+   * Run for a tenant by someone else, as Decionis runs hosted shadow: the
+   * upstream is public-only, the mode is shadow, the gateway's own status and
+   * metrics answer only the operator, and a relayed cookie is host-only.
+   */
+  readonly hosted: boolean;
   readonly upstream: {
     readonly url: string;
     /** A plain-HTTP upstream off loopback is refused unless this says the network protects the hop. */
@@ -154,6 +160,7 @@ export const GatewayFileSchema = z.strictObject({
       upstream: url.optional(),
       upstreamInsecure: z.boolean().optional(),
       upstreamPublicOnly: z.boolean().optional(),
+      hosted: z.boolean().optional(),
       upstreamTimeoutMs: positiveInt.max(120_000).optional(),
       system: z.string().trim().min(1).max(200).optional(),
       environment: z.string().trim().min(1).max(200).optional(),
@@ -263,6 +270,7 @@ const ENVIRONMENT = {
   upstream: "AGENTSAFE_UPSTREAM",
   upstreamInsecure: "AGENTSAFE_UPSTREAM_INSECURE",
   upstreamPublicOnly: "AGENTSAFE_UPSTREAM_PUBLIC_ONLY",
+  hosted: "AGENTSAFE_HOSTED_GATEWAY",
   upstreamTimeoutMs: "AGENTSAFE_UPSTREAM_TIMEOUT_MS",
   system: "AGENTSAFE_UPSTREAM_SYSTEM",
   environment: "AGENTSAFE_ENVIRONMENT",
@@ -491,17 +499,31 @@ export class GatewayConfigLoader {
       false,
     );
     const upstreamUrl = GatewayConfigLoader.upstreamUrl(upstreamRaw, upstreamInsecure);
-    const upstreamPublicOnly = resolve(
-      "upstream.publicOnly",
+    const hosted = resolve(
+      "hosted",
       [
         {
           source: "environment",
-          raw: parseBoolean(env[ENVIRONMENT.upstreamPublicOnly], ENVIRONMENT.upstreamPublicOnly),
+          raw: parseBoolean(env[ENVIRONMENT.hosted], ENVIRONMENT.hosted),
         },
-        { source: "file", raw: file?.gateway?.upstreamPublicOnly },
+        { source: "file", raw: file?.gateway?.hosted },
       ],
       false,
     );
+    // A hosted gateway's upstream is its tenant's choice, so it is public-only
+    // whatever else says; the setting is still read, so a bad value is named.
+    const upstreamPublicOnly =
+      resolve(
+        "upstream.publicOnly",
+        [
+          {
+            source: "environment",
+            raw: parseBoolean(env[ENVIRONMENT.upstreamPublicOnly], ENVIRONMENT.upstreamPublicOnly),
+          },
+          { source: "file", raw: file?.gateway?.upstreamPublicOnly },
+        ],
+        false,
+      ) || hosted;
     // A public-only upstream is reached over TLS at a public name, or not at
     // all. An address written as the host is checked here, because connecting
     // to one resolves nothing, so the guarded egress's address check never runs.
@@ -577,6 +599,15 @@ export class GatewayConfigLoader {
     // every action closed, so the refusal is at start, by name.
     const provisional =
       kind === "DECIONIS" && keyFromCredentials && credentials.provisional === true;
+    // Hosted enforcement would hold every tenant's provider credentials; it is
+    // not offered, so a hosted gateway that says enforce is refused at start.
+    if (hosted && mode === "ENFORCEMENT") {
+      throw new GatewayConfigError(
+        "CONFIG_INVALID",
+        "authority.mode",
+        "a hosted gateway runs in shadow only",
+      );
+    }
     if (provisional && mode === "ENFORCEMENT") {
       throw new GatewayConfigError(
         "CONFIG_INVALID",
@@ -770,6 +801,7 @@ export class GatewayConfigLoader {
 
     return {
       listen,
+      hosted,
       upstream: {
         url: upstreamUrl,
         insecure: upstreamInsecure,

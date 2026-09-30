@@ -910,3 +910,32 @@ describe("a public-only upstream, as a hosted gateway runs one", () => {
     await refused.close();
   });
 });
+
+describe("a hosted gateway", () => {
+  it("relays every cookie host-only, so one tenant's upstream cannot set one for another", async () => {
+    const gateway = await Gateway.create(
+      testConfig("https://shop.tenant.example", {
+        flags: { mode: "shadow" },
+        env: { AGENTSAFE_HOSTED_GATEWAY: "true" },
+      }),
+      {
+        env: {},
+        io: collectedIo(),
+        upstreamFetch: async () => {
+          const headers = new Headers();
+          headers.append("set-cookie", "sid=1; Domain=decionisedge.example; Path=/; Secure");
+          return new Response("ok", { status: 200, headers });
+        },
+      },
+    );
+    for (const answer of [
+      await gateway.passthrough(request("GET", "/account")),
+      await gateway.govern(request("POST", "/payments", { amount: 10 }), "http.post"),
+    ]) {
+      expect(answer.headers.filter(([name]) => name === "set-cookie")).toEqual([
+        ["set-cookie", "sid=1; Path=/; Secure"],
+      ]);
+    }
+    await gateway.close();
+  });
+});

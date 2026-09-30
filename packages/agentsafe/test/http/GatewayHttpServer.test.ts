@@ -241,3 +241,54 @@ describe("one listener in front of many gateways", () => {
     expect(none.status).toBe(421);
   });
 });
+
+describe("a hosted gateway's own routes", () => {
+  const hostedGateway = async (): Promise<Gateway> =>
+    await Gateway.create(
+      testConfig("https://shop.tenant.example", {
+        flags: { mode: "shadow" },
+        env: { AGENTSAFE_HOSTED_GATEWAY: "true" },
+      }),
+      {
+        env: {},
+        io: collectedIo(),
+        upstreamFetch: async () => new Response("ok", { status: 200 }),
+      },
+    );
+
+  it("answers status and metrics to the operator's token alone", async () => {
+    const gateway = await hostedGateway();
+    const server = new GatewayHttpServer(gateway, { metricsToken: "synthetic-operator-token" });
+    const origin = `${LOOPBACK_ORIGIN}:${(await server.listen(0, "127.0.0.1")).port}`;
+    for (const route of ["status", "metrics"]) {
+      const url = `${origin}/_agentsafe/${route}`;
+      expect([route, (await fetch(url)).status]).toEqual([route, 401]);
+      const wrong = await fetch(url, { headers: { authorization: "Bearer synthetic-other" } });
+      expect([route, wrong.status]).toEqual([route, 401]);
+      expect(await wrong.json()).toEqual({ code: "UNAUTHORIZED" });
+      const right = await fetch(url, {
+        headers: { authorization: "Bearer synthetic-operator-token" },
+      });
+      expect([route, right.status]).toEqual([route, 200]);
+    }
+    // Liveness and readiness stay open: a platform's probes need them, and
+    // they say nothing about the tenant.
+    expect((await fetch(`${origin}/_agentsafe/healthz`)).status).toBe(200);
+    expect((await fetch(`${origin}/_agentsafe/readyz`)).status).toBe(200);
+    await server.close(100);
+    await gateway.close();
+  });
+
+  it("has no status or metrics at all without an operator token", async () => {
+    const gateway = await hostedGateway();
+    const server = new GatewayHttpServer(gateway);
+    const origin = `${LOOPBACK_ORIGIN}:${(await server.listen(0, "127.0.0.1")).port}`;
+    for (const route of ["status", "metrics"]) {
+      const answer = await fetch(`${origin}/_agentsafe/${route}`);
+      expect([route, answer.status]).toEqual([route, 404]);
+      expect(await answer.json()).toEqual({ code: "NOT_FOUND" });
+    }
+    await server.close(100);
+    await gateway.close();
+  });
+});

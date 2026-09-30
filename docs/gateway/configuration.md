@@ -74,6 +74,21 @@ benchmarking (`198.18/15`), NAT64 (`64:ff9b::/96`) or the Azure platform address
 checked the same way, at start and on every request. Without it, as by default, private addresses
 are allowed, because that is where an operator's own services live.
 
+## Hosted
+
+`gateway.hosted: true` (`AGENTSAFE_HOSTED_GATEWAY=true`) is for a gateway someone runs on a
+tenant's behalf, as Decionis runs hosted shadow. It changes four things:
+
+- the upstream is public-only, whatever `upstreamPublicOnly` says;
+- the mode is shadow: a hosted gateway set to enforce is refused at start, because enforcing
+  would mean holding the tenant's provider credentials;
+- `/_agentsafe/status` and `/_agentsafe/metrics` answer only `Authorization: Bearer
+$AGENTSAFE_METRICS_TOKEN`, the operator's token, with `401` for any other, and are not there
+  at all (`404`) when no token is set; `healthz` and `readyz` stay open for the platform's probes;
+- every `Set-Cookie` the upstream sends is relayed without its `Domain` attribute, so a cookie is
+  kept for the exact host it came from and one tenant's upstream cannot set a cookie that the
+  client would send to another tenant's host under the same domain.
+
 ## Presence
 
 ```yaml

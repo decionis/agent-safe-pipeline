@@ -441,6 +441,52 @@ describe("the gateway configuration", () => {
     ).toBe("AGENTSAFE_UPSTREAM_PUBLIC_ONLY");
   });
 
+  it("runs a hosted gateway public-only and in shadow, whatever else is set", () => {
+    expect(load({ flags: { upstream: "https://shop.tenant.example" } }).hosted).toBe(false);
+    const hosted = load({
+      flags: { upstream: "https://shop.tenant.example", mode: "shadow" },
+      env: { AGENTSAFE_HOSTED_GATEWAY: "true" },
+    });
+    expect(hosted.hosted).toBe(true);
+    expect(hosted.upstream.publicOnly).toBe(true);
+    expect(
+      load({
+        flags: { upstream: "https://shop.tenant.example", mode: "shadow" },
+        env: { AGENTSAFE_HOSTED_GATEWAY: "true", AGENTSAFE_UPSTREAM_PUBLIC_ONLY: "false" },
+      }).upstream.publicOnly,
+    ).toBe(true);
+    expect(
+      load({
+        flags: { mode: "shadow" },
+        file: { version: 1, gateway: { upstream: "https://shop.tenant.example", hosted: true } },
+      }).hosted,
+    ).toBe(true);
+    expect(
+      refusal({
+        flags: { upstream: "https://shop.tenant.example", mode: "enforcement" },
+        env: { AGENTSAFE_HOSTED_GATEWAY: "true" },
+      }).message,
+    ).toBe("CONFIG_INVALID: authority.mode (a hosted gateway runs in shadow only)");
+    expect(
+      refusal({
+        flags: { upstream: "http://localhost:3000", mode: "shadow" },
+        env: { AGENTSAFE_HOSTED_GATEWAY: "true" },
+      }).message,
+    ).toBe("CONFIG_INVALID: upstream (a public-only upstream must be https)");
+    expect(
+      refusal({
+        flags: { upstream: "https://shop.tenant.example", mode: "shadow" },
+        env: { AGENTSAFE_HOSTED_GATEWAY: "yes please" },
+      }).setting,
+    ).toBe("AGENTSAFE_HOSTED_GATEWAY");
+    expect(
+      refusal({
+        flags: { upstream: "https://shop.tenant.example", mode: "shadow" },
+        env: { AGENTSAFE_HOSTED_GATEWAY: "true", AGENTSAFE_UPSTREAM_PUBLIC_ONLY: "maybe" },
+      }).setting,
+    ).toBe("AGENTSAFE_UPSTREAM_PUBLIC_ONLY");
+  });
+
   it("reads the authority's connection settings and the loopback allowance", () => {
     const config = load({
       flags: { upstream: "https://api.example" },

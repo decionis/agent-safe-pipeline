@@ -369,6 +369,7 @@ export class Gateway {
       timeoutMs: config.upstream.timeoutMs,
       maxResponseBytes: config.upstream.maxResponseBytes,
       fetch: upstreamGuard?.fetch ?? dependencies.upstreamFetch ?? fetch,
+      hostOnlyCookies: config.hosted,
       ...(upstreamGuard === null ? {} : { close: () => upstreamGuard.close() }),
     });
     const routes = new RouteTable(

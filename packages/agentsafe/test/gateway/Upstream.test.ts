@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { InterceptedRequest } from "../../src/gateway/InterceptedRequest.js";
-import { Upstream, UpstreamResponseTooLarge } from "../../src/gateway/Upstream.js";
+import { hostOnlyCookie, Upstream, UpstreamResponseTooLarge } from "../../src/gateway/Upstream.js";
 import { closedPort } from "../support/Environment.js";
 import { UpstreamDouble, LOOPBACK_ORIGIN } from "../support/GatewayHarness.js";
 
@@ -132,5 +132,44 @@ describe("the upstream client", () => {
     await expect(dead.send("POST", "/x", "", {}, Buffer.alloc(0), dead.signal())).rejects.toThrow();
     expect(small.signal(50)).toBeInstanceOf(AbortSignal);
     expect(small.signal(0)).toBeInstanceOf(AbortSignal);
+  });
+});
+
+describe("host-only cookies, for a hosted gateway", () => {
+  it("drops the Domain attribute and nothing else", () => {
+    expect(hostOnlyCookie("sid=1; Domain=gw.example; Path=/; Secure; HttpOnly")).toBe(
+      "sid=1; Path=/; Secure; HttpOnly",
+    );
+    expect(hostOnlyCookie("sid=1;DOMAIN=.gw.example;Path=/")).toBe("sid=1;Path=/");
+    expect(hostOnlyCookie("sid=1; domain = gw.example")).toBe("sid=1");
+    expect(hostOnlyCookie("sid=1; Domain")).toBe("sid=1");
+    expect(hostOnlyCookie("sid=1; Domainish=1; Path=/")).toBe("sid=1; Domainish=1; Path=/");
+    // The name and value are never read as attributes, whatever they contain.
+    expect(hostOnlyCookie("Domain=gw.example; Path=/")).toBe("Domain=gw.example; Path=/");
+    expect(hostOnlyCookie("note=domain=x; Path=/")).toBe("note=domain=x; Path=/");
+    expect(hostOnlyCookie("a=b")).toBe("a=b");
+  });
+
+  it("is applied to every relayed cookie only when asked", async () => {
+    const answer = (): Response => {
+      const headers = new Headers();
+      headers.append("set-cookie", "a=1; Domain=gw.example; Path=/");
+      headers.append("set-cookie", "b=2; Path=/");
+      return new Response("ok", { status: 200, headers });
+    };
+    const cookies = async (hostOnlyCookies: boolean | undefined): Promise<string[]> => {
+      const upstream = new Upstream({
+        url: "https://shop.tenant.example",
+        timeoutMs: 1_000,
+        maxResponseBytes: 1_024,
+        fetch: async () => answer(),
+        ...(hostOnlyCookies === undefined ? {} : { hostOnlyCookies }),
+      });
+      const result = await upstream.send("GET", "/", "", {}, Buffer.alloc(0), upstream.signal());
+      return result.headers.filter(([name]) => name === "set-cookie").map(([, value]) => value);
+    };
+    expect(await cookies(true)).toEqual(["a=1; Path=/", "b=2; Path=/"]);
+    expect(await cookies(false)).toEqual(["a=1; Domain=gw.example; Path=/", "b=2; Path=/"]);
+    expect(await cookies(undefined)).toEqual(["a=1; Domain=gw.example; Path=/", "b=2; Path=/"]);
   });
 });
