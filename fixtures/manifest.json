@@ -801,6 +801,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/hosted/RecordHygiene.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/hosted/TenantHost.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
