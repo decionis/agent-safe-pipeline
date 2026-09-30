@@ -4,6 +4,7 @@ import {
   type EscalationConfig,
   type VerificationMethod,
 } from "../config/ExecutorConfig.js";
+import { EgressPolicy } from "../egress/EgressPolicy.js";
 import type { SecretName } from "../secrets/SecretStore.js";
 
 export type GatewayMode = "SHADOW" | "ENFORCEMENT";
@@ -49,6 +50,13 @@ export interface GatewayConfig {
     readonly url: string;
     /** A plain-HTTP upstream off loopback is refused unless this says the network protects the hop. */
     readonly insecure: boolean;
+    /**
+     * Connect to the upstream only at public addresses, through the guarded
+     * egress. For a gateway whose upstream someone else chose, as a hosted
+     * tenant does: a name that resolves to a private, shared, platform or
+     * loopback address is refused before a socket exists.
+     */
+    readonly publicOnly: boolean;
     readonly system: string;
     readonly environment: string;
     readonly timeoutMs: number;
@@ -145,6 +153,7 @@ export const GatewayFileSchema = z.strictObject({
       listen: z.string().trim().min(1).max(64).optional(),
       upstream: url.optional(),
       upstreamInsecure: z.boolean().optional(),
+      upstreamPublicOnly: z.boolean().optional(),
       upstreamTimeoutMs: positiveInt.max(120_000).optional(),
       system: z.string().trim().min(1).max(200).optional(),
       environment: z.string().trim().min(1).max(200).optional(),
@@ -253,6 +262,7 @@ const ENVIRONMENT = {
   port: "PORT",
   upstream: "AGENTSAFE_UPSTREAM",
   upstreamInsecure: "AGENTSAFE_UPSTREAM_INSECURE",
+  upstreamPublicOnly: "AGENTSAFE_UPSTREAM_PUBLIC_ONLY",
   upstreamTimeoutMs: "AGENTSAFE_UPSTREAM_TIMEOUT_MS",
   system: "AGENTSAFE_UPSTREAM_SYSTEM",
   environment: "AGENTSAFE_ENVIRONMENT",
@@ -481,6 +491,37 @@ export class GatewayConfigLoader {
       false,
     );
     const upstreamUrl = GatewayConfigLoader.upstreamUrl(upstreamRaw, upstreamInsecure);
+    const upstreamPublicOnly = resolve(
+      "upstream.publicOnly",
+      [
+        {
+          source: "environment",
+          raw: parseBoolean(env[ENVIRONMENT.upstreamPublicOnly], ENVIRONMENT.upstreamPublicOnly),
+        },
+        { source: "file", raw: file?.gateway?.upstreamPublicOnly },
+      ],
+      false,
+    );
+    // A public-only upstream is reached over TLS at a public name, or not at
+    // all. An address written as the host is checked here, because connecting
+    // to one resolves nothing, so the guarded egress's address check never runs.
+    if (upstreamPublicOnly) {
+      const host = new URL(upstreamUrl).hostname;
+      if (!upstreamUrl.startsWith("https:")) {
+        throw new GatewayConfigError(
+          "CONFIG_INVALID",
+          "upstream",
+          "a public-only upstream must be https",
+        );
+      }
+      if (EgressPolicy.isLoopbackHost(host) || EgressPolicy.hostAddressRefused(host, true)) {
+        throw new GatewayConfigError(
+          "CONFIG_INVALID",
+          "upstream",
+          "a public-only upstream must name a public host",
+        );
+      }
+    }
 
     const keyFromCredentials =
       credentials !== null &&
@@ -732,6 +773,7 @@ export class GatewayConfigLoader {
       upstream: {
         url: upstreamUrl,
         insecure: upstreamInsecure,
+        publicOnly: upstreamPublicOnly,
         system: resolve(
           "upstream.system",
           [

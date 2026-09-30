@@ -2,12 +2,13 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   LOCAL_AUTHORITY_API_KEY,
   LocalAuthority,
   LocalPresence,
 } from "@decionis/agent-safe-pipeline/testing";
+import { EgressError } from "../../src/egress/EgressError.js";
 import { demoPolicy } from "../../src/gateway/DemoAuthority.js";
 import {
   Gateway,
@@ -829,5 +830,83 @@ describe("the forwarded bytes are the bytes the intent bound", () => {
     );
     await gateway.close();
     await upstream.stop();
+  });
+});
+
+describe("a public-only upstream, as a hosted gateway runs one", () => {
+  const upstream = "https://shop.tenant.example";
+  const config = (): ReturnType<typeof testConfig> =>
+    testConfig(upstream, {
+      flags: { mode: "shadow" },
+      env: { AGENTSAFE_UPSTREAM_PUBLIC_ONLY: "true" },
+    });
+
+  it("forwards nothing to a name that resolves inward, and says why", async () => {
+    const resolve = vi.fn(async () => [{ address: "10.0.0.7", family: 4 as const }]);
+    const io = collectedIo();
+    const gateway = await Gateway.create(config(), { env: {}, io, upstreamResolve: resolve });
+    for (const answer of [
+      await gateway.govern(request("POST", "/payments", { amount: 10 }), "http.post"),
+      await gateway.passthrough(request("GET", "/health")),
+    ]) {
+      expect(answer.status).toBe(502);
+      expect(json(answer.body)).toMatchObject({
+        state: "ERROR",
+        reason_codes: ["UPSTREAM_ADDRESS_REFUSED"],
+        execution: "NOT_FORWARDED",
+      });
+    }
+    expect(resolve).toHaveBeenCalledWith("shop.tenant.example");
+    expect([...io.out, ...io.err].some((line) => line.includes("EGRESS_ADDRESS_REFUSED"))).toBe(
+      true,
+    );
+    await gateway.close();
+  });
+
+  it("relays what the upstream answers through the guard, and bounds it the same way", async () => {
+    const sent: string[] = [];
+    const upstreamFetch = vi.fn(async (input: string | URL | Request) => {
+      sent.push(String(input));
+      return new Response('{"ok":true}', {
+        status: 201,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    const gateway = await Gateway.create(config(), {
+      env: {},
+      io: collectedIo(),
+      upstreamFetch,
+    });
+    const answer = await gateway.passthrough(request("GET", "/orders", undefined, {}, "?page=2"));
+    expect(answer.status).toBe(201);
+    expect(answer.body.toString("utf8")).toBe('{"ok":true}');
+    expect(sent).toEqual(["https://shop.tenant.example/orders?page=2"]);
+    await gateway.close();
+
+    // An answer over the relay's bound is reported as too large, whichever
+    // reader refused it: the request was sent, so its outcome is not known.
+    const large = await Gateway.create(config(), {
+      env: {},
+      io: collectedIo(),
+      upstreamFetch: async () => new Response(Buffer.alloc(config().upstream.maxResponseBytes + 2)),
+    });
+    const tooLarge = await large.passthrough(request("GET", "/export"));
+    expect(json(tooLarge.body)).toMatchObject({
+      reason_codes: ["UPSTREAM_RESPONSE_TOO_LARGE"],
+      execution: "INDETERMINATE",
+    });
+    await large.close();
+    const refused = await Gateway.create(config(), {
+      env: {},
+      io: collectedIo(),
+      upstreamFetch: async () => {
+        throw new EgressError("EGRESS_BODY_TOO_LARGE", upstream);
+      },
+    });
+    expect(json((await refused.passthrough(request("GET", "/export"))).body)).toMatchObject({
+      reason_codes: ["UPSTREAM_RESPONSE_TOO_LARGE"],
+      execution: "INDETERMINATE",
+    });
+    await refused.close();
   });
 });

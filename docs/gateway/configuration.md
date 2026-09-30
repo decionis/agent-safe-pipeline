@@ -63,6 +63,17 @@ path every forwarded request is placed under. `gateway.system` and `gateway.envi
 downstream target in the intent; they default to the upstream's host and to `local` (`production`
 under `NODE_ENV=production`).
 
+`gateway.upstreamPublicOnly: true` (`AGENTSAFE_UPSTREAM_PUBLIC_ONLY=true`) is for a gateway whose
+upstream someone other than its operator chose, as a hosted gateway's tenant does. The upstream
+must then be `https://` at a public host, and it is reached through the same guarded egress the
+executor uses: the name is resolved once, and if any address it answers with is loopback,
+link-local, private (`10/8`, `172.16/12`, `192.168/16`, `fc00::/7`), shared (`100.64/10`),
+benchmarking (`198.18/15`), NAT64 (`64:ff9b::/96`) or the Azure platform address
+(`168.63.129.16`), nothing is sent: the answer is `502` with `UPSTREAM_ADDRESS_REFUSED` and
+`NOT_FORWARDED`, and `EGRESS_REFUSED` is on the security stream. An address written as the host is
+checked the same way, at start and on every request. Without it, as by default, private addresses
+are allowed, because that is where an operator's own services live.
+
 ## Presence
 
 ```yaml

@@ -120,10 +120,18 @@ export class EgressPolicy {
   /**
    * Whether a resolved address may be connected to for an origin. A loopback
    * origin must stay on this host; any other must never resolve to this
-   * host, the link, multicast, or nowhere. The lists are built per call so
-   * that nothing about them is decided at module load.
+   * host, the link, multicast, or nowhere. `publicOnly` is for a destination
+   * someone other than the operator chose, as a hosted gateway's tenant
+   * chooses its upstream: it also refuses every private and shared range,
+   * the Azure platform address, and NAT64, so a name cannot reach inward.
+   * IPv4-mapped IPv6 addresses match the IPv4 ranges. The lists are built per
+   * call so that nothing about them is decided at module load.
    */
-  public static addressRefused(address: string, loopbackOrigin: boolean): boolean {
+  public static addressRefused(
+    address: string,
+    loopbackOrigin: boolean,
+    publicOnly = false,
+  ): boolean {
     const family = isIP(address);
     if (family === 0) return true;
     const type = family === 4 ? "ipv4" : "ipv6";
@@ -142,7 +150,31 @@ export class EgressPolicy {
     list.addAddress("::1", "ipv6");
     list.addSubnet("fe80::", 10, "ipv6");
     list.addSubnet("ff00::", 8, "ipv6");
+    if (publicOnly) {
+      list.addSubnet("10.0.0.0", 8, "ipv4");
+      list.addSubnet("100.64.0.0", 10, "ipv4");
+      list.addSubnet("172.16.0.0", 12, "ipv4");
+      list.addSubnet("192.168.0.0", 16, "ipv4");
+      list.addSubnet("198.18.0.0", 15, "ipv4");
+      list.addAddress("168.63.129.16", "ipv4");
+      list.addSubnet("fc00::", 7, "ipv6");
+      list.addSubnet("64:ff9b::", 96, "ipv6");
+    }
     return list.check(address, type);
+  }
+
+  /**
+   * Whether a URL's hostname is an address, written as the host, that the
+   * policy refuses. Connecting to such a host resolves nothing, so the
+   * resolver's check never sees it; this is that check. A name that is not an
+   * address is not refused here.
+   */
+  public static hostAddressRefused(hostname: string, publicOnly = false): boolean {
+    const literal = hostname.startsWith("[") ? hostname.slice(1, -1) : hostname;
+    return (
+      isIP(literal) !== 0 &&
+      EgressPolicy.addressRefused(literal, EgressPolicy.isLoopbackHost(hostname), publicOnly)
+    );
   }
 
   /** The three loopback spellings the configuration accepts. */

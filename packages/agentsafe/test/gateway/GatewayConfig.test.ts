@@ -379,6 +379,68 @@ describe("the gateway configuration", () => {
     );
   });
 
+  it("keeps a public-only upstream off every inward address, and on TLS", () => {
+    expect(load({ flags: { upstream: "https://payments.example" } }).upstream.publicOnly).toBe(
+      false,
+    );
+    expect(
+      load({
+        flags: { upstream: "https://payments.example" },
+        env: { AGENTSAFE_UPSTREAM_PUBLIC_ONLY: "true" },
+      }).upstream.publicOnly,
+    ).toBe(true);
+    expect(
+      load({
+        file: {
+          version: 1,
+          gateway: { upstream: "https://payments.example", upstreamPublicOnly: true },
+        },
+      }).upstream.publicOnly,
+    ).toBe(true);
+    // A public address written as the host is allowed; the guard checks every name it resolves.
+    expect(
+      load({
+        flags: { upstream: "https://203.0.113.10" },
+        env: { AGENTSAFE_UPSTREAM_PUBLIC_ONLY: "true" },
+      }).upstream.url,
+    ).toBe("https://203.0.113.10");
+    const refused = (upstream: string, env: Record<string, string> = {}): GatewayConfigError =>
+      refusal({
+        flags: { upstream },
+        env: { AGENTSAFE_UPSTREAM_PUBLIC_ONLY: "true", ...env },
+      });
+    expect(
+      refused("http://payments.example", { AGENTSAFE_UPSTREAM_INSECURE: "true" }),
+    ).toMatchObject({
+      code: "CONFIG_INVALID",
+      setting: "upstream",
+      message: "CONFIG_INVALID: upstream (a public-only upstream must be https)",
+    });
+    expect(refused("http://localhost:8080").message).toBe(
+      "CONFIG_INVALID: upstream (a public-only upstream must be https)",
+    );
+    for (const upstream of [
+      "https://localhost:8443",
+      "https://127.0.0.1",
+      "https://[::1]:8443",
+      "https://10.0.0.5",
+      "https://169.254.169.254",
+      "https://[fd00::5]",
+      "https://[::ffff:192.168.1.1]",
+    ]) {
+      expect([upstream, refused(upstream).message]).toEqual([
+        upstream,
+        "CONFIG_INVALID: upstream (a public-only upstream must name a public host)",
+      ]);
+    }
+    expect(
+      refusal({
+        flags: { upstream: "https://payments.example" },
+        env: { AGENTSAFE_UPSTREAM_PUBLIC_ONLY: "maybe" },
+      }).setting,
+    ).toBe("AGENTSAFE_UPSTREAM_PUBLIC_ONLY");
+  });
+
   it("reads the authority's connection settings and the loopback allowance", () => {
     const config = load({
       flags: { upstream: "https://api.example" },

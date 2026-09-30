@@ -340,6 +340,80 @@ describe("EgressPolicy helpers", () => {
     expect(EgressPolicy.addressRefused("bad", true)).toBe(true);
   });
 
+  it("checks an address written as the host by the same rules, and leaves names alone", () => {
+    expect(EgressPolicy.hostAddressRefused("169.254.169.254")).toBe(true);
+    expect(EgressPolicy.hostAddressRefused("[fe80::1]")).toBe(true);
+    expect(EgressPolicy.hostAddressRefused("127.0.0.1")).toBe(false);
+    expect(EgressPolicy.hostAddressRefused("[::1]")).toBe(false);
+    expect(EgressPolicy.hostAddressRefused("10.0.0.5")).toBe(false);
+    expect(EgressPolicy.hostAddressRefused("10.0.0.5", false)).toBe(false);
+    expect(EgressPolicy.hostAddressRefused("10.0.0.5", true)).toBe(true);
+    expect(EgressPolicy.hostAddressRefused("[fd00::5]", true)).toBe(true);
+    expect(EgressPolicy.hostAddressRefused("203.0.113.10", true)).toBe(false);
+    expect(EgressPolicy.hostAddressRefused("shop.tenant.example", true)).toBe(false);
+    expect(EgressPolicy.hostAddressRefused("localhost", true)).toBe(false);
+  });
+
+  it("refuses every private, shared and platform range too for a public-only destination", () => {
+    const refused = [
+      "10.0.0.0",
+      "10.255.255.255",
+      "100.64.0.0",
+      "100.127.255.255",
+      "172.16.0.0",
+      "172.31.255.255",
+      "192.168.0.0",
+      "192.168.255.255",
+      "198.18.0.0",
+      "198.19.255.255",
+      "168.63.129.16",
+      "fc00::1",
+      "fdff:ffff::1",
+      "64:ff9b::a9fe:a9fe",
+      "::ffff:10.0.0.5",
+      "::ffff:192.168.1.1",
+      // What is refused for any destination stays refused.
+      "127.0.0.1",
+      "169.254.169.254",
+      "::1",
+    ];
+    const allowed = [
+      "9.255.255.255",
+      "11.0.0.0",
+      "100.63.255.255",
+      "100.128.0.0",
+      "172.15.255.255",
+      "172.32.0.0",
+      "192.167.255.255",
+      "192.169.0.0",
+      "198.17.255.255",
+      "198.20.0.0",
+      "168.63.129.15",
+      "168.63.129.17",
+      "8.8.8.8",
+      "203.0.113.10",
+      "2001:db8::1",
+      "fbff::1",
+      "64:ff9a::1",
+      "::ffff:8.8.8.8",
+    ];
+    for (const address of refused)
+      expect([address, EgressPolicy.addressRefused(address, false, true)]).toEqual([address, true]);
+    for (const address of allowed)
+      expect([address, EgressPolicy.addressRefused(address, false, true)]).toEqual([
+        address,
+        false,
+      ]);
+    // Only when asked: the operator's own destinations may still be private.
+    for (const address of ["10.0.0.5", "172.16.0.9", "192.168.1.1", "fc00::1", "168.63.129.16"]) {
+      expect([address, EgressPolicy.addressRefused(address, false)]).toEqual([address, false]);
+      expect([address, EgressPolicy.addressRefused(address, false, false)]).toEqual([
+        address,
+        false,
+      ]);
+    }
+  });
+
   it("knows the three loopback spellings the configuration accepts", () => {
     expect(EgressPolicy.isLoopbackHost("localhost")).toBe(true);
     expect(EgressPolicy.isLoopbackHost("127.0.0.1")).toBe(true);

@@ -50,6 +50,8 @@ export interface UpstreamOptions {
   readonly timeoutMs: number;
   readonly maxResponseBytes: number;
   readonly fetch: FetchLike;
+  /** Releases what the transport holds open, such as a guarded egress's sockets. */
+  readonly close?: () => void;
 }
 
 /**
@@ -182,6 +184,10 @@ export class Upstream {
       if (size > maxBytes) await response.body.cancel().catch(() => undefined);
     }
     return Buffer.concat(chunks);
+  }
+
+  public close(): void {
+    this.options.close?.();
   }
 
   /** The signal for one send: the configured ceiling, or a tighter budget the caller holds. */
