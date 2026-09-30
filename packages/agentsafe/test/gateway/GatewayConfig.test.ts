@@ -545,6 +545,68 @@ describe("the gateway configuration", () => {
     ).toBe("interception.principalHeader");
   });
 
+  it("limits a gateway's rate when told, and a hosted one by default", () => {
+    const base = { flags: { upstream: "https://shop.tenant.example", mode: "shadow" } };
+    expect(load(base).rateLimit).toBeNull();
+    expect(
+      load({ ...base, env: { AGENTSAFE_RATE_LIMIT_RPS: "2.5", AGENTSAFE_RATE_LIMIT_BURST: "10" } })
+        .rateLimit,
+    ).toEqual({ requestsPerSecond: 2.5, burst: 10 });
+    expect(
+      load({
+        ...base,
+        file: {
+          version: 1,
+          gateway: {
+            upstream: "https://shop.tenant.example",
+            rateLimit: { requestsPerSecond: 5, burst: 20 },
+          },
+        },
+      }).rateLimit,
+    ).toEqual({ requestsPerSecond: 5, burst: 20 });
+    const hosted = {
+      ...base,
+      env: { AGENTSAFE_HOSTED_GATEWAY: "true", AGENTSAFE_TENANT_KEY_DIGESTS: TENANT_KEY_DIGEST },
+    };
+    expect(load(hosted).rateLimit).toEqual({ requestsPerSecond: 50, burst: 100 });
+    expect(
+      load({
+        ...hosted,
+        env: { ...hosted.env, AGENTSAFE_RATE_LIMIT_RPS: "7", AGENTSAFE_RATE_LIMIT_BURST: "7" },
+      }).rateLimit,
+    ).toEqual({ requestsPerSecond: 7, burst: 7 });
+    for (const [env, setting] of [
+      [{ AGENTSAFE_RATE_LIMIT_RPS: "5" }, "AGENTSAFE_RATE_LIMIT_BURST"],
+      [{ AGENTSAFE_RATE_LIMIT_BURST: "5" }, "AGENTSAFE_RATE_LIMIT_RPS"],
+      [
+        { AGENTSAFE_RATE_LIMIT_RPS: "0", AGENTSAFE_RATE_LIMIT_BURST: "5" },
+        "AGENTSAFE_RATE_LIMIT_RPS",
+      ],
+      [
+        { AGENTSAFE_RATE_LIMIT_RPS: "fast", AGENTSAFE_RATE_LIMIT_BURST: "5" },
+        "AGENTSAFE_RATE_LIMIT_RPS",
+      ],
+      [
+        { AGENTSAFE_RATE_LIMIT_RPS: "10001", AGENTSAFE_RATE_LIMIT_BURST: "5" },
+        "AGENTSAFE_RATE_LIMIT_RPS",
+      ],
+      [
+        { AGENTSAFE_RATE_LIMIT_RPS: "5", AGENTSAFE_RATE_LIMIT_BURST: "0" },
+        "AGENTSAFE_RATE_LIMIT_BURST",
+      ],
+      [
+        { AGENTSAFE_RATE_LIMIT_RPS: "5", AGENTSAFE_RATE_LIMIT_BURST: "1.5" },
+        "AGENTSAFE_RATE_LIMIT_BURST",
+      ],
+      [
+        { AGENTSAFE_RATE_LIMIT_RPS: "5", AGENTSAFE_RATE_LIMIT_BURST: "100001" },
+        "AGENTSAFE_RATE_LIMIT_BURST",
+      ],
+    ] as const) {
+      expect([env, refusal({ ...base, env }).setting]).toEqual([env, setting]);
+    }
+  });
+
   it("reads the authority's connection settings and the loopback allowance", () => {
     const config = load({
       flags: { upstream: "https://api.example" },

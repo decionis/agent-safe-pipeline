@@ -6,6 +6,7 @@ import {
 } from "../config/ExecutorConfig.js";
 import { EgressPolicy } from "../egress/EgressPolicy.js";
 import type { SecretName } from "../secrets/SecretStore.js";
+import { HOSTED_DEFAULT_RATE_LIMIT, type RateLimit } from "./RateLimit.js";
 
 export type GatewayMode = "SHADOW" | "ENFORCEMENT";
 export type FailurePolicy = "FAIL_CLOSED" | "FAIL_OPEN";
@@ -63,6 +64,12 @@ export interface GatewayConfig {
    * one of them. The key itself is never in the configuration.
    */
   readonly tenantKeys: readonly string[];
+  /**
+   * The rate this gateway admits its traffic at, after the tenant key: a
+   * sustained rate and a burst, per process. A hosted gateway without one
+   * gets HOSTED_DEFAULT_RATE_LIMIT; otherwise null is no limit.
+   */
+  readonly rateLimit: RateLimit | null;
   readonly upstream: {
     readonly url: string;
     /** A plain-HTTP upstream off loopback is refused unless this says the network protects the hop. */
@@ -173,6 +180,12 @@ export const GatewayFileSchema = z.strictObject({
       upstreamPublicOnly: z.boolean().optional(),
       hosted: z.boolean().optional(),
       tenantKeyDigests: z.array(z.string()).optional(),
+      rateLimit: z
+        .strictObject({
+          requestsPerSecond: z.number().positive().max(10_000),
+          burst: z.number().int().min(1).max(100_000),
+        })
+        .optional(),
       upstreamTimeoutMs: positiveInt.max(120_000).optional(),
       system: z.string().trim().min(1).max(200).optional(),
       environment: z.string().trim().min(1).max(200).optional(),
@@ -284,6 +297,8 @@ const ENVIRONMENT = {
   upstreamPublicOnly: "AGENTSAFE_UPSTREAM_PUBLIC_ONLY",
   hosted: "AGENTSAFE_HOSTED_GATEWAY",
   tenantKeyDigests: "AGENTSAFE_TENANT_KEY_DIGESTS",
+  rateLimitRps: "AGENTSAFE_RATE_LIMIT_RPS",
+  rateLimitBurst: "AGENTSAFE_RATE_LIMIT_BURST",
   upstreamTimeoutMs: "AGENTSAFE_UPSTREAM_TIMEOUT_MS",
   system: "AGENTSAFE_UPSTREAM_SYSTEM",
   environment: "AGENTSAFE_ENVIRONMENT",
@@ -802,6 +817,16 @@ export class GatewayConfigLoader {
       );
     }
 
+    const rateLimit =
+      resolve<RateLimit | null>(
+        "rateLimit",
+        [
+          { source: "environment", raw: GatewayConfigLoader.rateLimitFromEnvironment(env) },
+          { source: "file", raw: file?.gateway?.rateLimit },
+        ],
+        null,
+      ) ?? (hosted ? HOSTED_DEFAULT_RATE_LIMIT : null);
+
     const escalation = GatewayConfigLoader.escalation(file, env, mode, kind, resolve);
     const required: SecretName[] = [];
     if (kind === "DECIONIS") required.push("DECIONIS_API_KEY");
@@ -852,6 +877,7 @@ export class GatewayConfigLoader {
       listen,
       hosted,
       tenantKeys,
+      rateLimit,
       upstream: {
         url: upstreamUrl,
         insecure: upstreamInsecure,
@@ -983,6 +1009,36 @@ export class GatewayConfigLoader {
    * loopback address may be plain, and anything else may be plain only when
    * the configuration says the network protects that hop.
    */
+  /** Both rate variables or neither: a rate without a burst, or the reverse, is refused by name. */
+  private static rateLimitFromEnvironment(
+    env: Readonly<Record<string, string | undefined>>,
+  ): RateLimit | undefined {
+    const rps = env[ENVIRONMENT.rateLimitRps]?.trim();
+    const burst = env[ENVIRONMENT.rateLimitBurst]?.trim();
+    if (rps === undefined && burst === undefined) return undefined;
+    const rate = Number(rps);
+    if (rps === undefined || rps === "" || !Number.isFinite(rate) || rate <= 0 || rate > 10_000) {
+      throw new GatewayConfigError(
+        "CONFIG_INVALID",
+        ENVIRONMENT.rateLimitRps,
+        "requests per second, above 0 and at most 10000, with AGENTSAFE_RATE_LIMIT_BURST",
+      );
+    }
+    if (
+      burst === undefined ||
+      !/^\d{1,6}$/.test(burst) ||
+      Number(burst) < 1 ||
+      Number(burst) > 100_000
+    ) {
+      throw new GatewayConfigError(
+        "CONFIG_INVALID",
+        ENVIRONMENT.rateLimitBurst,
+        "a whole number from 1 to 100000, with AGENTSAFE_RATE_LIMIT_RPS",
+      );
+    }
+    return { requestsPerSecond: rate, burst: Number(burst) };
+  }
+
   /** One or two distinct `sha256:` digests, lower-case hex; anything else is refused by name. */
   private static tenantKeys(digests: readonly string[]): readonly string[] {
     if (

@@ -353,3 +353,55 @@ describe("a hosted gateway's tenant key", () => {
     await gateway.close();
   });
 });
+
+describe("a gateway's rate", () => {
+  it("is spent by the tenant's admitted traffic only, and refused with when to try again", async () => {
+    let forwarded = 0;
+    const gateway = await Gateway.create(
+      testConfig("https://shop.tenant.example", {
+        flags: { mode: "shadow" },
+        env: {
+          AGENTSAFE_HOSTED_GATEWAY: "true",
+          AGENTSAFE_TENANT_KEY_DIGESTS: TENANT_KEY_DIGEST,
+          AGENTSAFE_RATE_LIMIT_RPS: "0.1",
+          AGENTSAFE_RATE_LIMIT_BURST: "2",
+        },
+      }),
+      {
+        env: {},
+        io: collectedIo(),
+        upstreamFetch: async () => {
+          forwarded += 1;
+          return new Response("ok", { status: 200 });
+        },
+      },
+    );
+    const server = new GatewayHttpServer(gateway, { metricsToken: "synthetic-operator-token" });
+    const origin = `${LOOPBACK_ORIGIN}:${(await server.listen(0, "127.0.0.1")).port}`;
+    const keyed = { headers: { "agentsafe-tenant-key": TENANT_KEY } };
+
+    // Refused keys spend nothing: the tenant's budget is still whole afterwards.
+    for (let index = 0; index < 5; index += 1) {
+      expect((await fetch(`${origin}/orders`)).status).toBe(401);
+    }
+    expect((await fetch(`${origin}/orders`, keyed)).status).toBe(200);
+    expect((await fetch(`${origin}/orders`, keyed)).status).toBe(200);
+    const limited = await fetch(`${origin}/orders`, keyed);
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get("retry-after")).toBe("10");
+    expect(limited.headers.get("content-security-policy")).toContain("default-src 'none'");
+    expect(await limited.json()).toEqual({ code: "RATE_LIMITED" });
+    expect(forwarded).toBe(2);
+
+    // The operator's routes and the probes are not the tenant's traffic.
+    expect((await fetch(`${origin}/_agentsafe/healthz`)).status).toBe(200);
+    const metrics = await (
+      await fetch(`${origin}/_agentsafe/metrics`, {
+        headers: { authorization: "Bearer synthetic-operator-token" },
+      })
+    ).text();
+    expect(metrics).toContain('agentsafe_requests_total{kind="rate_limited"} 1');
+    await server.close(100);
+    await gateway.close();
+  });
+});

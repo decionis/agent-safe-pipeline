@@ -60,6 +60,7 @@ import {
   type InterceptionReport,
 } from "./GatewayReport.js";
 import { normalizeRequest, type InterceptedRequest } from "./InterceptedRequest.js";
+import { TokenBucket, type RateDecision } from "./RateLimit.js";
 import { RouteTable, type RoutePlan } from "./RouteTable.js";
 import { enforcementSwitch, ShadowLedger, type ShadowSummary } from "./ShadowLedger.js";
 
@@ -175,6 +176,7 @@ export class Gateway {
   private readonly counts: Record<string, number> = {};
   private readonly activation: ActivationFunnel;
   private readonly ledger = new ShadowLedger();
+  private readonly bucket: TokenBucket | null;
   private lastShadowReportAt: number;
 
   private constructor(
@@ -201,6 +203,7 @@ export class Gateway {
   ) {
     this.lastShadowReportAt = clock();
     this.capture = new IntentCapture({ audit, ttlSeconds: config.intentTtlSeconds });
+    this.bucket = config.rateLimit === null ? null : new TokenBucket(config.rateLimit, clock);
     this.activation = new ActivationFunnel(
       (milestone, at) => this.report({ event: "ACTIVATION", milestone, at }),
       clock,
@@ -638,6 +641,18 @@ export class Gateway {
       });
     }
     return admitted;
+  }
+
+  /**
+   * Whether the gateway's rate admits one more request now. Taken after the
+   * tenant key, so only the tenant's own traffic spends the tenant's rate; a
+   * refusal is counted, and says when to try again.
+   */
+  public rate(): RateDecision {
+    if (this.bucket === null) return { admitted: true };
+    const decision = this.bucket.take();
+    if (!decision.admitted) this.metrics.requests.inc({ kind: "rate_limited" });
+    return decision;
   }
 
   /** What a held escalation looks like from outside; null when nothing is held under the id. */

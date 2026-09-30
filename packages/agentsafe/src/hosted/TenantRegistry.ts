@@ -15,6 +15,11 @@ const DOMAIN = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]
 /** Labels a tenant may not take: they name the operator's own hosts. */
 const RESERVED_LABELS: ReadonlySet<string> = new Set(["www", "api", "status", "admin", "console"]);
 
+const RateLimitSchema = z.strictObject({
+  requestsPerSecond: z.number().positive().max(10_000),
+  burst: z.number().int().min(1).max(100_000),
+});
+
 const TenantSchema = z.strictObject({
   /** The tenant's label; it is served at `{id}.{domain}`. */
   id: z
@@ -33,6 +38,8 @@ const TenantSchema = z.strictObject({
       .max(500)
       .refine((path) => isAbsolute(path), "an absolute path"),
   }),
+  /** This tenant's rate, per process; the registry's `rateLimit` otherwise. */
+  rateLimit: RateLimitSchema.optional(),
   /** The tenant's `interception` section, as `agentsafe.yaml` has it; validated by the gateway's loader. */
   interception: z.record(z.string(), z.unknown()).optional(),
 });
@@ -48,6 +55,8 @@ export const TenantRegistrySchema = z.strictObject({
     .max(500)
     .refine((path) => isAbsolute(path), "an absolute path")
     .optional(),
+  /** The rate every tenant without its own is admitted at; the hosted default when absent. */
+  rateLimit: RateLimitSchema.optional(),
   tenants: z.array(TenantSchema).max(MAX_TENANTS),
 });
 
@@ -109,6 +118,7 @@ export function tenantFingerprint(registry: TenantRegistry, tenant: TenantEntry)
   const canonical = CanonicalIntentHasher.stringify({
     domain: registry.domain,
     evidenceDir: registry.evidenceDir ?? null,
+    rateLimit: registry.rateLimit ?? null,
     tenant: tenant as unknown as JsonValue,
   });
   return createHash("sha256").update(canonical, "utf8").digest("hex");

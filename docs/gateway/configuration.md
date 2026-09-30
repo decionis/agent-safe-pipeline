@@ -103,6 +103,7 @@ tenants:
   - id: acme # a DNS label; www, api, status, admin and console are the operator's
     upstream: https://api.acme.example
     tenantKeyDigests: ["sha256:…"] # one, or two during a rotation
+    rateLimit: { requestsPerSecond: 5, burst: 20 } # optional; else the registry's, else 50/100
     workspace:
       tenantId: 7c0e… # the Decionis workspace the tenant's evaluations run in
       apiKeyFile: /run/secrets/tenants/acme/decionis-api-key
@@ -127,6 +128,19 @@ reload rebuilds only the tenants whose entry changed; a replaced or removed tena
 finishes the requests in flight for 30 seconds before it is closed. Each load is one
 `TENANT_REGISTRY_LOADED` or `TENANT_REGISTRY_REFUSED` line naming what was built, kept, retired and
 failed.
+
+## The rate a gateway admits
+
+`gateway.rateLimit: { requestsPerSecond: 5, burst: 20 }` (`AGENTSAFE_RATE_LIMIT_RPS` and
+`AGENTSAFE_RATE_LIMIT_BURST`, both or neither) limits the traffic one gateway admits: a token bucket
+that starts full at `burst` and refills at `requestsPerSecond`. It is taken after the tenant key, so
+only the tenant's own traffic spends the tenant's rate and a flood of requests without the key
+cannot exhaust it; the gateway's own routes do not take it. A request over the rate is
+`429 RATE_LIMITED` with `Retry-After` in whole seconds, and is counted as
+`agentsafe_requests_total{kind="rate_limited"}`. A hosted gateway without a limit gets 50 per second
+with a burst of 100; otherwise there is none. The limit is per process: behind several replicas the
+total is the limit times the replicas. In a tenant registry, `rateLimit` at the top is every
+tenant's default and a tenant's own `rateLimit` replaces it.
 
 ## The tenant key
 

@@ -84,6 +84,16 @@ describe("the tenant registry", () => {
         "REGISTRY_INVALID: evidenceDir",
       ],
       [registry([], { extra: true }), "REGISTRY_INVALID", "REGISTRY_INVALID: (root)"],
+      [
+        registry([], { rateLimit: { requestsPerSecond: 0, burst: 1 } }),
+        "REGISTRY_INVALID",
+        "REGISTRY_INVALID: rateLimit.requestsPerSecond",
+      ],
+      [
+        registry([tenant("acme", { rateLimit: { requestsPerSecond: 1, burst: 0.5 } })]),
+        "REGISTRY_INVALID",
+        "REGISTRY_INVALID: tenants.0.rateLimit.burst",
+      ],
       [registry([tenant("Acme")]), "REGISTRY_INVALID", "REGISTRY_INVALID: tenants.0.id"],
       [registry([tenant("-acme")]), "REGISTRY_INVALID", "REGISTRY_INVALID: tenants.0.id"],
       [registry([tenant("a".repeat(64))]), "REGISTRY_INVALID", "REGISTRY_INVALID: tenants.0.id"],
@@ -149,6 +159,14 @@ describe("the tenant registry", () => {
     expect(tenantFingerprint(rotated, rotated.tenants[0]!)).not.toBe(tenantFingerprint(base, acme));
     const moved = parseTenantRegistry(registry([tenant("acme")], { domain: "edge.example" }));
     expect(tenantFingerprint(moved, moved.tenants[0]!)).not.toBe(tenantFingerprint(base, acme));
+    const limited = parseTenantRegistry(
+      registry([tenant("acme")], { rateLimit: { requestsPerSecond: 5, burst: 10 } }),
+    );
+    expect(tenantFingerprint(limited, limited.tenants[0]!)).not.toBe(tenantFingerprint(base, acme));
+    const own = parseTenantRegistry(
+      registry([tenant("acme", { rateLimit: { requestsPerSecond: 5, burst: 10 } })]),
+    );
+    expect(tenantFingerprint(own, own.tenants[0]!)).not.toBe(tenantFingerprint(base, acme));
     const kept = parseTenantRegistry(registry([tenant("acme")], { evidenceDir: "/var/lib/t" }));
     expect(tenantFingerprint(kept, kept.tenants[0]!)).not.toBe(tenantFingerprint(base, acme));
     expect(tenantFingerprint(base, acme)).toMatch(/^[0-9a-f]{64}$/);

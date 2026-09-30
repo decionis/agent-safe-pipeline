@@ -122,6 +122,17 @@ export class GatewayHttpServer {
       if (!gateway.admits(typeof presented === "string" ? presented : undefined)) {
         throw new GuardError(401, "TENANT_KEY_INVALID");
       }
+      const rate = gateway.rate();
+      if (!rate.admitted) {
+        // Stryker disable next-line ConditionalExpression: a reply is written once per request; the guard is defensive.
+        if (response.headersSent) return;
+        response.writeHead(429, {
+          ...RESPONSE_HEADERS,
+          "retry-after": String(rate.retryAfterSeconds),
+        });
+        response.end(JSON.stringify({ code: "RATE_LIMITED" }));
+        return;
+      }
       const plan = gateway.plan(method, url.pathname);
       const body = await GatewayHttpServer.readBody(
         request,

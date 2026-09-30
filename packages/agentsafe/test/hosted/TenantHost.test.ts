@@ -252,6 +252,51 @@ describe("the tenant host", () => {
     await host.close();
   });
 
+  it("gives each tenant its own rate, or the registry's, or the hosted default", async () => {
+    const files = new Map([
+      [
+        "/etc/agentsafe/tenants.json",
+        JSON.stringify({
+          version: 1,
+          domain: "decionisedge.example",
+          rateLimit: { requestsPerSecond: 20, burst: 40 },
+          tenants: [
+            tenant("acme", TENANT_KEY_DIGEST, { rateLimit: { requestsPerSecond: 5, burst: 10 } }),
+            tenant("globex", OTHER_DIGEST),
+          ],
+        }),
+      ],
+    ]);
+    const host = await TenantHost.start({
+      registryPath: "/etc/agentsafe/tenants.json",
+      env: { DECIONIS_API_URL: authority.baseUrl, DECIONIS_ALLOW_INSECURE_LOOPBACK: "true" },
+      io: collectedIo(),
+      readFile: (path) => files.get(path) ?? null,
+    });
+    expect(host.select("acme.decionisedge.example")?.config.rateLimit).toEqual({
+      requestsPerSecond: 5,
+      burst: 10,
+    });
+    expect(host.select("globex.decionisedge.example")?.config.rateLimit).toEqual({
+      requestsPerSecond: 20,
+      burst: 40,
+    });
+    files.set(
+      "/etc/agentsafe/tenants.json",
+      JSON.stringify({
+        version: 1,
+        domain: "decionisedge.example",
+        tenants: [tenant("globex", OTHER_DIGEST)],
+      }),
+    );
+    await host.reload();
+    expect(host.select("globex.decionisedge.example")?.config.rateLimit).toEqual({
+      requestsPerSecond: 50,
+      burst: 100,
+    });
+    await host.close();
+  });
+
   it("refuses to start on a registry it cannot serve", async () => {
     await expect(
       TenantHost.start({

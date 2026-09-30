@@ -202,11 +202,13 @@ export class TenantHost {
   /** One tenant's hosted gateway, from its entry, the shared environment and its own key file. */
   private async build(registry: TenantRegistry, tenant: TenantEntry): Promise<Gateway> {
     const env = TenantHost.tenantEnvironment(this.options.env, tenant);
+    const rateLimit = tenant.rateLimit ?? registry.rateLimit;
     const config = GatewayConfigLoader.load({
       flags: { json: true },
       env,
       file: {
         version: 1,
+        ...(rateLimit === undefined ? {} : { gateway: { rateLimit } }),
         ...(tenant.interception === undefined ? {} : { interception: tenant.interception }),
         ...(registry.evidenceDir === undefined
           ? {}
