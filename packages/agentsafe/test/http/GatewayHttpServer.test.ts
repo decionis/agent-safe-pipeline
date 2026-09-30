@@ -91,9 +91,25 @@ describe("the gateway listener", () => {
       body: '{"amount": 500}',
     });
     expect(held.status).toBe(202);
-    const body = (await held.json()) as { intent_id: string; resume: string };
-    expect((await fetch(`${origin}${body.resume}`)).status).toBe(200);
-    expect((await fetch(`${origin}${body.resume}/resume`, { method: "POST" })).status).toBe(409);
+    const body = (await held.json()) as { intent_id: string; resume: string; resume_token: string };
+    const owner = { "agentsafe-resume-token": body.resume_token };
+    expect((await fetch(`${origin}${body.resume}`, { headers: owner })).status).toBe(200);
+    expect(
+      (await fetch(`${origin}${body.resume}/resume`, { method: "POST", headers: owner })).status,
+    ).toBe(409);
+    // Knowing the intent id is not being the caller: no token, or another one, is refused.
+    const lookup = await fetch(`${origin}${body.resume}`);
+    expect(lookup.status).toBe(403);
+    expect(await lookup.json()).toEqual({ code: "RESUME_TOKEN_INVALID" });
+    const other = { "agentsafe-resume-token": "not-the-token" };
+    expect((await fetch(`${origin}${body.resume}`, { headers: other })).status).toBe(403);
+    expect(
+      (await fetch(`${origin}${body.resume}/resume`, { method: "POST", headers: other })).status,
+    ).toBe(403);
+    // The token belongs in its header; in the query it is not read, so it does not end up in a URL log.
+    expect(
+      (await fetch(`${origin}${body.resume}?agentsafe-resume-token=${body.resume_token}`)).status,
+    ).toBe(403);
     expect((await fetch(`${origin}${body.resume}`, { method: "DELETE" })).status).toBe(405);
     expect((await fetch(`${origin}${body.resume}/other`)).status).toBe(404);
     expect((await fetch(`${origin}/_agentsafe/v1/escalations/not-an-id`)).status).toBe(404);

@@ -103,10 +103,21 @@ identifiers, with the same `agentsafe-state` and `agentsafe-execution` headers:
 | `EXECUTION_INDETERMINATE` | 502     | `INDETERMINATE` | the request was sent and no answer came back                 |
 | `ERROR`                   | 400–503 | `NOT_FORWARDED` | the intent could not be bound, or the grant not claimed      |
 
+### Holds and resume
+
 An `ESCALATE` is held in memory until the intent expires (`intentTtlSeconds`, 120 by default,
 at most 300) or 1,000 holds are pending, whichever comes first. With Presence configured,
 `POST /_agentsafe/v1/escalations/{intent_id}/resume` asks the authority again; only a fresh `ALLOW`
 with a grant executes, once. Without Presence the hold is the answer and resume says so (`409`).
+
+The `202` carries a `resume_token`: 256 random bits, handed to the caller whose request was held and
+nowhere else. The gateway keeps only its SHA-256, and never writes it to its report, its evidence or
+its metrics. `GET` and `POST .../resume` on the hold both require it in the `AgentSafe-Resume-Token`
+header, never the URL; without it, or with another, the answer is `403 RESUME_TOKEN_INVALID`, the
+hold stays for its owner, and the refusal is chained to the evidence as `ESCALATION_RESUME_REFUSED`.
+The `intent_id` is a correlation id: it appears in every report line and in the evidence, so it is
+not enough to see a hold or to receive the answer the upstream gives once the person approves,
+which was produced with the held request's own `Authorization` and `Cookie`.
 
 ## Shadow
 

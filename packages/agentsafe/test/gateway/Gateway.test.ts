@@ -139,6 +139,11 @@ describe("the gateway in enforcement with the demo authority", () => {
     const before = upstream.seen.length;
     const answer = await gateway.govern(request("POST", "/payments", { amount: 500 }), "http.post");
     expect(answer.status).toBe(202);
+    expect(Object.fromEntries(answer.headers)).toMatchObject({
+      "content-security-policy": "default-src 'none'; frame-ancestors 'none'",
+      "x-frame-options": "DENY",
+      "x-content-type-options": "nosniff",
+    });
     const body = json(answer.body);
     expect(body).toMatchObject({
       state: "ESCALATE",
@@ -150,10 +155,13 @@ describe("the gateway in enforcement with the demo authority", () => {
     expect(String(body["resume"])).toBe(
       `${GATEWAY_PREFIX}/v1/escalations/${String(body["intent_id"])}`,
     );
+    expect(String(body["resume_token"])).toMatch(/^[\w-]{43}$/);
     expect(upstream.seen.length).toBe(before);
-    const held = gateway.escalation(String(body["intent_id"]));
+    const token = String(body["resume_token"]);
+    const held = gateway.escalation(String(body["intent_id"]), token);
     expect(held).toMatchObject({ execution: "HELD", resumable: false });
-    const resumed = await gateway.resume(String(body["intent_id"]));
+    expect(held).not.toHaveProperty("resume_token");
+    const resumed = await gateway.resume(String(body["intent_id"]), token);
     expect(resumed.status).toBe(409);
     expect(json(resumed.body)["reason_codes"]).toEqual([
       "ESCALATION_NOT_RESUMABLE",
@@ -313,6 +321,11 @@ describe("the gateway's evidence", () => {
     gateway.started("http://127.0.0.1:1");
     await gateway.govern(request("POST", "/payments", { amount: 10 }), "http.post");
     await gateway.govern(request("POST", "/payments", { amount: 50_000 }), "http.post");
+    const held = json(
+      (await gateway.govern(request("POST", "/payments", { amount: 500 }), "http.post")).body,
+    );
+    const token = String(held["resume_token"]);
+    await gateway.resume(String(held["intent_id"]), "not-the-token");
     await gateway.close();
     const lines = readFileSync(join(directory, "evidence", "evidence.jsonl"), "utf8")
       .trim()
@@ -322,6 +335,11 @@ describe("the gateway's evidence", () => {
     expect(lines.some((line) => line.includes('"event":"GATEWAY_STARTED"'))).toBe(true);
     expect(lines.some((line) => line.includes('"event":"EXECUTION_COMPLETED"'))).toBe(true);
     expect(lines.some((line) => line.includes('"event":"EXECUTION_BLOCKED"'))).toBe(true);
+    expect(lines.some((line) => line.includes('"event":"ESCALATION_RESUME_REFUSED"'))).toBe(true);
+    // The token is a capability: it reaches the caller and nothing that is written down.
+    expect(token).toMatch(/^[\w-]{43}$/);
+    expect(lines.some((line) => line.includes(token))).toBe(false);
+    expect(io.out.some((line) => line.includes(token))).toBe(false);
     expect(io.out.some((line) => line.startsWith("{"))).toBe(false);
     expect(io.out.join("\n")).toContain("ALLOW");
     expect(gateway.evidenceLabel).toContain("evidence.jsonl");
@@ -564,30 +582,78 @@ describe("the gateway with a managed escalation", () => {
     const body = json(held.body);
     expect(body["escalation"]).toMatchObject({ mode: "MANAGED" });
     const intentId = String(body["intent_id"]);
-    expect(gateway.escalation(intentId)).toMatchObject({ resumable: true });
+    const token = String(body["resume_token"]);
+    expect(gateway.escalation(intentId, token)).toMatchObject({ resumable: true });
     const before = upstream.seen.length;
     // The first lookup finds the person still deciding; the hold stays a hold.
-    const pending = await gateway.resume(intentId);
+    const pending = await gateway.resume(intentId, token);
     expect(pending.status).toBe(202);
     expect(json(pending.body)).toMatchObject({ execution: "HELD", state: "ESCALATE" });
     expect(upstream.seen.length).toBe(before);
     let resumed = pending;
     for (let attempt = 0; attempt < 5 && resumed.status === 202; attempt += 1) {
       await settle();
-      resumed = await gateway.resume(intentId);
+      resumed = await gateway.resume(intentId, token);
     }
     expect(resumed.status).toBe(201);
     expect(Object.fromEntries(resumed.headers)["agentsafe-execution"]).toBe("FORWARDED");
     expect(upstream.seen.length).toBe(before + 1);
     expect(upstream.seen.at(-1)?.body).toBe('{"amount":500}');
     expect(upstream.seen.at(-1)?.headers["idempotency-key"]).toBe("pay-managed");
-    expect(gateway.escalation(intentId)).toBeNull();
-    expect((await gateway.resume(intentId)).status).toBe(404);
+    expect(gateway.escalation(intentId, token)).toBe("ESCALATION_NOT_HELD");
+    expect((await gateway.resume(intentId, token)).status).toBe(404);
     expect(reports(io).at(-1)).toMatchObject({
       state: "ALLOW",
       execution: "FORWARDED",
       reason_codes: ["PRESENCE_RECEIPT_VERIFIED"],
     });
+    await gateway.close();
+  }, 30_000);
+
+  it("resumes an approved hold only for the caller whose request it is", async () => {
+    await authority.start();
+    const env = {
+      DECIONIS_API_KEY: LOCAL_AUTHORITY_API_KEY,
+      DECIONIS_API_URL: authority.baseUrl,
+      DECIONIS_ALLOW_INSECURE_LOOPBACK: "true",
+      DECIONIS_TENANT_ID: TENANT_ID,
+      AGENTSAFE_PRESENCE_MANAGED: "true",
+      PRESENCE_APPROVER_ID: "synthetic-approver",
+      PRESENCE_APPROVER_ROLE: "CRO",
+    };
+    const gateway = await Gateway.create(
+      testConfig(upstream.baseUrl, { env, flags: { mode: "enforcement" } }),
+      { env, io: collectedIo() },
+    );
+    // Caller A's request is held; A alone was handed the token.
+    const held = await gateway.govern(
+      request("POST", "/payments", { amount: 500 }, { "idempotency-key": "pay-owner" }),
+      "http.post",
+    );
+    const body = json(held.body);
+    const intentId = String(body["intent_id"]);
+    const token = String(body["resume_token"]);
+    const before = upstream.seen.length;
+    let owner = await gateway.resume(intentId, token);
+    for (let attempt = 0; attempt < 5 && owner.status === 202; attempt += 1) {
+      await settle();
+      // Caller B read the intent id from a log line. The person has approved
+      // by now, and B still gets nothing: not the hold, not the upstream answer.
+      for (const other of [null, "", "not-the-token", `${token}x`]) {
+        expect(gateway.escalation(intentId, other)).toBe("RESUME_TOKEN_INVALID");
+        const refused = await gateway.resume(intentId, other);
+        expect(refused.status).toBe(403);
+        expect(json(refused.body)).toMatchObject({
+          reason_codes: ["RESUME_TOKEN_INVALID"],
+          execution: "NOT_FORWARDED",
+        });
+      }
+      expect(upstream.seen.length).toBe(before);
+      owner = await gateway.resume(intentId, token);
+    }
+    expect(owner.status).toBe(201);
+    expect(upstream.seen.length).toBe(before + 1);
+    expect(upstream.seen.at(-1)?.headers["idempotency-key"]).toBe("pay-owner");
     await gateway.close();
   }, 30_000);
 });

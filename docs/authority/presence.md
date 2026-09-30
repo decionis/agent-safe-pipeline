@@ -21,7 +21,9 @@ The gateway holds no Presence credential and polls Decionis only.
 `POST /_agentsafe/v1/escalations/{intent_id}/resume` is one bounded lookup: while the person is
 deciding it is `202` again with the escalation's state; a refusal is `403` (or `503` when the
 lookup failed closed); a fresh `ALLOW` with a grant runs the held request through the same claim,
-forward and finalize as any other, once. `GET` on the same path shows the hold.
+forward and finalize as any other, once. `GET` on the same path shows the hold. Both need the
+`resume_token` the `202` handed the caller whose request was held, in the `AgentSafe-Resume-Token`
+header; see [HTTP interception](../gateway/http-interception.md#holds-and-resume).
 
 ## What a receipt establishes
 

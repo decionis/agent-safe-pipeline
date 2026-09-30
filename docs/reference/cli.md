@@ -259,14 +259,14 @@ Runs in the agent zone and reports whether a system of record answers without th
 
 Every path under `/_agentsafe/` is the gateway's and is never forwarded:
 
-| Route                                                | Answer                                                                                                  |
-| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `GET /_agentsafe/healthz`                            | `200 {"status":"ok"}` while the process lives                                                           |
-| `GET /_agentsafe/readyz`                             | `200` once the listener is bound and the authority is configured                                        |
-| `GET /_agentsafe/status`                             | what `agentsafe status` prints, as JSON                                                                 |
-| `GET /_agentsafe/metrics`                            | OpenMetrics text; `401` without `Authorization: Bearer $AGENTSAFE_METRICS_TOKEN` when one is set        |
-| `GET /_agentsafe/v1/escalations/{intent_id}`         | a held escalation, or `404`                                                                             |
-| `POST /_agentsafe/v1/escalations/{intent_id}/resume` | asks the authority again; `202` still held, `409` not resumable, the upstream's answer on a fresh grant |
+| Route                                                | Answer                                                                                                                                                     |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /_agentsafe/healthz`                            | `200 {"status":"ok"}` while the process lives                                                                                                              |
+| `GET /_agentsafe/readyz`                             | `200` once the listener is bound and the authority is configured                                                                                           |
+| `GET /_agentsafe/status`                             | what `agentsafe status` prints, as JSON                                                                                                                    |
+| `GET /_agentsafe/metrics`                            | OpenMetrics text; `401` without `Authorization: Bearer $AGENTSAFE_METRICS_TOKEN` when one is set                                                           |
+| `GET /_agentsafe/v1/escalations/{intent_id}`         | a held escalation, or `404`; `403` without the hold's `AgentSafe-Resume-Token`                                                                             |
+| `POST /_agentsafe/v1/escalations/{intent_id}/resume` | asks the authority again; `202` still held, `409` not resumable, the upstream's answer on a fresh grant; `403` without the hold's `AgentSafe-Resume-Token` |
 
 ## Environment
 
