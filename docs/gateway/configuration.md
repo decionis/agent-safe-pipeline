@@ -90,6 +90,44 @@ $AGENTSAFE_METRICS_TOKEN`, the operator's token, with `401` for any other, and a
   client would send to another tenant's host under the same domain;
 - the tenant's key is required (below), so a hosted gateway admits only its tenant.
 
+## Many tenants in one process
+
+`agentsafe host --registry /etc/agentsafe/tenants.yaml` serves every tenant the registry names, each
+as its own hosted gateway at `{id}.{domain}`:
+
+```yaml
+version: 1
+domain: decionisedge.com
+evidenceDir: /var/lib/agentsafe/tenants # optional: one directory per tenant
+tenants:
+  - id: acme # a DNS label; www, api, status, admin and console are the operator's
+    upstream: https://api.acme.example
+    tenantKeyDigests: ["sha256:…"] # one, or two during a rotation
+    workspace:
+      tenantId: 7c0e… # the Decionis workspace the tenant's evaluations run in
+      apiKeyFile: /run/secrets/tenants/acme/decionis-api-key
+    interception: # optional: the tenant's routes, as in agentsafe.yaml
+      routes:
+        - { path: /payments/**, action: payment.create, methods: [POST] }
+```
+
+Each tenant's gateway is built exactly as a hosted gateway configured by hand would be: public-only
+upstream, shadow only, operator-only status and metrics, host-only cookies, its tenant key required,
+and its workspace key read from its own mounted file. From the host's environment it inherits only
+how to reach the authority (`NODE_ENV`, `DECIONIS_API_URL`, `DECIONIS_TIMEOUT_MS`,
+`DECIONIS_ALLOW_INSECURE_LOOPBACK`, `AGENTSAFE_UPSTREAM_TIMEOUT_MS`, `AGENTSAFE_FAILURE_POLICY`),
+never a credential. A request is routed to one tenant by its `Host` alone, so nothing about one
+tenant is reachable from another's host.
+
+The registry is checked whole: a file that cannot be parsed, or breaks a rule (a duplicate id, a
+relative key path, more than 1,000 tenants), is refused at start and ignored on reload, and the
+tenants already served stay served. A tenant whose own gateway cannot be built (an `http://`
+upstream, a missing key file) is reported by code and setting, and keeps the gateway it had. A
+reload rebuilds only the tenants whose entry changed; a replaced or removed tenant's gateway
+finishes the requests in flight for 30 seconds before it is closed. Each load is one
+`TENANT_REGISTRY_LOADED` or `TENANT_REGISTRY_REFUSED` line naming what was built, kept, retired and
+failed.
+
 ## The tenant key
 
 `gateway.tenantKeyDigests` (`AGENTSAFE_TENANT_KEY_DIGESTS`, comma-separated) holds one or two

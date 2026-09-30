@@ -316,6 +316,7 @@ const COMMAND_ENVIRONMENT = [
   "AGENTSAFE_CONFIG",
   "AGENTSAFE_HOME",
   "AGENTSAFE_METRICS_TOKEN",
+  "AGENTSAFE_TENANT_REGISTRY",
 ] as const;
 
 /** Every variable the gateway and its commands read, for the reference page. */
@@ -347,7 +348,8 @@ function pick<T>(layers: readonly Layer<T>[], fallback: T): Resolved<T> {
   return { value: fallback, source: "default" };
 }
 
-function parseListen(value: string, setting: string): { host: string; port: number } {
+/** `host:port`, `:port` (every interface) or a bare port; anything else is refused by setting. */
+export function parseListen(value: string, setting: string): { host: string; port: number } {
   const trimmed = value.trim();
   const separator = trimmed.lastIndexOf(":");
   const host = separator === -1 ? "" : trimmed.slice(0, separator).replace(/^\[|\]$/g, "");

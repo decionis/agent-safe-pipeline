@@ -39,6 +39,12 @@ export interface GatewayHttpServerOptions {
    * token, the operator's, and are not there at all without one.
    */
   readonly metricsToken?: string | null;
+  /**
+   * Answers `healthz` and `readyz` for a request whose host no gateway serves:
+   * a platform probes a pod by its address, not by any tenant's name. Without
+   * it such a request is refused with 421 like any other.
+   */
+  readonly probe?: { readonly ready: () => boolean };
 }
 
 /**
@@ -106,7 +112,7 @@ export class GatewayHttpServer {
       const url = new URL(request.url ?? "/", "http://gateway.invalid");
       const method = (request.method ?? "GET").toUpperCase();
       const gateway = this.select(GatewayHttpServer.hostnameOf(request));
-      if (gateway === null) throw new GuardError(421, "HOST_NOT_SERVED");
+      if (gateway === null) return this.probed(method, url, response);
       if (url.pathname === GATEWAY_PREFIX || url.pathname.startsWith(`${GATEWAY_PREFIX}/`)) {
         return await this.own(gateway, method, url, request, response);
       }
@@ -207,6 +213,23 @@ export class GatewayHttpServer {
         return;
       }
     }
+  }
+
+  /** A probe of the process itself, when no gateway serves the host; anything else is 421. */
+  private probed(method: string, url: URL, response: ServerResponse): void {
+    const probe = this.options.probe;
+    const route = url.pathname.slice(GATEWAY_PREFIX.length + 1);
+    if (
+      probe === undefined ||
+      method !== "GET" ||
+      !url.pathname.startsWith(`${GATEWAY_PREFIX}/`) ||
+      (route !== "healthz" && route !== "readyz")
+    ) {
+      throw new GuardError(421, "HOST_NOT_SERVED");
+    }
+    if (route === "healthz") return GatewayHttpServer.reply(response, 200, { status: "ok" });
+    const ready = probe.ready();
+    return GatewayHttpServer.reply(response, ready ? 200 : 503, { ready });
   }
 
   /** The operator's token, or the route is not there (no token) or refused (another one). */
