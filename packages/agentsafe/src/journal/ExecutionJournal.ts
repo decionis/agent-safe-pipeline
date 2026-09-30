@@ -75,6 +75,20 @@ export interface OpenAttempt {
   readonly intent: Readonly<Record<string, unknown>>;
 }
 
+/**
+ * What one attempt was dispatched under: the decision it was opened for and
+ * the grant it claimed before the provider was touched. The shape is the
+ * pipeline's `VerifiedAuthorization`, so a reconciliation can be held
+ * against it field for field.
+ */
+export interface DispatchedAuthorization {
+  readonly decisionId: string;
+  readonly dossierId: string;
+  readonly grantId: string;
+  readonly intentHash: string;
+  readonly expiresAt: string;
+}
+
 /** A refusal by the journal: the code, never a path or a value. */
 export class JournalError extends Error {
   public constructor(public readonly code: string) {
@@ -95,6 +109,11 @@ export interface ExecutionJournal {
   append(record: JournalRecord): Promise<void>;
   /** Attempts opened and not closed or reconciled, oldest first. */
   openAttempts(): Promise<readonly OpenAttempt[]>;
+  /**
+   * Every authorization one intent was dispatched under, however the attempt
+   * ended, oldest first: what a caller's reconciliation is held against.
+   */
+  authorizationsOf(intentId: string): Promise<readonly DispatchedAuthorization[]>;
   close(): void;
 }
 
@@ -133,4 +152,34 @@ export function openAttemptsFrom(records: Iterable<JournalRecord>): readonly Ope
     open.delete(record.intent_id);
   }
   return [...open.values()];
+}
+
+/**
+ * Folds a stream of records into the authorizations one intent was
+ * dispatched under, oldest first. Only a claimed attempt was dispatched: one
+ * opened and never claimed consumed no grant, and a claim with no opening
+ * record names no decision, so neither is anything to reconcile. Closing and
+ * reconciling records are ignored, because what an attempt was dispatched
+ * under does not change when its outcome becomes known.
+ */
+export function authorizationsFrom(
+  records: Iterable<JournalRecord>,
+  intentId: string,
+): readonly DispatchedAuthorization[] {
+  const dispatched: DispatchedAuthorization[] = [];
+  let opened: Extract<JournalRecord, { record: "ATTEMPT_OPENED" }> | null = null;
+  for (const record of records) {
+    if (record.intent_id !== intentId) continue;
+    if (record.record === "ATTEMPT_OPENED") opened = record;
+    if (record.record === "GRANT_CLAIMED" && opened !== null) {
+      dispatched.push({
+        decisionId: opened.decision_id,
+        dossierId: opened.dossier_id,
+        grantId: record.grant_id,
+        intentHash: record.intent_hash,
+        expiresAt: record.expires_at,
+      });
+    }
+  }
+  return dispatched;
 }

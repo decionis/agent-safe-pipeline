@@ -9,6 +9,7 @@ import {
   type AuditRecorder,
   type AuthorizationVerifier,
   type DecisionAuthority,
+  type DispatchedAttempts,
   type PresenceApprovalClient,
 } from "@decionis/agent-safe-pipeline";
 import { EffectAwareGrantVerifier } from "../adapters/EffectAwareGrantVerifier.js";
@@ -44,6 +45,8 @@ export interface AuthorityClientsOptions {
   readonly observer?: { readonly id: string; readonly version: string };
   /** The edge evaluator, when the configuration asks for it; it outlives every rebuild. */
   readonly edge?: EdgeRuntime | null;
+  /** The executor's record of what it dispatched, which a caller's reconciliation is held against. */
+  readonly attempts?: DispatchedAttempts;
 }
 
 /**
@@ -161,7 +164,12 @@ export class AuthorityClients {
       gate,
       authority: decider,
       verifier,
-      executor: new SafeExecutor(registry, verifier, audit),
+      executor: new SafeExecutor(
+        registry,
+        verifier,
+        audit,
+        options.attempts === undefined ? undefined : { attempts: options.attempts },
+      ),
       escalation,
       shadow: config.mode === "SHADOW" ? new ShadowPipeline(decider, { audit }) : null,
     };

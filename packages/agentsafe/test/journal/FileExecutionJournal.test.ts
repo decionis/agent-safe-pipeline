@@ -65,6 +65,36 @@ describe("FileExecutionJournal", () => {
     reopened.close();
   });
 
+  it("reads back what an attempt was dispatched under after the attempt has closed", async () => {
+    const path = directory();
+    const journal = new FileExecutionJournal(path, {
+      clock: () => new Date("2026-09-15T10:00:00Z"),
+    });
+    await journal.append(opened("intent-1"));
+    await journal.append({
+      record: "GRANT_CLAIMED",
+      at: "2026-09-15T10:00:00.500Z",
+      intent_id: "intent-1",
+      intent_hash: HASH,
+      idempotency_key: "payout-intent-1",
+      grant_id: "grant-1",
+      expires_at: "2026-09-15T10:05:00.000Z",
+      request_digest: HASH,
+    });
+    await journal.append(closed("intent-1"));
+    expect(await journal.authorizationsOf("intent-1")).toEqual([
+      {
+        decisionId: "decision-1",
+        dossierId: "dossier-1",
+        grantId: "grant-1",
+        intentHash: HASH,
+        expiresAt: "2026-09-15T10:05:00.000Z",
+      },
+    ]);
+    expect(await journal.authorizationsOf("intent-2")).toEqual([]);
+    journal.close();
+  });
+
   it("writes one file per UTC day and reads back only the retained days, oldest first", async () => {
     const path = directory();
     let now = new Date("2026-09-10T23:59:59Z");

@@ -1,5 +1,5 @@
 import type { GateDecision } from "../decision/DecisionAuthority.js";
-import type { AuditEventType, AuditRecorder } from "../audit/AuditRecorder.js";
+import type { AuditAuthority, AuditEventType, AuditRecorder } from "../audit/AuditRecorder.js";
 import { CanonicalIntentHasher } from "../intent/CanonicalIntentHasher.js";
 import type { CapturedIntent } from "../intent/ExecutionIntent.js";
 import { boundaryOf, workloadOf } from "../intent/ExecutionSignals.js";
@@ -19,6 +19,7 @@ export type ExecutionBlockReason =
   | "AUTHORIZATION_MISSING"
   | "AUTHORIZATION_INVALID"
   | "RECOVERY_BINDING_MISMATCH"
+  | "RECOVERY_ATTEMPT_UNKNOWN"
   | "BOUNDARY_MISMATCH"
   | "WORKLOAD_MISMATCH"
   | "AUDIT_UNAVAILABLE";
@@ -43,6 +44,21 @@ export interface SafeExecutorOptions {
    * a policy that requires provenance refuses at the authority instead.
    */
   readonly workloadDigest?: string;
+  /**
+   * This executor's own record of the attempts it dispatched. A recovery
+   * reference is something a caller presents, so its decision and grant are
+   * claims; with a record to hold them against, reconciliation proceeds only
+   * for a binding this executor journaled before dispatch. Absent, the
+   * lookup still runs, and its audit events say `NON_AUTHORITATIVE`, because
+   * nothing here vouches for a binding it was only told about.
+   */
+  readonly attempts?: DispatchedAttempts;
+}
+
+/** Where an executor reads back the authorizations it dispatched an intent under. */
+export interface DispatchedAttempts {
+  /** Every authorization journaled for this intent, oldest first; none when it was never dispatched here. */
+  authorizationsOf(captured: CapturedIntent): Promise<readonly VerifiedAuthorization[]>;
 }
 
 export type ExecutionPreDispatchFailureReason =
@@ -191,6 +207,7 @@ export class SafeExecutor {
   private readonly holds = new WeakMap<HeldExecution, AdmittedDecision>();
   /** The holds claimed and not yet settled, with the authorization each one consumed. */
   private readonly claims = new WeakMap<HeldExecution, VerifiedAuthorization>();
+  private readonly attempts: DispatchedAttempts | null;
 
   public constructor(
     private readonly registry: ActionRegistry,
@@ -200,6 +217,7 @@ export class SafeExecutor {
   ) {
     this.boundaryId = options?.boundaryId ?? null;
     this.workloadDigest = options?.workloadDigest ?? null;
+    this.attempts = options?.attempts ?? null;
   }
 
   public async run<TResult = unknown>(
@@ -579,9 +597,23 @@ export class SafeExecutor {
     ) {
       return await this.block(captured, undefined, "RECOVERY_BINDING_MISMATCH", startedAt);
     }
+    // The decision and grant are the caller's claim until the executor's own
+    // record confirms them; the provider is not asked about a binding that
+    // was never dispatched here.
+    let authority: AuditAuthority = "NON_AUTHORITATIVE";
+    if (this.attempts !== null) {
+      const recorded = await this.attempts.authorizationsOf(captured);
+      if (recorded.length === 0) {
+        return await this.block(captured, undefined, "RECOVERY_ATTEMPT_UNKNOWN", startedAt);
+      }
+      if (!recorded.some((candidate) => SafeExecutor.sameBinding(candidate, recovery))) {
+        return await this.block(captured, undefined, "RECOVERY_BINDING_MISMATCH", startedAt);
+      }
+      authority = "AUTHORITATIVE";
+    }
+    const authorization = SafeExecutor.authorizationFrom(recovery);
 
     const reconciliation = await this.registry.reconcile(captured, recovery.idempotencyKey);
-    const authorization = SafeExecutor.authorizationFrom(recovery);
     if (reconciliation.status === "COMPLETED") {
       const result: ExecutionReconciliationResult<TResult> = {
         outcome: "COMPLETED",
@@ -595,6 +627,7 @@ export class SafeExecutor {
         eventType: "RECONCILIATION_COMPLETED",
         captured,
         authorization,
+        authority,
         durationMs: Date.now() - startedAt,
       });
       // Stryker restore all
@@ -614,6 +647,7 @@ export class SafeExecutor {
         eventType: "RECONCILIATION_NOT_EXECUTED",
         captured,
         authorization,
+        authority,
         reasonCodes: [result.reason],
         durationMs: Date.now() - startedAt,
       });
@@ -633,6 +667,7 @@ export class SafeExecutor {
       eventType: "RECONCILIATION_UNKNOWN",
       captured,
       authorization,
+      authority,
       reasonCodes: [result.reason],
       durationMs: Date.now() - startedAt,
     });
@@ -767,6 +802,19 @@ export class SafeExecutor {
       expiresAt: authorization.expiresAt,
       idempotencyKey: captured.intent.idempotencyKey,
     });
+  }
+
+  private static sameBinding(
+    recorded: VerifiedAuthorization,
+    recovery: ExecutionRecoveryReference,
+  ): boolean {
+    return (
+      recorded.decisionId === recovery.decisionId &&
+      recorded.dossierId === recovery.dossierId &&
+      recorded.grantId === recovery.grantId &&
+      recorded.intentHash === recovery.intentHash &&
+      recorded.expiresAt === recovery.expiresAt
+    );
   }
 
   private static authorizationFrom(recovery: ExecutionRecoveryReference): VerifiedAuthorization {

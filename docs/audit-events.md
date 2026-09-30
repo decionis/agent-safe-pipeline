@@ -68,6 +68,11 @@ same admission checks and with nothing consumed. `claimHeld` later records `GRAN
 EXECUTION_STARTED`, and `settleHeld` the terminal event for the outcome it is given:
 `EXECUTION_COMPLETED`, `EXECUTION_REFUSED_AFTER_DISPATCH` or `EXECUTION_OUTCOME_UNKNOWN`.
 
+A `RECONCILIATION_*` event is `AUTHORITATIVE` only when `SafeExecutor` held the caller's recovery
+reference against its own record of the attempt (`attempts`); otherwise the decision and grant it
+carries are the caller's claim and the event is `NON_AUTHORITATIVE`. See
+[execution outcomes](./execution-outcomes.md#recovery).
+
 `PresenceApprovalCoordinator` emits `PRESENCE_ESCALATED` and `PRESENCE_RESOLVED` with
 `NON_AUTHORITATIVE` classification. `ShadowPipeline` emits one `SHADOW_EVALUATED` event per
 observation whose reason codes begin with `SHADOW_<status>`; see [shadow mode](./shadow-mode.md). `IntentCapture.captureAndAudit` is available when capture must be
