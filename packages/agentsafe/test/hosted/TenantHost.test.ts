@@ -7,6 +7,7 @@ import { LOCAL_AUTHORITY_API_KEY, LocalAuthority } from "@decionis/agent-safe-pi
 import { TenantHost } from "../../src/hosted/TenantHost.js";
 import { TenantRegistryError } from "../../src/hosted/TenantRegistry.js";
 import { GatewayHttpServer } from "../../src/http/GatewayHttpServer.js";
+import { verifyAuditChain } from "../../src/verify/VerifyAuditChain.js";
 import {
   collectedIo,
   TENANT_KEY,
@@ -167,17 +168,27 @@ describe("the tenant host", () => {
     });
     expect((await get(port, "10.0.0.8:8080", "/_agentsafe/status")).status).toBe(421);
 
-    // Every line a tenant's gateway writes names the tenant, first: here the
-    // refused key at globex's host, on the security stream.
-    const tagged = [...io.out, ...io.err].filter((line) => line.startsWith('{"tenant":'));
-    expect(tagged.length).toBeGreaterThan(0);
-    expect(tagged.every((line) => /^\{"tenant":"(?:acme|globex)",/.test(line))).toBe(true);
+    // Every line a tenant's gateway writes names its tenant: a chained line in
+    // its envelope, covered by its hash; any other line first.
+    const printed = [...io.out, ...io.err].map(
+      (line) => JSON.parse(line) as Record<string, unknown>,
+    );
+    const tenantLines = printed.filter((line) => "tenant" in line);
+    expect(tenantLines.length).toBeGreaterThan(0);
     expect(
-      tagged.some(
-        (line) => line.startsWith('{"tenant":"globex",') && line.includes('"tenant_key"'),
+      tenantLines.every((line) => line["tenant"] === "acme" || line["tenant"] === "globex"),
+    ).toBe(true);
+    expect(
+      printed.some(
+        (line) => line["tenant"] === "globex" && line["method"] === "tenant_key" && "hash" in line,
       ),
     ).toBe(true);
     expect([...io.out, ...io.err].join("\n")).not.toContain(TENANT_KEY);
+    // And the whole of it verifies offline, both tenants' chains in one stream.
+    const verified = verifyAuditChain([...io.out, ...io.err]);
+    expect(verified.findings).toEqual([]);
+    expect(verified.ok).toBe(true);
+    expect(Object.keys(verified.streams)).toContain("globex/agent-safe.security/1");
     await server.close(100);
     await host.close();
   });
@@ -324,6 +335,7 @@ describe("the tenant host", () => {
       NODE_ENV: "production",
       DECIONIS_API_URL: "https://authority.decionis.example",
       AGENTSAFE_HOSTED_GATEWAY: "true",
+      AGENTSAFE_HOSTED_TENANT: "acme",
       AGENTSAFE_MODE: "shadow",
       AGENTSAFE_UPSTREAM: "https://acme.shop.example",
       AGENTSAFE_TENANT_KEY_DIGESTS: TENANT_KEY_DIGEST,
@@ -332,15 +344,21 @@ describe("the tenant host", () => {
     });
   });
 
-  it("tags a JSON line in place and wraps anything else", () => {
+  it("tags a JSON line in place, leaves a line that already names its tenant alone, and wraps anything else", () => {
     const io = collectedIo();
     const tagged = TenantHost.taggedIo(io, "acme");
     tagged.stdout('{"event":"INTERCEPTED"}');
+    tagged.stdout('{"stream":"agent-safe.security/1","tenant":"acme","seq":1,"hash":"sha256:x"}');
     tagged.stderr("plain text");
     tagged.stdout("{}");
+    tagged.stdout("[1,2]");
+    tagged.stdout("{not json");
     expect(io.out).toEqual([
       '{"tenant":"acme","event":"INTERCEPTED"}',
+      '{"stream":"agent-safe.security/1","tenant":"acme","seq":1,"hash":"sha256:x"}',
       '{"tenant":"acme","line":"{}"}',
+      '{"tenant":"acme","line":"[1,2]"}',
+      '{"tenant":"acme","line":"{not json"}',
     ]);
     expect(io.err).toEqual(['{"tenant":"acme","line":"plain text"}']);
     expect(tagged.color).toBe(false);

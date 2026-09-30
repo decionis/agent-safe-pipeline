@@ -9,6 +9,8 @@ export interface ChainFinding {
   /** One-based position in the input. */
   readonly line: number;
   readonly stream: string | null;
+  /** The hosted tenant whose chain it is, when the line names one. */
+  readonly tenant?: string;
   readonly seq: number | null;
   readonly expected?: string | number;
   readonly found?: string | number;
@@ -26,12 +28,16 @@ export interface ChainVerification {
   readonly lines: number;
   /** Lines that belong to no chain, such as the process's own start-up lines. */
   readonly ignored: number;
+  /** By stream, or by `tenant/stream` for a hosted tenant's chain. */
   readonly streams: Readonly<Record<string, StreamSummary>>;
   readonly findings: readonly ChainFinding[];
 }
 
 interface ChainedLine {
   readonly stream: string;
+  readonly tenant: string | null;
+  /** Which chain the line belongs to: its stream, within its tenant when it has one. */
+  readonly chain: string;
   readonly seq: number;
   readonly prev_hash: string;
   readonly hash: string;
@@ -42,17 +48,29 @@ function chained(value: unknown): ChainedLine | "not-chained" | "invalid" {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return "not-chained";
   const record = value as Record<string, JsonValue>;
   if (!("stream" in record)) return "not-chained";
-  const { stream, seq, prev_hash, hash } = record;
+  const { stream, seq, prev_hash, hash, tenant } = record;
   if (typeof stream !== "string" || stream === "") return "invalid";
+  if (tenant !== undefined && (typeof tenant !== "string" || tenant === "")) return "invalid";
   if (typeof seq !== "number" || !Number.isInteger(seq) || seq < 1) return "invalid";
   if (typeof prev_hash !== "string" || typeof hash !== "string") return "invalid";
-  return { stream, seq, prev_hash, hash, record };
+  const owner = tenant ?? null;
+  return {
+    stream,
+    tenant: owner,
+    chain: owner === null ? stream : `${owner}/${stream}`,
+    seq,
+    prev_hash,
+    hash,
+    record,
+  };
 }
 
 /**
  * Walks the lines of one or more chained streams and reports every break:
  * a line that is not one, a hash that does not match its fields, a sequence
  * that skips or rewinds, a `prev_hash` that is not the previous line's hash.
+ * A line that names a `tenant` belongs to that tenant's chain of its stream,
+ * so one hosted process's output, holding many tenants' chains, verifies whole.
  * A line with no `stream` field belongs to no chain and is counted as
  * ignored. A fresh start from genesis is a restart, not a break, and is
  * counted, so a reader can compare it with the process's restarts. Anyone
@@ -91,15 +109,16 @@ export function verifyAuditChain(lines: Iterable<string>): ChainVerification {
         code: "CHAIN_HASH_MISMATCH",
         line: count,
         stream: line.stream,
+        ...(line.tenant === null ? {} : { tenant: line.tenant }),
         seq: line.seq,
         expected: expectedHash,
         found: line.hash,
       });
     }
-    const state = streams.get(line.stream);
+    const state = streams.get(line.chain);
     const genesis = line.seq === 1 && line.prev_hash === CHAIN_GENESIS;
     if (state === undefined) {
-      streams.set(line.stream, {
+      streams.set(line.chain, {
         lines: 1,
         head: { seq: line.seq, hash: line.hash },
         starts: genesis ? 1 : 0,
@@ -114,6 +133,7 @@ export function verifyAuditChain(lines: Iterable<string>): ChainVerification {
         code: "CHAIN_SEQ_GAP",
         line: count,
         stream: line.stream,
+        ...(line.tenant === null ? {} : { tenant: line.tenant }),
         seq: line.seq,
         expected: state.head.seq + 1,
         found: line.seq,
@@ -123,6 +143,7 @@ export function verifyAuditChain(lines: Iterable<string>): ChainVerification {
         code: "CHAIN_PREV_MISMATCH",
         line: count,
         stream: line.stream,
+        ...(line.tenant === null ? {} : { tenant: line.tenant }),
         seq: line.seq,
         expected: state.head.hash,
         found: line.prev_hash,

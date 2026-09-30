@@ -103,6 +103,31 @@ describe("HashChain", () => {
     expect(record.hash).toBe(independentDigest(parsed));
   });
 
+  it("carries a hosted tenant in its envelope, beside the stream, covered by the hash", () => {
+    const chain = new HashChain("agent-safe.test/1", null, "acme");
+    expect(chain.tenant).toBe("acme");
+    const record = chain.link({ tenant: "globex", event: "X" }, () => undefined);
+    expect(record.line.startsWith('{"stream":"agent-safe.test/1","tenant":"acme","seq":1,')).toBe(
+      true,
+    );
+    const parsed = JSON.parse(record.line) as Record<string, unknown>;
+    expect(parsed).toEqual({
+      stream: "agent-safe.test/1",
+      tenant: "acme",
+      seq: 1,
+      prev_hash: CHAIN_GENESIS,
+      event: "X",
+      hash: record.hash,
+    });
+    expect(record.hash).toBe(independentDigest(parsed));
+    // The same line under another tenant is another hash.
+    expect(independentDigest({ ...parsed, tenant: "globex" })).not.toBe(record.hash);
+    // No tenant, no key: a chain run for no one is exactly as it was.
+    const plain = new HashChain("agent-safe.test/1").link({ event: "X" }, () => undefined);
+    expect(JSON.parse(plain.line)).not.toHaveProperty("tenant");
+    expect(new HashChain("agent-safe.test/1").tenant).toBeNull();
+  });
+
   it("writes the line, then tells each listener the new head, until it is removed", () => {
     const chain = new HashChain("agent-safe.test/1");
     const order: string[] = [];

@@ -239,6 +239,7 @@ export class TenantHost {
     return {
       ...env,
       AGENTSAFE_HOSTED_GATEWAY: "true",
+      AGENTSAFE_HOSTED_TENANT: tenant.id,
       AGENTSAFE_MODE: "shadow",
       AGENTSAFE_UPSTREAM: tenant.upstream,
       AGENTSAFE_TENANT_KEY_DIGESTS: tenant.tenantKeyDigests.join(","),
@@ -248,15 +249,29 @@ export class TenantHost {
   }
 
   /**
-   * The tenant's own output: every line a tenant's gateway writes carries its
-   * id first, so one process's stream can be read, retained and deleted per
-   * tenant.
+   * The tenant's own output: every line a tenant's gateway writes names its
+   * tenant, so one process's stream can be read, retained and deleted per
+   * tenant. A chained line already carries `tenant` in its envelope, covered
+   * by its hash, and is passed through untouched: adding anything to it
+   * would break the chain. Any other JSON line gets `tenant` first; anything
+   * else is wrapped.
    */
   public static taggedIo(io: GatewayIo, tenant: string): GatewayIo {
-    const tag = (line: string): string =>
-      line.startsWith("{") && line.length > 2
-        ? `{"tenant":${JSON.stringify(tenant)},${line.slice(1)}`
-        : JSON.stringify({ tenant, line });
+    const tag = (line: string): string => {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(line);
+      } catch {
+        return JSON.stringify({ tenant, line });
+      }
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        return JSON.stringify({ tenant, line });
+      }
+      if ("tenant" in parsed) return line;
+      return Object.keys(parsed).length === 0
+        ? JSON.stringify({ tenant, line })
+        : `{"tenant":${JSON.stringify(tenant)},${line.trimStart().slice(1)}`;
+    };
     return {
       stdout: (line) => io.stdout(tag(line)),
       stderr: (line) => io.stderr(tag(line)),

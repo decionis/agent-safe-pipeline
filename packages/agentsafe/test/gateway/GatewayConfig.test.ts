@@ -607,6 +607,32 @@ describe("the gateway configuration", () => {
     }
   });
 
+  it("names a hosted gateway's tenant for its chains, and only a hosted one", () => {
+    const hosted = {
+      flags: { upstream: "https://shop.tenant.example", mode: "shadow" },
+      env: { AGENTSAFE_HOSTED_GATEWAY: "true", AGENTSAFE_TENANT_KEY_DIGESTS: TENANT_KEY_DIGEST },
+    };
+    expect(load(hosted).hostedTenant).toBeNull();
+    expect(
+      load({ ...hosted, env: { ...hosted.env, AGENTSAFE_HOSTED_TENANT: " acme " } }).hostedTenant,
+    ).toBe("acme");
+    expect(
+      load({ ...hosted, env: { ...hosted.env, AGENTSAFE_HOSTED_TENANT: "" } }).hostedTenant,
+    ).toBeNull();
+    for (const tenant of ["Acme", "-acme", "a".repeat(64), "acme.shop"]) {
+      expect([
+        tenant,
+        refusal({ ...hosted, env: { ...hosted.env, AGENTSAFE_HOSTED_TENANT: tenant } }).setting,
+      ]).toEqual([tenant, "AGENTSAFE_HOSTED_TENANT"]);
+    }
+    expect(
+      refusal({
+        flags: { upstream: "https://shop.tenant.example", mode: "shadow" },
+        env: { AGENTSAFE_HOSTED_TENANT: "acme" },
+      }).setting,
+    ).toBe("AGENTSAFE_HOSTED_TENANT");
+  });
+
   it("reads the authority's connection settings and the loopback allowance", () => {
     const config = load({
       flags: { upstream: "https://api.example" },

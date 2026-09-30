@@ -24,6 +24,8 @@ export const ACTION_NAME = /^[a-z][a-z0-9._:-]*$/;
 /** The header a tenant presents its ingress key in; never the URL, never forwarded. */
 export const TENANT_KEY_HEADER = "agentsafe-tenant-key";
 const TENANT_KEY_DIGEST = /^sha256:[0-9a-f]{64}$/;
+/** A tenant's registry id: the DNS label it is served under. */
+const HOSTED_TENANT = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 
 /** The tenant the demo authority evaluates under; a reserved fixture identifier, never an organization. */
 export const LOCAL_TENANT_ID = "00000000-0000-4000-8000-000000000009";
@@ -57,6 +59,11 @@ export interface GatewayConfig {
    * metrics answer only the operator, and a relayed cookie is host-only.
    */
   readonly hosted: boolean;
+  /**
+   * The tenant a hosted gateway runs for, as its registry id: written into the
+   * envelope of every chained line, so the tenant is covered by the hash.
+   */
+  readonly hostedTenant: string | null;
   /**
    * The tenant's ingress keys, as `sha256:` digests: one, or two while a
    * rotation overlaps. When there are any, a request that is not the
@@ -296,6 +303,7 @@ const ENVIRONMENT = {
   upstreamInsecure: "AGENTSAFE_UPSTREAM_INSECURE",
   upstreamPublicOnly: "AGENTSAFE_UPSTREAM_PUBLIC_ONLY",
   hosted: "AGENTSAFE_HOSTED_GATEWAY",
+  hostedTenant: "AGENTSAFE_HOSTED_TENANT",
   tenantKeyDigests: "AGENTSAFE_TENANT_KEY_DIGESTS",
   rateLimitRps: "AGENTSAFE_RATE_LIMIT_RPS",
   rateLimitBurst: "AGENTSAFE_RATE_LIMIT_BURST",
@@ -808,6 +816,14 @@ export class GatewayConfigLoader {
         null,
       ) ?? [],
     );
+    const hostedTenant = env[ENVIRONMENT.hostedTenant]?.trim() || null;
+    if (hostedTenant !== null && (!hosted || !HOSTED_TENANT.test(hostedTenant))) {
+      throw new GatewayConfigError(
+        "CONFIG_INVALID",
+        ENVIRONMENT.hostedTenant,
+        "a lower-case DNS label, on a hosted gateway",
+      );
+    }
     // Hosted, the tenant is the only caller the gateway admits, from day one.
     if (hosted && tenantKeys.length === 0) {
       throw new GatewayConfigError(
@@ -876,6 +892,7 @@ export class GatewayConfigLoader {
     return {
       listen,
       hosted,
+      hostedTenant,
       tenantKeys,
       rateLimit,
       upstream: {

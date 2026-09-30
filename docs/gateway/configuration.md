@@ -118,7 +118,10 @@ and its workspace key read from its own mounted file. From the host's environmen
 how to reach the authority (`NODE_ENV`, `DECIONIS_API_URL`, `DECIONIS_TIMEOUT_MS`,
 `DECIONIS_ALLOW_INSECURE_LOOPBACK`, `AGENTSAFE_UPSTREAM_TIMEOUT_MS`, `AGENTSAFE_FAILURE_POLICY`),
 never a credential. A request is routed to one tenant by its `Host` alone, so nothing about one
-tenant is reachable from another's host.
+tenant is reachable from another's host. Every line a tenant's gateway prints names the tenant:
+its chained lines carry it in their envelope (`AGENTSAFE_HOSTED_TENANT`, set by the host), covered by
+the hash, and every other line gets it first, so the host's output can be retained and deleted per
+tenant and still verifies with `agentsafe verify-chain`.
 
 The registry is checked whole: a file that cannot be parsed, or breaks a rule (a duplicate id, a
 relative key path, more than 1,000 tenants), is refused at start and ignored on reload, and the

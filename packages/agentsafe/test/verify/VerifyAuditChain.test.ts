@@ -174,3 +174,56 @@ describe("verifyAuditChain", () => {
     expect(CHAIN_GENESIS).toMatch(/^sha256:0{64}$/);
   });
 });
+
+describe("a hosted process's chains", () => {
+  it("holds each tenant's chain of a stream apart, so one process's output verifies whole", () => {
+    const acme = new HashChain(STREAM, null, "acme");
+    const globex = new HashChain(STREAM, null, "globex");
+    const output: string[] = [];
+    for (let index = 0; index < 5; index += 1) {
+      acme.link({ event: "A" }, (line) => output.push(line));
+      globex.link({ event: "G" }, (line) => output.push(line));
+    }
+    const report = verifyAuditChain(output);
+    expect(report.ok).toBe(true);
+    expect(report.streams).toEqual({
+      [`acme/${STREAM}`]: { lines: 5, head: acme.head, starts: 1 },
+      [`globex/${STREAM}`]: { lines: 5, head: globex.head, starts: 1 },
+    });
+  });
+
+  it("breaks the chain of a line moved to another tenant, and names whose chain broke", () => {
+    const chain = new HashChain(STREAM, null, "acme");
+    const output: string[] = [];
+    for (let index = 0; index < 3; index += 1)
+      chain.link({ event: "A" }, (line) => output.push(line));
+    const moved = output.map((line, index) =>
+      index === 1 ? line.replace('"tenant":"acme"', '"tenant":"globex"') : line,
+    );
+    const report = verifyAuditChain(moved);
+    expect(report.ok).toBe(false);
+    expect(report.findings[0]).toMatchObject({
+      code: "CHAIN_HASH_MISMATCH",
+      line: 2,
+      stream: STREAM,
+      tenant: "globex",
+      seq: 2,
+    });
+    // Its successor now follows nothing in acme's chain.
+    expect(report.findings.map((finding) => [finding.code, finding.tenant])).toEqual([
+      ["CHAIN_HASH_MISMATCH", "globex"],
+      ["CHAIN_SEQ_GAP", "acme"],
+    ]);
+  });
+
+  it("refuses a tenant that is not a name", () => {
+    const line = JSON.parse(lines(1)[0] ?? "{}") as Record<string, unknown>;
+    for (const tenant of ["", 7, null, ["acme"]]) {
+      const report = verifyAuditChain([JSON.stringify({ ...line, tenant })]);
+      expect([tenant, report.findings.map((finding) => finding.code)]).toEqual([
+        tenant,
+        ["CHAIN_LINE_INVALID"],
+      ]);
+    }
+  });
+});

@@ -275,7 +275,11 @@ export class Gateway {
       journal = new ChainJournal(config.evidence.journalDir, { checkpointLines: 100 });
     }
     const security = new SecurityEvents(emitter.security, {
-      chain: new HashChain(SECURITY_STREAM, journal?.restore(SECURITY_STREAM) ?? null),
+      chain: new HashChain(
+        SECURITY_STREAM,
+        journal?.restore(SECURITY_STREAM) ?? null,
+        config.hostedTenant,
+      ),
     });
     emitter.reportRedactions((patterns) =>
       security.emit({ event: "LEAK_SUSPECTED", patterns: [...patterns] }),
@@ -380,8 +384,16 @@ export class Gateway {
       config.interception.unmatched,
       config.interception.http,
     );
-    const evidence = new HashChain(EVIDENCE_STREAM, journal?.restore(EVIDENCE_STREAM) ?? null);
-    const chain = new HashChain(GATEWAY_STREAM, journal?.restore(GATEWAY_STREAM) ?? null);
+    const evidence = new HashChain(
+      EVIDENCE_STREAM,
+      journal?.restore(EVIDENCE_STREAM) ?? null,
+      config.hostedTenant,
+    );
+    const chain = new HashChain(
+      GATEWAY_STREAM,
+      journal?.restore(GATEWAY_STREAM) ?? null,
+      config.hostedTenant,
+    );
     const audit = new AuditRecorder({
       sink: new HashChainedAuditSink(emitLine, evidence),
       failurePolicy: config.evidence.enabled ? "REQUIRE_BEFORE_EXECUTION" : "BEST_EFFORT",
