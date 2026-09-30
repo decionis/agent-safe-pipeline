@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -305,6 +305,69 @@ describe("the tenant host", () => {
       requestsPerSecond: 50,
       burst: 100,
     });
+    await host.close();
+  });
+
+  it("takes a rotated workspace key from its file without a rebuild", async () => {
+    const rotating = join(secrets, "rotating-key");
+    writeFileSync(rotating, LOCAL_AUTHORITY_API_KEY, { mode: 0o600 });
+    const files = new Map([
+      [
+        "/etc/agentsafe/tenants.json",
+        registry([
+          tenant("acme", TENANT_KEY_DIGEST, {
+            workspace: { tenantId: WORKSPACE, apiKeyFile: rotating },
+          }),
+        ]),
+      ],
+    ]);
+    const io = collectedIo();
+    const host = await TenantHost.start({
+      registryPath: "/etc/agentsafe/tenants.json",
+      env: { DECIONIS_API_URL: authority.baseUrl, DECIONIS_ALLOW_INSECURE_LOOPBACK: "true" },
+      io,
+      readFile: (path) => files.get(path) ?? null,
+    });
+    const gateway = host.select("acme.decionisedge.example");
+    // A Secret volume swaps the file; the rotation is the tenant's, on its chain.
+    writeFileSync(`${rotating}.next`, "synthetic-rotated-key", { mode: 0o600 });
+    renameSync(`${rotating}.next`, rotating);
+    const rotated = (): boolean =>
+      io.err.some((line) => line.includes('"SECRET_ROTATED"') && line.includes('"tenant":"acme"'));
+    for (let attempt = 0; attempt < 100 && !rotated(); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    expect(rotated()).toBe(true);
+    expect(host.select("acme.decionisedge.example")).toBe(gateway);
+    expect(io.err.join("\n")).not.toContain("synthetic-rotated-key");
+    await host.close();
+  });
+
+  it("knows which tenants it could not build, and builds them once they can be", async () => {
+    const late = join(secrets, "late-key");
+    const files = new Map([
+      [
+        "/etc/agentsafe/tenants.json",
+        registry([
+          tenant("acme", TENANT_KEY_DIGEST),
+          tenant("globex", OTHER_DIGEST, { workspace: { tenantId: WORKSPACE, apiKeyFile: late } }),
+        ]),
+      ],
+    ]);
+    const host = await TenantHost.start({
+      registryPath: "/etc/agentsafe/tenants.json",
+      env: { DECIONIS_API_URL: authority.baseUrl, DECIONIS_ALLOW_INSECURE_LOOPBACK: "true" },
+      io: collectedIo(),
+      readFile: (path) => files.get(path) ?? null,
+    });
+    expect(host.failures()).toEqual(["globex"]);
+    const acme = host.select("acme.decionisedge.example");
+    writeFileSync(late, LOCAL_AUTHORITY_API_KEY, { mode: 0o600 });
+    // The same registry again builds exactly the tenant that was missing.
+    expect(await host.reload()).toMatchObject({ built: ["globex"], kept: 1, failed: [] });
+    expect(host.failures()).toEqual([]);
+    expect(host.select("acme.decionisedge.example")).toBe(acme);
+    expect(host.select("globex.decionisedge.example")).not.toBeNull();
     await host.close();
   });
 

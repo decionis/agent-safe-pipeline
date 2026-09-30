@@ -289,7 +289,10 @@ export class Gateway {
         events: security,
         production: config.production,
         enforcePermissions: config.production,
-        watch: false,
+        // A hosted gateway lives as long as its host, and its tenant's
+        // workspace key is rotated under it, in a mounted Secret: it watches
+        // the file, so a rotation takes effect without a rebuild or a restart.
+        watch: config.hosted,
       });
     }
     const secrets = store;

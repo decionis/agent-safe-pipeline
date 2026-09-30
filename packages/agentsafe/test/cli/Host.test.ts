@@ -140,4 +140,54 @@ describe("agentsafe host", () => {
     expect(events(io.out).at(-1)).toBe("TENANT_HOST_STOPPED");
     expect(io.out.join("")).not.toContain(TENANT_KEY);
   });
+
+  it("tries a tenant it could not build again, until its key arrives, with the registry unchanged", async () => {
+    const port = await closedPort();
+    const late = join(secrets, "arrives-later");
+    const io = fakeProcess({
+      env: {
+        AGENTSAFE_TENANT_REGISTRY: REGISTRY,
+        DECIONIS_API_URL: authority.baseUrl,
+        DECIONIS_ALLOW_INSECURE_LOOPBACK: "true",
+      },
+      files: {
+        [REGISTRY]: JSON.stringify({
+          version: 1,
+          domain: "decionisedge.example",
+          tenants: [
+            {
+              id: "acme",
+              upstream: upstreamOf("acme"),
+              tenantKeyDigests: [TENANT_KEY_DIGEST],
+              workspace: { tenantId: WORKSPACE, apiKeyFile: late },
+            },
+          ],
+        }),
+      },
+    });
+    await runHost(
+      io,
+      ["--listen", `127.0.0.1:${port}`],
+      { upstreamFetch: async () => new Response("ok", { status: 200 }) },
+      20,
+      60,
+    );
+    expect(JSON.parse(io.out[0] ?? "{}")).toMatchObject({
+      event: "TENANT_REGISTRY_LOADED",
+      served: 0,
+      failed: [{ tenant: "acme" }],
+    });
+    writeFileSync(late, LOCAL_AUTHORITY_API_KEY, { mode: 0o600 });
+    const built = (): boolean => io.out.some((line) => line.includes('"built":["acme"]'));
+    for (let attempt = 0; attempt < 100 && !built(); attempt += 1) await settle(20);
+    expect(built()).toBe(true);
+    expect(
+      await get(port, "acme.decionisedge.example", "/orders", {
+        "agentsafe-tenant-key": TENANT_KEY,
+      }),
+    ).toBe(200);
+    io.signals.get("SIGTERM")?.();
+    for (let attempt = 0; attempt < 40 && io.exits.length === 0; attempt += 1) await settle();
+    expect(io.exits).toEqual([0]);
+  });
 });

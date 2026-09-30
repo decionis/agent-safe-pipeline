@@ -14,6 +14,8 @@ export const HOST_ARGUMENTS = {
 
 /** How often the registry is read for a change, when nothing says otherwise. */
 export const REGISTRY_POLL_MS = 5_000;
+/** How often tenants that could not be built are tried again, with the registry unchanged. */
+export const TENANT_RETRY_MS = 60_000;
 
 /**
  * `agentsafe host`: many tenants' hosted gateways in one process, from the
@@ -31,6 +33,8 @@ export async function runHost(
   argv: readonly string[],
   dependencies: Omit<GatewayDependencies, "env" | "io"> = {},
   pollMs: number = REGISTRY_POLL_MS,
+  retryMs: number = TENANT_RETRY_MS,
+  clock: () => number = Date.now,
 ): Promise<void> {
   const refuse = (reason: string, code: number): void => {
     io.stderr(`${JSON.stringify({ event: "REFUSED_TO_START", reason })}\n`);
@@ -102,13 +106,19 @@ export async function runHost(
 
   // A change to the registry's text is a reload; so is SIGHUP. Either way the
   // host reads the file itself, so a half-written file is refused, not served.
+  // A tenant that could not be built (its key not yet synced into the mount,
+  // most often) is tried again every retryMs until it is, without a restart.
   let seen = io.files.read(registryPath);
+  let loaded = clock();
   const poll =
     pollMs > 0
       ? setInterval(() => {
           const text = io.files.read(registryPath);
-          if (text !== seen) {
+          const changed = text !== seen;
+          const retry = host.failures().length > 0 && clock() - loaded >= retryMs;
+          if (changed || retry) {
             seen = text;
+            loaded = clock();
             void host.reload();
           }
         }, pollMs)
@@ -116,6 +126,7 @@ export async function runHost(
   poll?.unref();
   io.onSignal("SIGHUP", () => {
     seen = io.files.read(registryPath);
+    loaded = clock();
     void host.reload();
   });
 

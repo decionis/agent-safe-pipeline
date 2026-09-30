@@ -126,7 +126,11 @@ tenant and still verifies with `agentsafe verify-chain`.
 The registry is checked whole: a file that cannot be parsed, or breaks a rule (a duplicate id, a
 relative key path, more than 1,000 tenants), is refused at start and ignored on reload, and the
 tenants already served stay served. A tenant whose own gateway cannot be built (an `http://`
-upstream, a missing key file) is reported by code and setting, and keeps the gateway it had. A
+upstream, a missing key file) is reported by code and setting, keeps the gateway it had, and is
+tried again every 60 seconds while the registry is unchanged, so a tenant whose key file has not
+reached the mount yet is served as soon as it has. A hosted gateway watches its workspace key file,
+so a key rotated in a mounted Secret takes effect without a rebuild or a restart, with
+`SECRET_ROTATED` on the tenant's security chain. A
 reload rebuilds only the tenants whose entry changed; a replaced or removed tenant's gateway
 finishes the requests in flight for 30 seconds before it is closed. Each load is one
 `TENANT_REGISTRY_LOADED` or `TENANT_REGISTRY_REFUSED` line naming what was built, kept, retired and

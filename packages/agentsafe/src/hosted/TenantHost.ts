@@ -92,6 +92,7 @@ export class TenantHost {
   private queue: Promise<unknown> = Promise.resolve();
   private closed = false;
   private refusal: TenantRegistryError | null = null;
+  private failing: readonly string[] = [];
 
   /** The gateway for a request's host, or null (the listener answers 421). */
   public readonly select: GatewaySelector = (hostname) =>
@@ -108,6 +109,15 @@ export class TenantHost {
       throw host.refusal;
     }
     return host;
+  }
+
+  /**
+   * The tenants whose gateway the last load could not build: a reload with an
+   * unchanged registry builds exactly these again, since every other tenant
+   * is kept. A tenant whose key file had not arrived yet is one of them.
+   */
+  public failures(): readonly string[] {
+    return this.failing;
   }
 
   /** The hostnames served, sorted. */
@@ -178,6 +188,7 @@ export class TenantHost {
         if (current !== undefined) next.set(hostname, current);
       }
     }
+    this.failing = failed.map((entry) => entry.tenant);
     const live = new Set([...next.values()].map((entry) => entry.gateway));
     const retired = [...this.served.values()]
       .map((entry) => entry.gateway)
