@@ -37,7 +37,7 @@ export const SecurityEventSchema = z.discriminatedUnion("event", [
   z.strictObject({ event: z.literal("EGRESS_REFUSED"), origin: origin.nullable(), code }),
   z.strictObject({
     event: z.literal("AUTH_FAILED"),
-    method: z.enum(["bearer", "jwt", "mtls", "none"]),
+    method: z.enum(["bearer", "jwt", "mtls", "tenant_key", "none"]),
     code,
   }),
   z.strictObject({ event: z.literal("PRINCIPAL_LOCKED"), principal }),

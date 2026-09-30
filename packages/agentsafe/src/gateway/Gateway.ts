@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -187,7 +187,7 @@ export class Gateway {
     private readonly metrics: GatewayMetrics,
     private readonly emitLine: LineWriter,
     private readonly io: GatewayIo,
-    security: SecurityEvents,
+    private readonly security: SecurityEvents,
     private readonly secrets: SecretStore | null,
     private readonly demo: DemoAuthorityHandle | null,
     journal: ChainJournal | null,
@@ -609,6 +609,35 @@ export class Gateway {
       if (this.shadow !== null) return await this.observe(request, captured, startedAt);
       return await this.enforce(request, captured, startedAt);
     });
+  }
+
+  /**
+   * Whether a request's tenant key admits it: always, when the gateway has no
+   * keys; otherwise only a key that hashes to one of them. Every configured
+   * digest is compared, in constant time, whether or not an earlier one
+   * matched. A refusal is counted and put on the security stream with its
+   * reason, never with the value presented.
+   */
+  public admits(presented: string | undefined): boolean {
+    if (this.config.tenantKeys.length === 0) return true;
+    const candidate =
+      presented === undefined || presented === ""
+        ? null
+        : createHash("sha256").update(presented, "utf8").digest();
+    let admitted = false;
+    for (const digest of this.config.tenantKeys) {
+      const expected = Buffer.from(digest.slice("sha256:".length), "hex");
+      if (candidate !== null && timingSafeEqual(candidate, expected)) admitted = true;
+    }
+    if (!admitted) {
+      this.metrics.requests.inc({ kind: "tenant_key_refused" });
+      this.security.emit({
+        event: "AUTH_FAILED",
+        method: "tenant_key",
+        code: candidate === null ? "TENANT_KEY_MISSING" : "TENANT_KEY_INVALID",
+      });
+    }
+    return admitted;
   }
 
   /** What a held escalation looks like from outside; null when nothing is held under the id. */

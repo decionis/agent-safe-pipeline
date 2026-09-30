@@ -8,6 +8,7 @@ import {
   renderConfigFile,
   type GatewayConfigInput,
 } from "../../src/gateway/GatewayConfig.js";
+import { TENANT_KEY_DIGEST } from "../support/GatewayHarness.js";
 
 const TENANT_ID = "00000000-0000-4000-8000-000000000009";
 const CRO = "synthetic-cro";
@@ -445,32 +446,43 @@ describe("the gateway configuration", () => {
     expect(load({ flags: { upstream: "https://shop.tenant.example" } }).hosted).toBe(false);
     const hosted = load({
       flags: { upstream: "https://shop.tenant.example", mode: "shadow" },
-      env: { AGENTSAFE_HOSTED_GATEWAY: "true" },
+      env: { AGENTSAFE_HOSTED_GATEWAY: "true", AGENTSAFE_TENANT_KEY_DIGESTS: TENANT_KEY_DIGEST },
     });
     expect(hosted.hosted).toBe(true);
     expect(hosted.upstream.publicOnly).toBe(true);
     expect(
       load({
         flags: { upstream: "https://shop.tenant.example", mode: "shadow" },
-        env: { AGENTSAFE_HOSTED_GATEWAY: "true", AGENTSAFE_UPSTREAM_PUBLIC_ONLY: "false" },
+        env: {
+          AGENTSAFE_HOSTED_GATEWAY: "true",
+          AGENTSAFE_TENANT_KEY_DIGESTS: TENANT_KEY_DIGEST,
+          AGENTSAFE_UPSTREAM_PUBLIC_ONLY: "false",
+        },
       }).upstream.publicOnly,
     ).toBe(true);
     expect(
       load({
         flags: { mode: "shadow" },
-        file: { version: 1, gateway: { upstream: "https://shop.tenant.example", hosted: true } },
+        file: {
+          version: 1,
+          gateway: {
+            upstream: "https://shop.tenant.example",
+            hosted: true,
+            tenantKeyDigests: [TENANT_KEY_DIGEST],
+          },
+        },
       }).hosted,
     ).toBe(true);
     expect(
       refusal({
         flags: { upstream: "https://shop.tenant.example", mode: "enforcement" },
-        env: { AGENTSAFE_HOSTED_GATEWAY: "true" },
+        env: { AGENTSAFE_HOSTED_GATEWAY: "true", AGENTSAFE_TENANT_KEY_DIGESTS: TENANT_KEY_DIGEST },
       }).message,
     ).toBe("CONFIG_INVALID: authority.mode (a hosted gateway runs in shadow only)");
     expect(
       refusal({
         flags: { upstream: "http://localhost:3000", mode: "shadow" },
-        env: { AGENTSAFE_HOSTED_GATEWAY: "true" },
+        env: { AGENTSAFE_HOSTED_GATEWAY: "true", AGENTSAFE_TENANT_KEY_DIGESTS: TENANT_KEY_DIGEST },
       }).message,
     ).toBe("CONFIG_INVALID: upstream (a public-only upstream must be https)");
     expect(
@@ -482,9 +494,55 @@ describe("the gateway configuration", () => {
     expect(
       refusal({
         flags: { upstream: "https://shop.tenant.example", mode: "shadow" },
-        env: { AGENTSAFE_HOSTED_GATEWAY: "true", AGENTSAFE_UPSTREAM_PUBLIC_ONLY: "maybe" },
+        env: {
+          AGENTSAFE_HOSTED_GATEWAY: "true",
+          AGENTSAFE_TENANT_KEY_DIGESTS: TENANT_KEY_DIGEST,
+          AGENTSAFE_UPSTREAM_PUBLIC_ONLY: "maybe",
+        },
       }).setting,
     ).toBe("AGENTSAFE_UPSTREAM_PUBLIC_ONLY");
+  });
+
+  it("admits a hosted tenant only by its key's digest, one or two of them", () => {
+    const other = `sha256:${"b".repeat(64)}`;
+    const base = { flags: { upstream: "https://shop.tenant.example", mode: "shadow" } };
+    expect(load(base).tenantKeys).toEqual([]);
+    expect(
+      load({ ...base, env: { AGENTSAFE_TENANT_KEY_DIGESTS: ` ${TENANT_KEY_DIGEST} , ${other} ` } })
+        .tenantKeys,
+    ).toEqual([TENANT_KEY_DIGEST, other]);
+    expect(
+      load({
+        ...base,
+        file: {
+          version: 1,
+          gateway: { upstream: "https://shop.tenant.example", tenantKeyDigests: [other] },
+        },
+      }).tenantKeys,
+    ).toEqual([other]);
+    for (const digests of [
+      `${TENANT_KEY_DIGEST},${other},sha256:${"c".repeat(64)}`,
+      `${TENANT_KEY_DIGEST},${TENANT_KEY_DIGEST}`,
+      `sha256:${"A".repeat(64)}`,
+      "a".repeat(64),
+      `sha256:${"a".repeat(63)}`,
+      `sha256:${"a".repeat(64)} trailing`,
+    ]) {
+      expect([
+        digests,
+        refusal({ ...base, env: { AGENTSAFE_TENANT_KEY_DIGESTS: digests } }).message,
+      ]).toEqual([
+        digests,
+        "CONFIG_INVALID: tenantKeyDigests (one or two distinct sha256:<64 hex> digests)",
+      ]);
+    }
+    const unkeyed = refusal({ ...base, env: { AGENTSAFE_HOSTED_GATEWAY: "true" } });
+    expect(unkeyed.code).toBe("CONFIG_MISSING");
+    expect(unkeyed.setting).toBe("tenantKeyDigests");
+    // The key ends at the gateway, so it cannot also name the principal.
+    expect(
+      refusal({ ...base, env: { AGENTSAFE_PRINCIPAL_HEADER: "AgentSafe-Tenant-Key" } }).setting,
+    ).toBe("interception.principalHeader");
   });
 
   it("reads the authority's connection settings and the loopback allowance", () => {

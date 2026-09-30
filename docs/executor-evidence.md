@@ -57,7 +57,7 @@ file), or `null` for a line written outside any request. Parameters, targets, bo
 `agent-safe.security/1` carries what happened to the process rather than to an intent: posture
 verified, waived, drifted and restored; a secret rotated or a reload refused; the credential
 clients rebuilt; a redaction (`LEAK_SUSPECTED`); a refusal at the door (`AUTH_FAILED` with the
-method, `bearer`, `jwt`, `mtls` or `none`, and the code); a principal locked after repeated proven
+method, `bearer`, `jwt`, `mtls`, `tenant_key` (a gateway's tenant key) or `none`, and the code); a principal locked after repeated proven
 failures (`PRINCIPAL_LOCKED`); the principals loaded at start, or the legacy caller mode
 (`PRINCIPALS_LOADED`, `LEGACY_PRINCIPAL_MODE`, `BEARER_PRINCIPAL_CONFIGURED`); the JWKS refreshed
 or not (`JWKS_REFRESHED`, `JWKS_REFRESH_FAILED`); an operator's action (`OPERATOR_ACTION` with the

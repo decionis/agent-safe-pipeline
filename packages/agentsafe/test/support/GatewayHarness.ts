@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import {
   GatewayConfigLoader,
@@ -208,3 +209,7 @@ export function fakeProcess(
     signals,
   };
 }
+
+/** A tenant's ingress key, synthetic, and the digest a hosted gateway is configured with. */
+export const TENANT_KEY = "synthetic-tenant-key-0001";
+export const TENANT_KEY_DIGEST = `sha256:${createHash("sha256").update(TENANT_KEY, "utf8").digest("hex")}`;

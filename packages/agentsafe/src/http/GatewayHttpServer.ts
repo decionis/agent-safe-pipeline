@@ -10,6 +10,7 @@ import {
 import type { AddressInfo } from "node:net";
 import type { Duplex } from "node:stream";
 import { GATEWAY_PREFIX, type Gateway, type GatewayResponse } from "../gateway/Gateway.js";
+import { TENANT_KEY_HEADER } from "../gateway/GatewayConfig.js";
 import type { InterceptedRequest } from "../gateway/InterceptedRequest.js";
 import { METRICS_CONTENT_TYPE, RESPONSE_HEADERS } from "./Routes.js";
 
@@ -108,6 +109,12 @@ export class GatewayHttpServer {
       if (gateway === null) throw new GuardError(421, "HOST_NOT_SERVED");
       if (url.pathname === GATEWAY_PREFIX || url.pathname.startsWith(`${GATEWAY_PREFIX}/`)) {
         return await this.own(gateway, method, url, request, response);
+      }
+      // The tenant's traffic, and only it, needs the tenant's key; the gateway's
+      // own routes answer platform probes and the operator.
+      const presented = request.headers[TENANT_KEY_HEADER];
+      if (!gateway.admits(typeof presented === "string" ? presented : undefined)) {
+        throw new GuardError(401, "TENANT_KEY_INVALID");
       }
       const plan = gateway.plan(method, url.pathname);
       const body = await GatewayHttpServer.readBody(

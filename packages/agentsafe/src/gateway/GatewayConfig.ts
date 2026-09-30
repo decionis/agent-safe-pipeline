@@ -20,6 +20,10 @@ export type ConsequentialMethod = (typeof CONSEQUENTIAL_METHODS)[number];
 /** The intent contract's action name: what a route may call the action it governs. */
 export const ACTION_NAME = /^[a-z][a-z0-9._:-]*$/;
 
+/** The header a tenant presents its ingress key in; never the URL, never forwarded. */
+export const TENANT_KEY_HEADER = "agentsafe-tenant-key";
+const TENANT_KEY_DIGEST = /^sha256:[0-9a-f]{64}$/;
+
 /** The tenant the demo authority evaluates under; a reserved fixture identifier, never an organization. */
 export const LOCAL_TENANT_ID = "00000000-0000-4000-8000-000000000009";
 export const DEFAULT_AUTHORITY_ENDPOINT = "https://api.decionis.com";
@@ -52,6 +56,13 @@ export interface GatewayConfig {
    * metrics answer only the operator, and a relayed cookie is host-only.
    */
   readonly hosted: boolean;
+  /**
+   * The tenant's ingress keys, as `sha256:` digests: one, or two while a
+   * rotation overlaps. When there are any, a request that is not the
+   * gateway's own must carry a key in `AgentSafe-Tenant-Key` that hashes to
+   * one of them. The key itself is never in the configuration.
+   */
+  readonly tenantKeys: readonly string[];
   readonly upstream: {
     readonly url: string;
     /** A plain-HTTP upstream off loopback is refused unless this says the network protects the hop. */
@@ -161,6 +172,7 @@ export const GatewayFileSchema = z.strictObject({
       upstreamInsecure: z.boolean().optional(),
       upstreamPublicOnly: z.boolean().optional(),
       hosted: z.boolean().optional(),
+      tenantKeyDigests: z.array(z.string()).optional(),
       upstreamTimeoutMs: positiveInt.max(120_000).optional(),
       system: z.string().trim().min(1).max(200).optional(),
       environment: z.string().trim().min(1).max(200).optional(),
@@ -271,6 +283,7 @@ const ENVIRONMENT = {
   upstreamInsecure: "AGENTSAFE_UPSTREAM_INSECURE",
   upstreamPublicOnly: "AGENTSAFE_UPSTREAM_PUBLIC_ONLY",
   hosted: "AGENTSAFE_HOSTED_GATEWAY",
+  tenantKeyDigests: "AGENTSAFE_TENANT_KEY_DIGESTS",
   upstreamTimeoutMs: "AGENTSAFE_UPSTREAM_TIMEOUT_MS",
   system: "AGENTSAFE_UPSTREAM_SYSTEM",
   environment: "AGENTSAFE_ENVIRONMENT",
@@ -753,6 +766,40 @@ export class GatewayConfigLoader {
       null,
     );
 
+    // The tenant key is the gateway's own credential: it is stripped before
+    // forwarding, so it can never be the header that names a principal.
+    if (principalHeader?.toLowerCase() === TENANT_KEY_HEADER) {
+      throw new GatewayConfigError(
+        "CONFIG_INVALID",
+        "interception.principalHeader",
+        `${TENANT_KEY_HEADER} is the gateway's own credential`,
+      );
+    }
+    const tenantKeys = GatewayConfigLoader.tenantKeys(
+      resolve<readonly string[] | null>(
+        "tenantKeyDigests",
+        [
+          {
+            source: "environment",
+            raw: env[ENVIRONMENT.tenantKeyDigests]
+              ?.split(",")
+              .map((value) => value.trim())
+              .filter((value) => value !== ""),
+          },
+          { source: "file", raw: file?.gateway?.tenantKeyDigests },
+        ],
+        null,
+      ) ?? [],
+    );
+    // Hosted, the tenant is the only caller the gateway admits, from day one.
+    if (hosted && tenantKeys.length === 0) {
+      throw new GatewayConfigError(
+        "CONFIG_MISSING",
+        "tenantKeyDigests",
+        `${ENVIRONMENT.tenantKeyDigests} or gateway.tenantKeyDigests: a hosted gateway admits only its tenant`,
+      );
+    }
+
     const escalation = GatewayConfigLoader.escalation(file, env, mode, kind, resolve);
     const required: SecretName[] = [];
     if (kind === "DECIONIS") required.push("DECIONIS_API_KEY");
@@ -802,6 +849,7 @@ export class GatewayConfigLoader {
     return {
       listen,
       hosted,
+      tenantKeys,
       upstream: {
         url: upstreamUrl,
         insecure: upstreamInsecure,
@@ -933,6 +981,22 @@ export class GatewayConfigLoader {
    * loopback address may be plain, and anything else may be plain only when
    * the configuration says the network protects that hop.
    */
+  /** One or two distinct `sha256:` digests, lower-case hex; anything else is refused by name. */
+  private static tenantKeys(digests: readonly string[]): readonly string[] {
+    if (
+      digests.length > 2 ||
+      new Set(digests).size !== digests.length ||
+      !digests.every((digest) => TENANT_KEY_DIGEST.test(digest))
+    ) {
+      throw new GatewayConfigError(
+        "CONFIG_INVALID",
+        "tenantKeyDigests",
+        "one or two distinct sha256:<64 hex> digests",
+      );
+    }
+    return digests;
+  }
+
   private static upstreamUrl(raw: string, insecure: boolean): string {
     let parsed: URL;
     try {

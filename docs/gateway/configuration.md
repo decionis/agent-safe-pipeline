@@ -87,7 +87,26 @@ $AGENTSAFE_METRICS_TOKEN`, the operator's token, with `401` for any other, and a
   at all (`404`) when no token is set; `healthz` and `readyz` stay open for the platform's probes;
 - every `Set-Cookie` the upstream sends is relayed without its `Domain` attribute, so a cookie is
   kept for the exact host it came from and one tenant's upstream cannot set a cookie that the
-  client would send to another tenant's host under the same domain.
+  client would send to another tenant's host under the same domain;
+- the tenant's key is required (below), so a hosted gateway admits only its tenant.
+
+## The tenant key
+
+`gateway.tenantKeyDigests` (`AGENTSAFE_TENANT_KEY_DIGESTS`, comma-separated) holds one or two
+`sha256:<64 hex>` digests of a tenant's ingress key; two while a rotation overlaps, so an agent can
+be redeployed with the new key before the old digest is removed. The key itself is never in the
+configuration: the operator issues it to the tenant and keeps only its digest.
+
+When digests are set, every request that is not the gateway's own must carry a key in the
+`AgentSafe-Tenant-Key` header that hashes to one of them, compared in constant time against each.
+Anything else is `401 TENANT_KEY_INVALID`, nothing is forwarded, the refusal is counted as
+`agentsafe_requests_total{kind="tenant_key_refused"}`, and `AUTH_FAILED` with method
+`tenant_key` and code `TENANT_KEY_MISSING` or `TENANT_KEY_INVALID` is on the security stream,
+never with the value presented. The header is removed before any request is forwarded, whether or
+not digests are set, so an upstream never sees it, and it cannot be the
+`interception.principalHeader`. The gateway's own routes do not take it: `healthz` and `readyz`
+answer platform probes, and `status` and `metrics` answer the operator's token. A hosted gateway
+refuses to start without a digest.
 
 ## Presence
 

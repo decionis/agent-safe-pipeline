@@ -7,6 +7,8 @@ import {
   testConfig,
   UpstreamDouble,
   LOOPBACK_ORIGIN,
+  TENANT_KEY,
+  TENANT_KEY_DIGEST,
 } from "../support/GatewayHarness.js";
 
 describe("the gateway listener", () => {
@@ -247,7 +249,7 @@ describe("a hosted gateway's own routes", () => {
     await Gateway.create(
       testConfig("https://shop.tenant.example", {
         flags: { mode: "shadow" },
-        env: { AGENTSAFE_HOSTED_GATEWAY: "true" },
+        env: { AGENTSAFE_HOSTED_GATEWAY: "true", AGENTSAFE_TENANT_KEY_DIGESTS: TENANT_KEY_DIGEST },
       }),
       {
         env: {},
@@ -288,6 +290,65 @@ describe("a hosted gateway's own routes", () => {
       expect([route, answer.status]).toEqual([route, 404]);
       expect(await answer.json()).toEqual({ code: "NOT_FOUND" });
     }
+    await server.close(100);
+    await gateway.close();
+  });
+});
+
+describe("a hosted gateway's tenant key", () => {
+  it("admits the tenant's traffic with its key alone, and never forwards the key", async () => {
+    const forwarded: Record<string, string>[] = [];
+    const gateway = await Gateway.create(
+      testConfig("https://shop.tenant.example", {
+        flags: { mode: "shadow" },
+        env: { AGENTSAFE_HOSTED_GATEWAY: "true", AGENTSAFE_TENANT_KEY_DIGESTS: TENANT_KEY_DIGEST },
+      }),
+      {
+        env: {},
+        io: collectedIo(),
+        upstreamFetch: async (_input, init) => {
+          forwarded.push(Object.fromEntries(new Headers(init?.headers)));
+          return new Response("ok", { status: 200 });
+        },
+      },
+    );
+    const server = new GatewayHttpServer(gateway, { metricsToken: "synthetic-operator-token" });
+    const origin = `${LOOPBACK_ORIGIN}:${(await server.listen(0, "127.0.0.1")).port}`;
+
+    for (const headers of [
+      {},
+      { "agentsafe-tenant-key": "" },
+      { "agentsafe-tenant-key": "synthetic-guess" },
+    ]) {
+      const refused = await fetch(`${origin}/orders`, { headers });
+      expect(refused.status).toBe(401);
+      expect(await refused.json()).toEqual({ code: "TENANT_KEY_INVALID" });
+    }
+    expect(forwarded).toEqual([]);
+
+    const admitted = await fetch(`${origin}/orders`, {
+      headers: { "agentsafe-tenant-key": TENANT_KEY },
+    });
+    expect(admitted.status).toBe(200);
+    expect(forwarded).toHaveLength(1);
+    expect(forwarded[0]).not.toHaveProperty("agentsafe-tenant-key");
+
+    // The gateway's own routes are for the platform and the operator, not the tenant.
+    expect((await fetch(`${origin}/_agentsafe/healthz`)).status).toBe(200);
+    expect(
+      (
+        await fetch(`${origin}/_agentsafe/status`, {
+          headers: { authorization: "Bearer synthetic-operator-token" },
+        })
+      ).status,
+    ).toBe(200);
+    const metrics = await (
+      await fetch(`${origin}/_agentsafe/metrics`, {
+        headers: { authorization: "Bearer synthetic-operator-token" },
+      })
+    ).text();
+    expect(metrics).toContain('agentsafe_requests_total{kind="tenant_key_refused"} 3');
+    expect(metrics).not.toContain(TENANT_KEY);
     await server.close(100);
     await gateway.close();
   });
