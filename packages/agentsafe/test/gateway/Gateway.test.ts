@@ -940,6 +940,41 @@ describe("a hosted gateway", () => {
     }
     await gateway.close();
   });
+
+  it("sandboxes every relayed response, so no script a tenant's upstream serves runs", async () => {
+    const policies = async (env: Record<string, string>): Promise<string[][]> => {
+      const gateway = await Gateway.create(
+        testConfig("https://shop.tenant.example", { flags: { mode: "shadow" }, env }),
+        {
+          env: {},
+          io: collectedIo(),
+          upstreamFetch: async () =>
+            new Response("<script></script>", { headers: { "content-type": "text/html" } }),
+        },
+      );
+      const seen = [];
+      for (const answer of [
+        await gateway.passthrough(request("GET", "/page")),
+        await gateway.govern(request("POST", "/payments", { amount: 10 }), "http.post"),
+      ]) {
+        seen.push(
+          answer.headers
+            .filter(([name]) => name === "content-security-policy")
+            .map(([, value]) => value),
+        );
+      }
+      await gateway.close();
+      return seen;
+    };
+    expect(
+      await policies({
+        AGENTSAFE_HOSTED_GATEWAY: "true",
+        AGENTSAFE_TENANT_KEY_DIGESTS: TENANT_KEY_DIGEST,
+      }),
+    ).toEqual([["sandbox"], ["sandbox"]]);
+    // A gateway its owner runs relays what its own upstream sent, as before.
+    expect(await policies({})).toEqual([[], []]);
+  });
 });
 
 describe("the tenant key check", () => {

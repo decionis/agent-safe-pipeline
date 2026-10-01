@@ -56,7 +56,8 @@ export interface GatewayConfig {
   /**
    * Run for a tenant by someone else, as Decionis runs hosted shadow: the
    * upstream is public-only, the mode is shadow, the gateway's own status and
-   * metrics answer only the operator, and a relayed cookie is host-only.
+   * metrics answer only the operator, a relayed cookie is host-only, and a
+   * relayed response is sandboxed (no script runs in it).
    */
   readonly hosted: boolean;
   /**

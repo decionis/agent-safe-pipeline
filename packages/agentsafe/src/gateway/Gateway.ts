@@ -380,6 +380,7 @@ export class Gateway {
       maxResponseBytes: config.upstream.maxResponseBytes,
       fetch: upstreamGuard?.fetch ?? dependencies.upstreamFetch ?? fetch,
       hostOnlyCookies: config.hosted,
+      sandboxed: config.hosted,
       ...(upstreamGuard === null ? {} : { close: () => upstreamGuard.close() }),
     });
     const routes = new RouteTable(

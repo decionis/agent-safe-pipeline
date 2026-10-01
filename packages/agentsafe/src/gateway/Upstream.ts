@@ -57,7 +57,20 @@ export interface UpstreamOptions {
   readonly close?: () => void;
   /** Relay every cookie host-only, whatever `Domain` the upstream named (a hosted gateway). */
   readonly hostOnlyCookies?: boolean;
+  /** Relay every response under a sandboxing content security policy (a hosted gateway). */
+  readonly sandboxed?: boolean;
 }
+
+/**
+ * The policy a hosted gateway adds to every relayed response. A browser
+ * renders the response as a unique, opaque origin: no script runs, so a page
+ * one tenant's upstream serves cannot set a cookie for the shared domain
+ * from script (which no `Set-Cookie` rewrite would see), and nothing it
+ * renders is same-origin with its own host. It is added beside any policy the
+ * upstream sent, and a browser enforces every policy it is given, so the
+ * upstream's own can only narrow it further.
+ */
+export const SANDBOX_POLICY = "sandbox";
 
 /**
  * A `Set-Cookie` value without its `Domain` attribute, so the client keeps
@@ -186,6 +199,7 @@ export class Upstream {
         this.options.hostOnlyCookies === true ? hostOnlyCookie(cookie) : cookie,
       ]);
     }
+    if (this.options.sandboxed === true) relayed.push(["content-security-policy", SANDBOX_POLICY]);
     return {
       status: response.status,
       headers: relayed,
