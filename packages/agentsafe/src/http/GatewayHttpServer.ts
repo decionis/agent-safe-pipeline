@@ -7,12 +7,14 @@ import {
   type Server,
   type ServerResponse,
 } from "node:http";
+import type { Server as HttpsServer } from "node:https";
 import type { AddressInfo } from "node:net";
 import type { Duplex } from "node:stream";
 import { GATEWAY_PREFIX, type Gateway, type GatewayResponse } from "../gateway/Gateway.js";
 import { TENANT_KEY_HEADER } from "../gateway/GatewayConfig.js";
 import type { InterceptedRequest } from "../gateway/InterceptedRequest.js";
 import { METRICS_CONTENT_TYPE, RESPONSE_HEADERS } from "./Routes.js";
+import type { TlsListener } from "./TlsListener.js";
 
 const REQUEST_TIMEOUT_MS = 30_000;
 const HEADERS_TIMEOUT_MS = 10_000;
@@ -45,7 +47,25 @@ export interface GatewayHttpServerOptions {
    * it such a request is refused with 421 like any other.
    */
   readonly probe?: { readonly ready: () => boolean };
+  /**
+   * Terminate TLS here, with the executor's listener (TLS 1.3, or 1.2 with
+   * AEAD ciphers only): the hosted fleet's edge is a layer-4 load balancer
+   * and nothing else. Every response then carries HSTS.
+   */
+  readonly tls?: TlsListener | null;
+  /**
+   * The page a host no tenant has answers at `/`, when it is this hostname:
+   * a hosted fleet's apex names its operator. Both are read per request, so
+   * a reload changes them in place; null serves nothing.
+   */
+  readonly apex?: { readonly hostname: () => string | null; readonly page: () => string | null };
 }
+
+/** HSTS for a listener that terminates TLS: a year, every subdomain. */
+export const HSTS = "max-age=31536000; includeSubDomains";
+
+/** The apex page's own policy: inline style, nothing else, never framed. */
+const APEX_CSP = "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'";
 
 /**
  * Which gateway answers a request, by the host it was addressed to. One
@@ -74,9 +94,10 @@ export class GatewayHttpServer {
   ) {
     this.select = typeof gateway === "function" ? gateway : () => gateway;
     const handler: RequestListener = (request, response) => {
+      if (this.options.tls) response.setHeader("strict-transport-security", HSTS);
       void this.handle(request, response);
     };
-    this.server = createServer(handler);
+    this.server = this.options.tls ? this.options.tls.createServer(handler) : createServer(handler);
     this.server.requestTimeout = REQUEST_TIMEOUT_MS;
     this.server.headersTimeout = HEADERS_TIMEOUT_MS;
     this.server.keepAliveTimeout = KEEP_ALIVE_TIMEOUT_MS;
@@ -97,6 +118,11 @@ export class GatewayHttpServer {
     this.server.emit("connection", connection);
   }
 
+  /** Presents the current certificate and key to new connections; open ones keep theirs. */
+  public rotateTls(): void {
+    this.options.tls?.rotate(this.server as HttpsServer);
+  }
+
   /** Stops accepting, lets requests in flight finish for a grace period, then closes what is left. */
   public async close(graceMs = 10_000): Promise<void> {
     const closed = new Promise<void>((resolve) => this.server.close(() => resolve()));
@@ -112,7 +138,7 @@ export class GatewayHttpServer {
       const url = new URL(request.url ?? "/", "http://gateway.invalid");
       const method = (request.method ?? "GET").toUpperCase();
       const gateway = this.select(GatewayHttpServer.hostnameOf(request));
-      if (gateway === null) return this.probed(method, url, response);
+      if (gateway === null) return this.unserved(request, method, url, response);
       if (url.pathname === GATEWAY_PREFIX || url.pathname.startsWith(`${GATEWAY_PREFIX}/`)) {
         return await this.own(gateway, method, url, request, response);
       }
@@ -226,8 +252,37 @@ export class GatewayHttpServer {
     }
   }
 
-  /** A probe of the process itself, when no gateway serves the host; anything else is 421. */
-  private probed(method: string, url: URL, response: ServerResponse): void {
+  /**
+   * A host no gateway serves: the operator's apex page at `/` when it is the
+   * apex, a probe of the process itself, or 421.
+   */
+  private unserved(
+    request: IncomingMessage,
+    method: string,
+    url: URL,
+    response: ServerResponse,
+  ): void {
+    const apex = this.options.apex;
+    const hostname = GatewayHttpServer.hostnameOf(request);
+    if (apex !== undefined && hostname !== null && hostname === apex.hostname()) {
+      if (url.pathname === "/" && (method === "GET" || method === "HEAD")) {
+        const page = apex.page();
+        if (page !== null) {
+          response.writeHead(200, {
+            "content-type": "text/html; charset=utf-8",
+            "cache-control": "public, max-age=300",
+            "content-security-policy": APEX_CSP,
+            "x-content-type-options": "nosniff",
+            "x-frame-options": "DENY",
+          });
+          response.end(method === "HEAD" ? undefined : page);
+          return;
+        }
+      }
+      if (!url.pathname.startsWith(`${GATEWAY_PREFIX}/`)) {
+        throw new GuardError(404, "NOT_FOUND");
+      }
+    }
     const probe = this.options.probe;
     const route = url.pathname.slice(GATEWAY_PREFIX.length + 1);
     if (

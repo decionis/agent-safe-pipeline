@@ -93,6 +93,7 @@ export class TenantHost {
   private closed = false;
   private refusal: TenantRegistryError | null = null;
   private failing: readonly string[] = [];
+  private currentDomain: string | null = null;
 
   /** The gateway for a request's host, or null (the listener answers 421). */
   public readonly select: GatewaySelector = (hostname) =>
@@ -118,6 +119,11 @@ export class TenantHost {
    */
   public failures(): readonly string[] {
     return this.failing;
+  }
+
+  /** The domain of the registry last loaded: the apex, and the parent of every tenant's host. */
+  public domain(): string | null {
+    return this.currentDomain;
   }
 
   /** The hostnames served, sorted. */
@@ -165,6 +171,7 @@ export class TenantHost {
       });
     }
     this.refusal = null;
+    this.currentDomain = registry.domain;
     const next = new Map<string, Served>();
     const built: string[] = [];
     const failed: { tenant: string; code: string }[] = [];

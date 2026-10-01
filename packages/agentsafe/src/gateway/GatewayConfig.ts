@@ -340,6 +340,10 @@ const COMMAND_ENVIRONMENT = [
   "AGENTSAFE_HOME",
   "AGENTSAFE_METRICS_TOKEN",
   "AGENTSAFE_TENANT_REGISTRY",
+  "AGENTSAFE_TLS_CERT_FILE",
+  "AGENTSAFE_TLS_KEY_FILE",
+  "AGENTSAFE_REDIRECT_LISTEN",
+  "AGENTSAFE_APEX_PAGE",
 ] as const;
 
 /** Every variable the gateway and its commands read, for the reference page. */

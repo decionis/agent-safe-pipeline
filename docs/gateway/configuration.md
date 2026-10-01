@@ -136,6 +136,20 @@ finishes the requests in flight for 30 seconds before it is closed. Each load is
 `TENANT_REGISTRY_LOADED` or `TENANT_REGISTRY_REFUSED` line naming what was built, kept, retired and
 failed.
 
+### TLS at the host
+
+With `--tls-cert` and `--tls-key`, `agentsafe host` terminates TLS itself, with the executor's
+listener (TLS 1.3, or 1.2 with AEAD ciphers only, no renegotiation), so a layer-4 load balancer is
+the whole edge. The key is watched like any mounted secret: when a certificate manager renews the
+certificate and key in a Kubernetes Secret, new connections get the new pair and open ones keep
+theirs (`TLS_CONTEXT_ROTATED`); a renewal that does not make a valid pair keeps the one in use
+(`TLS_ROTATION_REFUSED`). Every response then carries
+`Strict-Transport-Security: max-age=31536000; includeSubDomains`. `--redirect-listen` adds a
+plain-HTTP listener that answers only redirects to the same host over HTTPS (`301`, or `308` for a
+method other than `GET` and `HEAD`, never acting on the request), for the registry's domain and the
+hosts under it; any other host is `421`. `--apex-page` is the HTML the domain itself answers at `/`,
+with a policy that allows inline style and nothing else.
+
 ## The rate a gateway admits
 
 `gateway.rateLimit: { requestsPerSecond: 5, burst: 20 }` (`AGENTSAFE_RATE_LIMIT_RPS` and
