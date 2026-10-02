@@ -304,6 +304,24 @@ describe("adapterActionHandler", () => {
     expect(register.take(authorization)?.outcome).toBe("INDETERMINATE");
   });
 
+  it("hands the dispatch a receipt that came with an indeterminate answer", async () => {
+    const receipt = receiptSaying({
+      status: "EFFECTED",
+      digest: prepared.expectedEffectDigest,
+      effected_at: "2026-09-19T12:00:01Z",
+    });
+    const adapter = fakeAdapter({
+      execute: () =>
+        Promise.reject(new IndeterminateOutcome("PROVIDER_SERVER_ERROR", "503", receipt)),
+    });
+    const { error, receipts, register } = await execute(adapter);
+    // The outcome stays unknown; the provider's signed word goes to the authority anyway.
+    expect(error).toBeInstanceOf(IndeterminateOutcome);
+    expect((error as IndeterminateOutcome).receipt).toBe(receipt);
+    expect(receipts).toEqual([receipt]);
+    expect(register.take(authorization)?.outcome).toBe("INDETERMINATE");
+  });
+
   it("lets an error that is not an indeterminate outcome through untouched", async () => {
     const adapter = fakeAdapter({ execute: () => Promise.reject(new Error("BOOM")) });
     const { error, register } = await execute(adapter);

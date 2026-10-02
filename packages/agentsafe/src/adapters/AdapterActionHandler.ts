@@ -74,6 +74,7 @@ export function adapterActionHandler<TAction>(
     let result: ProviderResult | null = null;
     let indeterminate: { readonly reason: string; readonly providerStatus: string | null } | null =
       null;
+    let indeterminateReceipt: string | null = null;
     try {
       result = await context.dispatch.run(
         async () =>
@@ -88,10 +89,13 @@ export function adapterActionHandler<TAction>(
     } catch (error) {
       if (!(error instanceof IndeterminateOutcome)) throw error;
       indeterminate = { reason: error.reason, providerStatus: error.providerStatus };
+      indeterminateReceipt = error.receipt;
     }
     // The provider's receipt rides on the attempt to the finalization, where
-    // the authority verifies it; this layer only compares what it states.
-    if (typeof result?.receipt === "string") context.dispatch.receipt(result.receipt);
+    // the authority verifies it; this layer only compares what it states. An
+    // indeterminate answer can carry one too, and it is not dropped with it.
+    const receipt = result?.receipt ?? indeterminateReceipt;
+    if (typeof receipt === "string") context.dispatch.receipt(receipt);
     const observed = result === null ? null : options.adapter.observeEffect(result, prepared);
     const record = buildEffectRecord({
       prepared,
@@ -110,7 +114,11 @@ export function adapterActionHandler<TAction>(
     // re-raised so the pipeline reports an unknown outcome rather than a
     // failure or a success.
     if (indeterminate !== null) {
-      throw new IndeterminateOutcome(indeterminate.reason, indeterminate.providerStatus);
+      throw new IndeterminateOutcome(
+        indeterminate.reason,
+        indeterminate.providerStatus,
+        indeterminateReceipt,
+      );
     }
     // A provider that was reached and said no is a fact, not a success. The
     // evidence is registered above either way, so the authority still learns

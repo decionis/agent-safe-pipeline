@@ -105,18 +105,22 @@ export class CoreBankingHttpAdapter implements BankingTransport {
     // it rides with the result, unread here, for the authority to verify.
     const receipt = response.headers.get(EFFECT_RECEIPT_HEADER);
     if (response.status >= 500)
-      throw new IndeterminateOutcome("PROVIDER_SERVER_ERROR", String(response.status));
+      throw new IndeterminateOutcome("PROVIDER_SERVER_ERROR", String(response.status), receipt);
     let parsed: z.infer<typeof ResponseSchema>;
     try {
       parsed = ResponseSchema.parse(JSON.parse(text));
     } catch {
-      throw new IndeterminateOutcome("PROVIDER_RESPONSE_UNREADABLE", String(response.status));
+      throw new IndeterminateOutcome(
+        "PROVIDER_RESPONSE_UNREADABLE",
+        String(response.status),
+        receipt,
+      );
     }
     const status = parsed.status.toUpperCase();
     const responseDigest = CoreBankingHttpAdapter.materialDigest(parsed);
     if (!response.ok) {
       if (!REFUSED.has(status)) {
-        throw new IndeterminateOutcome("PROVIDER_STATUS_UNKNOWN", status);
+        throw new IndeterminateOutcome("PROVIDER_STATUS_UNKNOWN", status, receipt);
       }
       return {
         status: "FAILED",
@@ -163,7 +167,7 @@ export class CoreBankingHttpAdapter implements BankingTransport {
         receipt,
       };
     }
-    throw new IndeterminateOutcome("PROVIDER_STATUS_UNKNOWN", status);
+    throw new IndeterminateOutcome("PROVIDER_STATUS_UNKNOWN", status, receipt);
   }
 
   public async reconcile(context: AdapterReconciliation): Promise<ProviderReconciliationResult> {
