@@ -5,6 +5,7 @@ import {
   IntentCapture,
   type ActionRegistry,
   type CapturedIntent,
+  type EdgeModule,
   type GateDecision,
   type JsonObject,
   type SafeExecutionResult,
@@ -67,6 +68,7 @@ import {
   type ReconciliationResponse,
 } from "./Requests.js";
 import { HaltRequestSchema, ResumeRequestSchema } from "./Requests.js";
+import { EdgeRuntime } from "./EdgeRuntime.js";
 import { ServiceError } from "./ServiceError.js";
 
 export interface ServiceDependencies extends Omit<EscalationDependencies, "fetch"> {
@@ -92,6 +94,8 @@ export interface ServiceDependencies extends Omit<EscalationDependencies, "fetch
   /** The stop; one is built from the configuration unless a test hands in its own. */
   readonly halt?: HaltSwitch;
   readonly clock?: () => number;
+  /** Loads the edge evaluator; the configured file unless a test hands in its own. */
+  readonly loadEdgeModule?: (path: string) => EdgeModule;
 }
 
 /** What `/v1/control/status` reports: identifiers, counts, and heads, never a value. */
@@ -181,6 +185,18 @@ function nonSecretConfiguration(config: ExecutorConfig): JsonObject {
             window_seconds: config.limits.windowSeconds,
           },
     max_clock_skew_ms: config.maxClockSkewMs,
+    decision: {
+      authority: config.decision.authority,
+      edge:
+        config.edge === null
+          ? null
+          : {
+              org_id: config.edge.orgId,
+              bundle_source: config.edge.bundle.source,
+              refresh_seconds: config.edge.refreshSeconds,
+              on_unavailable: config.edge.onUnavailable,
+            },
+    },
   };
 }
 
@@ -220,6 +236,8 @@ export class TrustedExecutorService {
     public readonly haltSwitch: HaltSwitch,
     private readonly limits: HardLimits | null,
     private readonly unsubscribeMetrics: () => void,
+    /** The edge evaluator, when the configuration asks for it. */
+    private readonly edge: EdgeRuntime | null = null,
   ) {}
 
   /**
@@ -251,8 +269,9 @@ export class TrustedExecutorService {
     const auditWindow = new LineWindow(config.evidence.windowLines);
     const securityWindow = new LineWindow(config.evidence.windowLines);
     events.tap((line) => securityWindow.push(line));
+    const evidenceWriter = auditWindow.tee(emit);
     const audit = new AuditRecorder({
-      sink: new HashChainedAuditSink(auditWindow.tee(emit), chain),
+      sink: new HashChainedAuditSink(evidenceWriter, chain),
       failurePolicy: "REQUIRE_BEFORE_EXECUTION",
     });
     // Every connection this process opens, the authority's and the Presence
@@ -335,8 +354,23 @@ export class TrustedExecutorService {
       observe: (skew) => metrics.clockSkew.set(skew),
       onExceeded: (skew) => halt.halt("CLOCK_SKEW", `${skew}ms from the authority`),
     });
+    // The edge evaluator, built once: a module that is not a valid ABI 3
+    // module refuses the start here, before anything listens.
+    const edge = EdgeRuntime.create({
+      config,
+      apiKey: (): string => secrets.get("DECIONIS_API_KEY").use((value) => value.toString("utf8")),
+      fetch: egress.fetch,
+      events,
+      chain,
+      write: evidenceWriter,
+      ...(dependencies.loadEdgeModule === undefined
+        ? {}
+        : { loadModule: dependencies.loadEdgeModule }),
+      ...(dependencies.clock === undefined ? {} : { clock: dependencies.clock }),
+    });
     const clients = new AuthorityClients({
       config,
+      edge,
       secrets,
       registry,
       audit,
@@ -413,6 +447,7 @@ export class TrustedExecutorService {
         for (const stop of unsubscribeRotations) stop();
         unsubscribeEvents();
       },
+      edge,
     );
   }
 
@@ -507,6 +542,15 @@ export class TrustedExecutorService {
     return this.config.escalation.mode;
   }
 
+  /**
+   * Loads the edge evaluator's first bundle and starts its refresh schedule.
+   * A first fetch that fails is not a refusal to start: until a bundle
+   * loads, decisions follow the configured `onUnavailable`.
+   */
+  public async startEdge(): Promise<void> {
+    await this.edge?.start();
+  }
+
   /** The actions this process can run, for `/ready`. */
   public get actions(): readonly string[] {
     return this.registered.filter((action) => this.registry.has(action));
@@ -514,6 +558,7 @@ export class TrustedExecutorService {
 
   /** Stops following credential rotation and closes every outbound connection; the service answers nothing new after this. */
   public close(): void {
+    this.edge?.stop();
     this.clients.close();
     this.egress.close();
     this.jwt?.stop();

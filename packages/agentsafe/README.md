@@ -332,6 +332,12 @@ network path has a default.
 | `EXECUTOR_EVIDENCE_WINDOW_LINES`                              | Lines of each stream this process keeps for a bundle, 100 to 200000, five thousand by default                              |
 | `EXECUTOR_EVIDENCE_SIGNING_KEY`                               | Optional Ed25519 PKCS#8 key that signs a bundle's manifest; secret, and needs an evidence directory                        |
 | `EXECUTOR_IMAGE_DIGEST`                                       | What the platform says this deployment is running; carried into a bundle and marked not self-verified                      |
+| `EXECUTOR_DECISION_AUTHORITY`                                 | `hosted` (the default): Decionis decides every intent. `edge`: the edge evaluator decides locally                          |
+| `EXECUTOR_EDGE_WASM_PATH`                                     | `edge` only: the evaluator module (ABI 3), licensed separately; the executor refuses to start without it                   |
+| `EXECUTOR_EDGE_ORG_ID`                                        | `edge` only: the Decionis organisation the policy bundles are issued to                                                    |
+| `EXECUTOR_EDGE_BUNDLE_SOURCE`, `_FILE`                        | `url` (the default) fetches bundles from Decionis; `file` reads `EXECUTOR_EDGE_BUNDLE_FILE`                                |
+| `EXECUTOR_EDGE_REFRESH_SECONDS`                               | The routine bundle refresh, one minute to a day, an hour by default                                                        |
+| `EXECUTOR_EDGE_ON_UNAVAILABLE`                                | `hosted` (the default) asks Decionis when there is no usable bundle; `block` refuses                                       |
 | `DECIONIS_API_URL`                                            | The authority, HTTPS                                                                                                       |
 | `DECIONIS_API_KEY`                                            | The server-side Decionis credential; secret                                                                                |
 | `DECIONIS_ALLOW_INSECURE_LOOPBACK`                            | `true` permits plain HTTP to loopback for local doubles; refused under `NODE_ENV=production`                               |
@@ -359,6 +365,19 @@ network path has a default.
 | `DOWNSTREAM_LOOKUP_BY_REFERENCE_URL`                          | Optional read-back by the provider's own reference; must contain `{provider_reference}`                                    |
 | `BANKING_ADAPTER_ID`, `BANKING_ADAPTER_VERSION`               | The observer identity the effect evidence names; `AGENTSAFE_CORE_BANKING` and `0.1.0` by default                           |
 | `EXECUTOR_ON_EFFECT_MISMATCH`                                 | `HALT` (the default) or `ALERT`: what an observed effect that is not the authorised one does                               |
+
+### The edge evaluator
+
+With `EXECUTOR_DECISION_AUTHORITY=edge`, the executor decides each intent locally with the
+Decionis edge evaluator: a WebAssembly module, licensed separately and not part of this package,
+that evaluates the same binding hosted `enforce-and-bind` receives against a policy bundle Decionis
+signed, and gives the same verdict. An `ALLOW` becomes a local authorization the executor consumes
+once; a `BLOCK` is refused; an `ESCALATE` goes to Decionis, so `DIRECT` and `MANAGED` escalation
+work as they do hosted. With no usable bundle the executor asks Decionis, or refuses under
+`EXECUTOR_EDGE_ON_UNAVAILABLE=block`. Each local decision is an `EDGE_DECISION` line on the
+evidence stream. Without the variable, or without the module, nothing changes: Decionis decides,
+as it always has. How a deployment runs it, how bundles refresh and what expiry does are in
+[the edge evaluator](https://github.com/decionis/agent-safe-pipeline/blob/master/docs/edge-evaluator.md).
 
 ## Principals
 

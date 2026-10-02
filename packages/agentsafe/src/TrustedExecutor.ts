@@ -198,6 +198,7 @@ export async function createTrustedExecutor(
       // asked to do anything new, and read-only: the provider is asked what
       // it did, never told to do it again.
       await service.recover();
+      await service.startEdge();
       const bound = await server.listen(port, address);
       stopPosture = posture.start();
       stopHalt = haltSwitch.start();

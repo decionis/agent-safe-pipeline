@@ -1053,6 +1053,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/service/EdgeAuthority.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/service/Incident.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
@@ -1078,6 +1084,12 @@
     },
     {
       "path": "packages/agentsafe/test/support/BankingFixtures.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/support/EdgeModuleDouble.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false
@@ -1215,6 +1227,36 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/pipeline/test/decision/edge/BundleWindow.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/pipeline/test/decision/edge/EdgeBundleManager.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/pipeline/test/decision/edge/EdgeDecisionAuthority.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/pipeline/test/decision/edge/EdgeModule.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/pipeline/test/decision/edge/EdgeModuleConformance.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/pipeline/test/dossier/DecisionDossierCorpus.test.ts",
       "family": "Decision Dossier conformance test",
       "source": "synthetic",
@@ -1234,6 +1276,12 @@
     },
     {
       "path": "packages/pipeline/test/execution/FixtureFinalization.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/pipeline/test/execution/LocalAuthorizationVerifier.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false
@@ -1336,6 +1384,12 @@
     },
     {
       "path": "packages/pipeline/test/support/AuthorityDouble.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/pipeline/test/support/EdgeModuleDouble.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false

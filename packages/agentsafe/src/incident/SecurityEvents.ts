@@ -108,6 +108,27 @@ export const SecurityEventSchema = z.discriminatedUnion("event", [
   }),
   z.strictObject({ event: z.literal("SEPARATION_OF_DUTIES_VIOLATED"), principal }),
   z.strictObject({
+    // The edge evaluator verified and loaded a signed policy bundle.
+    event: z.literal("EDGE_BUNDLE_LOADED"),
+    bundle_id: identifier,
+    policy_version: identifier,
+    kid: identifier,
+    expires_at: z.string().datetime(),
+  }),
+  z.strictObject({
+    // A fetch or a load failed; the last good bundle, if any, stays until its expiry.
+    event: z.literal("EDGE_BUNDLE_REFRESH_FAILED"),
+    code,
+    failures: count,
+    retry_ms: count,
+  }),
+  z.strictObject({
+    // A bundle reached its expiry: nothing is decided on it from here.
+    event: z.literal("EDGE_BUNDLE_EXPIRED"),
+    bundle_id: identifier,
+    policy_version: identifier,
+  }),
+  z.strictObject({
     event: z.literal("EVIDENCE_EXPORTED"),
     principal,
     files: count,

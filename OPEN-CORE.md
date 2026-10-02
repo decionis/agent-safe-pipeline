@@ -13,8 +13,12 @@ business model from the code.
 - **Operated (Decionis, not in this repository):** the policy control plane that evaluates
   intents, issues and atomically consumes execution grants, signs and retains Decision Dossiers,
   and verifies human approval through Presence.
-- **The seam:** two TypeScript interfaces and four versioned HTTP operations. Anyone can implement
-  the interfaces. The library does not check a plan, key, or entitlement.
+- **Licensed separately (Decionis, not in this repository):** the edge evaluator, a WebAssembly
+  build of the policy core that a deployment runs in its own network. This repository ships its
+  open host, as it ships `DecionisGate` as an open client of the hosted service.
+- **The seam:** two TypeScript interfaces, five versioned HTTP operations, and the edge module's
+  versioned ABI. Anyone can implement the interfaces. The library does not check a plan, key, or
+  entitlement.
 
 ## What is Apache-2.0 here
 
@@ -23,6 +27,7 @@ business model from the code.
 | `IntentCapture`, `CanonicalIntentHasher`, `agent-safe.intent/1`           | `packages/pipeline/src/intent`                                               | The intent contract must be independently implementable or the hash binding proves nothing                                 |
 | `SafeExecutor`, `ActionRegistry`, `AuthorizationVerifier`, `ReplayStore`  | `packages/pipeline/src/execution`                                            | The execution boundary runs inside the customer's trust domain and must be inspectable                                     |
 | `DecionisGate`, `DecionisGrantVerifier`                                   | `packages/pipeline/src/decision`, `execution`                                | Client adapters for the published Decionis contract; they hold no policy logic                                             |
+| `EdgeDecisionAuthority`, `LocalAuthorizationVerifier`                     | `packages/pipeline/src/decision/edge`, `execution`                           | The open host of the separately licensed edge evaluator; it holds no policy logic                                          |
 | `PresenceApprovalCoordinator`                                             | `packages/pipeline/src/approval`                                             | The evidence-not-authority rule for human approval is part of the architecture, not the product                            |
 | CommerceGate MCP server (`@decionis/commerce`)                            | `packages/commerce-mcp`                                                      | A local STDIO client adapter over the published CommerceGate contract; it holds no policy logic and no marketplace client  |
 | `AuditRecorder`, `AuditPolicyRevisionVerifier`, `agent-safe.audit/1`      | `packages/pipeline/src/audit`                                                | Customers own their evidence stream; the redaction and immutability rules are public                                       |
@@ -63,6 +68,12 @@ The **policy control plane** is the hosted authority behind `DecionisGate`. It o
   into evidence for re-evaluation;
 - tenant identity, server-side API credentials, and hosted shadow reporting.
 
+Decionis also licenses, separately, the **edge evaluator**: the policy core compiled to a
+WebAssembly module that evaluates bundles Decionis signed, so a deployment can decide inside its
+own network and get the verdict the hosted service would give ([the edge evaluator](./docs/edge-evaluator.md)).
+The module, its pinned keys and its bundle signing are Decionis's; the host that loads it, keeps a
+bundle current, records each local decision and sends escalations to the hosted service is here.
+
 None of that code is in this repository, and this repository does not proxy it. Production policy
 bundles, customer data, and credentials are explicitly excluded by the
 [public-repository policy](./README.md#public-repository-policy).
@@ -90,6 +101,9 @@ interface AuthorizationVerifier {
 Decionis-specific code path. A third-party or self-built authority that returns a bound
 `GateDecision` and consumes its own grants atomically is a first-class citizen of the executor.
 
+**Module ABI** (edge evaluator, ABI 3): `load_bundle`, `decide`, `unload_bundle` over JSON in
+linear memory, documented with the module. `EdgeModule` refuses any other ABI.
+
 **Wire operations** (schemas in the Decionis OpenAPI specification):
 
 | Operation                             | Used by                 | Purpose                                                                 |
@@ -98,6 +112,7 @@ Decionis-specific code path. A third-party or self-built authority that returns 
 | `POST /v1/execution/claim-token`      | `DecionisGrantVerifier` | Revalidate and atomically claim the single-use grant before dispatch    |
 | `POST /v1/execution/finalize-token`   | `DecionisGrantVerifier` | Record the commit outcome so execution evidence joins the dossier chain |
 | `POST /v1/execution/verify-token`     | diagnostics only        | Verify a grant binding without consuming it                             |
+| `GET /v1/edge/policy-bundles/current` | `UrlBundleSource`       | Fetch the organisation's signed policy bundle for the edge evaluator    |
 | Decision Dossier JWKS                 | `@decionis/verify`      | Verify production dossier signatures offline                            |
 
 ## Questions a reviewer will ask
@@ -110,7 +125,8 @@ deployment needs a `DecisionAuthority` and `AuthorizationVerifier` implementatio
 service, or your own implementation of the interfaces above.
 
 **Is the library feature-gated?** No. Nothing in the package checks a license key, plan, seat
-count, or entitlement, and there are no hidden network calls. Every export is fully functional
+count, or entitlement, and there are no hidden network calls. The edge host loads a module only
+when the deployment names one, and checks only that it speaks ABI 3. Every export is fully functional
 against any conforming authority, and the packed tarball is tested from a clean consumer directory
 with no registry access.
 
