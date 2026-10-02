@@ -1,11 +1,14 @@
 import {
   DecionisGate,
   DecionisGrantVerifier,
+  EdgeDecisionAuthority,
+  LocalAuthorizationVerifier,
   SafeExecutor,
   ShadowPipeline,
   type ActionRegistry,
   type AuditRecorder,
   type AuthorizationVerifier,
+  type DecisionAuthority,
   type PresenceApprovalClient,
 } from "@decionis/agent-safe-pipeline";
 import { EffectAwareGrantVerifier } from "../adapters/EffectAwareGrantVerifier.js";
@@ -14,11 +17,14 @@ import type { ExecutorConfig } from "../config/ExecutorConfig.js";
 import type { FetchLike } from "../handlers/HandlerRegistration.js";
 import type { SecurityEvents } from "../incident/SecurityEvents.js";
 import type { SecretName, SecretStore } from "../secrets/SecretStore.js";
+import type { EdgeRuntime } from "./EdgeRuntime.js";
 import { EscalationResolver } from "./EscalationResolver.js";
 
 /** Everything that holds an authority or Presence credential, built together. */
 export interface AuthorityClientSet {
   readonly gate: DecionisGate;
+  /** What decides first: the gate itself, or the edge authority in front of it. */
+  readonly authority: DecisionAuthority;
   readonly verifier: AuthorizationVerifier;
   readonly executor: SafeExecutor;
   readonly escalation: EscalationResolver;
@@ -36,6 +42,8 @@ export interface AuthorityClientsOptions {
   /** The effect observations a handler registered, for the verifier to finalize with. */
   readonly effects?: EffectEvidenceRegister;
   readonly observer?: { readonly id: string; readonly version: string };
+  /** The edge evaluator, when the configuration asks for it; it outlives every rebuild. */
+  readonly edge?: EdgeRuntime | null;
 }
 
 /**
@@ -97,13 +105,41 @@ export class AuthorityClients {
     const grantVerifier = new DecionisGrantVerifier(authority);
     // The verifier the executor runs finalizes with whatever the handler
     // observed; without an effect plane it is the grant verifier itself.
-    const verifier =
+    const hostedVerifier =
       options.effects === undefined
         ? grantVerifier
         : new EffectAwareGrantVerifier({
             verifier: grantVerifier,
             register: options.effects,
             observer: options.observer ?? { id: "agentsafe", version: "0.1.0" },
+          });
+    // With the edge evaluator, an intent is decided locally first and the
+    // gate is asked only for an escalation or when no local decision can be
+    // made; a local authorization is consumed here, a hosted one is claimed
+    // through the hosted verifier, and either way the intent runs once.
+    const edge = options.edge ?? null;
+    const decider: DecisionAuthority =
+      edge === null
+        ? gate
+        : new EdgeDecisionAuthority({
+            module: edge.module,
+            bundles: edge.bundles,
+            hosted: gate,
+            grants: edge.grants,
+            mode: config.mode,
+            onUnavailable: edge.onUnavailable,
+            clock: edge.clock,
+            record: (record) => edge.record(record),
+          });
+    const verifier: AuthorizationVerifier =
+      edge === null
+        ? hostedVerifier
+        : new LocalAuthorizationVerifier({
+            grants: edge.grants,
+            replay: edge.replay,
+            delegate: hostedVerifier,
+            clock: edge.clock,
+            record: (record) => edge.record(record),
           });
     const presenceApiKey =
       config.escalation.mode === "DIRECT"
@@ -118,13 +154,15 @@ export class AuthorityClients {
         ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
       },
       presenceApiKey,
+      decider,
     );
     return {
       gate,
+      authority: decider,
       verifier,
       executor: new SafeExecutor(registry, verifier, audit),
       escalation,
-      shadow: config.mode === "SHADOW" ? new ShadowPipeline(gate, { audit }) : null,
+      shadow: config.mode === "SHADOW" ? new ShadowPipeline(decider, { audit }) : null,
     };
   }
 }

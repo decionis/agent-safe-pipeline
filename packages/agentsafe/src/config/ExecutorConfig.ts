@@ -180,6 +180,28 @@ export interface BankingConfig {
 }
 
 /**
+ * Who decides. `hosted` asks Decionis for every decision (`enforce-and-bind`),
+ * which is how the executor has always worked. `edge` decides locally with the
+ * Decionis edge evaluator, a separately licensed WebAssembly module this
+ * package loads but does not contain, and still asks Decionis for every
+ * escalation.
+ */
+export type DecisionAuthorityKind = "hosted" | "edge";
+
+/** The edge evaluator's settings; present exactly when the authority is `edge`. */
+export interface EdgeConfig {
+  /** The module file (ABI 3); the executor refuses to start without a valid one. */
+  readonly wasmPath: string;
+  /** The Decionis organisation the bundles are issued to (their audience). */
+  readonly orgId: string;
+  /** `url`: fetched from Decionis with the API key. `file`: placed by an operator, re-read on change. */
+  readonly bundle: { readonly source: "url" } | { readonly source: "file"; readonly file: string };
+  readonly refreshSeconds: number;
+  /** No usable bundle, or a module fault: ask Decionis (`hosted`), or refuse (`block`). */
+  readonly onUnavailable: "hosted" | "block";
+}
+
+/**
  * The executor's configuration: every setting, and the names of the secrets
  * it needs, but no secret value. Values live in a `SecretStore`, read through
  * a handle at the moment of use, so a rotation is followed and nothing here
@@ -198,6 +220,8 @@ export interface ExecutorConfig {
     readonly baseUrl: string;
     readonly allowInsecureLoopback: boolean;
   };
+  readonly decision: { readonly authority: DecisionAuthorityKind };
+  readonly edge: EdgeConfig | null;
   readonly downstream: DownstreamConfig;
   readonly listener: ListenerConfig;
   readonly egress: EgressConfig;
@@ -228,6 +252,14 @@ const pinList = z
   .trim()
   .regex(/^sha256\/[\w+/]{43}=(?:,sha256\/[\w+/]{43}=)*$/);
 const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
+const EDGE_KEYS = [
+  "EXECUTOR_EDGE_WASM_PATH",
+  "EXECUTOR_EDGE_ORG_ID",
+  "EXECUTOR_EDGE_BUNDLE_SOURCE",
+  "EXECUTOR_EDGE_BUNDLE_FILE",
+  "EXECUTOR_EDGE_REFRESH_SECONDS",
+  "EXECUTOR_EDGE_ON_UNAVAILABLE",
+] as const;
 const TLS_KEYS = [
   "EXECUTOR_TLS_CERT_FILE",
   "EXECUTOR_TLS_KEY",
@@ -329,6 +361,13 @@ const EnvironmentSchema = z.object({
   EXECUTOR_ON_EFFECT_MISMATCH: z.enum(["HALT", "ALERT"]).optional(),
   BANKING_ADAPTER_ID: identifier.optional(),
   BANKING_ADAPTER_VERSION: z.string().trim().min(1).max(100).optional(),
+  EXECUTOR_DECISION_AUTHORITY: z.enum(["hosted", "edge"]).optional(),
+  EXECUTOR_EDGE_WASM_PATH: absolutePath.optional(),
+  EXECUTOR_EDGE_ORG_ID: identifier.optional(),
+  EXECUTOR_EDGE_BUNDLE_SOURCE: z.enum(["url", "file"]).optional(),
+  EXECUTOR_EDGE_BUNDLE_FILE: absolutePath.optional(),
+  EXECUTOR_EDGE_REFRESH_SECONDS: z.coerce.number().int().min(60).max(86_400).optional(),
+  EXECUTOR_EDGE_ON_UNAVAILABLE: z.enum(["hosted", "block"]).optional(),
   DECIONIS_API_URL: z.string().trim().min(1).max(500),
   DECIONIS_ALLOW_INSECURE_LOOPBACK: booleanFlag.optional(),
   DECIONIS_CA_FILE: absolutePath.optional(),
@@ -428,6 +467,7 @@ export class ExecutorConfigLoader {
       );
     }
     const escalation = ExecutorConfigLoader.escalation(values, allowInsecureLoopback);
+    const edge = ExecutorConfigLoader.edge(values, env);
     const listener = ExecutorConfigLoader.listener(values, env, production);
     const authorityUrl = ExecutorConfigLoader.serviceUrl(
       values.DECIONIS_API_URL,
@@ -527,6 +567,8 @@ export class ExecutorConfigLoader {
       intentTtlSeconds: values.EXECUTOR_INTENT_TTL_SECONDS,
       escalation,
       authority: { baseUrl: authorityUrl, allowInsecureLoopback },
+      decision: { authority: edge === null ? "hosted" : "edge" },
+      edge,
       downstream: {
         url: downstreamUrl,
         lookupUrl: downstreamLookupUrl,
@@ -674,6 +716,43 @@ export class ExecutorConfigLoader {
         values.EXECUTOR_AUTH_LOCKOUT ?? "10/60/300",
         "EXECUTOR_AUTH_LOCKOUT",
       ),
+    };
+  }
+
+  /**
+   * The edge evaluator, when the deployment asks for it by name. Its settings
+   * without it are a contradiction and are refused rather than ignored, and
+   * with it the module and the organisation are required: there is no
+   * default for either. The bundle comes from Decionis unless a file is named.
+   */
+  private static edge(values: Environment, env: EnvironmentMap): EdgeConfig | null {
+    if ((values.EXECUTOR_DECISION_AUTHORITY ?? "hosted") === "hosted") {
+      const given = EDGE_KEYS.filter((key) => env[key] !== undefined);
+      if (given.length > 0) {
+        throw new Error(
+          `CONFIG_INVALID: EXECUTOR_DECISION_AUTHORITY (hosted with ${given.join(", ")})`,
+        );
+      }
+      return null;
+    }
+    const missing = (["EXECUTOR_EDGE_WASM_PATH", "EXECUTOR_EDGE_ORG_ID"] as const).filter(
+      (key) => values[key] === undefined,
+    );
+    if (missing.length > 0) throw new Error(`CONFIG_INVALID: ${missing.join(", ")}`);
+    const source = values.EXECUTOR_EDGE_BUNDLE_SOURCE ?? "url";
+    const file = values.EXECUTOR_EDGE_BUNDLE_FILE;
+    if (source === "file" && file === undefined) {
+      throw new Error("CONFIG_INVALID: EXECUTOR_EDGE_BUNDLE_FILE (required with the file source)");
+    }
+    if (source === "url" && file !== undefined) {
+      throw new Error("CONFIG_INVALID: EXECUTOR_EDGE_BUNDLE_FILE (only with the file source)");
+    }
+    return {
+      wasmPath: values.EXECUTOR_EDGE_WASM_PATH ?? "",
+      orgId: values.EXECUTOR_EDGE_ORG_ID ?? "",
+      bundle: file === undefined ? { source: "url" } : { source: "file", file },
+      refreshSeconds: values.EXECUTOR_EDGE_REFRESH_SECONDS ?? 3_600,
+      onUnavailable: values.EXECUTOR_EDGE_ON_UNAVAILABLE ?? "hosted",
     };
   }
 

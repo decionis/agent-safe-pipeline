@@ -697,6 +697,74 @@ describe("ExecutorConfigLoader", () => {
     expect(policy.check(new URL("https://elsewhere.provider.example/v1/by/x")).allowed).toBe(false);
   });
 
+  it("decides hosted by default, and refuses edge settings without the edge authority", () => {
+    const config = ExecutorConfigLoader.load(offlineEnvironment());
+    expect(config.decision).toEqual({ authority: "hosted" });
+    expect(config.edge).toBeNull();
+    expect(
+      ExecutorConfigLoader.load({ ...offlineEnvironment(), EXECUTOR_DECISION_AUTHORITY: "hosted" })
+        .edge,
+    ).toBeNull();
+    expect(
+      refusal({ ...offlineEnvironment(), EXECUTOR_EDGE_WASM_PATH: "/opt/edge/core.wasm" }),
+    ).toBe("CONFIG_INVALID: EXECUTOR_DECISION_AUTHORITY (hosted with EXECUTOR_EDGE_WASM_PATH)");
+    expect(refusal({ ...offlineEnvironment(), EXECUTOR_DECISION_AUTHORITY: "local" })).toContain(
+      "EXECUTOR_DECISION_AUTHORITY",
+    );
+  });
+
+  it("loads the edge authority with its module, organisation and bundle source", () => {
+    const edge = {
+      ...offlineEnvironment(),
+      EXECUTOR_DECISION_AUTHORITY: "edge",
+      EXECUTOR_EDGE_WASM_PATH: "/opt/edge/core.wasm",
+      EXECUTOR_EDGE_ORG_ID: "org-synthetic",
+    };
+    const config = ExecutorConfigLoader.load(edge);
+    expect(config.decision).toEqual({ authority: "edge" });
+    expect(config.edge).toEqual({
+      wasmPath: "/opt/edge/core.wasm",
+      orgId: "org-synthetic",
+      bundle: { source: "url" },
+      refreshSeconds: 3_600,
+      onUnavailable: "hosted",
+    });
+    expect(
+      ExecutorConfigLoader.load({
+        ...edge,
+        EXECUTOR_EDGE_BUNDLE_SOURCE: "file",
+        EXECUTOR_EDGE_BUNDLE_FILE: "/var/run/agent-safe/bundle.jws",
+        EXECUTOR_EDGE_REFRESH_SECONDS: "600",
+        EXECUTOR_EDGE_ON_UNAVAILABLE: "block",
+      }).edge,
+    ).toEqual({
+      wasmPath: "/opt/edge/core.wasm",
+      orgId: "org-synthetic",
+      bundle: { source: "file", file: "/var/run/agent-safe/bundle.jws" },
+      refreshSeconds: 600,
+      onUnavailable: "block",
+    });
+    const bare: Record<string, string> = { ...edge };
+    delete bare["EXECUTOR_EDGE_WASM_PATH"];
+    delete bare["EXECUTOR_EDGE_ORG_ID"];
+    expect(refusal(bare)).toBe("CONFIG_INVALID: EXECUTOR_EDGE_WASM_PATH, EXECUTOR_EDGE_ORG_ID");
+    expect(refusal({ ...edge, EXECUTOR_EDGE_BUNDLE_SOURCE: "file" })).toBe(
+      "CONFIG_INVALID: EXECUTOR_EDGE_BUNDLE_FILE (required with the file source)",
+    );
+    expect(refusal({ ...edge, EXECUTOR_EDGE_BUNDLE_FILE: "/var/run/agent-safe/bundle.jws" })).toBe(
+      "CONFIG_INVALID: EXECUTOR_EDGE_BUNDLE_FILE (only with the file source)",
+    );
+    for (const [key, value] of [
+      ["EXECUTOR_EDGE_WASM_PATH", "relative/core.wasm"],
+      ["EXECUTOR_EDGE_REFRESH_SECONDS", "59"],
+      ["EXECUTOR_EDGE_REFRESH_SECONDS", "86401"],
+      ["EXECUTOR_EDGE_ON_UNAVAILABLE", "allow"],
+      ["EXECUTOR_EDGE_BUNDLE_SOURCE", "s3"],
+    ] as const) {
+      expect(refusal({ ...edge, [key]: value })).toBe(`CONFIG_INVALID: ${key}`);
+    }
+  });
+
   it("lists every schema key and every secret in CONFIG_KEYS", () => {
     for (const key of Object.keys({ ...direct(), ...production() })) {
       if (key === "NODE_ENV" || key.endsWith("_FILE")) continue;

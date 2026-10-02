@@ -4,7 +4,7 @@ import { credentialReader, type Credential } from "../http/Credential.js";
 import { BoundedResponseBody } from "../http/BoundedResponseBody.js";
 import { userAgent, type ClientSource } from "../http/ClientIdentification.js";
 import { CanonicalIntentHasher } from "../intent/CanonicalIntentHasher.js";
-import type { CapturedIntent } from "../intent/ExecutionIntent.js";
+import type { AuthorityIntentBinding, CapturedIntent } from "../intent/ExecutionIntent.js";
 import {
   FailClosedDecision,
   type DecisionAuthority,
@@ -343,8 +343,7 @@ export class DecionisGate implements DecisionAuthority {
           "user-agent": this.userAgent,
         },
         body: JSON.stringify({
-          ...CanonicalIntentHasher.bindingOf(captured.intent),
-          intent_hash: captured.intentHash,
+          ...DecionisGate.binding(captured),
           mode: this.evaluationMode,
           ...(evidence === undefined ? {} : { evidence }),
           ...(escalation === undefined ? {} : { escalation }),
@@ -369,6 +368,22 @@ export class DecionisGate implements DecisionAuthority {
     } finally {
       clearTimeout(timeout);
     }
+  }
+
+  /**
+   * The `ExecutionIntentBinding` exactly as `enforce-and-bind` receives it:
+   * the intent's binding and the hash this process computed over it. The
+   * request adds `mode` and, when present, `evidence` and `escalation` beside
+   * it; an evaluator that must answer as the hosted route does starts from
+   * these same bytes.
+   */
+  public static binding(captured: CapturedIntent): AuthorityIntentBinding & {
+    readonly intent_hash: string;
+  } {
+    return {
+      ...CanonicalIntentHasher.bindingOf(captured.intent),
+      intent_hash: captured.intentHash,
+    };
   }
 
   /** Performs one authenticated, read-only status lookup against Decionis. */

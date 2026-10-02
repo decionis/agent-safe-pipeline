@@ -5,6 +5,7 @@ import {
   type AuditRecorder,
   type CapturedIntent,
   type DecionisGate,
+  type DecisionAuthority,
   type GateDecision,
   type ManagedEscalationState,
   type PresenceApprovalClient,
@@ -99,6 +100,12 @@ export class EscalationResolver {
     dependencies: EscalationDependencies = {},
     /** The Presence credential for `DIRECT`, read from its handle by the caller for this build. */
     presenceApiKey: string | null = null,
+    /**
+     * What makes the first decision: the gate, unless an edge authority
+     * decides in front of it. Resumption is always the gate's: a ceremony's
+     * status and the re-evaluation with its receipt are hosted.
+     */
+    private readonly first: DecisionAuthority = gate,
   ) {
     if (config.mode !== "DIRECT") {
       this.coordinator = null;
@@ -132,8 +139,8 @@ export class EscalationResolver {
 
   /** The first evaluation: in managed mode it also asks the authority to orchestrate. */
   public async evaluate(captured: CapturedIntent): Promise<GateDecision> {
-    if (this.config.mode !== "MANAGED") return await this.gate.evaluate(captured);
-    return await this.gate.evaluate(captured, undefined, {
+    if (this.config.mode !== "MANAGED") return await this.first.evaluate(captured);
+    return await this.first.evaluate(captured, undefined, {
       escalation: {
         mode: "MANAGED",
         approver: {
