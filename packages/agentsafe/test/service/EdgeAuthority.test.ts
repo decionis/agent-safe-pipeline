@@ -1,3 +1,4 @@
+import { generateKeyPairSync } from "node:crypto";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,9 +8,11 @@ import {
   LocalAuthority,
   LocalPresence,
 } from "@decionis/agent-safe-pipeline/testing";
+import { CompactSign } from "jose";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { EVIDENCE_STREAM } from "../../src/audit/HashChainedAuditSink.js";
 import { ExecutorConfigLoader } from "../../src/config/ExecutorConfig.js";
+import { ENTITLEMENT_TYPE } from "../../src/edge/EntitlementEvaluation.js";
 import { forwardRequestHandlers } from "../../src/handlers/ForwardRequestHandler.js";
 import { TrustedExecutorService } from "../../src/service/TrustedExecutorService.js";
 import {
@@ -58,6 +61,7 @@ function build(
     EXECUTOR_EDGE_ORG_ID: "org-synthetic",
     EXECUTOR_EDGE_BUNDLE_SOURCE: "file",
     EXECUTOR_EDGE_BUNDLE_FILE: bundleFile(),
+    EXECUTOR_EDGE_SINGLE_REPLICA: "true",
   };
   for (const [key, value] of Object.entries(options.env ?? {})) {
     if (value === undefined) delete env[key];
@@ -243,6 +247,70 @@ describe("the executor with the edge authority", () => {
     expect(() =>
       build({ module: () => EdgeModule.fromFile("/nonexistent/policy_core_edge.wasm") }),
     ).toThrow("CONFIG_INVALID: EXECUTOR_EDGE_WASM_PATH (EDGE_MODULE_UNREADABLE)");
+  });
+
+  it("never blocks, delays or changes a decision whatever the licence says", async () => {
+    // An entitlement that is expired, excludes the edge and includes no
+    // actions, signed by the key the pinned JWKS names; and no usage key.
+    const signer = generateKeyPairSync("ed25519");
+    const now = Math.floor(Date.now() / 1000);
+    const entitlement = await new CompactSign(
+      new TextEncoder().encode(
+        JSON.stringify({
+          iss: "decionis-synthetic",
+          aud: "org-synthetic",
+          iat: now - 86_400 * 40,
+          exp: now - 60,
+          plan: "premium",
+          tier: "hosted",
+          included_actions_per_month: 0,
+          volume_band: null,
+          edge: false,
+          usage_report_due_days: 35,
+        }),
+      ),
+    )
+      .setProtectedHeader({ alg: "EdDSA", typ: ENTITLEMENT_TYPE, kid: "synthetic-entitlement-1" })
+      .sign(signer.privateKey);
+    const directory = mkdtempSync(join(tmpdir(), "entitlement-"));
+    writeFileSync(join(directory, "entitlement.jws"), entitlement);
+    writeFileSync(
+      join(directory, "jwks.json"),
+      JSON.stringify({
+        keys: [{ ...signer.publicKey.export({ format: "jwk" }), kid: "synthetic-entitlement-1" }],
+      }),
+    );
+    const licensed = build({
+      env: {
+        EXECUTOR_EDGE_ENTITLEMENT_FILE: join(directory, "entitlement.jws"),
+        EXECUTOR_EDGE_JWKS_FILE: join(directory, "jwks.json"),
+      },
+    });
+    await licensed.service.startEdge();
+    const asked = enforceAndBind();
+    const allowed = await licensed.service.propose(proposal(5_000).body);
+    expect(allowed).toMatchObject({ verdict: "ALLOW", outcome: "COMPLETED", executed: true });
+    expect(allowed.decision_id).toMatch(/^edge:/);
+    expect(enforceAndBind()).toBe(asked);
+    const blocked = await licensed.service.propose(proposal(500_000).body);
+    expect(blocked).toMatchObject({ verdict: "BLOCK", fail_closed: false });
+    const warnings = licensed.security
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+      .filter((line) => line["event"] === "EDGE_LICENCE_WARNING")
+      .map((line) => line["code"]);
+    // Raised at start; the next hourly check adds INCLUDED_ACTIONS_EXCEEDED for
+    // the decision just made, which is a line and a metric too, and no more.
+    expect(warnings).toEqual([
+      "ENTITLEMENT_EXPIRED",
+      "EDGE_NOT_ENTITLED",
+      "USAGE_REPORT_KEY_MISSING",
+    ]);
+    const gauge = licensed.service.metrics.edgeLicenceWarnings;
+    expect(gauge.get({ code: "EDGE_NOT_ENTITLED" })).toBe(1);
+    expect(licensed.service.metrics.registry.render()).toContain(
+      'agentsafe_edge_licence_warning{code="ENTITLEMENT_EXPIRED"} 1',
+    );
+    licensed.service.close();
   });
 
   it("never loads a module when the authority is hosted", async () => {

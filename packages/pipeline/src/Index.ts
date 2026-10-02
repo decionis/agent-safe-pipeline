@@ -24,6 +24,7 @@ export * from "./decision/ShadowGate.js";
 export * from "./execution/ActionRegistry.js";
 export * from "./execution/AuthorizationVerifier.js";
 export * from "./execution/LocalAuthorizationVerifier.js";
+export * from "./execution/PostgresReplayStore.js";
 export * from "./execution/ReplayStore.js";
 export * from "./execution/SafeExecutor.js";
 export type { ClientSource } from "./http/ClientIdentification.js";

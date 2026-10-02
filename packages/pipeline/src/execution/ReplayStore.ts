@@ -1,7 +1,20 @@
+/**
+ * Single use. `claim` takes a key once until its expiry; a second claim of
+ * the same key, from this process or, for a shared store, from any replica,
+ * answers false. `consumed` asks without claiming, so a decision about an
+ * intent that has already run can be refused before it is made.
+ */
 export interface ReplayStore {
   claim(grantId: string, expiresAt: Date): Promise<boolean>;
+  /** Whether `key` holds an unexpired claim. Optional: a store without it is never asked. */
+  consumed?(key: string): Promise<boolean>;
 }
 
+/**
+ * The claims of one process. Single use holds within that process only: a
+ * deployment with more than one replica needs a shared store (the Postgres
+ * one), or the same intent decided on two replicas runs twice.
+ */
 export class InMemoryReplayStore implements ReplayStore {
   private readonly claims = new Map<string, number>();
 
@@ -24,5 +37,9 @@ export class InMemoryReplayStore implements ReplayStore {
     if (this.claims.size >= this.maxEntries) throw new Error("REPLAY_STORE_CAPACITY_EXCEEDED");
     this.claims.set(grantId, expiry);
     return true;
+  }
+
+  public async consumed(key: string): Promise<boolean> {
+    return (this.claims.get(key) ?? 0) > Date.now();
   }
 }

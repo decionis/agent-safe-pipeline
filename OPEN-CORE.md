@@ -113,6 +113,9 @@ linear memory, documented with the module. `EdgeModule` refuses any other ABI.
 | `POST /v1/execution/finalize-token`   | `DecionisGrantVerifier` | Record the commit outcome so execution evidence joins the dossier chain |
 | `POST /v1/execution/verify-token`     | diagnostics only        | Verify a grant binding without consuming it                             |
 | `GET /v1/edge/policy-bundles/current` | `UrlBundleSource`       | Fetch the organisation's signed policy bundle for the edge evaluator    |
+| `GET /v1/edge/entitlement`            | `UrlEntitlementSource`  | Read the organisation's signed entitlement, to warn and never to gate   |
+| `POST /v1/edge/usage-reports`         | `UrlUsageDelivery`      | Deliver an installation's signed monthly edge usage report              |
+| Policy bundle JWKS                    | `UrlEntitlementSource`  | Verify the entitlement's signature                                      |
 | Decision Dossier JWKS                 | `@decionis/verify`      | Verify production dossier signatures offline                            |
 
 ## Questions a reviewer will ask
@@ -124,9 +127,12 @@ edition. There is no open-source production policy engine in this repository tod
 deployment needs a `DecisionAuthority` and `AuthorizationVerifier` implementation: the Decionis
 service, or your own implementation of the interfaces above.
 
-**Is the library feature-gated?** No. Nothing in the package checks a license key, plan, seat
-count, or entitlement, and there are no hidden network calls. The edge host loads a module only
-when the deployment names one, and checks only that it speaks ABI 3. Every export is fully functional
+**Is the library feature-gated?** No. Nothing in the pipeline package checks a license key, plan,
+seat count, or entitlement, and there are no hidden network calls. The edge host loads a module only
+when the deployment names one, and checks only that it speaks ABI 3. In edge mode the executor
+(`@decionis/agentsafe`) reads the organisation's signed entitlement and reports its edge usage
+monthly, both documented operations above; a licence condition is a warning (a security event and
+a metric) and never stops, delays or changes a decision. Every export is fully functional
 against any conforming authority, and the packed tarball is tested from a clean consumer directory
 with no registry access.
 

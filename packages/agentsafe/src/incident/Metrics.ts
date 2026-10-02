@@ -124,6 +124,8 @@ export interface ExecutorMetrics {
   readonly evidenceExports: Counter;
   readonly openAttempts: Gauge;
   readonly clockSkew: Gauge;
+  readonly edgeLicenceWarnings: Gauge;
+  readonly edgeUsageReports: Counter;
   observe(event: SecurityEvent): void;
 }
 
@@ -214,6 +216,16 @@ export function executorMetrics(registry: Metrics = new Metrics()): ExecutorMetr
       "agentsafe_clock_skew_ms",
       "The authority's clock minus this host's, in milliseconds, as last observed.",
     ),
+    edgeLicenceWarnings: registry.gauge(
+      "agentsafe_edge_licence_warning",
+      "Edge licence conditions standing (1) or cleared (0), by code; none ever stops a decision.",
+      ["code"],
+    ),
+    edgeUsageReports: registry.counter(
+      "agentsafe_edge_usage_reports",
+      "Monthly edge usage reports, by result: DELIVERED or the failure code.",
+      ["result"],
+    ),
   };
   return {
     ...metrics,
@@ -247,6 +259,14 @@ export function executorMetrics(registry: Metrics = new Metrics()): ExecutorMetr
           return metrics.evidenceExports.inc();
         case "CLOCK_SKEW_EXCEEDED":
           return metrics.clockSkew.set(event.skew_ms);
+        case "EDGE_LICENCE_WARNING":
+          return metrics.edgeLicenceWarnings.set(1, { code: event.code });
+        case "EDGE_LICENCE_CLEARED":
+          return metrics.edgeLicenceWarnings.set(0, { code: event.code });
+        case "EDGE_USAGE_REPORTED":
+          return metrics.edgeUsageReports.inc({ result: "DELIVERED" });
+        case "EDGE_USAGE_REPORT_FAILED":
+          return metrics.edgeUsageReports.inc({ result: event.code });
         default:
           return undefined;
       }

@@ -10,6 +10,7 @@ const principal = z.string().min(1).max(200);
 const identifier = z.string().min(1).max(200);
 const count = z.number().int().nonnegative();
 const currency = z.string().regex(/^[A-Z]{3}$/);
+const period = z.string().regex(/^2\d{3}-(?:0[1-9]|1[0-2])$/);
 /** An operator's words or a trigger's own description; never anything from a request. */
 const reason = z.string().min(1).max(200);
 
@@ -128,6 +129,33 @@ export const SecurityEventSchema = z.discriminatedUnion("event", [
     bundle_id: identifier,
     policy_version: identifier,
   }),
+  z.strictObject({
+    // The installation's usage-report key: the kid to register as a `usage_report` provider key.
+    event: z.literal("EDGE_USAGE_KEY_LOADED"),
+    kid: identifier,
+    installation_id: identifier,
+  }),
+  z.strictObject({
+    // A month's usage report was delivered: sent to Decionis, or written for an operator.
+    event: z.literal("EDGE_USAGE_REPORTED"),
+    period,
+    destination: z.enum(["url", "file"]),
+    total: count,
+  }),
+  z.strictObject({ event: z.literal("EDGE_USAGE_REPORT_FAILED"), period, code }),
+  z.strictObject({
+    // The persisted tally belonged to a chain that did not resume; the month is recounted from the log.
+    event: z.literal("EDGE_USAGE_TALLY_RESET"),
+    head: sequence,
+  }),
+  z.strictObject({ event: z.literal("EDGE_USAGE_PERSIST_FAILED") }),
+  z.strictObject({ event: z.literal("EDGE_REPLAY_CLEANUP_FAILED") }),
+  z.strictObject({
+    // A licence condition stands. It never stops or changes a decision.
+    event: z.literal("EDGE_LICENCE_WARNING"),
+    code,
+  }),
+  z.strictObject({ event: z.literal("EDGE_LICENCE_CLEARED"), code }),
   z.strictObject({
     event: z.literal("EVIDENCE_EXPORTED"),
     principal,

@@ -199,6 +199,28 @@ export interface EdgeConfig {
   readonly refreshSeconds: number;
   /** No usable bundle, or a module fault: ask Decionis (`hosted`), or refuse (`block`). */
   readonly onUnavailable: "hosted" | "block";
+  /**
+   * Where single use is held. `memory` holds within this process and is
+   * accepted only when the deployment says it runs one replica; `postgres`
+   * is shared by every replica (connection string from the secret store).
+   */
+  readonly replay:
+    | { readonly store: "memory"; readonly singleReplica: true }
+    | { readonly store: "postgres"; readonly table: string };
+  /** Monthly usage reports. Without a signing key nothing is reported, and the licence check warns. */
+  readonly usage: {
+    /** The installation (one evidence chain); generated and kept with the tally when null. */
+    readonly installationId: string | null;
+    readonly signing: boolean;
+    readonly keyId: string | null;
+    /** `file` source only: where a signed report is written for an operator to upload. */
+    readonly reportDir: string | null;
+  };
+  /** `file` source only: the entitlement an operator placed, and the pinned Decionis JWKS. */
+  readonly entitlement: {
+    readonly file: string | null;
+    readonly jwksFile: string | null;
+  };
 }
 
 /**
@@ -259,6 +281,18 @@ const EDGE_KEYS = [
   "EXECUTOR_EDGE_BUNDLE_FILE",
   "EXECUTOR_EDGE_REFRESH_SECONDS",
   "EXECUTOR_EDGE_ON_UNAVAILABLE",
+  "EXECUTOR_EDGE_REPLAY_STORE",
+  "EXECUTOR_EDGE_SINGLE_REPLICA",
+  "EXECUTOR_EDGE_REPLAY_DATABASE_URL",
+  "EXECUTOR_EDGE_REPLAY_DATABASE_URL_FILE",
+  "EXECUTOR_EDGE_REPLAY_TABLE",
+  "EXECUTOR_EDGE_INSTALLATION_ID",
+  "EXECUTOR_EDGE_USAGE_SIGNING_KEY",
+  "EXECUTOR_EDGE_USAGE_SIGNING_KEY_FILE",
+  "EXECUTOR_EDGE_USAGE_KEY_ID",
+  "EXECUTOR_EDGE_USAGE_REPORT_DIR",
+  "EXECUTOR_EDGE_ENTITLEMENT_FILE",
+  "EXECUTOR_EDGE_JWKS_FILE",
 ] as const;
 const TLS_KEYS = [
   "EXECUTOR_TLS_CERT_FILE",
@@ -368,6 +402,20 @@ const EnvironmentSchema = z.object({
   EXECUTOR_EDGE_BUNDLE_FILE: absolutePath.optional(),
   EXECUTOR_EDGE_REFRESH_SECONDS: z.coerce.number().int().min(60).max(86_400).optional(),
   EXECUTOR_EDGE_ON_UNAVAILABLE: z.enum(["hosted", "block"]).optional(),
+  EXECUTOR_EDGE_REPLAY_STORE: z.enum(["memory", "postgres"]).optional(),
+  EXECUTOR_EDGE_SINGLE_REPLICA: booleanFlag.optional(),
+  EXECUTOR_EDGE_REPLAY_TABLE: z
+    .string()
+    .regex(/^[a-z_][a-z0-9_]{0,62}(?:\.[a-z_][a-z0-9_]{0,62})?$/)
+    .optional(),
+  EXECUTOR_EDGE_INSTALLATION_ID: z
+    .string()
+    .regex(/^[\w.:-]{1,200}$/)
+    .optional(),
+  EXECUTOR_EDGE_USAGE_KEY_ID: identifier.optional(),
+  EXECUTOR_EDGE_USAGE_REPORT_DIR: absolutePath.optional(),
+  EXECUTOR_EDGE_ENTITLEMENT_FILE: absolutePath.optional(),
+  EXECUTOR_EDGE_JWKS_FILE: absolutePath.optional(),
   DECIONIS_API_URL: z.string().trim().min(1).max(500),
   DECIONIS_ALLOW_INSECURE_LOOPBACK: booleanFlag.optional(),
   DECIONIS_CA_FILE: absolutePath.optional(),
@@ -511,6 +559,8 @@ export class ExecutorConfigLoader {
     if (credential.kind === "SIGNED_REQUEST") required.push("DOWNSTREAM_SIGNING_KEY");
     if (escalation.mode === "DIRECT") required.push("PRESENCE_API_KEY");
     if (listener.tls !== null) required.push("EXECUTOR_TLS_KEY");
+    if (edge?.replay.store === "postgres") required.push("EXECUTOR_EDGE_REPLAY_DATABASE_URL");
+    if (edge?.usage.signing === true) required.push("EXECUTOR_EDGE_USAGE_SIGNING_KEY");
     // A signing key for the bundle manifest is optional: without it a bundle
     // proves its own internal consistency and nothing about who made it, and
     // the verifier says which of the two it is holding.
@@ -747,12 +797,65 @@ export class ExecutorConfigLoader {
     if (source === "url" && file !== undefined) {
       throw new Error("CONFIG_INVALID: EXECUTOR_EDGE_BUNDLE_FILE (only with the file source)");
     }
+    const given = (key: string): boolean => env[key] !== undefined;
+    // Single use across replicas needs a store they share; one in memory is
+    // accepted only when the deployment says, by name, that it runs one.
+    const store = values.EXECUTOR_EDGE_REPLAY_STORE ?? "memory";
+    if (store === "memory" && values.EXECUTOR_EDGE_SINGLE_REPLICA !== "true") {
+      throw new Error(
+        "CONFIG_INVALID: EXECUTOR_EDGE_REPLAY_STORE (memory holds single use in one process: set EXECUTOR_EDGE_SINGLE_REPLICA=true, or use postgres for several replicas)",
+      );
+    }
+    const postgresOnly = ["EXECUTOR_EDGE_REPLAY_TABLE"].filter(given);
+    if (store === "memory" && postgresOnly.length > 0) {
+      throw new Error(`CONFIG_INVALID: ${postgresOnly.join(", ")} (only with the postgres store)`);
+    }
+    const signing =
+      given("EXECUTOR_EDGE_USAGE_SIGNING_KEY") || given("EXECUTOR_EDGE_USAGE_SIGNING_KEY_FILE");
+    if (!signing && given("EXECUTOR_EDGE_USAGE_KEY_ID")) {
+      throw new Error("CONFIG_INVALID: EXECUTOR_EDGE_USAGE_KEY_ID (without a usage signing key)");
+    }
+    const reportDir = values.EXECUTOR_EDGE_USAGE_REPORT_DIR ?? null;
+    if (source === "url" && reportDir !== null) {
+      throw new Error("CONFIG_INVALID: EXECUTOR_EDGE_USAGE_REPORT_DIR (only with the file source)");
+    }
+    if (source === "file" && signing && reportDir === null) {
+      throw new Error(
+        "CONFIG_INVALID: EXECUTOR_EDGE_USAGE_REPORT_DIR (required to report usage with the file source)",
+      );
+    }
+    const fileOnly = ["EXECUTOR_EDGE_ENTITLEMENT_FILE", "EXECUTOR_EDGE_JWKS_FILE"].filter(given);
+    if (source === "url" && fileOnly.length > 0) {
+      throw new Error(`CONFIG_INVALID: ${fileOnly.join(", ")} (only with the file source)`);
+    }
+    if (
+      (values.EXECUTOR_EDGE_ENTITLEMENT_FILE === undefined) !==
+      (values.EXECUTOR_EDGE_JWKS_FILE === undefined)
+    ) {
+      throw new Error(
+        "CONFIG_INVALID: EXECUTOR_EDGE_ENTITLEMENT_FILE, EXECUTOR_EDGE_JWKS_FILE (given together or not at all)",
+      );
+    }
     return {
       wasmPath: values.EXECUTOR_EDGE_WASM_PATH ?? "",
       orgId: values.EXECUTOR_EDGE_ORG_ID ?? "",
       bundle: file === undefined ? { source: "url" } : { source: "file", file },
       refreshSeconds: values.EXECUTOR_EDGE_REFRESH_SECONDS ?? 3_600,
       onUnavailable: values.EXECUTOR_EDGE_ON_UNAVAILABLE ?? "hosted",
+      replay:
+        store === "memory"
+          ? { store, singleReplica: true }
+          : { store, table: values.EXECUTOR_EDGE_REPLAY_TABLE ?? "agentsafe_edge_replay" },
+      usage: {
+        installationId: values.EXECUTOR_EDGE_INSTALLATION_ID ?? null,
+        signing,
+        keyId: values.EXECUTOR_EDGE_USAGE_KEY_ID ?? null,
+        reportDir,
+      },
+      entitlement: {
+        file: values.EXECUTOR_EDGE_ENTITLEMENT_FILE ?? null,
+        jwksFile: values.EXECUTOR_EDGE_JWKS_FILE ?? null,
+      },
     };
   }
 

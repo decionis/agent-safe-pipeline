@@ -53,7 +53,15 @@ export default {
   // binder is the banking binder's counterpart for tool calls: it decides
   // which action a tool name becomes and which resource the arguments point
   // at, so a mutant there is a model describing one thing and a system of
-  // record being asked for another.
+  // record being asked for another. The edge usage files are here because
+  // they are what an organisation is billed from and what a licence warning
+  // is raised on: the period arithmetic decides which month a decision is
+  // counted in, the tally and the recount decide what a signed usage report
+  // claims and whether a report can be reproduced from the chain, and the
+  // entitlement evaluation decides which warning stands. A mutant there is a
+  // report that over- or under-states an organisation's usage, a recount that
+  // accepts a range the chain does not hold, or a warning raised or withheld
+  // wrongly.
   mutate: [
     "src/http/ExecutorHttpServer.ts",
     "src/identity/PrincipalRegistry.ts",
@@ -80,6 +88,10 @@ export default {
     "src/boundary/BoundaryIdentity.ts",
     "src/provenance/ProvenanceProvider.ts",
     "src/adapters/mcp/McpIntentBinder.ts",
+    "src/edge/UsagePeriod.ts",
+    "src/edge/UsageTally.ts",
+    "src/edge/UsageCount.ts",
+    "src/edge/EntitlementEvaluation.ts",
   ],
   reporters: ["clear-text", "progress"],
   coverageAnalysis: "perTest",

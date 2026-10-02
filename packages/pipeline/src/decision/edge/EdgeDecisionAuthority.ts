@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { LocalGrants } from "../../execution/LocalAuthorizationVerifier.js";
+import type { ReplayStore } from "../../execution/ReplayStore.js";
 import type { CapturedIntent } from "../../intent/ExecutionIntent.js";
 import { DecionisGate } from "../DecionisGate.js";
 import {
@@ -65,6 +66,12 @@ export interface EdgeDecisionAuthorityOptions {
   readonly hosted: DecisionAuthority;
   /** Where an enforcement `ALLOW` is held for the executor to consume once. */
   readonly grants: LocalGrants;
+  /**
+   * The single-use store the local verifier claims intents in. When given,
+   * an enforcement decision about an intent that has already run (on this
+   * replica or, with a shared store, on any) is refused before it is made.
+   */
+  readonly replay?: ReplayStore;
   readonly mode?: DecisionEvaluationMode;
   /** `hosted` (the default) or `block`. Neither ever allows without a valid bundle. */
   readonly onUnavailable?: EdgeUnavailablePolicy;
@@ -138,6 +145,8 @@ export class EdgeDecisionAuthority implements DecisionAuthority {
   ): Promise<GateDecision> {
     if (evidence !== undefined)
       return await this.options.hosted.evaluate(captured, evidence, options);
+    const replayed = await this.replayed(captured);
+    if (replayed !== null) return FailClosedDecision.create(captured.intentHash, replayed);
     const now = this.clock();
     const bundle = this.options.bundles.current(now);
     if (bundle === null) {
@@ -246,6 +255,21 @@ export class EdgeDecisionAuthority implements DecisionAuthority {
     if (fallback === "HOSTED")
       return await this.options.hosted.evaluate(captured, undefined, options);
     return FailClosedDecision.create(captured.intentHash, reason);
+  }
+
+  /**
+   * Why an enforcement decision must not be made: the intent has already
+   * been claimed, or the store that would say so cannot be asked. Neither is
+   * a decision, so neither is recorded or counted.
+   */
+  private async replayed(captured: CapturedIntent): Promise<string | null> {
+    const store = this.options.replay;
+    if (this.evaluationMode !== "ENFORCEMENT" || store?.consumed === undefined) return null;
+    try {
+      return (await store.consumed(captured.intent.intentId)) ? "INTENT_ALREADY_CONSUMED" : null;
+    } catch {
+      return "EDGE_REPLAY_STORE_UNAVAILABLE";
+    }
   }
 
   /** The module must have decided on the bundle this host gave it. */

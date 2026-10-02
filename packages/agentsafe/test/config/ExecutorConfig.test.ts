@@ -719,6 +719,7 @@ describe("ExecutorConfigLoader", () => {
       EXECUTOR_DECISION_AUTHORITY: "edge",
       EXECUTOR_EDGE_WASM_PATH: "/opt/edge/core.wasm",
       EXECUTOR_EDGE_ORG_ID: "org-synthetic",
+      EXECUTOR_EDGE_SINGLE_REPLICA: "true",
     };
     const config = ExecutorConfigLoader.load(edge);
     expect(config.decision).toEqual({ authority: "edge" });
@@ -728,6 +729,9 @@ describe("ExecutorConfigLoader", () => {
       bundle: { source: "url" },
       refreshSeconds: 3_600,
       onUnavailable: "hosted",
+      replay: { store: "memory", singleReplica: true },
+      usage: { installationId: null, signing: false, keyId: null, reportDir: null },
+      entitlement: { file: null, jwksFile: null },
     });
     expect(
       ExecutorConfigLoader.load({
@@ -743,6 +747,9 @@ describe("ExecutorConfigLoader", () => {
       bundle: { source: "file", file: "/var/run/agent-safe/bundle.jws" },
       refreshSeconds: 600,
       onUnavailable: "block",
+      replay: { store: "memory", singleReplica: true },
+      usage: { installationId: null, signing: false, keyId: null, reportDir: null },
+      entitlement: { file: null, jwksFile: null },
     });
     const bare: Record<string, string> = { ...edge };
     delete bare["EXECUTOR_EDGE_WASM_PATH"];
@@ -763,6 +770,135 @@ describe("ExecutorConfigLoader", () => {
     ] as const) {
       expect(refusal({ ...edge, [key]: value })).toBe(`CONFIG_INVALID: ${key}`);
     }
+  });
+
+  it("refuses an edge deployment whose single use holds in one process unless it says it runs one", () => {
+    const edge: Record<string, string> = {
+      ...offlineEnvironment(),
+      EXECUTOR_DECISION_AUTHORITY: "edge",
+      EXECUTOR_EDGE_WASM_PATH: "/opt/edge/core.wasm",
+      EXECUTOR_EDGE_ORG_ID: "org-synthetic",
+    };
+    const replicas =
+      "CONFIG_INVALID: EXECUTOR_EDGE_REPLAY_STORE (memory holds single use in one process: set EXECUTOR_EDGE_SINGLE_REPLICA=true, or use postgres for several replicas)";
+    expect(refusal(edge)).toBe(replicas);
+    expect(refusal({ ...edge, EXECUTOR_EDGE_REPLAY_STORE: "memory" })).toBe(replicas);
+    expect(refusal({ ...edge, EXECUTOR_EDGE_SINGLE_REPLICA: "false" })).toBe(replicas);
+    expect(refusal({ ...edge, EXECUTOR_EDGE_SINGLE_REPLICA: "yes" })).toBe(
+      "CONFIG_INVALID: EXECUTOR_EDGE_SINGLE_REPLICA",
+    );
+    expect(
+      refusal({
+        ...edge,
+        EXECUTOR_EDGE_SINGLE_REPLICA: "true",
+        EXECUTOR_EDGE_REPLAY_TABLE: "edge_claims",
+      }),
+    ).toBe("CONFIG_INVALID: EXECUTOR_EDGE_REPLAY_TABLE (only with the postgres store)");
+    // The shared store needs its connection string, a secret like any other.
+    expect(refusal({ ...edge, EXECUTOR_EDGE_REPLAY_STORE: "postgres" })).toBe(
+      "CONFIG_SECRET_MISSING: EXECUTOR_EDGE_REPLAY_DATABASE_URL",
+    );
+    const shared = ExecutorConfigLoader.load({
+      ...edge,
+      EXECUTOR_EDGE_REPLAY_STORE: "postgres",
+      EXECUTOR_EDGE_REPLAY_DATABASE_URL: "postgres://executor@db.invalid/edge",
+    });
+    expect(shared.edge?.replay).toEqual({ store: "postgres", table: "agentsafe_edge_replay" });
+    expect(shared.secrets.required).toContain("EXECUTOR_EDGE_REPLAY_DATABASE_URL");
+    expect(
+      ExecutorConfigLoader.load({
+        ...edge,
+        EXECUTOR_EDGE_REPLAY_STORE: "postgres",
+        EXECUTOR_EDGE_REPLAY_DATABASE_URL: "postgres://executor@db.invalid/edge",
+        EXECUTOR_EDGE_REPLAY_TABLE: "edge.claims",
+      }).edge?.replay,
+    ).toEqual({ store: "postgres", table: "edge.claims" });
+    for (const table of ["Claims", "claims;drop", "a.b.c"]) {
+      expect(
+        refusal({
+          ...edge,
+          EXECUTOR_EDGE_REPLAY_STORE: "postgres",
+          EXECUTOR_EDGE_REPLAY_DATABASE_URL: "postgres://executor@db.invalid/edge",
+          EXECUTOR_EDGE_REPLAY_TABLE: table,
+        }),
+      ).toBe("CONFIG_INVALID: EXECUTOR_EDGE_REPLAY_TABLE");
+    }
+    expect(refusal({ ...offlineEnvironment(), EXECUTOR_EDGE_SINGLE_REPLICA: "true" })).toBe(
+      "CONFIG_INVALID: EXECUTOR_DECISION_AUTHORITY (hosted with EXECUTOR_EDGE_SINGLE_REPLICA)",
+    );
+  });
+
+  it("reads the usage-report and entitlement settings, each with its own bundle source", () => {
+    const edge: Record<string, string> = {
+      ...offlineEnvironment(),
+      EXECUTOR_DECISION_AUTHORITY: "edge",
+      EXECUTOR_EDGE_WASM_PATH: "/opt/edge/core.wasm",
+      EXECUTOR_EDGE_ORG_ID: "org-synthetic",
+      EXECUTOR_EDGE_SINGLE_REPLICA: "true",
+    };
+    const signed = ExecutorConfigLoader.load({
+      ...edge,
+      EXECUTOR_EDGE_INSTALLATION_ID: "branch-7.executor-0",
+      EXECUTOR_EDGE_USAGE_SIGNING_KEY: "pem",
+      EXECUTOR_EDGE_USAGE_KEY_ID: "usage-key-1",
+    });
+    expect(signed.edge?.usage).toEqual({
+      installationId: "branch-7.executor-0",
+      signing: true,
+      keyId: "usage-key-1",
+      reportDir: null,
+    });
+    expect(signed.secrets.required).toContain("EXECUTOR_EDGE_USAGE_SIGNING_KEY");
+    expect(
+      ExecutorConfigLoader.load({ ...edge, EXECUTOR_EDGE_USAGE_SIGNING_KEY_FILE: "/run/usage.pem" })
+        .edge?.usage.signing,
+    ).toBe(true);
+    expect(refusal({ ...edge, EXECUTOR_EDGE_USAGE_KEY_ID: "usage-key-1" })).toBe(
+      "CONFIG_INVALID: EXECUTOR_EDGE_USAGE_KEY_ID (without a usage signing key)",
+    );
+    expect(refusal({ ...edge, EXECUTOR_EDGE_INSTALLATION_ID: "has space" })).toBe(
+      "CONFIG_INVALID: EXECUTOR_EDGE_INSTALLATION_ID",
+    );
+    expect(refusal({ ...edge, EXECUTOR_EDGE_USAGE_REPORT_DIR: "/var/lib/usage" })).toBe(
+      "CONFIG_INVALID: EXECUTOR_EDGE_USAGE_REPORT_DIR (only with the file source)",
+    );
+    expect(
+      refusal({
+        ...edge,
+        EXECUTOR_EDGE_ENTITLEMENT_FILE: "/etc/decionis/entitlement.jws",
+        EXECUTOR_EDGE_JWKS_FILE: "/etc/decionis/jwks.json",
+      }),
+    ).toBe(
+      "CONFIG_INVALID: EXECUTOR_EDGE_ENTITLEMENT_FILE, EXECUTOR_EDGE_JWKS_FILE (only with the file source)",
+    );
+    const file = {
+      ...edge,
+      EXECUTOR_EDGE_BUNDLE_SOURCE: "file",
+      EXECUTOR_EDGE_BUNDLE_FILE: "/var/run/agent-safe/bundle.jws",
+    };
+    expect(refusal({ ...file, EXECUTOR_EDGE_USAGE_SIGNING_KEY: "pem" })).toBe(
+      "CONFIG_INVALID: EXECUTOR_EDGE_USAGE_REPORT_DIR (required to report usage with the file source)",
+    );
+    const airGapped = ExecutorConfigLoader.load({
+      ...file,
+      EXECUTOR_EDGE_USAGE_SIGNING_KEY: "pem",
+      EXECUTOR_EDGE_USAGE_REPORT_DIR: "/var/lib/agent-safe/usage",
+      EXECUTOR_EDGE_ENTITLEMENT_FILE: "/etc/decionis/entitlement.jws",
+      EXECUTOR_EDGE_JWKS_FILE: "/etc/decionis/jwks.json",
+    });
+    expect(airGapped.edge?.usage.reportDir).toBe("/var/lib/agent-safe/usage");
+    expect(airGapped.edge?.entitlement).toEqual({
+      file: "/etc/decionis/entitlement.jws",
+      jwksFile: "/etc/decionis/jwks.json",
+    });
+    expect(
+      ExecutorConfigLoader.load({ ...file, EXECUTOR_EDGE_USAGE_REPORT_DIR: "/var/lib/u" }).edge
+        ?.usage.reportDir,
+    ).toBe("/var/lib/u");
+    const together =
+      "CONFIG_INVALID: EXECUTOR_EDGE_ENTITLEMENT_FILE, EXECUTOR_EDGE_JWKS_FILE (given together or not at all)";
+    expect(refusal({ ...file, EXECUTOR_EDGE_ENTITLEMENT_FILE: "/etc/e.jws" })).toBe(together);
+    expect(refusal({ ...file, EXECUTOR_EDGE_JWKS_FILE: "/etc/jwks.json" })).toBe(together);
   });
 
   it("lists every schema key and every secret in CONFIG_KEYS", () => {
