@@ -610,7 +610,8 @@ key the organisation registered for the provider (`POST /v1/execution/provider-k
 with the commit evidence whether or not it verified, and reads a verified receipt with an effect
 digest as `SIGNED_RECEIPT` effect evidence when the grant named the effect it expected. A receipt
 is never a reason for the authority to refuse a finalization; `effectReport` says what the
-authority made of it.
+authority made of it. An adapter whose answer is indeterminate passes the receipt it read as the
+third argument of `IndeterminateOutcome`, so a signed receipt on a 5xx still reaches the authority.
 
 The effect plane reads what a receipt _states_, and only to compare it. An adapter's transport
 carries the header's value on its `ProviderResult` (`CoreBankingHttpAdapter` does), and the effect
