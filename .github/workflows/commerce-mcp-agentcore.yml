@@ -91,7 +91,7 @@ jobs:
           curl -fsS -X POST http://127.0.0.1:8000/mcp \
             -H 'content-type: application/json' \
             -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"commercegate_start_historical_assessment","arguments":{"source":{"kind":"synthetic"},"idempotency_key":"image-smoke"}}}' \
-            | jq -e '.result.isError == true and .result.structuredContent.error.code == "CONFIGURATION_REQUIRED"'
+            | jq -e '.result.isError == true and .result.structuredContent.error.code == "CONFIGURATION_INVALID"'
       - name: Verify the arm64 runtime image builds
         if: ${{ inputs.mode == 'verify' }}
         run: |

@@ -96,6 +96,10 @@
     "url": "https://github.com/decionis/agent-safe-pipeline/issues"
   },
   "dependencies": {
-    "@aws-sdk/client-secrets-manager": "3.1136.0"
+    "@aws-sdk/client-secrets-manager": "3.1136.0",
+    "@aws-sdk/credential-provider-node": "3.972.83",
+    "@smithy/core": "3.34.1",
+    "@smithy/signature-v4": "5.7.3",
+    "@smithy/types": "4.18.0"
   }
 }
