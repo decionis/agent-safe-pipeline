@@ -1,5 +1,6 @@
 import {
   JsonObjectSchema,
+  ProviderRefusal,
   type ActionHandler,
   type ActionRegistry,
   type JsonObject,
@@ -30,7 +31,11 @@ export const FORWARD_REQUEST_ACTION = "forward_request";
 /** Every action the reference registration registers, in the order `/ready` reports them. */
 export const REGISTERED_ACTIONS: readonly string[] = [FORWARD_REQUEST_ACTION];
 
-/** What the executor reports about the downstream attempt: a status, never a body. */
+/**
+ * What the executor reports about a completed downstream attempt: a status,
+ * never a body. Only a 2xx completes, so `accepted` is always true here; a
+ * refusal and an unknown outcome are reported as attempt outcomes instead.
+ */
 export interface DownstreamResult {
   readonly status: number;
   readonly accepted: boolean;
@@ -92,7 +97,16 @@ export function registerHandlers(
       // on the attempt to the finalization, unread.
       const receipt = response.headers.get(EFFECT_RECEIPT_HEADER);
       if (receipt !== null) dispatch.receipt(receipt);
-      return { status: response.status, accepted: response.ok };
+      // The same outcome table as every effect path (docs/execution-outcomes.md):
+      // a 2xx commits; a 4xx is the provider's refusal, except a 408, which is
+      // a timeout; a 5xx or anything else is unknown, because the provider may
+      // have acted before it failed. Reporting those as a result would finalize
+      // them COMMITTED.
+      if (response.ok) return { status: response.status, accepted: true };
+      if (response.status >= 400 && response.status < 500 && response.status !== 408) {
+        throw new ProviderRefusal(`UPSTREAM_STATUS_${response.status}`);
+      }
+      throw new Error(`UPSTREAM_OUTCOME_UNKNOWN_${response.status}`);
     });
   };
 

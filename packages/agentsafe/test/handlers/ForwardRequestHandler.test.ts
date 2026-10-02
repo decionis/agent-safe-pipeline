@@ -92,25 +92,42 @@ describe("forward_request handler", () => {
     expect(init.signal).toBeInstanceOf(AbortSignal);
   });
 
-  it("reports a provider refusal as a result, never a body", async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(new Response('{"secret":1}', { status: 500 }));
-    const registry = registerHandlers(
-      new ActionRegistry(),
-      downstream,
-      credential,
-      fetchImpl,
-    ).seal();
-    const intent = captured();
-    expect(await registry.executeTracked(intent, authorization(intent))).toEqual({
+  it("commits a 2xx, refuses a 4xx, and leaves a 5xx or a 408 unknown", async () => {
+    const attempt = async (status: number) => {
+      const fetchImpl = vi.fn().mockResolvedValue(new Response('{"secret":1}', { status }));
+      const registry = registerHandlers(
+        new ActionRegistry(),
+        downstream,
+        credential,
+        fetchImpl,
+      ).seal();
+      const intent = captured();
+      return await registry.executeTracked(intent, authorization(intent));
+    };
+    expect(await attempt(201)).toEqual({
       status: "COMPLETED",
-      result: { status: 500, accepted: false },
+      result: { status: 201, accepted: true },
       receipt: null,
     });
+    // The provider answered and said no: an outcome, finalized FAILED, and never its body.
+    expect(await attempt(422)).toEqual({
+      status: "REFUSED_AFTER_DISPATCH",
+      reason: "UPSTREAM_STATUS_422",
+      receipt: null,
+    });
+    // A 500 may follow an effect the provider already applied, and a 408 is a
+    // timeout. Neither is a commit: both stay unknown, for reconciliation.
+    for (const status of [500, 503, 408]) {
+      expect(await attempt(status), String(status)).toEqual({
+        status: "UNKNOWN_AFTER_DISPATCH",
+        receipt: null,
+      });
+    }
   });
 
   it("carries the provider's effect receipt on the attempt, unread, whatever the status", async () => {
     const RECEIPT = "eyJhbGciOiJFZERTQSJ9.eyJzdWIiOiJnMSJ9.c2ln";
-    for (const status of [202, 422]) {
+    const attempt = async (status: number) => {
       const fetchImpl = vi
         .fn()
         .mockResolvedValue(
@@ -123,12 +140,20 @@ describe("forward_request handler", () => {
         fetchImpl,
       ).seal();
       const intent = captured();
-      expect(await registry.executeTracked(intent, authorization(intent))).toEqual({
-        status: "COMPLETED",
-        result: { status, accepted: status === 202 },
-        receipt: RECEIPT,
-      });
-    }
+      return await registry.executeTracked(intent, authorization(intent));
+    };
+    expect(await attempt(202)).toEqual({
+      status: "COMPLETED",
+      result: { status: 202, accepted: true },
+      receipt: RECEIPT,
+    });
+    // A refusal the provider signed is evidence too, and so is its receipt on a failure.
+    expect(await attempt(422)).toEqual({
+      status: "REFUSED_AFTER_DISPATCH",
+      reason: "UPSTREAM_STATUS_422",
+      receipt: RECEIPT,
+    });
+    expect(await attempt(500)).toEqual({ status: "UNKNOWN_AFTER_DISPATCH", receipt: RECEIPT });
   });
 
   it("reports a transport failure after dispatch as unknown", async () => {
