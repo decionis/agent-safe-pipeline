@@ -37,7 +37,10 @@ git commit -s -m "Describe the change"
 The pull-request `DCO` workflow checks every commit between the exact base and head SHAs and rejects
 a missing or mismatched `Signed-off-by` trailer. Exact GitHub-authenticated Dependabot commits on a
 Dependabot-authored pull request are the only bot exemption; human-authored commits are never
-exempt. Rebase and sign an unsigned commit instead of adding a separate sign-off-only commit.
+exempt. A clean merge commit, one whose combined diff is empty such as GitHub's **Update branch**
+makes, adds nothing of its own and is not checked; a merge that resolved a conflict or carries any
+other change is checked like any commit. Rebase and sign an unsigned commit instead of adding a
+separate sign-off-only commit.
 
 Every change also requires the protected checks and code-owner review configured for `master`.
 Review covers scope, correctness, tests, fail-closed behavior, dependency and license impact,
