@@ -57,3 +57,31 @@ regexTarget = "secret"
 regexes = [
   '''^eyJhbGciOiJFZERTQSIsImtpZCI6InZlY3Rvci1wcm92aWRlci1yZWNlaXB0cy0xI[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$''',
 ]
+
+# The edge usage-report vector under conformance/edge carries a usage report:
+# a compact JWS signed by a key derived from a published seed for the vector
+# and good for nothing else, under the protected header
+# {"alg":"EdDSA","typ":"decionis-edge-usage+jwt","kid":"vector-edge-usage-report-1"}.
+# A usage report states counts and a chain range; it is a bearer for nothing.
+[[allowlists]]
+description = "Edge usage reports signed with the usage-report vector's own key"
+regexTarget = "secret"
+regexes = [
+  '''^eyJhbGciOiJFZERTQSIsInR5cCI6ImRlY2lvbmlzLWVkZ2UtdXNhZ2Urand0Iiwia2lkIjoidmVjdG9yLWVkZ2UtdXNhZ2UtcmVwb3J0LTEifQ\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$''',
+]
+
+# Synthetic values in the hosted-gateway and edge tests that the generic-api-key
+# detector reads as credentials because of the field next to them (`key`,
+# `idempotencyKey`, `SECRET_PARAMETER`): a wrong tenant key, idempotency keys,
+# and GB82WEST12345698765432, the standard published example IBAN, used to
+# prove a parameter never reaches a record. None was ever a credential. Exact
+# values only, as above.
+[[allowlists]]
+description = "Synthetic tenant keys, idempotency keys and the example IBAN in tests"
+regexTarget = "secret"
+regexes = [
+  '''^synthetic-wrong-key-2290$''',
+  '''^synthetic-idempotency-0001$''',
+  '''^synthetic-replica-1$''',
+  '''^GB82WEST12345698765432$''',
+]

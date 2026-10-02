@@ -3,10 +3,13 @@
 // are Decionis-operated properties of the same protocol — the banking
 // profile whose reference runtime builds on this package, and the Commerce
 // Gate whose MCP server lives in packages/commerce-mcp — and both answered
-// 200 on that day.
+// 200 on that day. docs.decionis.com joined on 2026-10-02: the Decionis
+// documentation moved there from decionis.com/docs, which now answers a 308
+// to it; it answered 200 on that day.
 const allowedHostnames = new Set([
   "github.com",
   "decionis.com",
+  "docs.decionis.com",
   "presence.decionis.com",
   "banking.decionis.com",
   "commerce.decionis.com",

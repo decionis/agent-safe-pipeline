@@ -6,7 +6,7 @@
   "description": "Economic circuit breakers and execution gates for autonomous systems.",
   "command": "app install decionis",
   "version": "0.2.0",
-  "homepage": "https://decionis.com/docs/quickstart",
+  "homepage": "https://docs.decionis.com/quickstart",
   "artifact": {
     "type": "npm",
     "package": "decionis",

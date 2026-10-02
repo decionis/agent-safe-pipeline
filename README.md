@@ -44,9 +44,9 @@ two are the services it talks to, and neither is in this repository.
   plane AgentSafe asks. For one captured intent it evaluates the organization's policy and answers
   `ALLOW`, `ESCALATE` or `BLOCK`; an `ALLOW` comes with the single-use execution grant the request
   executes on, an `ESCALATE` with the human ceremony it needs, and every decision with a signed
-  [Decision Dossier](https://decionis.com/docs/decision-dossier) that records what was proposed,
+  [Decision Dossier](https://docs.decionis.com/decision-dossier) that records what was proposed,
   what was decided and why. It runs at [decionis.com](https://decionis.com)
-  ([docs](https://decionis.com/docs)); the local demo authority in this repository stands in for it
+  ([docs](https://docs.decionis.com)); the local demo authority in this repository stands in for it
   on loopback with a synthetic policy, and says so on every line.
 - **Presence** is the adaptive human verification layer. When Decionis answers `ESCALATE`, a
   verified, present person on their own device approves that exact action, and the signed Presence
