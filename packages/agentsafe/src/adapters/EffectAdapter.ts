@@ -52,11 +52,16 @@ export type ObservationMethod =
  * A provider that neither committed nor refused. Thrown from `execute`
  * after the request left the process, so the registry reports an unknown
  * outcome and nothing interprets silence as success.
+ *
+ * A provider can answer an indeterminate status with its signed receipt of
+ * the effect all the same. `receipt` carries it to the finalization, where
+ * the authority verifies it, instead of it being dropped with the answer.
  */
 export class IndeterminateOutcome extends Error {
   public constructor(
     public readonly reason: string,
     public readonly providerStatus: string | null = null,
+    public readonly receipt: string | null = null,
   ) {
     super(reason);
     this.name = "IndeterminateOutcome";

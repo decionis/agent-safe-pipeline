@@ -179,6 +179,20 @@ describe("CoreBankingHttpAdapter.execute", () => {
     }
   });
 
+  it("keeps the provider's receipt when its answer is indeterminate", async () => {
+    const receipt = "eyJhbGciOiJFZERTQSJ9.eyJzdWIiOiJnMSJ9.c2ln";
+    provider.answer({ status: 503, body: { status: "OOPS" }, receipt });
+    const serverError = await refusal(transport().execute(execution()));
+    expect(serverError.reason).toBe("PROVIDER_SERVER_ERROR");
+    expect(serverError.receipt).toBe(receipt);
+
+    provider.answer({ status: 200, body: { status: "MAYBE" }, receipt });
+    expect((await refusal(transport().execute(execution()))).receipt).toBe(receipt);
+
+    provider.answer({ status: 500, body: { status: "OOPS" } });
+    expect((await refusal(transport().execute(execution()))).receipt).toBeNull();
+  });
+
   it("refuses to conclude anything from a server error, a silence, or a status it cannot read", async () => {
     provider.answer({ status: 500, body: { status: "OOPS" } });
     expect((await refusal(transport().execute(execution()))).reason).toBe("PROVIDER_SERVER_ERROR");
