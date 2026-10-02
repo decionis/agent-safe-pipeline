@@ -50,6 +50,27 @@ export interface UpstreamOptions {
   readonly timeoutMs: number;
   readonly maxResponseBytes: number;
   readonly fetch: FetchLike;
+  /** Releases what the transport holds open, such as a guarded egress's sockets. */
+  readonly close?: () => void;
+  /** Relay every cookie host-only, whatever `Domain` the upstream named (a hosted gateway). */
+  readonly hostOnlyCookies?: boolean;
+}
+
+/**
+ * A `Set-Cookie` value without its `Domain` attribute, so the client keeps
+ * the cookie for the exact host it came from. Behind a hosted gateway every
+ * tenant is a sibling host under one domain; a cookie one tenant's upstream
+ * set for the parent would otherwise be sent to every other tenant. The
+ * name and value are the first segment and are never touched, whatever they
+ * contain.
+ */
+export function hostOnlyCookie(value: string): string {
+  const [pair, ...attributes] = value.split(";");
+  const kept = attributes.filter((attribute) => {
+    const name = attribute.split("=", 1)[0]?.trim().toLowerCase();
+    return name !== "domain";
+  });
+  return [pair, ...kept].join(";");
 }
 
 /**
@@ -155,7 +176,12 @@ export class Upstream {
       }
       relayed.push([name, value]);
     }
-    for (const cookie of response.headers.getSetCookie()) relayed.push(["set-cookie", cookie]);
+    for (const cookie of response.headers.getSetCookie()) {
+      relayed.push([
+        "set-cookie",
+        this.options.hostOnlyCookies === true ? hostOnlyCookie(cookie) : cookie,
+      ]);
+    }
     return {
       status: response.status,
       headers: relayed,
@@ -182,6 +208,10 @@ export class Upstream {
       if (size > maxBytes) await response.body.cancel().catch(() => undefined);
     }
     return Buffer.concat(chunks);
+  }
+
+  public close(): void {
+    this.options.close?.();
   }
 
   /** The signal for one send: the configured ceiling, or a tighter budget the caller holds. */

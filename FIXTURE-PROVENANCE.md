@@ -24,7 +24,7 @@ Contributors must document the source and license of any new fixture. Prefer det
 
 ## Construction rules
 
-Fixture identity values use the repository-reserved `synthetic-` or `fixture_` prefixes. UUID-shaped fixture tenant and intent values use the sentinel blocks documented in the conformance vector; production integrations must reject those sentinel values. Fixture URLs use IANA-reserved `.example`/`.invalid` domains or loopback. Executable demos may not contain fixed ISO timestamps.
+Fixture identity values use the repository-reserved `synthetic-` or `fixture_` prefixes. UUID-shaped fixture tenant and intent values use the sentinel blocks documented in the conformance vector; production integrations must reject those sentinel values. Fixture URLs use IANA-reserved `.example`/`.invalid` domains, loopback, or an address from a range reserved so that it identifies no one (private, link-local, shared, benchmarking or documentation), as a test of what egress refuses has to. Executable demos may not contain fixed ISO timestamps.
 
 The gate parses every URL-shaped literal verbatim, so a loopback stub must build its base URL from a
 plain `http://127.0.0.1` string constant and append its ephemeral port separately. Interpolation

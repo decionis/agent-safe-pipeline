@@ -30,7 +30,8 @@ import { HashChain } from "../audit/HashChain.js";
 import { EVIDENCE_STREAM, HashChainedAuditSink } from "../audit/HashChainedAuditSink.js";
 import type { LineWriter } from "../audit/LineAuditSink.js";
 import { EgressPolicy } from "../egress/EgressPolicy.js";
-import { GuardedFetch } from "../egress/GuardedFetch.js";
+import { EgressError } from "../egress/EgressError.js";
+import { GuardedFetch, type AddressResolver } from "../egress/GuardedFetch.js";
 import type { FetchLike } from "../handlers/HandlerRegistration.js";
 import { RequestContext } from "../http/RequestContext.js";
 import { SECURITY_STREAM, SecurityEvents } from "../incident/SecurityEvents.js";
@@ -101,8 +102,10 @@ export interface GatewayDependencies {
   readonly io?: GatewayIo;
   /** The transport under the guard for the authority and Presence; `node:https` when absent. */
   readonly authorityFetch?: FetchLike;
-  /** The transport to the upstream; the global fetch when absent. */
+  /** The transport to the upstream; the global fetch when absent, or the guarded egress when public-only. */
   readonly upstreamFetch?: FetchLike;
+  /** Name resolution for a public-only upstream; the system resolver when absent. */
+  readonly upstreamResolve?: AddressResolver;
   readonly secrets?: SecretStore;
   readonly demoAuthority?: () => Promise<DemoAuthorityHandle>;
   readonly clock?: () => number;
@@ -335,11 +338,39 @@ export class Gateway {
       if (evidenceFile !== null) appendFileSync(evidenceFile, `${line}\n`);
       if (toTerminal) emitter.audit(line);
     };
+    // A public-only upstream goes through the guarded egress, sealed to its
+    // one origin: every address it resolves to is checked before a socket
+    // exists. Its own bounds sit just outside the upstream's, so an answer too
+    // large or too slow is still reported the way it always was.
+    const upstreamGuard = config.upstream.publicOnly
+      ? new GuardedFetch({
+          policy: new EgressPolicy([
+            {
+              origin: new URL(config.upstream.url).origin,
+              pathPrefixes: ["/"],
+              ca: null,
+              pins: [],
+            },
+          ]),
+          events: security,
+          maxResponseBytes: config.upstream.maxResponseBytes + 1,
+          timeoutMs: config.upstream.timeoutMs + 1_000,
+          publicOnly: true,
+          ...(dependencies.upstreamFetch === undefined
+            ? {}
+            : { transport: dependencies.upstreamFetch }),
+          ...(dependencies.upstreamResolve === undefined
+            ? {}
+            : { resolve: dependencies.upstreamResolve }),
+        })
+      : null;
     const upstream = new Upstream({
       url: config.upstream.url,
       timeoutMs: config.upstream.timeoutMs,
       maxResponseBytes: config.upstream.maxResponseBytes,
-      fetch: dependencies.upstreamFetch ?? fetch,
+      fetch: upstreamGuard?.fetch ?? dependencies.upstreamFetch ?? fetch,
+      hostOnlyCookies: config.hosted,
+      ...(upstreamGuard === null ? {} : { close: () => upstreamGuard.close() }),
     });
     const routes = new RouteTable(
       config.interception.routes,
@@ -658,6 +689,7 @@ export class Gateway {
     this.held.clear();
     if (this.demo !== null) await this.demo.stop();
     this.secrets?.close();
+    this.upstream.close();
   }
 
   private captureIntent(request: InterceptedRequest, action: string): CapturedIntent {
@@ -1118,7 +1150,20 @@ export class Gateway {
   }
 
   private upstreamFailure(error: unknown): GatewayResponse {
-    const tooLarge = error instanceof Error && error.name === "UpstreamResponseTooLarge";
+    // A public-only upstream that resolved inward was never connected to.
+    if (error instanceof EgressError && error.code === "EGRESS_ADDRESS_REFUSED") {
+      return this.own(502, {
+        state: "ERROR",
+        verdict: null,
+        reason_codes: ["UPSTREAM_ADDRESS_REFUSED"],
+        execution: "NOT_FORWARDED",
+      });
+    }
+    // Too large whichever reader saw it first: the relay's own bound, or the
+    // guarded egress's just outside it.
+    const tooLarge =
+      (error instanceof Error && error.name === "UpstreamResponseTooLarge") ||
+      (error instanceof EgressError && error.code === "EGRESS_BODY_TOO_LARGE");
     return this.own(502, {
       state: "ERROR",
       verdict: null,

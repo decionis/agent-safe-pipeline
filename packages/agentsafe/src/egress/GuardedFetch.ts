@@ -26,6 +26,8 @@ export interface GuardedFetchOptions {
   readonly resolve?: AddressResolver;
   /** The executor's own ceiling on any one request, headers and body included. */
   readonly timeoutMs?: number;
+  /** Refuse every private and shared address too (EgressPolicy.addressRefused). */
+  readonly publicOnly?: boolean;
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -79,6 +81,11 @@ export class GuardedFetch {
     const origin = url.origin === "null" ? null : url.origin;
     const check = this.options.policy.check(url);
     if (!check.allowed) throw this.refuse(origin, check.code);
+    // An address written as the host is connected to without a lookup, so the
+    // resolver's check never sees it; it is checked here instead.
+    if (EgressPolicy.hostAddressRefused(url.hostname, this.options.publicOnly)) {
+      throw this.refuse(origin, "EGRESS_ADDRESS_REFUSED");
+    }
     if (init.redirect !== undefined && init.redirect !== "manual" && init.redirect !== "error") {
       throw this.refuse(origin, "EGRESS_INIT_UNSUPPORTED");
     }
@@ -260,7 +267,9 @@ export class GuardedFetch {
           const addresses = all.filter((entry) => wanted === null || entry.family === wanted);
           const refused =
             addresses.length === 0 ||
-            addresses.some((entry) => EgressPolicy.addressRefused(entry.address, loopback));
+            addresses.some((entry) =>
+              EgressPolicy.addressRefused(entry.address, loopback, this.options.publicOnly),
+            );
           if (refused) {
             callback(new EgressError("EGRESS_ADDRESS_REFUSED", origin), "", undefined);
             return;

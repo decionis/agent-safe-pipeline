@@ -134,6 +134,7 @@ function guard(
     ...(options.transport === undefined ? {} : { transport: options.transport }),
     ...(options.resolve === undefined ? {} : { resolve: options.resolve }),
     ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+    ...(options.publicOnly === undefined ? {} : { publicOnly: options.publicOnly }),
   });
   return { fetch: guarded.fetch, lines, guarded };
 }
@@ -374,6 +375,76 @@ describe("GuardedFetch policy", () => {
       Object.assign(new Error("getaddrinfo ENOTFOUND"), { code: "ENOTFOUND" }),
     );
     await expect(fetch(`${named}/v1/echo`)).rejects.toMatchObject({ code: "ENOTFOUND" });
+    guarded.close();
+  });
+
+  it("refuses an address written as the host by the same rules, without resolving anything", async () => {
+    const literal = (origin: string): EgressDestination => ({
+      origin,
+      pathPrefixes: ["/"],
+      ca: null,
+      pins: [],
+    });
+    const resolve = vi.fn(async () => [{ address: "203.0.113.10", family: 4 as const }]);
+    const before = connections;
+    // The link, whichever mode: a metadata address named directly is never reached.
+    const always = guard({
+      policy: new EgressPolicy([literal("https://169.254.169.254")]),
+      resolve,
+    });
+    expect((await refused(always.fetch("https://169.254.169.254/latest"))).code).toBe(
+      "EGRESS_ADDRESS_REFUSED",
+    );
+    always.guarded.close();
+    // Public-only also refuses a private address and a bracketed IPv6 one.
+    const hosted = guard({
+      policy: new EgressPolicy([literal("https://10.0.0.5"), literal("https://[fd00::5]")]),
+      resolve,
+      publicOnly: true,
+    });
+    expect((await refused(hosted.fetch("https://10.0.0.5/orders"))).code).toBe(
+      "EGRESS_ADDRESS_REFUSED",
+    );
+    expect((await refused(hosted.fetch("https://[fd00::5]/orders"))).code).toBe(
+      "EGRESS_ADDRESS_REFUSED",
+    );
+    expect(refusals(hosted.lines)).toEqual([
+      ["https://10.0.0.5", "EGRESS_ADDRESS_REFUSED"],
+      ["https://[fd00::5]", "EGRESS_ADDRESS_REFUSED"],
+    ]);
+    hosted.guarded.close();
+    expect(resolve).not.toHaveBeenCalled();
+    expect(connections).toBe(before);
+  });
+
+  it("refuses every private and shared answer for a public-only origin, before any socket exists", async () => {
+    const named = origin("https", "shop.tenant.example", Number(new URL(tlsOrigin).port));
+    const policy = new EgressPolicy([
+      { origin: named, pathPrefixes: ["/"], ca: authority.certificate, pins: [] },
+    ]);
+    const answers: { address: string; family: 4 | 6 }[][] = [
+      [{ address: "10.1.2.3", family: 4 }],
+      [{ address: "172.20.0.1", family: 4 }],
+      [{ address: "192.168.0.10", family: 4 }],
+      [{ address: "100.64.0.9", family: 4 }],
+      [{ address: "168.63.129.16", family: 4 }],
+      [{ address: "fd12:3456::1", family: 6 }],
+      [{ address: "::ffff:10.0.0.1", family: 6 }],
+      // One inward answer among public ones refuses the whole name.
+      [
+        { address: "203.0.113.10", family: 4 },
+        { address: "10.0.0.1", family: 4 },
+      ],
+    ];
+    let next = 0;
+    const resolve = vi.fn(async () => answers[next++] ?? []);
+    const { fetch, lines, guarded } = guard({ policy, resolve, publicOnly: true });
+    const before = connections;
+    for (let index = 0; index < answers.length; index += 1) {
+      expect((await refused(fetch(`${named}/orders`))).code).toBe("EGRESS_ADDRESS_REFUSED");
+    }
+    expect(connections).toBe(before);
+    expect(refusals(lines)).toEqual(Array(answers.length).fill([named, "EGRESS_ADDRESS_REFUSED"]));
     guarded.close();
   });
 

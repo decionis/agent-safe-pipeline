@@ -1,5 +1,41 @@
 import { readFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
+import { BlockList, isIP } from "node:net";
+
+/**
+ * Addresses reserved so that they identify no one: loopback, private,
+ * link-local, shared, benchmarking and documentation ranges. A fixture URL
+ * may name one as its host, as a test of what egress refuses has to. A public
+ * address is refused like any real host.
+ */
+const specialPurpose = new BlockList();
+for (const [network, prefix] of [
+  ["127.0.0.0", 8],
+  ["10.0.0.0", 8],
+  ["172.16.0.0", 12],
+  ["192.168.0.0", 16],
+  ["169.254.0.0", 16],
+  ["100.64.0.0", 10],
+  ["198.18.0.0", 15],
+  ["192.0.2.0", 24],
+  ["198.51.100.0", 24],
+  ["203.0.113.0", 24],
+]) {
+  specialPurpose.addSubnet(network, prefix, "ipv4");
+}
+for (const [network, prefix] of [
+  ["::1", 128],
+  ["fc00::", 7],
+  ["fe80::", 10],
+  ["2001:db8::", 32],
+]) {
+  specialPurpose.addSubnet(network, prefix, "ipv6");
+}
+const reservedAddress = (hostname) => {
+  const literal = hostname.startsWith("[") ? hostname.slice(1, -1) : hostname;
+  const family = isIP(literal);
+  return family !== 0 && specialPurpose.check(literal, family === 4 ? "ipv4" : "ipv6");
+};
 
 const git = spawnSync(
   "git",
@@ -98,7 +134,8 @@ for (const path of fixtureFiles) {
       hostname !== "127.0.0.1" &&
       hostname !== "example.com" &&
       !hostname.endsWith(".example") &&
-      !hostname.endsWith(".invalid")
+      !hostname.endsWith(".invalid") &&
+      !reservedAddress(hostname)
     ) {
       failures.push(`${path}: fixture URL must use a reserved domain or loopback: ${hostname}`);
     }
