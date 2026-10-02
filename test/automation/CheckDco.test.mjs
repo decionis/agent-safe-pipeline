@@ -35,6 +35,24 @@ function addCommit(directory, body) {
   return git(directory, ["rev-parse", "HEAD"]);
 }
 
+function signed() {
+  return `Signed-off-by: Example Contributor <contributor@example.invalid>`;
+}
+
+/** A pull request branch off master, then master moves on in another file. */
+function divergedRepository() {
+  const directory = createRepository();
+  const base = git(directory, ["rev-parse", "HEAD"]);
+  git(directory, ["switch", "--quiet", "-c", "feature"]);
+  addCommit(directory, signed());
+  git(directory, ["switch", "--quiet", "master"]);
+  writeFileSync(join(directory, "other.txt"), "master moved on\n");
+  git(directory, ["add", "other.txt"]);
+  git(directory, ["commit", "--quiet", "-m", "Master change", "-m", signed()]);
+  git(directory, ["switch", "--quiet", "feature"]);
+  return { directory, base };
+}
+
 function runChecker(directory, base, head, pullRequestAuthor) {
   const arguments_ = [checker, base, head];
   if (pullRequestAuthor) arguments_.push(pullRequestAuthor);
@@ -96,6 +114,59 @@ describe("CheckDco", () => {
       const head = addCommit(directory);
       assert.equal(runChecker(directory, base, head, "dependabot[bot]").status, 0);
       assert.equal(runChecker(directory, base, head, "someone-else").status, 1);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+  it("does not ask a clean merge, such as GitHub's Update branch, for a sign-off", () => {
+    const { directory, base } = divergedRepository();
+    try {
+      git(directory, ["merge", "--quiet", "--no-edit", "--no-ff", "master"]);
+      const head = git(directory, ["rev-parse", "HEAD"]);
+      assert.equal(
+        git(directory, ["show", "--no-patch", "--format=%B", head]).includes("Signed-off-by"),
+        false,
+      );
+      const result = runChecker(directory, base, head);
+      assert.equal(result.status, 0, result.stderr);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("asks a merge that resolved a conflict for its author's sign-off", () => {
+    const directory = createRepository();
+    try {
+      const base = git(directory, ["rev-parse", "HEAD"]);
+      git(directory, ["switch", "--quiet", "-c", "feature"]);
+      addCommit(directory, signed());
+      git(directory, ["switch", "--quiet", "master"]);
+      writeFileSync(join(directory, "evidence.txt"), "master rewrote the line\n");
+      git(directory, ["commit", "--quiet", "-am", "Master change", "-m", signed()]);
+      git(directory, ["switch", "--quiet", "feature"]);
+      spawnSync("git", ["merge", "--quiet", "master"], { cwd: directory, encoding: "utf8" });
+      writeFileSync(join(directory, "evidence.txt"), "resolved by hand\n");
+      git(directory, ["commit", "--quiet", "-am", "Merge master"]);
+      const head = git(directory, ["rev-parse", "HEAD"]);
+      const result = runChecker(directory, base, head);
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /DCO_AUTHOR_SIGNOFF_MISSING/);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("asks a merge that slipped in a change of its own for a sign-off", () => {
+    const { directory, base } = divergedRepository();
+    try {
+      git(directory, ["merge", "--quiet", "--no-ff", "--no-commit", "master"]);
+      writeFileSync(join(directory, "slipped.txt"), "not from either parent\n");
+      git(directory, ["add", "slipped.txt"]);
+      git(directory, ["commit", "--quiet", "-m", "Merge master"]);
+      const head = git(directory, ["rev-parse", "HEAD"]);
+      const result = runChecker(directory, base, head);
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /DCO_AUTHOR_SIGNOFF_MISSING/);
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
