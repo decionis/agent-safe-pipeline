@@ -1,0 +1,54 @@
+{
+  "description": "A usage report AgentSafe signs for September 2026, the evidence lines it was counted from, and the vector key's public half. Decionis ingestion verifies the report against the key (registered as a usage_report provider key with issuer synthetic-installation-1); `agentsafe edge verify-usage-report` recounts it from the evidence.",
+  "key": {
+    "derivation": "Ed25519 seed = SHA-256 of the UTF-8 string \"agentsafe.edge.usage-report.vector.v1\"",
+    "kid": "vector-edge-usage-report-1",
+    "public_jwk": {
+      "kty": "OKP",
+      "crv": "Ed25519",
+      "x": "MbgloeGcVs1gMxbNIehOyo5RYOCybgeYO0KBGHl1cVA"
+    }
+  },
+  "period": "2026-09",
+  "evidence": [
+    "{\"stream\":\"agent-safe.executor-evidence/1\",\"seq\":1,\"prev_hash\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"at\":\"2026-08-31T23:59:59.999Z\",\"event\":\"EDGE_DECISION\",\"mode\":\"ENFORCEMENT\",\"intent_id\":\"synthetic-intent-0\",\"intent_hash\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"decision_id\":\"edge:synthetic\",\"verdict\":\"ALLOW\",\"reason_codes\":[\"POLICY_ALLOW\"],\"policy_version\":\"policy-2026.10\",\"bundle_id\":\"bundle-1\",\"kid\":\"decionis-policy-bundle-test-v1\",\"jti\":\"jti-1\",\"evaluation_digest\":\"sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"delegated\":false,\"caller_principal\":null,\"hash\":\"sha256:9d256ea8685d08721444cd5badfd3dd89870b671592a0d01deb0d88dafdeb436\"}",
+    "{\"stream\":\"agent-safe.executor-evidence/1\",\"seq\":2,\"prev_hash\":\"sha256:9d256ea8685d08721444cd5badfd3dd89870b671592a0d01deb0d88dafdeb436\",\"at\":\"2026-08-31T23:59:59.999Z\",\"event\":\"EXECUTION_COMPLETED\",\"verdict\":\"ALLOW\",\"intent_id\":\"intent-synthetic\",\"hash\":\"sha256:4394415cfea9c870af23c72266dc32e0f2911ba8f36a0b2fefaf017637962d1f\"}",
+    "{\"stream\":\"agent-safe.executor-evidence/1\",\"seq\":3,\"prev_hash\":\"sha256:4394415cfea9c870af23c72266dc32e0f2911ba8f36a0b2fefaf017637962d1f\",\"at\":\"2026-09-01T00:00:00.000Z\",\"event\":\"EDGE_DECISION\",\"mode\":\"ENFORCEMENT\",\"intent_id\":\"synthetic-intent-1\",\"intent_hash\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"decision_id\":\"edge:synthetic\",\"verdict\":\"ALLOW\",\"reason_codes\":[\"POLICY_ALLOW\"],\"policy_version\":\"policy-2026.10\",\"bundle_id\":\"bundle-1\",\"kid\":\"decionis-policy-bundle-test-v1\",\"jti\":\"jti-1\",\"evaluation_digest\":\"sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"delegated\":false,\"caller_principal\":null,\"hash\":\"sha256:b6047cdfc1d209d2302df5ab4f636927be3382cf33b95233666a018a320321e8\"}",
+    "{\"stream\":\"agent-safe.executor-evidence/1\",\"seq\":4,\"prev_hash\":\"sha256:b6047cdfc1d209d2302df5ab4f636927be3382cf33b95233666a018a320321e8\",\"at\":\"2026-09-01T00:00:00.100Z\",\"event\":\"EXECUTION_COMPLETED\",\"verdict\":\"ALLOW\",\"intent_id\":\"intent-synthetic\",\"hash\":\"sha256:34129a4b67f8f7ffa6a97cb11be4922c65a5f2ae13c22a47fb911c88b63a9396\"}",
+    "{\"stream\":\"agent-safe.executor-evidence/1\",\"seq\":5,\"prev_hash\":\"sha256:34129a4b67f8f7ffa6a97cb11be4922c65a5f2ae13c22a47fb911c88b63a9396\",\"at\":\"2026-09-12T08:30:00.000Z\",\"event\":\"EDGE_DECISION\",\"mode\":\"ENFORCEMENT\",\"intent_id\":\"synthetic-intent-2\",\"intent_hash\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"decision_id\":\"edge:synthetic\",\"verdict\":\"ESCALATE\",\"reason_codes\":[\"POLICY_ESCALATE\"],\"policy_version\":\"policy-2026.10\",\"bundle_id\":\"bundle-1\",\"kid\":\"decionis-policy-bundle-test-v1\",\"jti\":\"jti-1\",\"evaluation_digest\":\"sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"delegated\":true,\"caller_principal\":null,\"hash\":\"sha256:142931f476c26af9ff51eccc508a50010ebe43efaba7eab12c3f262095b74930\"}",
+    "{\"stream\":\"agent-safe.executor-evidence/1\",\"seq\":6,\"prev_hash\":\"sha256:142931f476c26af9ff51eccc508a50010ebe43efaba7eab12c3f262095b74930\",\"at\":\"2026-09-20T17:45:00.000Z\",\"event\":\"EDGE_DECISION\",\"mode\":\"ENFORCEMENT\",\"intent_id\":\"synthetic-intent-3\",\"intent_hash\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"decision_id\":\"edge:synthetic\",\"verdict\":\"BLOCK\",\"reason_codes\":[\"POLICY_BLOCK\"],\"policy_version\":\"policy-2026.10\",\"bundle_id\":\"bundle-2\",\"kid\":\"decionis-policy-bundle-test-v1\",\"jti\":\"jti-2\",\"evaluation_digest\":\"sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"delegated\":false,\"caller_principal\":null,\"hash\":\"sha256:c2ef8ab97b228f02ddcd6a094d616b501e465220afac27c681812f3777d24411\"}",
+    "{\"stream\":\"agent-safe.executor-evidence/1\",\"seq\":7,\"prev_hash\":\"sha256:c2ef8ab97b228f02ddcd6a094d616b501e465220afac27c681812f3777d24411\",\"at\":\"2026-09-30T23:59:59.999Z\",\"event\":\"EDGE_DECISION\",\"mode\":\"SHADOW\",\"intent_id\":\"synthetic-intent-4\",\"intent_hash\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"decision_id\":\"edge:synthetic\",\"verdict\":\"ALLOW\",\"reason_codes\":[\"POLICY_ALLOW\"],\"policy_version\":\"policy-2026.10\",\"bundle_id\":\"bundle-2\",\"kid\":\"decionis-policy-bundle-test-v1\",\"jti\":\"jti-2\",\"evaluation_digest\":\"sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"delegated\":false,\"caller_principal\":null,\"hash\":\"sha256:bb3abd86d886d56ddb2452e51a5a301d4f2aaca27c3095f1d0fd710f31ca311d\"}",
+    "{\"stream\":\"agent-safe.executor-evidence/1\",\"seq\":8,\"prev_hash\":\"sha256:bb3abd86d886d56ddb2452e51a5a301d4f2aaca27c3095f1d0fd710f31ca311d\",\"at\":\"2026-10-01T00:00:00.000Z\",\"event\":\"EDGE_DECISION\",\"mode\":\"ENFORCEMENT\",\"intent_id\":\"synthetic-intent-5\",\"intent_hash\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"decision_id\":\"edge:synthetic\",\"verdict\":\"ALLOW\",\"reason_codes\":[\"POLICY_ALLOW\"],\"policy_version\":\"policy-2026.10\",\"bundle_id\":\"bundle-1\",\"kid\":\"decionis-policy-bundle-test-v1\",\"jti\":\"jti-2\",\"evaluation_digest\":\"sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"delegated\":false,\"caller_principal\":null,\"hash\":\"sha256:78e872558e29b0895eaad146392a9f2174c93a6a4847e1d47a89f1efa343ca24\"}"
+  ],
+  "claims": {
+    "iss": "synthetic-installation-1",
+    "aud": "00000000-0000-4000-8000-000000000002",
+    "iat": 1790816400,
+    "jti": "synthetic-usage-report-2026-09-1",
+    "period": "2026-09",
+    "period_start": "2026-09-01T00:00:00.000Z",
+    "period_end": "2026-10-01T00:00:00.000Z",
+    "counts": {
+      "by_mode": {
+        "ENFORCEMENT": 3,
+        "SHADOW": 1
+      },
+      "by_verdict": {
+        "ALLOW": 2,
+        "ESCALATE": 1,
+        "BLOCK": 1
+      },
+      "total": 4
+    },
+    "delegated": 1,
+    "chain": {
+      "stream": "agent-safe.executor-evidence/1",
+      "first_seq": 3,
+      "last_seq": 7,
+      "first_hash": "sha256:b6047cdfc1d209d2302df5ab4f636927be3382cf33b95233666a018a320321e8",
+      "last_hash": "sha256:bb3abd86d886d56ddb2452e51a5a301d4f2aaca27c3095f1d0fd710f31ca311d"
+    },
+    "bundles": ["jti-1", "jti-2"]
+  },
+  "report": "eyJhbGciOiJFZERTQSIsInR5cCI6ImRlY2lvbmlzLWVkZ2UtdXNhZ2Urand0Iiwia2lkIjoidmVjdG9yLWVkZ2UtdXNhZ2UtcmVwb3J0LTEifQ.eyJpc3MiOiJzeW50aGV0aWMtaW5zdGFsbGF0aW9uLTEiLCJhdWQiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDIiLCJpYXQiOjE3OTA4MTY0MDAsImp0aSI6InN5bnRoZXRpYy11c2FnZS1yZXBvcnQtMjAyNi0wOS0xIiwicGVyaW9kIjoiMjAyNi0wOSIsInBlcmlvZF9zdGFydCI6IjIwMjYtMDktMDFUMDA6MDA6MDAuMDAwWiIsInBlcmlvZF9lbmQiOiIyMDI2LTEwLTAxVDAwOjAwOjAwLjAwMFoiLCJjb3VudHMiOnsiYnlfbW9kZSI6eyJFTkZPUkNFTUVOVCI6MywiU0hBRE9XIjoxfSwiYnlfdmVyZGljdCI6eyJBTExPVyI6MiwiRVNDQUxBVEUiOjEsIkJMT0NLIjoxfSwidG90YWwiOjR9LCJkZWxlZ2F0ZWQiOjEsImNoYWluIjp7InN0cmVhbSI6ImFnZW50LXNhZmUuZXhlY3V0b3ItZXZpZGVuY2UvMSIsImZpcnN0X3NlcSI6MywibGFzdF9zZXEiOjcsImZpcnN0X2hhc2giOiJzaGEyNTY6YjYwNDdjZGZjMWQyMDlkMjMwMmRmNWFiNGY2MzY5MjdiZTMzODJjZjMzYjk1MjMzNjY2YTAxOGEzMjAzMjFlOCIsImxhc3RfaGFzaCI6InNoYTI1NjpiYjNhYmQ4NmQ4ODZkNTZkZGIyNDUyZTUxYTVhMzAxZDRmMmFhY2EyN2MzMDk1ZjFkMGZkNzEwZjMxY2EzMTFkIn0sImJ1bmRsZXMiOlsianRpLTEiLCJqdGktMiJdfQ.AU3retErHDR46slGX6L6idewMVVWsyKxpecgNe1zaSCiZQteJGX_9JsNe7Flu4uh-gJZWVNIs-yrO_OGy9P-AQ"
+}

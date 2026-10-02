@@ -15,7 +15,7 @@ import {
   LocalAuthorizationVerifier,
   LocalGrants,
 } from "../../../src/execution/LocalAuthorizationVerifier.js";
-import { InMemoryReplayStore } from "../../../src/execution/ReplayStore.js";
+import { InMemoryReplayStore, type ReplayStore } from "../../../src/execution/ReplayStore.js";
 import { SafeExecutor } from "../../../src/execution/SafeExecutor.js";
 import { IntentCapture } from "../../../src/intent/IntentCapture.js";
 import { immutableGateDecision } from "../../../src/decision/ImmutableGateDecision.js";
@@ -86,6 +86,8 @@ async function setup(
     hosted?: DecisionAuthority;
     read?: BundleRead;
     record?: EdgeDecisionAuthorityOptions["record"];
+    replay?: ReplayStore;
+    shareReplay?: boolean;
   } = {},
 ) {
   const double = edgeModuleDouble(options.behaviour);
@@ -98,11 +100,13 @@ async function setup(
   const records: EdgeDecisionRecord[] = [];
   const grants = new LocalGrants();
   const hosted = hostedDouble();
+  const replay = options.replay ?? new InMemoryReplayStore();
   const authority = new EdgeDecisionAuthority({
     module,
     bundles,
     hosted: options.hosted ?? hosted.authority,
     grants,
+    ...(options.shareReplay === true || options.replay !== undefined ? { replay } : {}),
     ...(options.mode === undefined ? {} : { mode: options.mode }),
     ...(options.onUnavailable === undefined ? {} : { onUnavailable: options.onUnavailable }),
     record: options.record ?? ((record) => records.push(record)),
@@ -115,7 +119,7 @@ async function setup(
   registry.seal();
   const verifier = new LocalAuthorizationVerifier({
     grants,
-    replay: new InMemoryReplayStore(),
+    replay,
     record: (record) => records.push(record as unknown as EdgeDecisionRecord),
   });
   const executor = new SafeExecutor(registry, verifier);
@@ -155,6 +159,55 @@ describe("EdgeDecisionAuthority", () => {
     const replay = await executor.run(captured, again);
     expect(replay).toMatchObject({ outcome: "BLOCKED", reason: "AUTHORIZATION_INVALID" });
     expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses to decide again about an intent the shared store says has run", async () => {
+    const { authority, double, executor, execute, records } = await setup({ shareReplay: true });
+    const captured = intent("payment.allow");
+    const decision = await authority.evaluate(captured);
+    expect((await executor.run(captured, decision)).outcome).toBe("COMPLETED");
+    const decided = double.decideInputs.length;
+    const recorded = records.length;
+    const again = await authority.evaluate(captured);
+    expect(again).toMatchObject({
+      verdict: "BLOCK",
+      failClosed: true,
+      reasonCodes: ["INTENT_ALREADY_CONSUMED"],
+      authorization: null,
+    });
+    // Not a decision: the module is not asked and nothing is recorded or counted.
+    expect(double.decideInputs).toHaveLength(decided);
+    expect(records).toHaveLength(recorded);
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails closed when the shared store cannot be asked, and asks it only in enforcement", async () => {
+    const consumed = vi.fn(async () => {
+      throw new Error("connection refused");
+    });
+    const replay: ReplayStore = { claim: async () => true, consumed };
+    const { authority, double } = await setup({ replay });
+    const refused = await authority.evaluate(intent("payment.allow"));
+    expect(refused).toMatchObject({
+      verdict: "BLOCK",
+      failClosed: true,
+      reasonCodes: ["EDGE_REPLAY_STORE_UNAVAILABLE"],
+    });
+    expect(double.decideInputs).toHaveLength(0);
+
+    const shadow = await setup({
+      replay,
+      mode: "SHADOW",
+      hosted: { evaluationMode: "SHADOW", evaluate: vi.fn() },
+    });
+    expect((await shadow.authority.evaluate(intent("payment.allow"))).verdict).toBe("ALLOW");
+    expect(consumed).toHaveBeenCalledTimes(1);
+  });
+
+  it("decides as before when the store has no way to be asked", async () => {
+    const replay: ReplayStore = { claim: async () => true };
+    const { authority } = await setup({ replay });
+    expect((await authority.evaluate(intent("payment.allow"))).verdict).toBe("ALLOW");
   });
 
   it("bounds the local authorization by the bundle's expiry when that comes first", async () => {

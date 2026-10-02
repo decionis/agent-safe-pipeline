@@ -126,6 +126,7 @@ export class AuthorityClients {
             bundles: edge.bundles,
             hosted: gate,
             grants: edge.grants,
+            replay: edge.replay,
             mode: config.mode,
             onUnavailable: edge.onUnavailable,
             clock: edge.clock,

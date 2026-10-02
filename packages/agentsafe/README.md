@@ -338,6 +338,13 @@ network path has a default.
 | `EXECUTOR_EDGE_BUNDLE_SOURCE`, `_FILE`                        | `url` (the default) fetches bundles from Decionis; `file` reads `EXECUTOR_EDGE_BUNDLE_FILE`                                |
 | `EXECUTOR_EDGE_REFRESH_SECONDS`                               | The routine bundle refresh, one minute to a day, an hour by default                                                        |
 | `EXECUTOR_EDGE_ON_UNAVAILABLE`                                | `hosted` (the default) asks Decionis when there is no usable bundle; `block` refuses                                       |
+| `EXECUTOR_EDGE_REPLAY_STORE`                                  | `memory` (the default) or `postgres`: where single use is held; several replicas need `postgres`                           |
+| `EXECUTOR_EDGE_SINGLE_REPLICA`                                | `true` is required with `memory`: the deployment's statement that it runs one replica                                      |
+| `EXECUTOR_EDGE_REPLAY_DATABASE_URL`, `_TABLE`                 | `postgres` only: the connection string (secret) and the claims table, `agentsafe_edge_replay` by default                   |
+| `EXECUTOR_EDGE_INSTALLATION_ID`                               | The installation a usage report names, one per evidence chain; generated and kept in the journal when absent               |
+| `EXECUTOR_EDGE_USAGE_SIGNING_KEY`, `_KEY_ID`                  | Ed25519 PKCS#8 key monthly usage reports are signed with (secret), and its `kid`; without it a licence warning stands      |
+| `EXECUTOR_EDGE_USAGE_REPORT_DIR`                              | `file` source only: where signed usage reports are written for an operator to upload                                       |
+| `EXECUTOR_EDGE_ENTITLEMENT_FILE`, `EXECUTOR_EDGE_JWKS_FILE`   | `file` source only: the signed entitlement and the pinned Decionis JWKS it is verified against                             |
 | `DECIONIS_API_URL`                                            | The authority, HTTPS                                                                                                       |
 | `DECIONIS_API_KEY`                                            | The server-side Decionis credential; secret                                                                                |
 | `DECIONIS_ALLOW_INSECURE_LOOPBACK`                            | `true` permits plain HTTP to loopback for local doubles; refused under `NODE_ENV=production`                               |
@@ -375,8 +382,13 @@ signed, and gives the same verdict. An `ALLOW` becomes a local authorization the
 once; a `BLOCK` is refused; an `ESCALATE` goes to Decionis, so `DIRECT` and `MANAGED` escalation
 work as they do hosted. With no usable bundle the executor asks Decionis, or refuses under
 `EXECUTOR_EDGE_ON_UNAVAILABLE=block`. Each local decision is an `EDGE_DECISION` line on the
-evidence stream. Without the variable, or without the module, nothing changes: Decionis decides,
-as it always has. How a deployment runs it, how bundles refresh and what expiry does are in
+evidence stream, counted into a signed monthly usage report. Single use holds in the process unless
+the deployment names the shared Postgres store, which several replicas need. The executor reads the
+signed entitlement and warns (a security event and a metric) when it is missing, expired, excludes
+the edge or is exceeded, or a report is overdue; no licence condition ever stops or changes a
+decision. Without the variable, or without the module, nothing changes: Decionis decides, as it
+always has. How a deployment runs it, how bundles refresh, what expiry does, replicas, usage reports
+and air-gapped operation are in
 [the edge evaluator](https://github.com/decionis/agent-safe-pipeline/blob/master/docs/edge-evaluator.md).
 
 ## Principals

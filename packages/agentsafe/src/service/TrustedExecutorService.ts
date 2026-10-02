@@ -68,6 +68,7 @@ import {
   type ReconciliationResponse,
 } from "./Requests.js";
 import { HaltRequestSchema, ResumeRequestSchema } from "./Requests.js";
+import type { LoadPg } from "../edge/EdgeReplay.js";
 import { EdgeRuntime } from "./EdgeRuntime.js";
 import { ServiceError } from "./ServiceError.js";
 
@@ -96,6 +97,8 @@ export interface ServiceDependencies extends Omit<EscalationDependencies, "fetch
   readonly clock?: () => number;
   /** Loads the edge evaluator; the configured file unless a test hands in its own. */
   readonly loadEdgeModule?: (path: string) => EdgeModule;
+  /** Loads `pg` for the shared replay store; the installed package unless a test hands in its own. */
+  readonly loadPg?: LoadPg;
 }
 
 /** What `/v1/control/status` reports: identifiers, counts, and heads, never a value. */
@@ -195,6 +198,9 @@ function nonSecretConfiguration(config: ExecutorConfig): JsonObject {
               bundle_source: config.edge.bundle.source,
               refresh_seconds: config.edge.refreshSeconds,
               on_unavailable: config.edge.onUnavailable,
+              replay_store: config.edge.replay.store,
+              usage_reports: config.edge.usage.signing,
+              installation_id: config.edge.usage.installationId,
             },
     },
   };
@@ -358,6 +364,7 @@ export class TrustedExecutorService {
     // module refuses the start here, before anything listens.
     const edge = EdgeRuntime.create({
       config,
+      secrets,
       apiKey: (): string => secrets.get("DECIONIS_API_KEY").use((value) => value.toString("utf8")),
       fetch: egress.fetch,
       events,
@@ -366,6 +373,7 @@ export class TrustedExecutorService {
       ...(dependencies.loadEdgeModule === undefined
         ? {}
         : { loadModule: dependencies.loadEdgeModule }),
+      ...(dependencies.loadPg === undefined ? {} : { loadPg: dependencies.loadPg }),
       ...(dependencies.clock === undefined ? {} : { clock: dependencies.clock }),
     });
     const clients = new AuthorityClients({

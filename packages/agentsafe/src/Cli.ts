@@ -21,6 +21,7 @@ import { join } from "node:path";
 import process from "node:process";
 import { nodeCliProcess } from "./cli/CliProcess.js";
 import { isGatewayCommand, runGatewayCommand } from "./cli/Commands.js";
+import { runEdge } from "./cli/Edge.js";
 import { usage } from "./cli/Help.js";
 import { runVerifyIntent } from "./cli/VerifyIntent.js";
 import { parseTarget, probeContainment } from "./containment/ContainmentProbe.js";
@@ -49,6 +50,7 @@ const COMMANDS = [
   "verify-bundle",
   "verify-intent",
   "probe-containment",
+  "edge",
 ] as const;
 /**
  * The whole entry is one function rather than top-level statements, because
@@ -115,6 +117,8 @@ async function main(): Promise<void> {
     });
     process.stdout.write(`${JSON.stringify(report)}\n`);
     process.exit(report.ok ? 0 : 1);
+  } else if (command === "edge") {
+    await runEdge(nodeCliProcess(), rest);
   } else if (command === "verify-intent") {
     runVerifyIntent(nodeCliProcess(), rest);
   } else if (command === "probe-containment") {
