@@ -15,7 +15,7 @@ export interface ChainedRecord {
   readonly seq: number;
   readonly prev_hash: string;
   readonly hash: string;
-  /** The line as written: `stream`, `seq`, `prev_hash`, the fields, then `hash`. */
+  /** The line as written: `stream`, `tenant` when there is one, `seq`, `prev_hash`, the fields, then `hash`. */
   readonly line: string;
 }
 
@@ -29,6 +29,11 @@ export type ChainWriter = (line: string) => void;
  * lines and nothing else; it is continuity and integrity, not origin, which
  * a signature over an export provides. Linking is synchronous, so two lines
  * can never interleave their sequence numbers.
+ *
+ * A chain run for one tenant of a hosted gateway carries the tenant in its
+ * envelope, beside `stream`: covered by every hash, and never overridden by
+ * a field, so a line cannot be moved to another tenant without breaking the
+ * chain, and one process's output holds each tenant's chains apart.
  */
 export class HashChain {
   private current: ChainHead;
@@ -37,6 +42,7 @@ export class HashChain {
   public constructor(
     public readonly stream: string,
     head: ChainHead | null = null,
+    public readonly tenant: string | null = null,
   ) {
     this.current = head ?? { seq: 0, hash: CHAIN_GENESIS };
   }
@@ -60,7 +66,12 @@ export class HashChain {
     const previous = this.current.hash;
     // The envelope wins over a field of the same name: nothing a line says
     // can move it in the chain.
-    const record: Record<string, JsonValue> = { stream: this.stream, seq, prev_hash: previous };
+    const record: Record<string, JsonValue> = {
+      stream: this.stream,
+      ...(this.tenant === null ? {} : { tenant: this.tenant }),
+      seq,
+      prev_hash: previous,
+    };
     for (const [key, value] of Object.entries(fields)) {
       if (!(key in record)) record[key] = value;
     }

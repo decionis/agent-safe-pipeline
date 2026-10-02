@@ -1,6 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { InterceptedRequest } from "../../src/gateway/InterceptedRequest.js";
-import { hostOnlyCookie, Upstream, UpstreamResponseTooLarge } from "../../src/gateway/Upstream.js";
+import {
+  hostOnlyCookie,
+  SANDBOX_POLICY,
+  Upstream,
+  UpstreamResponseTooLarge,
+} from "../../src/gateway/Upstream.js";
 import { closedPort } from "../support/Environment.js";
 import { UpstreamDouble, LOOPBACK_ORIGIN } from "../support/GatewayHarness.js";
 
@@ -171,5 +176,32 @@ describe("host-only cookies, for a hosted gateway", () => {
     expect(await cookies(true)).toEqual(["a=1; Path=/", "b=2; Path=/"]);
     expect(await cookies(false)).toEqual(["a=1; Domain=gw.example; Path=/", "b=2; Path=/"]);
     expect(await cookies(undefined)).toEqual(["a=1; Domain=gw.example; Path=/", "b=2; Path=/"]);
+  });
+});
+
+describe("sandboxed responses, for a hosted gateway", () => {
+  const policies = async (sandboxed: boolean | undefined): Promise<string[]> => {
+    const upstream = new Upstream({
+      url: "https://shop.tenant.example",
+      timeoutMs: 1_000,
+      maxResponseBytes: 1_024,
+      fetch: async () =>
+        new Response("<script>document.cookie='a=1; domain=gw.example'</script>", {
+          status: 200,
+          headers: { "content-type": "text/html", "content-security-policy": "img-src 'self'" },
+        }),
+      ...(sandboxed === undefined ? {} : { sandboxed }),
+    });
+    const result = await upstream.send("GET", "/", "", {}, Buffer.alloc(0), upstream.signal());
+    return result.headers
+      .filter(([name]) => name === "content-security-policy")
+      .map(([, value]) => value);
+  };
+
+  it("adds the sandbox policy beside the upstream's own, only when asked", async () => {
+    expect(SANDBOX_POLICY).toBe("sandbox");
+    expect(await policies(true)).toEqual(["img-src 'self'", "sandbox"]);
+    expect(await policies(false)).toEqual(["img-src 'self'"]);
+    expect(await policies(undefined)).toEqual(["img-src 'self'"]);
   });
 });

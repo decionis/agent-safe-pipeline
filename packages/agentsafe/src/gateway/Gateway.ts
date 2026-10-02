@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -60,6 +60,7 @@ import {
   type InterceptionReport,
 } from "./GatewayReport.js";
 import { normalizeRequest, type InterceptedRequest } from "./InterceptedRequest.js";
+import { TokenBucket, type RateDecision } from "./RateLimit.js";
 import { RouteTable, type RoutePlan } from "./RouteTable.js";
 import { enforcementSwitch, ShadowLedger, type ShadowSummary } from "./ShadowLedger.js";
 
@@ -175,6 +176,7 @@ export class Gateway {
   private readonly counts: Record<string, number> = {};
   private readonly activation: ActivationFunnel;
   private readonly ledger = new ShadowLedger();
+  private readonly bucket: TokenBucket | null;
   private lastShadowReportAt: number;
 
   private constructor(
@@ -187,7 +189,7 @@ export class Gateway {
     private readonly metrics: GatewayMetrics,
     private readonly emitLine: LineWriter,
     private readonly io: GatewayIo,
-    security: SecurityEvents,
+    private readonly security: SecurityEvents,
     private readonly secrets: SecretStore | null,
     private readonly demo: DemoAuthorityHandle | null,
     journal: ChainJournal | null,
@@ -201,6 +203,7 @@ export class Gateway {
   ) {
     this.lastShadowReportAt = clock();
     this.capture = new IntentCapture({ audit, ttlSeconds: config.intentTtlSeconds });
+    this.bucket = config.rateLimit === null ? null : new TokenBucket(config.rateLimit, clock);
     this.activation = new ActivationFunnel(
       (milestone, at) => this.report({ event: "ACTIVATION", milestone, at }),
       clock,
@@ -272,7 +275,11 @@ export class Gateway {
       journal = new ChainJournal(config.evidence.journalDir, { checkpointLines: 100 });
     }
     const security = new SecurityEvents(emitter.security, {
-      chain: new HashChain(SECURITY_STREAM, journal?.restore(SECURITY_STREAM) ?? null),
+      chain: new HashChain(
+        SECURITY_STREAM,
+        journal?.restore(SECURITY_STREAM) ?? null,
+        config.hostedTenant,
+      ),
     });
     emitter.reportRedactions((patterns) =>
       security.emit({ event: "LEAK_SUSPECTED", patterns: [...patterns] }),
@@ -282,7 +289,10 @@ export class Gateway {
         events: security,
         production: config.production,
         enforcePermissions: config.production,
-        watch: false,
+        // A hosted gateway lives as long as its host, and its tenant's
+        // workspace key is rotated under it, in a mounted Secret: it watches
+        // the file, so a rotation takes effect without a rebuild or a restart.
+        watch: config.hosted,
       });
     }
     const secrets = store;
@@ -370,6 +380,7 @@ export class Gateway {
       maxResponseBytes: config.upstream.maxResponseBytes,
       fetch: upstreamGuard?.fetch ?? dependencies.upstreamFetch ?? fetch,
       hostOnlyCookies: config.hosted,
+      sandboxed: config.hosted,
       ...(upstreamGuard === null ? {} : { close: () => upstreamGuard.close() }),
     });
     const routes = new RouteTable(
@@ -377,8 +388,16 @@ export class Gateway {
       config.interception.unmatched,
       config.interception.http,
     );
-    const evidence = new HashChain(EVIDENCE_STREAM, journal?.restore(EVIDENCE_STREAM) ?? null);
-    const chain = new HashChain(GATEWAY_STREAM, journal?.restore(GATEWAY_STREAM) ?? null);
+    const evidence = new HashChain(
+      EVIDENCE_STREAM,
+      journal?.restore(EVIDENCE_STREAM) ?? null,
+      config.hostedTenant,
+    );
+    const chain = new HashChain(
+      GATEWAY_STREAM,
+      journal?.restore(GATEWAY_STREAM) ?? null,
+      config.hostedTenant,
+    );
     const audit = new AuditRecorder({
       sink: new HashChainedAuditSink(emitLine, evidence),
       failurePolicy: config.evidence.enabled ? "REQUIRE_BEFORE_EXECUTION" : "BEST_EFFORT",
@@ -609,6 +628,47 @@ export class Gateway {
       if (this.shadow !== null) return await this.observe(request, captured, startedAt);
       return await this.enforce(request, captured, startedAt);
     });
+  }
+
+  /**
+   * Whether a request's tenant key admits it: always, when the gateway has no
+   * keys; otherwise only a key that hashes to one of them. Every configured
+   * digest is compared, in constant time, whether or not an earlier one
+   * matched. A refusal is counted and put on the security stream with its
+   * reason, never with the value presented.
+   */
+  public admits(presented: string | undefined): boolean {
+    if (this.config.tenantKeys.length === 0) return true;
+    const candidate =
+      presented === undefined || presented === ""
+        ? null
+        : createHash("sha256").update(presented, "utf8").digest();
+    let admitted = false;
+    for (const digest of this.config.tenantKeys) {
+      const expected = Buffer.from(digest.slice("sha256:".length), "hex");
+      if (candidate !== null && timingSafeEqual(candidate, expected)) admitted = true;
+    }
+    if (!admitted) {
+      this.metrics.requests.inc({ kind: "tenant_key_refused" });
+      this.security.emit({
+        event: "AUTH_FAILED",
+        method: "tenant_key",
+        code: candidate === null ? "TENANT_KEY_MISSING" : "TENANT_KEY_INVALID",
+      });
+    }
+    return admitted;
+  }
+
+  /**
+   * Whether the gateway's rate admits one more request now. Taken after the
+   * tenant key, so only the tenant's own traffic spends the tenant's rate; a
+   * refusal is counted, and says when to try again.
+   */
+  public rate(): RateDecision {
+    if (this.bucket === null) return { admitted: true };
+    const decision = this.bucket.take();
+    if (!decision.admitted) this.metrics.requests.inc({ kind: "rate_limited" });
+    return decision;
   }
 
   /** What a held escalation looks like from outside; null when nothing is held under the id. */

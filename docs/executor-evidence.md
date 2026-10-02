@@ -13,13 +13,17 @@ Every chained line has the same envelope around its fields:
 | Field       | Meaning                                                                                     |
 | ----------- | ------------------------------------------------------------------------------------------- |
 | `stream`    | `agent-safe.executor-evidence/1` or `agent-safe.security/1`                                 |
+| `tenant`    | A hosted tenant's id, on every line of a chain run for that tenant; absent otherwise        |
 | `seq`       | The line's position in its stream, from 1                                                   |
 | `prev_hash` | The `hash` of the line before it; `sha256:` followed by sixty-four zeros for the first line |
 | `hash`      | `sha256:` and the hex SHA-256 of the canonical JSON of every field but `hash`               |
 
 Canonical JSON is the same form the intent hash uses: object keys sorted, recursively, with
 ECMAScript number and string serialisation and no whitespace. The envelope wins over a field of
-the same name, so nothing a line says can move it in its chain. Lines the process writes about
+the same name, so nothing a line says can move it in its chain. A hosted gateway's chains carry
+their tenant in the envelope, so the tenant is covered by every hash: a line moved to another
+tenant breaks its chain, and the output of `agentsafe host`, which holds many tenants' chains of
+the same stream, verifies whole. Lines the process writes about
 itself at start, `POSTURE_VERIFIED` and `LISTENING`, carry no `stream` and belong to no chain.
 
 ## The evidence stream
@@ -57,7 +61,7 @@ file), or `null` for a line written outside any request. Parameters, targets, bo
 `agent-safe.security/1` carries what happened to the process rather than to an intent: posture
 verified, waived, drifted and restored; a secret rotated or a reload refused; the credential
 clients rebuilt; a redaction (`LEAK_SUSPECTED`); a refusal at the door (`AUTH_FAILED` with the
-method, `bearer`, `jwt`, `mtls` or `none`, and the code); a principal locked after repeated proven
+method, `bearer`, `jwt`, `mtls`, `tenant_key` (a gateway's tenant key) or `none`, and the code); a principal locked after repeated proven
 failures (`PRINCIPAL_LOCKED`); the principals loaded at start, or the legacy caller mode
 (`PRINCIPALS_LOADED`, `LEGACY_PRINCIPAL_MODE`, `BEARER_PRINCIPAL_CONFIGURED`); the JWKS refreshed
 or not (`JWKS_REFRESHED`, `JWKS_REFRESH_FAILED`); an operator's action (`OPERATOR_ACTION` with the
@@ -87,7 +91,8 @@ reads a file (or standard input) and walks every stream in it, reporting one fin
 | `CHAIN_PREV_MISMATCH` | The sequence fits but `prev_hash` is not the previous line's hash        |
 
 The report also says how many lines belong to no chain, and for each stream how many lines it
-saw, the head it ended on, and how many times the stream started from genesis. The command exits
+saw, the head it ended on, and how many times the stream started from genesis. A tenant's chain is
+its own stream, reported as `<tenant>/<stream>`, and its findings name the tenant. The command exits
 0 only when there is no finding. The same walk is available as `verifyAuditChain(lines)` from the
 package.
 

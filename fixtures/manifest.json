@@ -591,6 +591,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/cli/Host.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/cli/Identity.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
@@ -771,6 +777,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/gateway/RateLimit.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/gateway/RouteTable.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
@@ -790,6 +802,24 @@
     },
     {
       "path": "packages/agentsafe/test/handlers/ForwardRequestHandler.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/hosted/RecordHygiene.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/hosted/TenantHost.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/hosted/TenantRegistry.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false

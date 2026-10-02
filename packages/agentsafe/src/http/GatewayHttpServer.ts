@@ -7,11 +7,14 @@ import {
   type Server,
   type ServerResponse,
 } from "node:http";
+import type { Server as HttpsServer } from "node:https";
 import type { AddressInfo } from "node:net";
 import type { Duplex } from "node:stream";
 import { GATEWAY_PREFIX, type Gateway, type GatewayResponse } from "../gateway/Gateway.js";
+import { TENANT_KEY_HEADER } from "../gateway/GatewayConfig.js";
 import type { InterceptedRequest } from "../gateway/InterceptedRequest.js";
 import { METRICS_CONTENT_TYPE, RESPONSE_HEADERS } from "./Routes.js";
+import type { TlsListener } from "./TlsListener.js";
 
 const REQUEST_TIMEOUT_MS = 30_000;
 const HEADERS_TIMEOUT_MS = 10_000;
@@ -38,7 +41,31 @@ export interface GatewayHttpServerOptions {
    * token, the operator's, and are not there at all without one.
    */
   readonly metricsToken?: string | null;
+  /**
+   * Answers `healthz` and `readyz` for a request whose host no gateway serves:
+   * a platform probes a pod by its address, not by any tenant's name. Without
+   * it such a request is refused with 421 like any other.
+   */
+  readonly probe?: { readonly ready: () => boolean };
+  /**
+   * Terminate TLS here, with the executor's listener (TLS 1.3, or 1.2 with
+   * AEAD ciphers only): the hosted fleet's edge is a layer-4 load balancer
+   * and nothing else. Every response then carries HSTS.
+   */
+  readonly tls?: TlsListener | null;
+  /**
+   * The page a host no tenant has answers at `/`, when it is this hostname:
+   * a hosted fleet's apex names its operator. Both are read per request, so
+   * a reload changes them in place; null serves nothing.
+   */
+  readonly apex?: { readonly hostname: () => string | null; readonly page: () => string | null };
 }
+
+/** HSTS for a listener that terminates TLS: a year, every subdomain. */
+export const HSTS = "max-age=31536000; includeSubDomains";
+
+/** The apex page's own policy: inline style, nothing else, never framed. */
+const APEX_CSP = "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'";
 
 /**
  * Which gateway answers a request, by the host it was addressed to. One
@@ -67,9 +94,10 @@ export class GatewayHttpServer {
   ) {
     this.select = typeof gateway === "function" ? gateway : () => gateway;
     const handler: RequestListener = (request, response) => {
+      if (this.options.tls) response.setHeader("strict-transport-security", HSTS);
       void this.handle(request, response);
     };
-    this.server = createServer(handler);
+    this.server = this.options.tls ? this.options.tls.createServer(handler) : createServer(handler);
     this.server.requestTimeout = REQUEST_TIMEOUT_MS;
     this.server.headersTimeout = HEADERS_TIMEOUT_MS;
     this.server.keepAliveTimeout = KEEP_ALIVE_TIMEOUT_MS;
@@ -90,6 +118,11 @@ export class GatewayHttpServer {
     this.server.emit("connection", connection);
   }
 
+  /** Presents the current certificate and key to new connections; open ones keep theirs. */
+  public rotateTls(): void {
+    this.options.tls?.rotate(this.server as HttpsServer);
+  }
+
   /** Stops accepting, lets requests in flight finish for a grace period, then closes what is left. */
   public async close(graceMs = 10_000): Promise<void> {
     const closed = new Promise<void>((resolve) => this.server.close(() => resolve()));
@@ -105,9 +138,26 @@ export class GatewayHttpServer {
       const url = new URL(request.url ?? "/", "http://gateway.invalid");
       const method = (request.method ?? "GET").toUpperCase();
       const gateway = this.select(GatewayHttpServer.hostnameOf(request));
-      if (gateway === null) throw new GuardError(421, "HOST_NOT_SERVED");
+      if (gateway === null) return this.unserved(request, method, url, response);
       if (url.pathname === GATEWAY_PREFIX || url.pathname.startsWith(`${GATEWAY_PREFIX}/`)) {
         return await this.own(gateway, method, url, request, response);
+      }
+      // The tenant's traffic, and only it, needs the tenant's key; the gateway's
+      // own routes answer platform probes and the operator.
+      const presented = request.headers[TENANT_KEY_HEADER];
+      if (!gateway.admits(typeof presented === "string" ? presented : undefined)) {
+        throw new GuardError(401, "TENANT_KEY_INVALID");
+      }
+      const rate = gateway.rate();
+      if (!rate.admitted) {
+        // Stryker disable next-line ConditionalExpression: a reply is written once per request; the guard is defensive.
+        if (response.headersSent) return;
+        response.writeHead(429, {
+          ...RESPONSE_HEADERS,
+          "retry-after": String(rate.retryAfterSeconds),
+        });
+        response.end(JSON.stringify({ code: "RATE_LIMITED" }));
+        return;
       }
       const plan = gateway.plan(method, url.pathname);
       const body = await GatewayHttpServer.readBody(
@@ -200,6 +250,52 @@ export class GatewayHttpServer {
         return;
       }
     }
+  }
+
+  /**
+   * A host no gateway serves: the operator's apex page at `/` when it is the
+   * apex, a probe of the process itself, or 421.
+   */
+  private unserved(
+    request: IncomingMessage,
+    method: string,
+    url: URL,
+    response: ServerResponse,
+  ): void {
+    const apex = this.options.apex;
+    const hostname = GatewayHttpServer.hostnameOf(request);
+    if (apex !== undefined && hostname !== null && hostname === apex.hostname()) {
+      if (url.pathname === "/" && (method === "GET" || method === "HEAD")) {
+        const page = apex.page();
+        if (page !== null) {
+          response.writeHead(200, {
+            "content-type": "text/html; charset=utf-8",
+            "cache-control": "public, max-age=300",
+            "content-security-policy": APEX_CSP,
+            "x-content-type-options": "nosniff",
+            "x-frame-options": "DENY",
+          });
+          response.end(method === "HEAD" ? undefined : page);
+          return;
+        }
+      }
+      if (!url.pathname.startsWith(`${GATEWAY_PREFIX}/`)) {
+        throw new GuardError(404, "NOT_FOUND");
+      }
+    }
+    const probe = this.options.probe;
+    const route = url.pathname.slice(GATEWAY_PREFIX.length + 1);
+    if (
+      probe === undefined ||
+      method !== "GET" ||
+      !url.pathname.startsWith(`${GATEWAY_PREFIX}/`) ||
+      (route !== "healthz" && route !== "readyz")
+    ) {
+      throw new GuardError(421, "HOST_NOT_SERVED");
+    }
+    if (route === "healthz") return GatewayHttpServer.reply(response, 200, { status: "ok" });
+    const ready = probe.ready();
+    return GatewayHttpServer.reply(response, ready ? 200 : 503, { ready });
   }
 
   /** The operator's token, or the route is not there (no token) or refused (another one). */

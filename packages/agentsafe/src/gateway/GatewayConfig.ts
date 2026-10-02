@@ -6,6 +6,7 @@ import {
 } from "../config/ExecutorConfig.js";
 import { EgressPolicy } from "../egress/EgressPolicy.js";
 import type { SecretName } from "../secrets/SecretStore.js";
+import { HOSTED_DEFAULT_RATE_LIMIT, type RateLimit } from "./RateLimit.js";
 
 export type GatewayMode = "SHADOW" | "ENFORCEMENT";
 export type FailurePolicy = "FAIL_CLOSED" | "FAIL_OPEN";
@@ -19,6 +20,12 @@ export type ConsequentialMethod = (typeof CONSEQUENTIAL_METHODS)[number];
 
 /** The intent contract's action name: what a route may call the action it governs. */
 export const ACTION_NAME = /^[a-z][a-z0-9._:-]*$/;
+
+/** The header a tenant presents its ingress key in; never the URL, never forwarded. */
+export const TENANT_KEY_HEADER = "agentsafe-tenant-key";
+const TENANT_KEY_DIGEST = /^sha256:[0-9a-f]{64}$/;
+/** A tenant's registry id: the DNS label it is served under. */
+const HOSTED_TENANT = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 
 /** The tenant the demo authority evaluates under; a reserved fixture identifier, never an organization. */
 export const LOCAL_TENANT_ID = "00000000-0000-4000-8000-000000000009";
@@ -49,9 +56,28 @@ export interface GatewayConfig {
   /**
    * Run for a tenant by someone else, as Decionis runs hosted shadow: the
    * upstream is public-only, the mode is shadow, the gateway's own status and
-   * metrics answer only the operator, and a relayed cookie is host-only.
+   * metrics answer only the operator, a relayed cookie is host-only, and a
+   * relayed response is sandboxed (no script runs in it).
    */
   readonly hosted: boolean;
+  /**
+   * The tenant a hosted gateway runs for, as its registry id: written into the
+   * envelope of every chained line, so the tenant is covered by the hash.
+   */
+  readonly hostedTenant: string | null;
+  /**
+   * The tenant's ingress keys, as `sha256:` digests: one, or two while a
+   * rotation overlaps. When there are any, a request that is not the
+   * gateway's own must carry a key in `AgentSafe-Tenant-Key` that hashes to
+   * one of them. The key itself is never in the configuration.
+   */
+  readonly tenantKeys: readonly string[];
+  /**
+   * The rate this gateway admits its traffic at, after the tenant key: a
+   * sustained rate and a burst, per process. A hosted gateway without one
+   * gets HOSTED_DEFAULT_RATE_LIMIT; otherwise null is no limit.
+   */
+  readonly rateLimit: RateLimit | null;
   readonly upstream: {
     readonly url: string;
     /** A plain-HTTP upstream off loopback is refused unless this says the network protects the hop. */
@@ -161,6 +187,13 @@ export const GatewayFileSchema = z.strictObject({
       upstreamInsecure: z.boolean().optional(),
       upstreamPublicOnly: z.boolean().optional(),
       hosted: z.boolean().optional(),
+      tenantKeyDigests: z.array(z.string()).optional(),
+      rateLimit: z
+        .strictObject({
+          requestsPerSecond: z.number().positive().max(10_000),
+          burst: z.number().int().min(1).max(100_000),
+        })
+        .optional(),
       upstreamTimeoutMs: positiveInt.max(120_000).optional(),
       system: z.string().trim().min(1).max(200).optional(),
       environment: z.string().trim().min(1).max(200).optional(),
@@ -271,6 +304,10 @@ const ENVIRONMENT = {
   upstreamInsecure: "AGENTSAFE_UPSTREAM_INSECURE",
   upstreamPublicOnly: "AGENTSAFE_UPSTREAM_PUBLIC_ONLY",
   hosted: "AGENTSAFE_HOSTED_GATEWAY",
+  hostedTenant: "AGENTSAFE_HOSTED_TENANT",
+  tenantKeyDigests: "AGENTSAFE_TENANT_KEY_DIGESTS",
+  rateLimitRps: "AGENTSAFE_RATE_LIMIT_RPS",
+  rateLimitBurst: "AGENTSAFE_RATE_LIMIT_BURST",
   upstreamTimeoutMs: "AGENTSAFE_UPSTREAM_TIMEOUT_MS",
   system: "AGENTSAFE_UPSTREAM_SYSTEM",
   environment: "AGENTSAFE_ENVIRONMENT",
@@ -303,6 +340,11 @@ const COMMAND_ENVIRONMENT = [
   "AGENTSAFE_CONFIG",
   "AGENTSAFE_HOME",
   "AGENTSAFE_METRICS_TOKEN",
+  "AGENTSAFE_TENANT_REGISTRY",
+  "AGENTSAFE_TLS_CERT_FILE",
+  "AGENTSAFE_TLS_KEY_FILE",
+  "AGENTSAFE_REDIRECT_LISTEN",
+  "AGENTSAFE_APEX_PAGE",
 ] as const;
 
 /** Every variable the gateway and its commands read, for the reference page. */
@@ -334,7 +376,8 @@ function pick<T>(layers: readonly Layer<T>[], fallback: T): Resolved<T> {
   return { value: fallback, source: "default" };
 }
 
-function parseListen(value: string, setting: string): { host: string; port: number } {
+/** `host:port`, `:port` (every interface) or a bare port; anything else is refused by setting. */
+export function parseListen(value: string, setting: string): { host: string; port: number } {
   const trimmed = value.trim();
   const separator = trimmed.lastIndexOf(":");
   const host = separator === -1 ? "" : trimmed.slice(0, separator).replace(/^\[|\]$/g, "");
@@ -753,6 +796,58 @@ export class GatewayConfigLoader {
       null,
     );
 
+    // The tenant key is the gateway's own credential: it is stripped before
+    // forwarding, so it can never be the header that names a principal.
+    if (principalHeader?.toLowerCase() === TENANT_KEY_HEADER) {
+      throw new GatewayConfigError(
+        "CONFIG_INVALID",
+        "interception.principalHeader",
+        `${TENANT_KEY_HEADER} is the gateway's own credential`,
+      );
+    }
+    const tenantKeys = GatewayConfigLoader.tenantKeys(
+      resolve<readonly string[] | null>(
+        "tenantKeyDigests",
+        [
+          {
+            source: "environment",
+            raw: env[ENVIRONMENT.tenantKeyDigests]
+              ?.split(",")
+              .map((value) => value.trim())
+              .filter((value) => value !== ""),
+          },
+          { source: "file", raw: file?.gateway?.tenantKeyDigests },
+        ],
+        null,
+      ) ?? [],
+    );
+    const hostedTenant = env[ENVIRONMENT.hostedTenant]?.trim() || null;
+    if (hostedTenant !== null && (!hosted || !HOSTED_TENANT.test(hostedTenant))) {
+      throw new GatewayConfigError(
+        "CONFIG_INVALID",
+        ENVIRONMENT.hostedTenant,
+        "a lower-case DNS label, on a hosted gateway",
+      );
+    }
+    // Hosted, the tenant is the only caller the gateway admits, from day one.
+    if (hosted && tenantKeys.length === 0) {
+      throw new GatewayConfigError(
+        "CONFIG_MISSING",
+        "tenantKeyDigests",
+        `${ENVIRONMENT.tenantKeyDigests} or gateway.tenantKeyDigests: a hosted gateway admits only its tenant`,
+      );
+    }
+
+    const rateLimit =
+      resolve<RateLimit | null>(
+        "rateLimit",
+        [
+          { source: "environment", raw: GatewayConfigLoader.rateLimitFromEnvironment(env) },
+          { source: "file", raw: file?.gateway?.rateLimit },
+        ],
+        null,
+      ) ?? (hosted ? HOSTED_DEFAULT_RATE_LIMIT : null);
+
     const escalation = GatewayConfigLoader.escalation(file, env, mode, kind, resolve);
     const required: SecretName[] = [];
     if (kind === "DECIONIS") required.push("DECIONIS_API_KEY");
@@ -802,6 +897,9 @@ export class GatewayConfigLoader {
     return {
       listen,
       hosted,
+      hostedTenant,
+      tenantKeys,
+      rateLimit,
       upstream: {
         url: upstreamUrl,
         insecure: upstreamInsecure,
@@ -933,6 +1031,52 @@ export class GatewayConfigLoader {
    * loopback address may be plain, and anything else may be plain only when
    * the configuration says the network protects that hop.
    */
+  /** Both rate variables or neither: a rate without a burst, or the reverse, is refused by name. */
+  private static rateLimitFromEnvironment(
+    env: Readonly<Record<string, string | undefined>>,
+  ): RateLimit | undefined {
+    const rps = env[ENVIRONMENT.rateLimitRps]?.trim();
+    const burst = env[ENVIRONMENT.rateLimitBurst]?.trim();
+    if (rps === undefined && burst === undefined) return undefined;
+    const rate = Number(rps);
+    if (rps === undefined || rps === "" || !Number.isFinite(rate) || rate <= 0 || rate > 10_000) {
+      throw new GatewayConfigError(
+        "CONFIG_INVALID",
+        ENVIRONMENT.rateLimitRps,
+        "requests per second, above 0 and at most 10000, with AGENTSAFE_RATE_LIMIT_BURST",
+      );
+    }
+    if (
+      burst === undefined ||
+      !/^\d{1,6}$/.test(burst) ||
+      Number(burst) < 1 ||
+      Number(burst) > 100_000
+    ) {
+      throw new GatewayConfigError(
+        "CONFIG_INVALID",
+        ENVIRONMENT.rateLimitBurst,
+        "a whole number from 1 to 100000, with AGENTSAFE_RATE_LIMIT_RPS",
+      );
+    }
+    return { requestsPerSecond: rate, burst: Number(burst) };
+  }
+
+  /** One or two distinct `sha256:` digests, lower-case hex; anything else is refused by name. */
+  private static tenantKeys(digests: readonly string[]): readonly string[] {
+    if (
+      digests.length > 2 ||
+      new Set(digests).size !== digests.length ||
+      !digests.every((digest) => TENANT_KEY_DIGEST.test(digest))
+    ) {
+      throw new GatewayConfigError(
+        "CONFIG_INVALID",
+        "tenantKeyDigests",
+        "one or two distinct sha256:<64 hex> digests",
+      );
+    }
+    return digests;
+  }
+
   private static upstreamUrl(raw: string, insecure: boolean): string {
     let parsed: URL;
     try {

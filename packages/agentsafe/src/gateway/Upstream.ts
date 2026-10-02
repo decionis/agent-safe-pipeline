@@ -1,4 +1,5 @@
 import type { FetchLike } from "../handlers/HandlerRegistration.js";
+import { TENANT_KEY_HEADER } from "./GatewayConfig.js";
 import type { InterceptedRequest } from "./InterceptedRequest.js";
 
 /** What came back from the upstream: the status, the headers a client may see, the bytes. */
@@ -37,6 +38,8 @@ const REQUEST_OWNED: ReadonlySet<string> = new Set([
   "x-forwarded-proto",
   "x-forwarded-host",
 ]);
+/** The gateway's own credentials a client presents to it; they end at the gateway. */
+const GATEWAY_CREDENTIALS: ReadonlySet<string> = new Set([TENANT_KEY_HEADER]);
 /** Response headers the relay recomputes, because it relays decoded bytes of a known length. */
 const RESPONSE_OWNED: ReadonlySet<string> = new Set(["content-length", "content-encoding"]);
 const BODYLESS_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD"]);
@@ -54,7 +57,20 @@ export interface UpstreamOptions {
   readonly close?: () => void;
   /** Relay every cookie host-only, whatever `Domain` the upstream named (a hosted gateway). */
   readonly hostOnlyCookies?: boolean;
+  /** Relay every response under a sandboxing content security policy (a hosted gateway). */
+  readonly sandboxed?: boolean;
 }
+
+/**
+ * The policy a hosted gateway adds to every relayed response. A browser
+ * renders the response as a unique, opaque origin: no script runs, so a page
+ * one tenant's upstream serves cannot set a cookie for the shared domain
+ * from script (which no `Set-Cookie` rewrite would see), and nothing it
+ * renders is same-origin with its own host. It is added beside any policy the
+ * upstream sent, and a browser enforces every policy it is given, so the
+ * upstream's own can only narrow it further.
+ */
+export const SANDBOX_POLICY = "sandbox";
 
 /**
  * A `Set-Cookie` value without its `Domain` attribute, so the client keeps
@@ -119,6 +135,7 @@ export class Upstream {
       if (
         HOP_BY_HOP.has(name) ||
         REQUEST_OWNED.has(name) ||
+        GATEWAY_CREDENTIALS.has(name) ||
         connectionNamed.has(name) ||
         name.startsWith(EVIDENCE_HEADER_PREFIX)
       ) {
@@ -182,6 +199,7 @@ export class Upstream {
         this.options.hostOnlyCookies === true ? hostOnlyCookie(cookie) : cookie,
       ]);
     }
+    if (this.options.sandboxed === true) relayed.push(["content-security-policy", SANDBOX_POLICY]);
     return {
       status: response.status,
       headers: relayed,

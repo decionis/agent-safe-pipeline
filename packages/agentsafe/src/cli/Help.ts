@@ -10,6 +10,7 @@ export function usage(version: string): string {
     "  proxy                Run the gateway (--upstream URL, --port N, --mode shadow|enforcement)",
     "  run                  Run the gateway from agentsafe.yaml (same command, file first)",
     "  intercept            Run the transparent interceptor: observe every destination, govern the listed ones",
+    "  host                 Serve many tenants' hosted gateways from a registry (--registry FILE, --port N)",
     "  status               Ask a running gateway what it is doing",
     "  doctor               Check the binary, configuration, upstream, Decionis and credentials",
     "  identity             Print which enforcement boundary this process is",

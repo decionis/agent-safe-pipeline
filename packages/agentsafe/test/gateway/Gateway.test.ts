@@ -25,6 +25,8 @@ import {
   UpstreamDouble,
   type CollectedIo,
   LOOPBACK_ORIGIN,
+  TENANT_KEY,
+  TENANT_KEY_DIGEST,
 } from "../support/GatewayHarness.js";
 
 const TENANT_ID = "00000000-0000-4000-8000-000000000009";
@@ -916,7 +918,7 @@ describe("a hosted gateway", () => {
     const gateway = await Gateway.create(
       testConfig("https://shop.tenant.example", {
         flags: { mode: "shadow" },
-        env: { AGENTSAFE_HOSTED_GATEWAY: "true" },
+        env: { AGENTSAFE_HOSTED_GATEWAY: "true", AGENTSAFE_TENANT_KEY_DIGESTS: TENANT_KEY_DIGEST },
       }),
       {
         env: {},
@@ -936,6 +938,84 @@ describe("a hosted gateway", () => {
         ["set-cookie", "sid=1; Path=/; Secure"],
       ]);
     }
+    await gateway.close();
+  });
+
+  it("sandboxes every relayed response, so no script a tenant's upstream serves runs", async () => {
+    const policies = async (env: Record<string, string>): Promise<string[][]> => {
+      const gateway = await Gateway.create(
+        testConfig("https://shop.tenant.example", { flags: { mode: "shadow" }, env }),
+        {
+          env: {},
+          io: collectedIo(),
+          upstreamFetch: async () =>
+            new Response("<script></script>", { headers: { "content-type": "text/html" } }),
+        },
+      );
+      const seen = [];
+      for (const answer of [
+        await gateway.passthrough(request("GET", "/page")),
+        await gateway.govern(request("POST", "/payments", { amount: 10 }), "http.post"),
+      ]) {
+        seen.push(
+          answer.headers
+            .filter(([name]) => name === "content-security-policy")
+            .map(([, value]) => value),
+        );
+      }
+      await gateway.close();
+      return seen;
+    };
+    expect(
+      await policies({
+        AGENTSAFE_HOSTED_GATEWAY: "true",
+        AGENTSAFE_TENANT_KEY_DIGESTS: TENANT_KEY_DIGEST,
+      }),
+    ).toEqual([["sandbox"], ["sandbox"]]);
+    // A gateway its owner runs relays what its own upstream sent, as before.
+    expect(await policies({})).toEqual([[], []]);
+  });
+});
+
+describe("the tenant key check", () => {
+  const second = "synthetic-tenant-key-0002";
+  const secondDigest = `sha256:${createHash("sha256").update(second, "utf8").digest("hex")}`;
+
+  it("admits either key during a rotation, refuses anything else by reason, and never records a value", async () => {
+    const io = collectedIo();
+    const gateway = await Gateway.create(
+      testConfig("https://shop.tenant.example", {
+        flags: { mode: "shadow" },
+        env: {
+          AGENTSAFE_HOSTED_GATEWAY: "true",
+          AGENTSAFE_TENANT_KEY_DIGESTS: `${TENANT_KEY_DIGEST},${secondDigest}`,
+        },
+      }),
+      { env: {}, io },
+    );
+    expect(gateway.admits(TENANT_KEY)).toBe(true);
+    expect(gateway.admits(second)).toBe(true);
+    expect(gateway.admits(undefined)).toBe(false);
+    expect(gateway.admits("")).toBe(false);
+    expect(gateway.admits("synthetic-guess")).toBe(false);
+    const refusals = [...io.out, ...io.err]
+      .filter((line) => line.includes('"tenant_key"'))
+      .map((line) => (JSON.parse(line) as { code: string }).code);
+    expect(refusals).toEqual(["TENANT_KEY_MISSING", "TENANT_KEY_MISSING", "TENANT_KEY_INVALID"]);
+    expect([...io.out, ...io.err].some((line) => line.includes("synthetic-guess"))).toBe(false);
+    expect([...io.out, ...io.err].some((line) => line.includes(TENANT_KEY))).toBe(false);
+    await gateway.close();
+  });
+
+  it("admits everything when the gateway has no keys, and says nothing", async () => {
+    const io = collectedIo();
+    const gateway = await Gateway.create(
+      testConfig("https://shop.tenant.example", { flags: { mode: "shadow" } }),
+      { env: {}, io },
+    );
+    expect(gateway.admits(undefined)).toBe(true);
+    expect(gateway.admits("anything")).toBe(true);
+    expect([...io.out, ...io.err].some((line) => line.includes('"tenant_key"'))).toBe(false);
     await gateway.close();
   });
 });

@@ -42,6 +42,25 @@ The process prints the banner once it listens, one report per intercepted reques
 `SIGTERM` or `SIGINT`: the listener closes, requests in flight get ten seconds, the gateway closes,
 the exit status is `0`. A refusal to start names the setting and never its value.
 
+### `agentsafe host`
+
+Many tenants' hosted gateways in one process, each at `{id}.{domain}`, from the
+[tenant registry](../gateway/configuration.md#many-tenants-in-one-process) the operator mounts. A
+request is routed by its `Host` alone; a host no tenant has is `421`, except `healthz` and `readyz`,
+which answer for the process so a platform can probe it by address. The registry is read again when
+its text changes and on `SIGHUP`; `SIGTERM` and `SIGINT` stop it. Every line it prints is JSON, and
+every line a tenant's gateway prints begins with that tenant's id.
+
+| Option                    | Meaning                                                                 |
+| ------------------------- | ----------------------------------------------------------------------- |
+| `--registry <file>`       | the tenant registry; else `AGENTSAFE_TENANT_REGISTRY`                   |
+| `--listen <h:p>`          | where to listen; else `AGENTSAFE_LISTEN`, else every interface          |
+| `--port <n>`              | the port; else `PORT`, else 8080                                        |
+| `--tls-cert <file>`       | terminate TLS with this PEM certificate; else `AGENTSAFE_TLS_CERT_FILE` |
+| `--tls-key <file>`        | and this key, watched for renewal; else `AGENTSAFE_TLS_KEY_FILE`        |
+| `--redirect-listen <h:p>` | a plain-HTTP listener that only redirects to HTTPS; needs TLS           |
+| `--apex-page <file>`      | the HTML the registry's domain answers at `/`                           |
+
 ### `agentsafe intercept`
 
 The [transparent interceptor](../gateway/transparent-interception.md) as a process: the sidecar

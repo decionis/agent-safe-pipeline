@@ -14,6 +14,10 @@ gateway:
   upstreamInsecure: false # true: plain http off loopback is the network's business
   upstreamPublicOnly: false # true: https at a public host only, every resolved address checked
   hosted: false # true: run for a tenant; public-only, shadow only, operator-only status, host-only cookies
+  tenantKeyDigests: [] # one or two "sha256:<64 hex>"; required when hosted
+  rateLimit: # optional; a hosted gateway gets 50/s, burst 100
+    requestsPerSecond: 5 # above 0, at most 10000
+    burst: 20 # 1 to 100000
   upstreamTimeoutMs: 10000 # at most 120000
   system: "localhost:3000" # downstream_target.system in the intent; the upstream host by default
   environment: "local" # downstream_target.environment; "production" under NODE_ENV=production
@@ -80,7 +84,8 @@ gateway.upstream)`, `CONFIG_INVALID: authority.mode (shadow or enforcement)`,
 - a plain-http upstream off loopback needs `upstreamInsecure: true`;
 - a public-only upstream must be `https://` and name a public host, not loopback or an inward
   address;
-- a hosted gateway runs in shadow only;
+- a hosted gateway runs in shadow only, and needs at least one tenant key digest;
+- `tenantKeyDigests` holds one or two distinct `sha256:<64 hex>` digests;
 - the demo authority, `allowInsecureLoopback` and a key in the environment are refused in
   production;
 - `presence.managed` needs the Decionis authority, enforcement mode and an `approverId`;

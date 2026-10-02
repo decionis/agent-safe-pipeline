@@ -87,7 +87,99 @@ $AGENTSAFE_METRICS_TOKEN`, the operator's token, with `401` for any other, and a
   at all (`404`) when no token is set; `healthz` and `readyz` stay open for the platform's probes;
 - every `Set-Cookie` the upstream sends is relayed without its `Domain` attribute, so a cookie is
   kept for the exact host it came from and one tenant's upstream cannot set a cookie that the
-  client would send to another tenant's host under the same domain.
+  client would send to another tenant's host under the same domain;
+- the tenant's key is required (below), so a hosted gateway admits only its tenant.
+
+## Many tenants in one process
+
+`agentsafe host --registry /etc/agentsafe/tenants.yaml` serves every tenant the registry names, each
+as its own hosted gateway at `{id}.{domain}`:
+
+```yaml
+version: 1
+domain: decionisedge.com
+evidenceDir: /var/lib/agentsafe/tenants # optional: one directory per tenant
+tenants:
+  - id: acme # a DNS label; www, api, status, admin and console are the operator's
+    upstream: https://api.acme.example
+    tenantKeyDigests: ["sha256:…"] # one, or two during a rotation
+    rateLimit: { requestsPerSecond: 5, burst: 20 } # optional; else the registry's, else 50/100
+    workspace:
+      tenantId: 7c0e… # the Decionis workspace the tenant's evaluations run in
+      apiKeyFile: /run/secrets/tenants/acme/decionis-api-key
+    interception: # optional: the tenant's routes, as in agentsafe.yaml
+      routes:
+        - { path: /payments/**, action: payment.create, methods: [POST] }
+```
+
+Each tenant's gateway is built exactly as a hosted gateway configured by hand would be: public-only
+upstream, shadow only, operator-only status and metrics, host-only cookies, its tenant key required,
+and its workspace key read from its own mounted file. From the host's environment it inherits only
+how to reach the authority (`NODE_ENV`, `DECIONIS_API_URL`, `DECIONIS_TIMEOUT_MS`,
+`DECIONIS_ALLOW_INSECURE_LOOPBACK`, `AGENTSAFE_UPSTREAM_TIMEOUT_MS`, `AGENTSAFE_FAILURE_POLICY`),
+never a credential. A request is routed to one tenant by its `Host` alone, so nothing about one
+tenant is reachable from another's host. Every line a tenant's gateway prints names the tenant:
+its chained lines carry it in their envelope (`AGENTSAFE_HOSTED_TENANT`, set by the host), covered by
+the hash, and every other line gets it first, so the host's output can be retained and deleted per
+tenant and still verifies with `agentsafe verify-chain`.
+
+The registry is checked whole: a file that cannot be parsed, or breaks a rule (a duplicate id, a
+relative key path, more than 1,000 tenants), is refused at start and ignored on reload, and the
+tenants already served stay served. A tenant whose own gateway cannot be built (an `http://`
+upstream, a missing key file) is reported by code and setting, keeps the gateway it had, and is
+tried again every 60 seconds while the registry is unchanged, so a tenant whose key file has not
+reached the mount yet is served as soon as it has. A hosted gateway watches its workspace key file,
+so a key rotated in a mounted Secret takes effect without a rebuild or a restart, with
+`SECRET_ROTATED` on the tenant's security chain. A
+reload rebuilds only the tenants whose entry changed; a replaced or removed tenant's gateway
+finishes the requests in flight for 30 seconds before it is closed. Each load is one
+`TENANT_REGISTRY_LOADED` or `TENANT_REGISTRY_REFUSED` line naming what was built, kept, retired and
+failed.
+
+### TLS at the host
+
+With `--tls-cert` and `--tls-key`, `agentsafe host` terminates TLS itself, with the executor's
+listener (TLS 1.3, or 1.2 with AEAD ciphers only, no renegotiation), so a layer-4 load balancer is
+the whole edge. The key is watched like any mounted secret: when a certificate manager renews the
+certificate and key in a Kubernetes Secret, new connections get the new pair and open ones keep
+theirs (`TLS_CONTEXT_ROTATED`); a renewal that does not make a valid pair keeps the one in use
+(`TLS_ROTATION_REFUSED`). Every response then carries
+`Strict-Transport-Security: max-age=31536000; includeSubDomains`. `--redirect-listen` adds a
+plain-HTTP listener that answers only redirects to the same host over HTTPS (`301`, or `308` for a
+method other than `GET` and `HEAD`, never acting on the request), for the registry's domain and the
+hosts under it; any other host is `421`. `--apex-page` is the HTML the domain itself answers at `/`,
+with a policy that allows inline style and nothing else.
+
+## The rate a gateway admits
+
+`gateway.rateLimit: { requestsPerSecond: 5, burst: 20 }` (`AGENTSAFE_RATE_LIMIT_RPS` and
+`AGENTSAFE_RATE_LIMIT_BURST`, both or neither) limits the traffic one gateway admits: a token bucket
+that starts full at `burst` and refills at `requestsPerSecond`. It is taken after the tenant key, so
+only the tenant's own traffic spends the tenant's rate and a flood of requests without the key
+cannot exhaust it; the gateway's own routes do not take it. A request over the rate is
+`429 RATE_LIMITED` with `Retry-After` in whole seconds, and is counted as
+`agentsafe_requests_total{kind="rate_limited"}`. A hosted gateway without a limit gets 50 per second
+with a burst of 100; otherwise there is none. The limit is per process: behind several replicas the
+total is the limit times the replicas. In a tenant registry, `rateLimit` at the top is every
+tenant's default and a tenant's own `rateLimit` replaces it.
+
+## The tenant key
+
+`gateway.tenantKeyDigests` (`AGENTSAFE_TENANT_KEY_DIGESTS`, comma-separated) holds one or two
+`sha256:<64 hex>` digests of a tenant's ingress key; two while a rotation overlaps, so an agent can
+be redeployed with the new key before the old digest is removed. The key itself is never in the
+configuration: the operator issues it to the tenant and keeps only its digest.
+
+When digests are set, every request that is not the gateway's own must carry a key in the
+`AgentSafe-Tenant-Key` header that hashes to one of them, compared in constant time against each.
+Anything else is `401 TENANT_KEY_INVALID`, nothing is forwarded, the refusal is counted as
+`agentsafe_requests_total{kind="tenant_key_refused"}`, and `AUTH_FAILED` with method
+`tenant_key` and code `TENANT_KEY_MISSING` or `TENANT_KEY_INVALID` is on the security stream,
+never with the value presented. The header is removed before any request is forwarded, whether or
+not digests are set, so an upstream never sees it, and it cannot be the
+`interception.principalHeader`. The gateway's own routes do not take it: `healthz` and `readyz`
+answer platform probes, and `status` and `metrics` answer the operator's token. A hosted gateway
+refuses to start without a digest.
 
 ## Presence
 
