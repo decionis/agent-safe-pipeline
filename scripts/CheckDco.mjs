@@ -49,6 +49,19 @@ export function hasAuthorSignoff(message, authorName, authorEmail) {
   return false;
 }
 
+/**
+ * Whether a commit is a clean merge: two or more parents, and a combined diff
+ * that is empty, so its tree holds nothing that is not in one of its parents.
+ * Such a commit, which GitHub's "Update branch" makes, carries no contribution
+ * of its own to certify. A merge that resolved a conflict, or slipped any other
+ * change in, has a combined diff and still needs its author's sign-off.
+ */
+export function isCleanMerge(commit) {
+  const parents = runGit(["show", "--no-patch", "--format=%P", commit]).trim().split(/\s+/);
+  if (parents.length < 2) return false;
+  return runGit(["diff-tree", "--cc", "--no-commit-id", "-p", commit]).trim() === "";
+}
+
 export function verifyCommitRange(baseCommit, headCommit, pullRequestAuthor = "") {
   if (!commitReference.test(baseCommit) || !commitReference.test(headCommit)) {
     throw new Error("DCO_COMMIT_REFERENCE_INVALID");
@@ -75,6 +88,7 @@ export function verifyCommitRange(baseCommit, headCommit, pullRequestAuthor = ""
       authorName === dependabotIdentity.name &&
       authorEmail.toLowerCase() === dependabotIdentity.email;
     if (trustedDependabotCommit) continue;
+    if (isCleanMerge(hash)) continue;
     if (!hasAuthorSignoff(messageParts.join("\0"), authorName, authorEmail)) {
       failures.push({ hash, authorName, authorEmail });
     }
