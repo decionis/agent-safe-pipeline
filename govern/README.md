@@ -120,14 +120,14 @@ own build information (the modules linked in, the toolchain, the build settings,
 checksum) and attested beside them. A `GOVERN_VERSION` such as `2.1.0` pins a version, and the
 installer otherwise takes the newest release that carries one.
 
-| How            | Command                                                                                                                            |
-| -------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| Installer      | `curl -fsSL https://raw.githubusercontent.com/decionis/agent-safe-pipeline/master/govern/install.sh \| sh`                         |
-| Homebrew       | `brew tap decionis/agent-safe https://github.com/decionis/agent-safe-pipeline && brew install govern`                              |
-| Go             | `go install github.com/decionis/agent-safe-pipeline/govern/v2/cmd/govern@v2.1.0`                                                   |
-| By hand        | download the archive and `SHA256SUMS` from the release, `shasum -a 256 -c SHA256SUMS`, extract, put `govern` on the path           |
-| Windows        | download `govern-<version>-windows-x64.zip` and `SHA256SUMS`, check the zip against the list, unpack, put `govern.exe` on the path |
-| GitHub Actions | `uses: decionis/govern@v2` (the action builds or fetches the binary itself, on Windows runners too)                                |
+| How            | Command                                                                                                                                 |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Installer      | `curl -fsSL https://raw.githubusercontent.com/decionis/agent-safe-pipeline/master/govern/install.sh \| sh`                              |
+| Homebrew       | `brew tap decionis/agent-safe https://github.com/decionis/agent-safe-pipeline && brew trust decionis/agent-safe && brew install govern` |
+| Go             | `go install github.com/decionis/agent-safe-pipeline/govern/v2/cmd/govern@v2.1.0`                                                        |
+| By hand        | download the archive and `SHA256SUMS` from the release, `shasum -a 256 -c SHA256SUMS`, extract, put `govern` on the path                |
+| Windows        | download `govern-<version>-windows-x64.zip` and `SHA256SUMS`, check the zip against the list, unpack, put `govern.exe` on the path      |
+| GitHub Actions | `uses: decionis/govern@v2` (the action builds or fetches the binary itself, on Windows runners too)                                     |
 
 [`install.sh`](./install.sh) does one thing: it detects the platform, downloads the archive and the
 release's `SHA256SUMS`, refuses to continue unless the archive's SHA-256 is the one the release
@@ -137,7 +137,9 @@ no shell profile, no workflow file and no configuration; `GOVERN_RELEASE_BASE` a
 `GOVERN_RELEASE_CA` point it at a mirror. The Homebrew formula (`Formula/govern.rb` in this
 repository, the tap) pins each platform's archive to the checksum the release listed; it is
 rendered by the release workflow from `SHA256SUMS` and opened as a pull request, never typed by
-hand. The Go module is `github.com/decionis/agent-safe-pipeline/govern/v2`; its tag,
+hand. Homebrew 5 and later load a formula from a third-party tap only after you trust the tap
+once; `brew trust` is the command, and an older Homebrew that does not have it does not need it.
+The Go module is `github.com/decionis/agent-safe-pipeline/govern/v2`; its tag,
 `govern/v<version>`, is signed by the release workflow's identity like the release tag, and
 `go.mod` pins the toolchain so a `go install` builds the same bytes the release shipped.
 
