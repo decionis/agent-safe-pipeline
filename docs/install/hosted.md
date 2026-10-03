@@ -1,15 +1,52 @@
 # Hosted
 
-`agentsafe.decionis.com` is the zero-install evaluation path: bring an endpoint, say which of its
-actions are consequential, receive a governed endpoint, send a request, watch the decision, inspect
-the evidence. It is not live yet, and nothing in this repository links to it as if it were.
+Decionis runs this runtime as a hosted fleet, live in shadow: each tenant it onboards is served at
+`{id}.decionisedge.com`, and a request within the gateway's bounds (below) reaches the tenant's API
+while Decionis records what it would have decided. Decionis onboards each tenant and hands it a
+tenant key; there is no self-serve sign-up. Bringing an endpoint, saying which of its actions are
+consequential and watching the decisions without an operator in the loop is the evaluation path
+the fleet is building toward, and that part is not live.
 
-What this repository establishes is that it will run the same runtime. The hosted gateway is not
+What this repository establishes is that the fleet runs the same runtime. The hosted gateway is not
 a second implementation: it is `Gateway` from `@decionis/agentsafe`, configured per governed
 endpoint, behind the same listener, asking the same Decionis authority through the same
 `DecionisGate`, claiming the same single-use grants, leaving the same chained evidence. The
 commercial boundary is what surrounds it (managed policies, organizational authority, Presence
 coordination, retention, fleet visibility), never a weaker gateway for the self-hosted path.
+
+## What a tenant of the fleet sees
+
+The fleet is `agentsafe host` serving a [tenant registry](../gateway/configuration.md#many-tenants-in-one-process).
+For a tenant, that means:
+
+- **The base URL changes, and the key is added.** The agent sends the same method, path, query and
+  body to `https://{id}.decionisedge.com` instead of its API's own host, with
+  `AgentSafe-Tenant-Key: <key>` ([the tenant key](../gateway/configuration.md#the-tenant-key)). The
+  gateway removes the key, adds `X-Forwarded-For`, `X-Forwarded-Proto` and `X-Forwarded-Host`, and
+  `x-agent-safe-intent-hash` on an evaluated request, and forwards the rest unchanged.
+- **Shadow only, and the routes are fixed.** `POST`, `PUT`, `PATCH` and `DELETE` are evaluated as
+  they pass, each under its derived name (`http.post`, `http.put`, `http.patch`, `http.delete`),
+  and nothing is held or blocked on a verdict; `GET`, `HEAD` and `OPTIONS` pass through
+  unevaluated. A tenant of the fleet cannot configure routes or name its actions: onboarding sets
+  none, so every tenant gets these defaults. What Decionis is shown of an evaluated request is in
+  [what the authority sees](../gateway/http-interception.md#what-the-authority-sees).
+- **Responses change.** A relayed response carries `agentsafe-execution` (`PASSTHROUGH`), and
+  `agentsafe-mode: SHADOW` when the request was evaluated; any `agentsafe-*` header the API sent is
+  dropped. Every relayed response gets `Content-Security-Policy: sandbox`, so a page or script
+  served through the gateway does not run as one; every `Set-Cookie` loses its `Domain`, so a
+  cookie is kept for the tenant's host alone; and the fleet terminates TLS itself, so every answer
+  carries its `Strict-Transport-Security`, never the API's own.
+- **Some answers are the gateway's, not the API's.** `401` with `TENANT_KEY_MISSING` or
+  `TENANT_KEY_INVALID` and `WWW-Authenticate: AgentSafe-Tenant-Key`; `421 HOST_NOT_SERVED` for a
+  host that is no tenant's; `429 RATE_LIMITED` with `Retry-After` above the rate (50 requests a
+  second with a burst of 100 unless the operator set another, per replica); `413 BODY_TOO_LARGE`
+  for an evaluated body over 1 MiB; and `502` when the API does not answer, which is
+  `UPSTREAM_TIMEOUT` after 10 seconds unless the operator set another, and never claims the request
+  was not sent once it may have been ([responses the gateway makes itself](../gateway/http-interception.md#responses-the-gateway-makes-itself)).
+  Each carries `agentsafe-execution`, `NOT_FORWARDED` for a refusal, so an answer without it came
+  from the API.
+- **Bodies are read whole.** A response is read in full, up to 16 MiB, before it is relayed; there
+  is no streaming and no WebSocket upgrade.
 
 ## The boundaries the runtime keeps for a host
 
@@ -32,6 +69,10 @@ coordination, retention, fleet visibility), never a weaker gateway for the self-
   `421`. A single-gateway listener is the same class with a gateway instead of a selector.
 - **Nothing else is shared.** Metrics, held escalations, evidence chains and the request holder
   are per gateway; a tenant's counts and holds are never another's.
+- **Many tenants, one process.** `agentsafe host` is that listener with a selector built from a
+  registry the operator mounts: each tenant's gateway at `{id}.{domain}`, its tenant key required,
+  its keys changed in place, its chains kept across reloads
+  ([many tenants in one process](../gateway/configuration.md#many-tenants-in-one-process)).
 
 ## What a hosted gateway still is not
 

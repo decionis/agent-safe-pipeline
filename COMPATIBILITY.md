@@ -16,8 +16,9 @@ requirement or a supported configuration updates this page in the same pull requ
 | Helm chart 0.2.5                                | Kubernetes 1.27 or later (`kubeVersion: ">=1.27.0-0"`)      | The container image above              | [Kubernetes](./docs/install/kubernetes.md), [`charts/agentsafe`](./charts/agentsafe/Chart.yaml) |
 | npm: `@decionis/agentsafe` 0.2.5                | Node.js                                                     | Node.js 22.14.0 or later               | [`packages/agentsafe`](./packages/agentsafe/package.json)                                       |
 
-There is no Windows build of the runtime. The hosted path, `agentsafe.decionis.com`, is not live
-yet ([hosted](./docs/install/hosted.md)).
+There is no Windows build of the runtime. The hosted fleet, `{id}.decionisedge.com`, runs in shadow
+only, for the tenants Decionis onboards; there is no self-serve sign-up yet
+([hosted](./docs/install/hosted.md)).
 
 ## Other packages in this repository
 
