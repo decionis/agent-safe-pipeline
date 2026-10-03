@@ -104,6 +104,7 @@ tenants:
     upstream: https://api.acme.example
     tenantKeyDigests: ["sha256:…"] # one, or two during a rotation
     rateLimit: { requestsPerSecond: 5, burst: 20 } # optional; else the registry's, else 50/100
+    upstreamTimeoutMs: 30000 # optional; else AGENTSAFE_UPSTREAM_TIMEOUT_MS, else 10000
     workspace:
       tenantId: 7c0e… # the Decionis workspace the tenant's evaluations run in
       apiKeyFile: /var/run/agent-safe/tenants/acme/decionis-api-key
@@ -117,7 +118,8 @@ upstream, shadow only, operator-only status and metrics, host-only cookies, its 
 and its workspace key read from its own mounted file. From the host's environment it inherits only
 how to reach the authority (`NODE_ENV`, `DECIONIS_API_URL`, `DECIONIS_TIMEOUT_MS`,
 `DECIONIS_ALLOW_INSECURE_LOOPBACK`, `AGENTSAFE_UPSTREAM_TIMEOUT_MS`, `AGENTSAFE_FAILURE_POLICY`),
-never a credential. A request is routed to one tenant by its `Host` alone, so nothing about one
+never a credential; a tenant's own `upstreamTimeoutMs` (1 to 120000) replaces the host's timeout
+for that tenant. A request is routed to one tenant by its `Host` alone, so nothing about one
 tenant is reachable from another's host. Every line a tenant's gateway prints names the tenant:
 its chained lines carry it in their envelope (`AGENTSAFE_HOSTED_TENANT`, set by the host), covered by
 the hash, and every other line gets it first, so the host's output can be retained and deleted per

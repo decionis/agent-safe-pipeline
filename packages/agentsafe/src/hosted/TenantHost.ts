@@ -380,6 +380,10 @@ export class TenantHost {
       AGENTSAFE_MODE: "shadow",
       AGENTSAFE_UPSTREAM: tenant.upstream,
       AGENTSAFE_TENANT_KEY_DIGESTS: tenant.tenantKeyDigests.join(","),
+      // The tenant's own timeout wins over the host's.
+      ...(tenant.upstreamTimeoutMs === undefined
+        ? {}
+        : { AGENTSAFE_UPSTREAM_TIMEOUT_MS: String(tenant.upstreamTimeoutMs) }),
       DECIONIS_TENANT_ID: tenant.workspace.tenantId,
       DECIONIS_API_KEY_FILE: tenant.workspace.apiKeyFile,
     };

@@ -95,6 +95,21 @@ describe("the tenant registry", () => {
         "REGISTRY_INVALID",
         "REGISTRY_INVALID: tenants.0.rateLimit.burst",
       ],
+      [
+        registry([tenant("acme", { upstreamTimeoutMs: 0 })]),
+        "REGISTRY_INVALID",
+        "REGISTRY_INVALID: tenants.0.upstreamTimeoutMs",
+      ],
+      [
+        registry([tenant("acme", { upstreamTimeoutMs: 1_500.5 })]),
+        "REGISTRY_INVALID",
+        "REGISTRY_INVALID: tenants.0.upstreamTimeoutMs",
+      ],
+      [
+        registry([tenant("acme", { upstreamTimeoutMs: 120_001 })]),
+        "REGISTRY_INVALID",
+        "REGISTRY_INVALID: tenants.0.upstreamTimeoutMs",
+      ],
       [registry([tenant("Acme")]), "REGISTRY_INVALID", "REGISTRY_INVALID: tenants.0.id"],
       [registry([tenant("-acme")]), "REGISTRY_INVALID", "REGISTRY_INVALID: tenants.0.id"],
       [registry([tenant("a".repeat(64))]), "REGISTRY_INVALID", "REGISTRY_INVALID: tenants.0.id"],
@@ -159,6 +174,9 @@ describe("the tenant registry", () => {
       ]),
     );
     expect(tenantFingerprint(rotated, rotated.tenants[0]!)).toBe(tenantFingerprint(base, acme));
+    const slower = parseTenantRegistry(registry([tenant("acme", { upstreamTimeoutMs: 30_000 })]));
+    expect(slower.tenants[0]?.upstreamTimeoutMs).toBe(30_000);
+    expect(tenantFingerprint(slower, slower.tenants[0]!)).not.toBe(tenantFingerprint(base, acme));
     const moved = parseTenantRegistry(registry([tenant("acme")], { domain: "edge.example" }));
     expect(tenantFingerprint(moved, moved.tenants[0]!)).not.toBe(tenantFingerprint(base, acme));
     const limited = parseTenantRegistry(

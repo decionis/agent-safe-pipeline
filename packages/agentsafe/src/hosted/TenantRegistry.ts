@@ -40,6 +40,8 @@ const TenantSchema = z.strictObject({
   }),
   /** This tenant's rate, per process; the registry's `rateLimit` otherwise. */
   rateLimit: RateLimitSchema.optional(),
+  /** How long this tenant's upstream may take to answer, in ms; the host's own setting otherwise. */
+  upstreamTimeoutMs: z.number().int().positive().max(120_000).optional(),
   /** The tenant's `interception` section, as `agentsafe.yaml` has it; validated by the gateway's loader. */
   interception: z.record(z.string(), z.unknown()).optional(),
 });

@@ -727,4 +727,29 @@ describe("the tenant host", () => {
     expect(await host.reload()).toMatchObject({ event: "TENANT_REGISTRY_REFUSED", revision: null });
     await host.close();
   });
+
+  it("gives a tenant its own upstream timeout, over the host's", async () => {
+    const files = new Map([
+      [
+        REGISTRY_PATH,
+        registry([
+          tenant("acme", TENANT_KEY_DIGEST, { upstreamTimeoutMs: 45_000 }),
+          tenant("globex", OTHER_DIGEST),
+        ]),
+      ],
+    ]);
+    const host = await TenantHost.start({
+      registryPath: REGISTRY_PATH,
+      env: {
+        DECIONIS_API_URL: authority.baseUrl,
+        DECIONIS_ALLOW_INSECURE_LOOPBACK: "true",
+        AGENTSAFE_UPSTREAM_TIMEOUT_MS: "20000",
+      },
+      io: collectedIo(),
+      readFile: (path) => files.get(path) ?? null,
+    });
+    expect(host.select(ACME)?.config.upstream.timeoutMs).toBe(45_000);
+    expect(host.select("globex.decionisedge.example")?.config.upstream.timeoutMs).toBe(20_000);
+    await host.close();
+  });
 });
