@@ -1,5 +1,3 @@
-export const MCPB_VERSION = "2.1.2";
-
 export const PACKED_PACKAGE = Object.freeze({
   name: "@decionis/commercegate-claude-extension",
   version: "0.1.5",

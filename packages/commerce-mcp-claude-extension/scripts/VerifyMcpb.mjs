@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   copyFile,
@@ -18,12 +18,12 @@ import { fileURLToPath } from "node:url";
 
 import {
   BUNDLE_FILES,
-  MCPB_VERSION,
   PACKED_PACKAGE,
   TOOL_NAMES,
   VENDORED_RUNTIME_PACKAGE,
 } from "./BundleContract.mjs";
-import { canonicalizeZipFile } from "./CanonicalizeZip.mjs";
+import { canonicalizeZipArchive } from "./CanonicalizeZip.mjs";
+import { packBundle, unpackBundle, validateManifest } from "./McpbArchive.mjs";
 
 const packageDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const commercePackageDirectory = path.resolve(packageDirectory, "../commerce-mcp");
@@ -76,21 +76,6 @@ function safeEnvironment() {
       ([name, value]) => value !== undefined && allowedNames.has(name.toUpperCase()),
     ),
   );
-}
-
-function runCli(cliPath, arguments_, options = {}) {
-  try {
-    return execFileSync(process.execPath, [cliPath, ...arguments_], {
-      cwd: packageDirectory,
-      encoding: "utf8",
-      env: safeEnvironment(),
-      maxBuffer: maximumOutputBytes,
-      ...options,
-    });
-  } catch (error) {
-    const exitCode = typeof error?.status === "number" ? error.status : "unknown";
-    throw new Error(`MCPB CLI failed with exit code ${exitCode}.`, { cause: error });
-  }
 }
 
 async function inventory(directory, prefix = "") {
@@ -238,13 +223,6 @@ async function verifyMetadata() {
 
 async function verifyMcpb() {
   const outputPath = requestedOutputPath(process.argv.slice(2));
-  const configuredCli = process.env.MCPB_CLI_PATH;
-  assert.ok(configuredCli, "MCPB_CLI_PATH must point to @anthropic-ai/mcpb 2.1.2 cli.js.");
-  const cliPath = path.resolve(configuredCli);
-  const cliStat = await lstat(cliPath);
-  assert.ok(cliStat.isFile(), "Configured MCPB CLI must be a regular JavaScript file.");
-  assert.ok(!cliStat.isSymbolicLink(), "Configured MCPB CLI must not be a symbolic link.");
-  assert.equal(runCli(cliPath, ["--version"]).trim(), MCPB_VERSION, "Unexpected MCPB CLI version.");
   await verifyMetadata();
 
   const temporaryDirectory = await mkdtemp(path.join(tmpdir(), "commercegate-claude-mcpb-"));
@@ -256,18 +234,28 @@ async function verifyMcpb() {
     await mkdir(stagingDirectory);
     await stageBundle(stagingDirectory);
 
-    runCli(cliPath, ["validate", path.join(stagingDirectory, "manifest.json")]);
-    runCli(cliPath, ["pack", stagingDirectory, bundlePath]);
-    runCli(cliPath, ["pack", stagingDirectory, repeatedBundlePath]);
-    await canonicalizeZipFile(bundlePath);
-    await canonicalizeZipFile(repeatedBundlePath);
-    const bundle = await readFile(bundlePath);
+    const stagedManifest = JSON.parse(
+      await readFile(path.join(stagingDirectory, "manifest.json"), "utf8"),
+    );
+    validateManifest(stagedManifest, BUNDLE_FILES);
+    const icon = await readFile(path.join(stagingDirectory, stagedManifest.icon));
     assert.deepEqual(
-      await readFile(repeatedBundlePath),
+      icon.subarray(0, 8),
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      "The manifest icon must be a PNG.",
+    );
+    const bundle = await packBundle(stagingDirectory, BUNDLE_FILES, bundlePath);
+    assert.deepEqual(
+      await packBundle(stagingDirectory, [...BUNDLE_FILES].reverse(), repeatedBundlePath),
       bundle,
       "Repeated MCPB packs must be byte-for-byte identical.",
     );
-    runCli(cliPath, ["unpack", bundlePath, unpackedDirectory]);
+    assert.deepEqual(
+      canonicalizeZipArchive(Buffer.from(bundle)),
+      bundle,
+      "The MCPB must already be in canonical ZIP form.",
+    );
+    await unpackBundle(bundlePath, unpackedDirectory);
 
     assert.deepEqual(
       await inventory(unpackedDirectory),
@@ -347,7 +335,7 @@ async function verifyMcpb() {
     }
     const sha256 = createHash("sha256").update(bundle).digest("hex");
     process.stdout.write(
-      `Verified CommerceGate Claude MCPB with mcpb ${MCPB_VERSION}: deterministic mixed-license bundle ${sha256} and seven-tool JSON-RPC smoke passed${outputPath ? `; wrote ${outputPath}` : ""}.\n`,
+      `Verified CommerceGate Claude MCPB: deterministic mixed-license bundle ${sha256} and seven-tool JSON-RPC smoke passed${outputPath ? `; wrote ${outputPath}` : ""}.\n`,
     );
   } finally {
     await rm(temporaryDirectory, { recursive: true, force: true });

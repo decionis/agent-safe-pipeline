@@ -119,6 +119,7 @@ function validateEntryPayload(entry) {
     `${entry.name} uncompressed size drifted.`,
   );
   assert.equal(crc32(uncompressedPayload), entry.crc, `${entry.name} CRC does not match payload.`);
+  return uncompressedPayload;
 }
 
 function parseEntries(archive, centralOffset, centralSize, entryCount) {
@@ -244,12 +245,13 @@ function parseEntries(archive, centralOffset, centralSize, entryCount) {
     "Unexpected data precedes the central directory.",
   );
   for (const entry of entries) {
-    validateEntryPayload(entry);
+    entry.payload = validateEntryPayload(entry);
   }
   return entries;
 }
 
-export function canonicalizeZipArchive(archive) {
+/** The checked entries of an archive, every rule above applied; shared by canonicalizing and reading. */
+function checkedEntries(archive) {
   assert.ok(Buffer.isBuffer(archive), "ZIP input must be a Buffer.");
   assert.ok(archive.length >= 22, "ZIP archive is truncated.");
   assert.ok(archive.length <= MAXIMUM_ARCHIVE_BYTES, "ZIP archive exceeds the size limit.");
@@ -271,10 +273,22 @@ export function canonicalizeZipArchive(archive) {
   assert.notEqual(centralSize, 0xffffffff, "ZIP64 archives are forbidden.");
   assert.notEqual(centralOffset, 0xffffffff, "ZIP64 archives are forbidden.");
   assert.equal(centralOffset + centralSize, endOffset, "ZIP central directory is misplaced.");
-
   const entries = parseEntries(archive, centralOffset, centralSize, entryCount).sort(
     (left, right) => Buffer.compare(left.nameBytes, right.nameBytes),
   );
+  return { entries, entryCount, endOffset };
+}
+
+/** Each entry's name and uncompressed bytes, in name order, after every check above. */
+export function readZipEntries(archive) {
+  return checkedEntries(archive).entries.map((entry) => ({
+    name: entry.name,
+    payload: entry.payload,
+  }));
+}
+
+export function canonicalizeZipArchive(archive) {
+  const { entries, entryCount, endOffset } = checkedEntries(archive);
   const localRecords = [];
   const centralRecords = [];
   let nextLocalOffset = 0;
@@ -308,6 +322,8 @@ export function canonicalizeZipArchive(archive) {
   assert.equal(canonical.length, archive.length, "ZIP canonicalization changed archive length.");
   return canonical;
 }
+
+export { crc32, REPRODUCIBLE_DOS_DATE };
 
 export async function canonicalizeZipFile(archivePath) {
   const canonical = canonicalizeZipArchive(await readFile(archivePath));

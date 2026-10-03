@@ -80,16 +80,15 @@ pnpm --filter @decionis/commercegate-claude-extension build
 pnpm --filter @decionis/commercegate-claude-extension test
 ```
 
-The workspace pins `@anthropic-ai/mcpb` 2.1.2 in `pnpm-lock.yaml`. Point `MCPB_CLI_PATH` at its
-resolved JavaScript entry point and run `scripts/VerifyMcpb.mjs`. The verifier invokes that
-JavaScript through the current Node executable; it never launches a shell or a platform-specific
-`.cmd` shim. The CI workflow contains the exact cross-platform commands and compares the macOS and
+Then run `node scripts/VerifyMcpb.mjs`. The bundle is validated, packed and unpacked by
+`scripts/McpbArchive.mjs` with Node's own zlib, so no packaging CLI or its dependencies are
+installed. The CI workflow contains the exact cross-platform commands and compares the macOS and
 Windows bundle bytes.
 
 The verifier allows only the reviewed MIT wrapper files and the separately attributed Apache-2.0
-runtime files into the bundle. It validates, packs twice, normalizes ZIP timestamps, proves the two
-archives are byte-identical, unpacks, compares every file, and runs initialize, tool-list, and
-capability JSON-RPC requests against the unpacked extension.
+runtime files into the bundle. It validates the manifest against MCPB 0.3, packs twice, proves the
+two archives are byte-identical and already in canonical ZIP form, unpacks, compares every file,
+and runs initialize, tool-list, and capability JSON-RPC requests against the unpacked extension.
 
 ## Privacy Policy
 

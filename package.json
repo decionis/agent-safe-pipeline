@@ -15,12 +15,6 @@
   "homepage": "https://github.com/decionis/agent-safe-pipeline#readme",
   "packageManager": "pnpm@9.15.3",
   "pnpm": {
-    "auditConfig": {
-      "ignoreGhsas": [
-        "GHSA-86w9-cpqp-85rv",
-        "GHSA-vfj7-8cjw-p6xm"
-      ]
-    },
     "overrides": {
       "fast-uri": "3.1.8",
       "ip-address": "10.7.1",

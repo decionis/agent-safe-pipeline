@@ -5,7 +5,6 @@ import { URL } from "node:url";
 
 import {
   BUNDLE_FILES,
-  MCPB_VERSION,
   PACKED_PACKAGE,
   TOOL_NAMES,
   VENDORED_RUNTIME_PACKAGE,
@@ -31,7 +30,8 @@ test("keeps the MIT extension separate from the Apache-2.0 runtime", async () =>
     extensionPackage.devDependencies["@decionis/commerce"],
     `workspace:${commercePackage.version}`,
   );
-  assert.equal(extensionPackage.devDependencies["@anthropic-ai/mcpb"], MCPB_VERSION);
+  // The bundle is packed by scripts/McpbArchive.mjs, not a packaging CLI.
+  assert.equal(extensionPackage.devDependencies["@anthropic-ai/mcpb"], undefined);
   assert.equal(extensionPackage.version, commercePackage.version);
   assert.equal(PACKED_PACKAGE.version, extensionPackage.version);
   assert.equal(VENDORED_RUNTIME_PACKAGE.version, commercePackage.version);
@@ -95,8 +95,7 @@ test("uses the canonical copy and extension-subtree URLs", async () => {
   assert.deepEqual(manifest.tools.map(({ name }) => name).sort(), [...TOOL_NAMES].sort());
 });
 
-test("pins the MCPB tool and the mixed-license bundle allowlist", () => {
-  assert.equal(MCPB_VERSION, "2.1.2");
+test("pins the mixed-license bundle allowlist", () => {
   assert.deepEqual(BUNDLE_FILES, [
     "LICENSE",
     "README.md",

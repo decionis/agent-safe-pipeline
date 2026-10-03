@@ -16,7 +16,6 @@
     "node": ">=20"
   },
   "devDependencies": {
-    "@anthropic-ai/mcpb": "2.1.2",
     "@decionis/commerce": "workspace:0.1.5",
     "@types/node": "^20.11.30",
     "tsup": "^8.5.1",
