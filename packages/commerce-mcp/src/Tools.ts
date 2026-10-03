@@ -70,6 +70,8 @@ export const COMMERCEGATE_ACTION_SUPPORT = {
     platforms: ["microsoft-partner-center", "aws-marketplace"],
     supported_offer_types: ["SAAS"],
     evaluation_mode: "SHADOW",
+    preflight_data_scope: "bounded_release_packet",
+    reads_customer_commerce_records: false,
     marketplace_writes: false,
     required_evidence: [
       "publisher_and_offer_identity",
@@ -92,6 +94,8 @@ export const COMMERCEGATE_ACTION_SUPPORT = {
     commerce_evaluation: {
       tool: "commercegate_evaluate_action",
       mode: "SHADOW",
+      evaluates_supplied_tenant_scoped_facts: true,
+      customer_activated_native_enforcement_is_separate: true,
       action_types: SUPPORTED_ACTION_TYPES,
     },
     price_guard: {
@@ -602,7 +606,7 @@ const marketplaceOfferSubmissionPreflightSchema = {
     submission: {
       title: "Marketplace SaaS offer submission preflight",
       description:
-        "A bounded, digest-backed packet for manual Microsoft Partner Center or AWS Marketplace SaaS offer submission. This checks policy in Shadow Mode and never sends a marketplace write.",
+        "A bounded, digest-backed packet for manual Microsoft Partner Center or AWS Marketplace SaaS offer submission. This non-writing preflight uses release metadata and preview or test evidence; it does not read customer commerce records or send a marketplace write.",
       type: "object",
       required: [
         "actor",
@@ -1841,9 +1845,9 @@ export class CommerceGateTools {
       },
       {
         name: COMMERCEGATE_TOOL_NAMES[2],
-        title: "Evaluate a Commerce Action in Shadow Mode",
+        title: "Evaluate a Commerce Action",
         description:
-          "Use this as the default preflight before a price, inventory, order-acceptance, fulfillment, promotion, refund, or return proposal, for questions like 'would repricing this SKU to $89 on Walmart still clear our margin floor after the referral fee?', 'is it safe to accept this 40-unit order with the stock we have left?', or 'can the support bot refund $2,850 on this order?'. It sends the bounded canonical action and policy signals to Decionis in SHADOW mode and may persist a signed Decision Dossier. This is a generic Protocol evaluation: it never calls a marketplace API, executes the proposal, or confirms that a connector exposes the required write path. The result maps to PROCEED, HOLD, or BLOCK: APPROVE is evidence, not consent to execute; REJECT means stop; REVIEW or ESCALATE means hold for a human.",
+          "Use this as the default preflight before a price, inventory, order-acceptance, fulfillment, promotion, refund, or return proposal, for questions like 'would repricing this SKU to $89 on Walmart still clear our margin floor after the referral fee?', 'is it safe to accept this 40-unit order with the stock we have left?', or 'can the support bot refund $2,850 on this order?'. It sends the bounded tenant-scoped action and policy signals to Decionis in default SHADOW mode and may persist a signed Decision Dossier. Shadow Mode evaluates real supplied facts without blocking the native commerce flow; it is not a synthetic-data mode. A customer-activated native executor enforces a supported connector path outside this MCP. This MCP is a generic Protocol evaluation: it never calls a marketplace API, executes the proposal, or confirms that a connector exposes the required write path. The result maps to PROCEED, HOLD, or BLOCK: APPROVE is evidence, not consent to execute; REJECT means stop; REVIEW or ESCALATE means hold for a human.",
         inputSchema: evaluateActionSchema,
         annotations: annotations(false, true),
         handler: async (args) =>
@@ -1934,7 +1938,7 @@ export class CommerceGateTools {
         name: COMMERCEGATE_TOOL_NAMES[7],
         title: "Preflight a Marketplace SaaS Offer Submission",
         description:
-          "Use this before manually submitting a Commerce Gate SaaS offer in Microsoft Partner Center or AWS Marketplace. It requires a bounded offer, plan and market packet, public HTTPS listing and technical URLs, platform identity, preview or test confirmation, and digest-bound release evidence. Microsoft packets require Microsoft Entra tenant and application IDs; AWS packets require a Login with Amazon subject bound to the seller AWS account and IAM role. It sends only a SHADOW evaluation to Decionis: it never calls either marketplace, uploads an artifact, creates or changes an offer, or submits the offer for review. PROCEED is policy evidence, not authority or consent to submit.",
+          "Use this before manually submitting a Commerce Gate SaaS offer in Microsoft Partner Center or AWS Marketplace. It requires a bounded offer, plan and market packet, public HTTPS listing and technical URLs, platform identity, preview or test confirmation, and digest-bound release evidence. Microsoft packets require Microsoft Entra tenant and application IDs; AWS packets require a Login with Amazon subject bound to the seller AWS account and IAM role. This is a non-writing preflight: it evaluates release metadata and preview or test evidence without reading customer commerce records, calling either marketplace, uploading an artifact, creating or changing an offer, or submitting the offer for review. PROCEED is policy evidence, not authority or consent to submit.",
         inputSchema: marketplaceOfferSubmissionPreflightSchema,
         annotations: annotations(false, true),
         handler: async (args) =>

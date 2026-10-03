@@ -31,7 +31,7 @@ describe("CommerceGate distribution metadata", () => {
     expect(packageJson.version).toBe(MCP_SERVER_VERSION);
     expect(server).toMatchObject({
       name: packageJson.mcpName,
-      title: "Decionis CommerceGate MCP",
+      title: "Decionis Commerce Gate MCP",
       version: packageJson.version,
       packages: [
         {
@@ -77,10 +77,11 @@ describe("CommerceGate distribution metadata", () => {
     const server = await text("server.json");
     const registryManifest = JSON.parse(server);
 
-    expect(readme).toContain("hard-locked to `SHADOW`");
+    expect(readme).toContain("defaults to `SHADOW`");
+    expect(readme).toContain("Customer-activated native enforcement");
     expect(readme).toContain("`INVENTORY_MUTATION`");
     expect(readme).toContain("`REFUND_REQUEST`");
-    expect(readme).toContain("does not execute the proposed action");
+    expect(readme).toContain("itself never executes a marketplace or ERP action");
     expect(readme).toContain("enforced `ALLOW`/`BLOCK`");
     expect(readme).toContain("It never writes the transaction to Dynamics 365");
     expect(readme).toContain("APPROVE` is evidence, not user consent");
@@ -95,7 +96,7 @@ describe("CommerceGate distribution metadata", () => {
     expect(registryManifest.description.length).toBeLessThanOrEqual(100);
     expect(registryManifest.description).toContain("Commerce preflights");
     expect(registryManifest.description).toContain("D365 authorization");
-    expect(registryManifest.description).toContain("no marketplace or ERP writes");
+    expect(registryManifest.description).toContain("no external writes");
     for (const toolName of COMMERCEGATE_TOOL_NAMES) expect(readme).toContain(toolName);
   });
 

@@ -4,6 +4,7 @@ import type {
   CommerceGateApi,
   ErpGuardResponse,
   EvaluateActionInput,
+  MarketplaceOfferSubmissionPreflightInput,
   ShadowReportQuery,
 } from "../src/CommerceGateClient.js";
 import { CommerceGateConfiguration } from "../src/Configuration.js";
@@ -40,6 +41,13 @@ class StubApi implements CommerceGateApi {
     mode: "SHADOW",
     dossier_id: "22222222-2222-4222-8222-222222222222",
   }));
+  readonly evaluateMarketplaceOfferSubmission = vi.fn(
+    async (_input: MarketplaceOfferSubmissionPreflightInput): Promise<unknown> => ({
+      outcome: "APPROVE",
+      mode: "SHADOW",
+      dossier_id: "22222222-2222-4222-8222-222222222222",
+    }),
+  );
   readonly getDossier = vi.fn(async (_id: string): Promise<unknown> => ({ dossier: true }));
   readonly getProofPacket = vi.fn(async (_id: string): Promise<unknown> => ({ proof: true }));
   readonly listShadowReports = vi.fn(
@@ -65,6 +73,45 @@ const ORDER = {
     },
   },
 } as const;
+
+const OFFER_PREFLIGHT: MarketplaceOfferSubmissionPreflightInput = {
+  submission: {
+    actor: { type: "HUMAN", id: "marketplace-release-operator" },
+    marketplace: "MICROSOFT_PARTNER_CENTER",
+    publisher_id: "decionis",
+    offer_id: "commerce-gate-saas",
+    offer_name: "Commerce Gate",
+    offer_type: "SAAS",
+    idempotency_key: "offer:commerce-gate:submission:v1",
+    plans: [
+      {
+        plan_id: "standard",
+        display_name: "Standard",
+        billing_term: "MONTHLY",
+        markets: ["US", "SE"],
+      },
+    ],
+    landing_page_url: "https://commerce.decionis.com",
+    connection_webhook_url: "https://commerce.decionis.com/marketplace/webhook",
+    support_url: "https://decionis.com/contact",
+    privacy_policy_url: "https://decionis.com/privacy",
+    terms_of_use_url: "https://decionis.com/terms",
+    marketplace_identity: {
+      provider: "MICROSOFT_ENTRA",
+      tenant_id: "55555555-5555-4555-8555-555555555555",
+      application_id: "66666666-6666-4666-8666-666666666666",
+    },
+    release_evidence: {
+      marketplace_draft_status: "READY_TO_PUBLISH",
+      offer_listing_verified: true,
+      technical_configuration_verified: true,
+      preview_or_test_verified: true,
+      marketplace_identity_verified: true,
+      submission_payload_sha256: "sha256:" + "a".repeat(64),
+      release_evidence_sha256: "sha256:" + "b".repeat(64),
+    },
+  },
+};
 
 const ERP_GUARD = {
   erp_region: "westeurope",
@@ -148,7 +195,7 @@ function catalog(api = new StubApi()) {
 }
 
 describe("CommerceGateTools", () => {
-  it("exposes exactly the seven bounded CommerceGate tools", () => {
+  it("exposes exactly the eight bounded Commerce Gate tools", () => {
     const { tools } = catalog();
 
     expect(tools.map(({ name }) => name)).toEqual(COMMERCEGATE_TOOL_NAMES);
@@ -250,6 +297,18 @@ describe("CommerceGateTools", () => {
       },
     });
     expect(api.evaluateAction).not.toHaveBeenCalled();
+    expect(COMMERCEGATE_ACTION_SUPPORT).toMatchObject({
+      marketplace_offer_submission_preflight: {
+        preflight_data_scope: "bounded_release_packet",
+        reads_customer_commerce_records: false,
+      },
+      walmart_marketplace: {
+        commerce_evaluation: {
+          evaluates_supplied_tenant_scoped_facts: true,
+          customer_activated_native_enforcement_is_separate: true,
+        },
+      },
+    });
   });
 
   it("makes every canonical action branch independently discoverable", () => {
@@ -300,6 +359,46 @@ describe("CommerceGateTools", () => {
       commercegate_disposition: "HOLD",
     });
     expect(String(response.structuredContent.agent_guidance)).toContain("HOLD");
+  });
+
+  it("preflights a bounded offer packet without marketplace access", async () => {
+    const { api, tools } = catalog();
+    const tool = tools.find(
+      ({ name }) => name === "commercegate_evaluate_marketplace_offer_submission",
+    )!;
+
+    const response = await tool.handler(OFFER_PREFLIGHT as unknown as Record<string, unknown>);
+
+    expect(response.isError).toBeUndefined();
+    expect(api.evaluateMarketplaceOfferSubmission).toHaveBeenCalledWith(OFFER_PREFLIGHT);
+    expect(response.structuredContent).toMatchObject({
+      ok: true,
+      mode: "SHADOW",
+      action_type: "MARKETPLACE_OFFER_SUBMISSION",
+      marketplace: "MICROSOFT_PARTNER_CENTER",
+      offer_id: "commerce-gate-saas",
+      no_marketplace_write_executed: true,
+      approve_is_not_submission_consent: true,
+      commercegate_disposition: "PROCEED",
+    });
+  });
+
+  it("rejects customer-commerce fields from an offer preflight before calling the API", async () => {
+    const { api, tools } = catalog();
+    const tool = tools.find(
+      ({ name }) => name === "commercegate_evaluate_marketplace_offer_submission",
+    )!;
+
+    const response = await tool.handler({
+      submission: {
+        ...OFFER_PREFLIGHT.submission,
+        customer_commerce_record: { order_id: "order-42" },
+      },
+    });
+
+    expect(response.isError).toBe(true);
+    expect(response.structuredContent).toMatchObject({ error: { code: "INVALID_INPUT" } });
+    expect(api.evaluateMarketplaceOfferSubmission).not.toHaveBeenCalled();
   });
 
   it("rejects unknown action types without calling the API", async () => {

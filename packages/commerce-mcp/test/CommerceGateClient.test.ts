@@ -155,6 +155,68 @@ describe("CommerceGateClient", () => {
     });
   });
 
+  it("maps a bounded Marketplace offer preflight without customer-commerce fields or marketplace access", () => {
+    const request = CommerceGateRequestMapping.buildMarketplaceOfferSubmissionRequest({
+      submission: {
+        actor: { type: "HUMAN", id: "marketplace-release-operator" },
+        marketplace: "MICROSOFT_PARTNER_CENTER",
+        publisher_id: "decionis",
+        offer_id: "commerce-gate-saas",
+        offer_name: "Commerce Gate",
+        offer_type: "SAAS",
+        idempotency_key: "offer:commerce-gate:submission:v1",
+        plans: [
+          {
+            plan_id: "standard",
+            display_name: "Standard",
+            billing_term: "MONTHLY",
+            markets: ["US", "SE"],
+          },
+        ],
+        landing_page_url: "https://commerce.decionis.com",
+        connection_webhook_url: "https://commerce.decionis.com/marketplace/webhook",
+        support_url: "https://decionis.com/contact",
+        privacy_policy_url: "https://decionis.com/privacy",
+        terms_of_use_url: "https://decionis.com/terms",
+        marketplace_identity: {
+          provider: "MICROSOFT_ENTRA",
+          tenant_id: "55555555-5555-4555-8555-555555555555",
+          application_id: "66666666-6666-4666-8666-666666666666",
+        },
+        release_evidence: {
+          marketplace_draft_status: "READY_TO_PUBLISH",
+          offer_listing_verified: true,
+          technical_configuration_verified: true,
+          preview_or_test_verified: true,
+          marketplace_identity_verified: true,
+          submission_payload_sha256: "sha256:" + "a".repeat(64),
+          release_evidence_sha256: "sha256:" + "b".repeat(64),
+        },
+      },
+    });
+
+    expect(request).toMatchObject({
+      org_id: null,
+      decision_type: "MARKETPLACE_OFFER_SUBMISSION",
+      transaction_type: "marketplace_offer_submission",
+      workflow_key: "commerce_marketplace_offer_submission",
+      channel: "mcp",
+      mode: "SHADOW",
+      context: {
+        marketplace: "MICROSOFT_PARTNER_CENTER",
+        offer_id: "commerce-gate-saas",
+        signals: {
+          preview_or_test_verified: true,
+          marketplace_identity_complete: true,
+          plan_count: 1,
+          market_count: 2,
+        },
+      },
+    });
+    expect(JSON.stringify(request)).not.toContain("customer_commerce_record");
+    expect(JSON.stringify(request)).not.toContain("enforcement");
+  });
+
   it("maps an unknown price cost without inventing margin facts", () => {
     const request = CommerceGateRequestMapping.buildEvaluationRequest({
       action: {

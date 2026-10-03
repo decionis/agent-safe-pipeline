@@ -156,8 +156,8 @@ export interface EvaluateActionInput {
 /**
  * Bounded preflight packet for a manual Commerce Gate SaaS marketplace offer
  * submission. This is deliberately separate from the seven commerce-action
- * contracts: it records evidence in Shadow Mode and never sends a marketplace
- * API request.
+ * contracts: it records bounded preflight evidence and never sends a marketplace
+ * API request. It does not read customer commerce records.
  */
 export interface MarketplaceOfferSubmissionPreflightInput {
   submission: {
@@ -646,8 +646,7 @@ function buildMarketplaceOfferSubmissionRequest(
         actor_id: submission.actor.id,
         marketplace: submission.marketplace,
         marketplace_identity_provider: submission.marketplace_identity.provider,
-        marketplace_draft_ready:
-          releaseEvidence.marketplace_draft_status === "READY_TO_PUBLISH",
+        marketplace_draft_ready: releaseEvidence.marketplace_draft_status === "READY_TO_PUBLISH",
         offer_listing_verified: releaseEvidence.offer_listing_verified,
         technical_configuration_verified: releaseEvidence.technical_configuration_verified,
         preview_or_test_verified: releaseEvidence.preview_or_test_verified,
