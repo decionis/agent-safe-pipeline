@@ -117,25 +117,30 @@ describe("the proof token", () => {
     expect(provesUpstream([" \t\r\n"], BINDING)).toBe(false);
   });
 
-  it("trims exactly the white space Python's str.strip() does, so onboarding and the host read one proof alike", () => {
-    // Every code point Python's str.isspace() is true for, and nothing else.
-    const python = [
-      0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x85, 0xa0, 0x1680, 0x2000,
-      0x2001, 0x2002, 0x2003, 0x2004, 0x2005, 0x2006, 0x2007, 0x2008, 0x2009, 0x200a, 0x2028,
-      0x2029, 0x202f, 0x205f, 0x3000,
+  it("trims spaces, tabs and carriage returns and nothing else, as onboarding does", () => {
+    // The vectors of Tenant.py's PROOF_LINE_VECTORS: a body, and whether it proves the binding.
+    const bom = "\ufeff";
+    const vectors: readonly [Buffer, boolean][] = [
+      [Buffer.from(`${bom}${GOLDEN}\r\n`), true],
+      [Buffer.from(` \t${GOLDEN} \t\r\n# a comment\n\n`), true],
+      // Kept, so the line is no token: Python's strip() alone would take these...
+      [Buffer.from(`${GOLDEN}\x1c`), false],
+      [Buffer.from(`${GOLDEN}\x1f`), false],
+      [Buffer.from(`${GOLDEN}\x85`), false],
+      // ...both would take these...
+      [Buffer.from(`\u00a0${GOLDEN}`), false],
+      [Buffer.from(`${GOLDEN}\x0b`), false],
+      [Buffer.from(`${GOLDEN}\x0c`), false],
+      [Buffer.from(`\u2028${GOLDEN}`), false],
+      // ...and JavaScript's trim() alone this, a byte-order mark anywhere but the very start.
+      [Buffer.from(`# first\n${bom}${GOLDEN}`), false],
+      [Buffer.from(`${bom}${bom}${GOLDEN}`), false],
     ];
-    for (const code of python) {
-      const space = String.fromCharCode(code);
-      expect([code, provesUpstream([`${space}${space}${GOLDEN}${space}`], BINDING)]).toEqual([
-        code,
-        true,
+    for (const [body, proves] of vectors) {
+      expect([body.toString("hex"), provesUpstream(proofLines(body), BINDING)]).toEqual([
+        body.toString("hex"),
+        proves,
       ]);
-    }
-    // JavaScript's trim() would take these; Python's strip() does not, and neither does the host.
-    for (const code of [0xfeff, 0x180e, 0x200b]) {
-      const other = String.fromCharCode(code);
-      expect([code, provesUpstream([`${other}${GOLDEN}`], BINDING)]).toEqual([code, false]);
-      expect([code, provesUpstream([`${GOLDEN}${other}`], BINDING)]).toEqual([code, false]);
     }
   });
 });
@@ -303,13 +308,6 @@ describe("one look at an upstream's proof", () => {
       await harness(answer(404), records([padded(" ", 500), " ".repeat(488)])).check.check(),
     ).toEqual(PROVEN_DNS);
     expect(await harness(answer(404), records([padded(" ", 989)])).check.check()).toEqual(MISSING);
-    // Two bytes each in UTF-8: 531 characters, 1,026 bytes.
-    expect(await harness(answer(404), records([padded("\u00a0", 495)])).check.check()).toEqual(
-      MISSING,
-    );
-    expect(await harness(answer(404), records([padded("\u00a0", 494)])).check.check()).toEqual(
-      PROVEN_DNS,
-    );
   });
 
   it("takes an answer over the bound as an answer that is not a proof", async () => {

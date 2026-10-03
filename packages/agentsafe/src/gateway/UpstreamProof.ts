@@ -34,17 +34,13 @@ const TOKEN_DOMAIN = "agentsafe-upstream\nv1\n";
 const ISSUED = /\d{10}/;
 const REQUEST_HEADERS = { accept: "text/plain", "user-agent": "agentsafe-upstream-proof/1" };
 /**
- * What a line or a record is trimmed of at both ends: the white space
- * Python's `str.strip()` removes, which is how onboarding's own check reads
- * the same proof, so the two never disagree about one. It is not
- * JavaScript's `trim()`, which also removes U+FEFF and keeps U+001C to
- * U+001F and U+0085.
+ * What a line or a record is trimmed of at both ends: spaces, tabs and
+ * carriage returns, and nothing else, exactly as onboarding's own check
+ * (Tenant.py, PROOF_LINE_SPACE) reads the same proof, so the two never
+ * disagree about one. Not JavaScript's `trim()` nor Python's `strip()`,
+ * which each take more and differ from each other.
  */
-const SPACE: ReadonlySet<number> = new Set([
-  0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x85, 0xa0, 0x1680, 0x2000, 0x2001,
-  0x2002, 0x2003, 0x2004, 0x2005, 0x2006, 0x2007, 0x2008, 0x2009, 0x200a, 0x2028, 0x2029, 0x202f,
-  0x205f, 0x3000,
-]);
+const SPACE: ReadonlySet<number> = new Set([0x09, 0x0d, 0x20]);
 
 /**
  * A text without the white space at its ends. A position past either end

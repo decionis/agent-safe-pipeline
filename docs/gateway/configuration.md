@@ -235,8 +235,8 @@ The origin serves it in either of two ways:
   file's `GET` over verified TLS, because DNS is not authenticated and only that answer ties the
   name to where traffic goes. An address written as the host has no name to publish one under.
 
-White space here is what Python's `str.strip()` removes, so a check written in Python reads a
-proof exactly as the host does.
+White space here is spaces, tabs and carriage returns, and nothing else, which is how
+onboarding's own check reads a proof, so the two never disagree about one.
 
 The check is the gateway's own, apart from its relay: public addresses only, TLS verified against
 the public roots, a loopback name refused, no header of the tenant's, and
