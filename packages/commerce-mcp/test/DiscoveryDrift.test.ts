@@ -390,6 +390,7 @@ describe("CommerceGate discovery drift", () => {
         message: "Allowed.",
       }),
       evaluateAction: async (_input: EvaluateActionInput) => ({}),
+      evaluateMarketplaceOfferSubmission: async () => ({}),
       getDossier: async (_dossierId: string) => ({}),
       getProofPacket: async (_dossierId: string) => ({}),
       listShadowReports: async (_query: ShadowReportQuery) => shadowReport,

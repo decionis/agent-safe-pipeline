@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Decionis CommerceGate API",
-    "version": "1.1.0",
-    "description": "Canonical CommerceGate contract for the synchronous ERP guard and the tenant-bound Decionis Protocol operations used by the local CommerceGate MCP adapter."
+    "version": "1.3.0",
+    "description": "Canonical CommerceGate contract for the synchronous ERP guard and the tenant-bound Decionis Protocol operations used by the local CommerceGate MCP adapter, plus the licensed AWS historical assessment and synthetic trial features on the Commerce API."
   },
   "servers": [
     {
@@ -78,9 +78,12 @@
       "post": {
         "operationId": "evaluateCommerceDecision",
         "summary": "Record one tenant-bound commerce action evaluation in Shadow Mode",
-        "description": "The CommerceGate MCP always submits SHADOW and requires the response to confirm SHADOW. It accepts all seven canonical commerce action types. Order acceptance and price change use native margin mappings; inventory, fulfillment, promotion, refund, and return are generic Protocol evaluations whose outcome depends on the tenant policy and supplied signals. The evaluation can create decision evidence but never executes the proposed marketplace action.",
+        "description": "The Commerce Gate MCP defaults to SHADOW and requires the response to confirm SHADOW. Shadow Mode evaluates the supplied tenant-scoped facts without blocking a native commerce flow; a customer-activated native executor applies enforcement on a supported connector path outside this MCP. `commercegate_evaluate_action` accepts all seven canonical commerce action types. For the live Walmart Marketplace connector, Commerce Evaluation, Price Guard, Order Guard, order interception, margin protection, release, hold, and cancel map to those canonical preflights. Order acceptance and price change use native margin mappings; inventory, fulfillment, promotion, refund, and return are generic Protocol evaluations whose outcome depends on the tenant policy and supplied signals. `commercegate_evaluate_marketplace_offer_submission` accepts a separate, bounded Microsoft Partner Center or AWS Marketplace SaaS offer packet with digest-bound release evidence. Either evaluation can create decision evidence but never executes a marketplace action or submits an offer.",
         "x-commercegate-mcp": true,
-        "x-commercegate-tools": ["commercegate_evaluate_action"],
+        "x-commercegate-tools": [
+          "commercegate_evaluate_action",
+          "commercegate_evaluate_marketplace_offer_submission"
+        ],
         "security": [
           {
             "BearerAuth": []
@@ -104,7 +107,14 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CommerceEvaluationRequest"
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/CommerceEvaluationRequest"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MarketplaceOfferSubmissionPreflightRequest"
+                  }
+                ]
               }
             }
           }
@@ -318,10 +328,298 @@
           }
         }
       }
+    },
+    "/aws/commerce/trial/evaluations": {
+      "post": {
+        "operationId": "evaluateAwsTrialSample",
+        "summary": "Evaluate a labelled synthetic sample in a verified AgentSaaS trial",
+        "description": "Requires a source-verified active trial. The server generates a synthetic SHADOW proposal; callers cannot supply customer data, policy, organization, execution mode or transaction payloads. The actual Protocol decision is returned without promising a particular outcome. At most 10,000 unique evaluations are admitted across the 14-day trial. Replays reuse the same idempotency key and never consume an additional slot. Expiry and the cap stop new evaluations without paid overage or automatic paid conversion. This additive trial feature does not replace the paid governance APIs. Billing/trial activation is default-off until deployment validation.",
+        "servers": [
+          {
+            "url": "https://commerce.decionis.com"
+          }
+        ],
+        "x-commercegate-mcp": false,
+        "x-commercegate-tools": [],
+        "security": [
+          {
+            "AwsCommerceBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Optional; must match idempotency_key in the JSON body.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AwsTrialEvaluationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Actual synthetic Shadow evaluation; not cacheable",
+            "headers": {
+              "X-Decionis-Evaluation-Id": {
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommerceEvaluationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/HistoricalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/HistoricalError"
+          },
+          "402": {
+            "description": "Trial evaluation allowance exhausted; no charge is created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["error"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "const": "AWS_TRIAL_LIMIT_REACHED"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/HistoricalError"
+          },
+          "409": {
+            "$ref": "#/components/responses/HistoricalError"
+          },
+          "429": {
+            "$ref": "#/components/responses/HistoricalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/HistoricalError"
+          }
+        }
+      }
+    },
+    "/aws/commerce/history/sources": {
+      "get": {
+        "operationId": "listAwsHistoricalSources",
+        "summary": "List licensed synthetic and connected-store historical assessment sources",
+        "servers": [
+          {
+            "url": "https://commerce.decionis.com"
+          }
+        ],
+        "x-commercegate-mcp": false,
+        "x-commercegate-managed-http": true,
+        "description": "Requires deployed, enabled AWS historical routes and a current AWS/Account license. The organization comes only from the credential. Lists the versioned synthetic example and supported stores already connected to that organization; no new registration, store connection or trial entitlement is created. AgentOps managed HTTP helpers use this API; the seven-tool local STDIO MCP inventory is unchanged. Commerce Gate uses the purchase-session BFF separately.",
+        "security": [
+          {
+            "AwsCommerceBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bounded source choices; no credentials or customer payloads",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoricalSources"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/HistoricalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/HistoricalError"
+          },
+          "429": {
+            "$ref": "#/components/responses/HistoricalRateLimit"
+          },
+          "503": {
+            "$ref": "#/components/responses/HistoricalError"
+          }
+        }
+      }
+    },
+    "/aws/commerce/history/assessments": {
+      "post": {
+        "operationId": "startAwsHistoricalAssessment",
+        "summary": "Assess a bounded previous-90-day history without executing commerce actions",
+        "servers": [
+          {
+            "url": "https://commerce.decionis.com"
+          }
+        ],
+        "x-commercegate-mcp": false,
+        "x-commercegate-managed-http": true,
+        "description": "Additive historical feature; it does not replace the existing governance APIs. Requires deployed, enabled AWS historical routes and a current licensed credential. The server fixes the previous 90-day window by transaction time. Accepts only a supported connected-store UUID or the labelled synthetic dataset, never raw transactions, organization, dates or a policy override. Reusing a request key returns the immutable original result; rebinding its source returns 409. Responses are at most 100 KiB, with at most 100 records assessed. Partial history, missing item costs and timestamp gaps remain visible. Results measure merchandise margin only, excluding shipping, taxes and payment or platform fees. Inline results are unsigned, with null proof_ref; no signed dossier is claimed. Synthetic examples use an explicit sample 12 percent floor, never a guessed customer policy. A verified 14-day AWS trial uses its actual entitlement expiry; this endpoint never starts or extends a trial. No platform or AWS usage write.",
+        "security": [
+          {
+            "AwsCommerceBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "description": "If supplied, must equal the required body idempotency_key.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "Maximum 2 KiB; no extra fields accepted.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HistoricalRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Immutable completed or failed assessment; failures contain stable error codes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoricalAssessment"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/HistoricalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/HistoricalError"
+          },
+          "403": {
+            "$ref": "#/components/responses/HistoricalError"
+          },
+          "409": {
+            "$ref": "#/components/responses/HistoricalError"
+          },
+          "413": {
+            "$ref": "#/components/responses/HistoricalError"
+          },
+          "429": {
+            "$ref": "#/components/responses/HistoricalRateLimit"
+          },
+          "503": {
+            "$ref": "#/components/responses/HistoricalError"
+          }
+        }
+      }
+    },
+    "/aws/commerce/history/assessments/{assessmentId}": {
+      "get": {
+        "operationId": "getAwsHistoricalAssessment",
+        "summary": "Read one immutable assessment bound to the current organization and AWS grant",
+        "servers": [
+          {
+            "url": "https://commerce.decionis.com"
+          }
+        ],
+        "x-commercegate-mcp": false,
+        "x-commercegate-managed-http": true,
+        "description": "Requires deployed, enabled AWS historical routes. Every read rechecks the current license, credential revocation and expiry. No organization query argument is accepted. Results contain minimized unsigned historical evidence, not live transaction payloads or execution authority. At most 100 KiB.",
+        "security": [
+          {
+            "AwsCommerceBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "assessmentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Exact stored assessment, including its original source and 90-day window",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoricalAssessment"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/HistoricalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/HistoricalError"
+          },
+          "403": {
+            "$ref": "#/components/responses/HistoricalError"
+          },
+          "404": {
+            "$ref": "#/components/responses/HistoricalError"
+          },
+          "429": {
+            "$ref": "#/components/responses/HistoricalRateLimit"
+          },
+          "503": {
+            "$ref": "#/components/responses/HistoricalError"
+          }
+        }
+      }
     }
   },
   "components": {
     "securitySchemes": {
+      "AwsCommerceBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "AWS Commerce API key delivered through approved Marketplace provisioning. Organization and license are server-bound; no caller org_id is accepted."
+      },
       "ApiKey": {
         "type": "apiKey",
         "in": "header",
@@ -355,6 +653,408 @@
       }
     },
     "schemas": {
+      "AwsTrialEvaluationRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["sample", "idempotency_key"],
+        "properties": {
+          "sample": {
+            "type": "string",
+            "enum": ["healthy", "below_cost"]
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "pattern": "^[!-~]+$"
+          }
+        }
+      },
+      "HistoricalRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source", "idempotency_key"],
+        "properties": {
+          "source": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["kind"],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "synthetic"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["kind", "connection_id"],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "connected_store"
+                  },
+                  "connection_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                }
+              }
+            ]
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          }
+        }
+      },
+      "HistoricalSources": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["mode", "window_days", "sources", "connected_store_required"],
+        "properties": {
+          "mode": {
+            "type": "string",
+            "const": "historical_only"
+          },
+          "window_days": {
+            "type": "integer",
+            "const": 90
+          },
+          "connected_store_required": {
+            "type": "boolean"
+          },
+          "sources": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 21,
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["kind", "dataset_version", "label"],
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "synthetic"
+                    },
+                    "dataset_version": {
+                      "type": "string",
+                      "const": "commerce-history-v1"
+                    },
+                    "label": {
+                      "type": "string",
+                      "const": "Synthetic commerce history"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["kind", "connection_id", "platform", "label"],
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "connected_store"
+                    },
+                    "connection_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "platform": {
+                      "type": "string",
+                      "const": "adobe-commerce"
+                    },
+                    "label": {
+                      "type": "string",
+                      "const": "Connected Adobe Commerce store"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "HistoricalAssessment": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "assessment_id",
+          "status",
+          "mode",
+          "cost_scope",
+          "window",
+          "provenance",
+          "policy",
+          "summary",
+          "evidence",
+          "coverage",
+          "truncated"
+        ],
+        "properties": {
+          "assessment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["completed", "failed"]
+          },
+          "mode": {
+            "type": "string",
+            "const": "historical_only",
+            "description": "Scope of this assessment feature, not the broader products or APIs."
+          },
+          "cost_scope": {
+            "type": "string",
+            "const": "merchandise_margin",
+            "description": "Merchandise subtotal minus discount and reported item cost; shipping, tax and payment/platform fees excluded."
+          },
+          "window": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["days", "start", "end", "timestamp_field"],
+            "properties": {
+              "days": {
+                "type": "integer",
+                "const": 90
+              },
+              "start": {
+                "type": "string",
+                "format": "date-time",
+                "description": "Inclusive UTC transaction-time lower bound."
+              },
+              "end": {
+                "type": "string",
+                "format": "date-time",
+                "description": "Exclusive captured UTC end; exactly 90 days after start."
+              },
+              "timestamp_field": {
+                "type": "string",
+                "const": "transaction_at"
+              }
+            }
+          },
+          "provenance": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["kind", "label", "dataset_version"],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "synthetic"
+                  },
+                  "label": {
+                    "type": "string",
+                    "const": "Synthetic commerce history"
+                  },
+                  "dataset_version": {
+                    "type": "string",
+                    "const": "commerce-history-v1"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["kind", "label", "connection_id", "platform"],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "connected_store"
+                  },
+                  "label": {
+                    "type": "string",
+                    "const": "Connected Adobe Commerce history"
+                  },
+                  "connection_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "platform": {
+                    "type": "string",
+                    "const": "adobe-commerce"
+                  }
+                }
+              }
+            ]
+          },
+          "policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["kind", "version", "floor_percent"],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": ["sample", "merchant"]
+                  },
+                  "version": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100,
+                    "pattern": "^[A-Za-z0-9._:-]+$"
+                  },
+                  "floor_percent": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 100
+                  }
+                }
+              }
+            ]
+          },
+          "summary": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "transactions_scanned",
+              "evaluated",
+              "missing_cost",
+              "excluded_timestamp",
+              "evaluation_errors",
+              "allow",
+              "hold",
+              "escalate"
+            ],
+            "properties": {
+              "transactions_scanned": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "evaluated": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "missing_cost": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "excluded_timestamp": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "evaluation_errors": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "allow": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "hold": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "escalate": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100
+              }
+            }
+          },
+          "evidence": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["record_id", "transaction_at", "decision", "reason_codes", "proof_ref"],
+              "properties": {
+                "record_id": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$",
+                  "minLength": 64,
+                  "maxLength": 64
+                },
+                "transaction_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "decision": {
+                  "type": "string",
+                  "enum": ["PROCEED", "HOLD", "ESCALATE"],
+                  "description": "Retrospective rule result only; never permission to execute."
+                },
+                "reason_codes": {
+                  "type": "array",
+                  "maxItems": 4,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  }
+                },
+                "proof_ref": {
+                  "type": "null",
+                  "description": "Inline historical results are unsigned; no signed proof reference is issued."
+                }
+              }
+            }
+          },
+          "coverage": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["record_limit", "complete"],
+            "properties": {
+              "record_limit": {
+                "type": "integer",
+                "const": 100
+              },
+              "complete": {
+                "type": "boolean",
+                "description": "False for truncation",
+                "missing costs": null,
+                "duplicate records": null,
+                "invalid timestamps or evaluation errors.": null
+              }
+            }
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "error_code": {
+            "type": "string",
+            "enum": [
+              "CONNECTED_STORE_REQUIRED",
+              "HISTORICAL_POLICY_REQUIRED",
+              "HISTORICAL_SOURCE_UNAVAILABLE"
+            ]
+          }
+        }
+      },
+      "HistoricalError": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["error"],
+        "properties": {
+          "error": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        }
+      },
       "GuardLine": {
         "type": "object",
         "additionalProperties": false,
@@ -482,8 +1182,9 @@
         ],
         "properties": {
           "org_id": {
-            "type": "string",
-            "format": "uuid"
+            "type": ["string", "null"],
+            "format": "uuid",
+            "description": "Environment-bound organization. The Commerce Gate MCP sends null so the API derives the tenant from its configured credential."
           },
           "decision_type": {
             "type": "string",
@@ -528,6 +1229,74 @@
           },
           "channel": {
             "type": "string",
+            "description": "Who is asking. The CommerceGate MCP sends mcp; a repricer, ERP job, workflow or direct API integration names itself so the dossier records the actor.",
+            "enum": ["mcp", "repricer", "erp", "workflow", "api"]
+          },
+          "source": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "description": "The tool asking, for the dossier: commercegate-mcp for the MCP, or the name of your repricer, ERP or workflow."
+          },
+          "mode": {
+            "type": "string",
+            "const": "SHADOW"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 180
+          },
+          "policy_version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "require_exact_policy_version": {
+            "type": "boolean",
+            "const": true
+          },
+          "context": {
+            "type": "object",
+            "description": "Bounded normalized action, derived commerce facts, and a nested signals object used by Commerce policies (for example signals.net_margin_percent for a price change). Generic Shadow evaluation does not assert that a connected platform can execute the action.",
+            "additionalProperties": true
+          }
+        }
+      },
+      "MarketplaceOfferSubmissionPreflightRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "org_id",
+          "decision_type",
+          "transaction_type",
+          "workflow_key",
+          "channel",
+          "source",
+          "mode",
+          "idempotency_key",
+          "context"
+        ],
+        "properties": {
+          "org_id": {
+            "type": ["string", "null"],
+            "format": "uuid",
+            "description": "Environment-bound organization. The Commerce Gate MCP sends null so the API derives the tenant from its configured credential."
+          },
+          "decision_type": {
+            "type": "string",
+            "const": "MARKETPLACE_OFFER_SUBMISSION"
+          },
+          "transaction_type": {
+            "type": "string",
+            "const": "marketplace_offer_submission"
+          },
+          "workflow_key": {
+            "type": "string",
+            "const": "commerce_marketplace_offer_submission"
+          },
+          "channel": {
+            "type": "string",
             "const": "mcp"
           },
           "source": {
@@ -554,10 +1323,266 @@
           },
           "context": {
             "type": "object",
-            "description": "Bounded normalized action, derived commerce facts, and a nested signals object used by Commerce policies. Generic Shadow evaluation does not assert that a connected platform can execute the action.",
-            "additionalProperties": true
+            "required": ["submission"],
+            "properties": {
+              "submission": {
+                "$ref": "#/components/schemas/MarketplaceOfferSubmissionPacket"
+              }
+            },
+            "additionalProperties": true,
+            "description": "The client records the strict submission packet plus derived facts and signals. The packet carries no credentials and does not grant write access to a marketplace."
           }
         }
+      },
+      "MarketplaceOfferSubmissionPacket": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "actor",
+          "marketplace",
+          "publisher_id",
+          "offer_id",
+          "offer_name",
+          "offer_type",
+          "idempotency_key",
+          "plans",
+          "landing_page_url",
+          "connection_webhook_url",
+          "support_url",
+          "privacy_policy_url",
+          "terms_of_use_url",
+          "marketplace_identity",
+          "release_evidence"
+        ],
+        "properties": {
+          "actor": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type", "id"],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": ["HUMAN", "ERP", "REPRICER", "WORKFLOW", "AGENT", "UNKNOWN"]
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            }
+          },
+          "marketplace": {
+            "type": "string",
+            "enum": ["MICROSOFT_PARTNER_CENTER", "AWS_MARKETPLACE"]
+          },
+          "publisher_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "offer_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "offer_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "offer_type": {
+            "type": "string",
+            "const": "SAAS"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 180
+          },
+          "plans": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["plan_id", "display_name", "billing_term", "markets"],
+              "properties": {
+                "plan_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "display_name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "billing_term": {
+                  "type": "string",
+                  "enum": ["MONTHLY", "ANNUAL", "ONE_TIME"]
+                },
+                "markets": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 150,
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[A-Z]{2}$"
+                  }
+                }
+              }
+            }
+          },
+          "landing_page_url": {
+            "$ref": "#/components/schemas/MarketplacePublicHttpsUrl"
+          },
+          "connection_webhook_url": {
+            "$ref": "#/components/schemas/MarketplacePublicHttpsUrl"
+          },
+          "support_url": {
+            "$ref": "#/components/schemas/MarketplacePublicHttpsUrl"
+          },
+          "privacy_policy_url": {
+            "$ref": "#/components/schemas/MarketplacePublicHttpsUrl"
+          },
+          "terms_of_use_url": {
+            "$ref": "#/components/schemas/MarketplacePublicHttpsUrl"
+          },
+          "marketplace_identity": {
+            "$ref": "#/components/schemas/MarketplaceOfferIdentity"
+          },
+          "business_central_extension": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["app_id", "version"],
+            "properties": {
+              "app_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "version": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              }
+            }
+          },
+          "release_evidence": {
+            "$ref": "#/components/schemas/MarketplaceOfferReleaseEvidence"
+          }
+        }
+      },
+      "MarketplaceOfferIdentity": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["provider", "tenant_id", "application_id"],
+            "properties": {
+              "provider": {
+                "type": "string",
+                "const": "MICROSOFT_ENTRA"
+              },
+              "tenant_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "application_id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "provider",
+              "subject",
+              "aws_account_id",
+              "aws_iam_role_arn",
+              "seller_offer_access_verified"
+            ],
+            "properties": {
+              "provider": {
+                "type": "string",
+                "const": "LOGIN_WITH_AMAZON"
+              },
+              "subject": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "aws_account_id": {
+                "type": "string",
+                "pattern": "^[0-9]{12}$"
+              },
+              "aws_iam_role_arn": {
+                "type": "string",
+                "maxLength": 512,
+                "pattern": "^arn:aws(?:-[a-z-]+)?:iam::[0-9]{12}:role/.+"
+              },
+              "seller_offer_access_verified": {
+                "type": "boolean",
+                "const": true
+              }
+            }
+          }
+        ],
+        "description": "Microsoft Partner Center requires an Entra tenant and application identity. AWS Marketplace requires a Login with Amazon subject linked to the seller AWS account and IAM role with offer-management access. The MCP validates that the identity matches the chosen marketplace and never exchanges its credentials."
+      },
+      "MarketplaceOfferReleaseEvidence": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "marketplace_draft_status",
+          "offer_listing_verified",
+          "technical_configuration_verified",
+          "preview_or_test_verified",
+          "marketplace_identity_verified",
+          "submission_payload_sha256",
+          "release_evidence_sha256"
+        ],
+        "properties": {
+          "marketplace_draft_status": {
+            "type": "string",
+            "const": "READY_TO_PUBLISH"
+          },
+          "offer_listing_verified": {
+            "type": "boolean",
+            "const": true
+          },
+          "technical_configuration_verified": {
+            "type": "boolean",
+            "const": true
+          },
+          "preview_or_test_verified": {
+            "type": "boolean",
+            "const": true
+          },
+          "marketplace_identity_verified": {
+            "type": "boolean",
+            "const": true
+          },
+          "submission_payload_sha256": {
+            "$ref": "#/components/schemas/Sha256Digest"
+          },
+          "release_evidence_sha256": {
+            "$ref": "#/components/schemas/Sha256Digest"
+          }
+        }
+      },
+      "MarketplacePublicHttpsUrl": {
+        "type": "string",
+        "format": "uri",
+        "maxLength": 2048,
+        "pattern": "^https://",
+        "description": "Public HTTPS URL with no embedded credentials, query parameters, or fragment. The MCP parser enforces those URL restrictions before sending the request."
+      },
+      "Sha256Digest": {
+        "type": "string",
+        "pattern": "^sha256:[a-f0-9]{64}$"
       },
       "CommerceEvaluationResponse": {
         "type": "object",
@@ -1292,6 +2317,45 @@
       }
     },
     "responses": {
+      "HistoricalError": {
+        "description": "Stable, non-sensitive historical API error",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/HistoricalError"
+            }
+          }
+        }
+      },
+      "HistoricalRateLimit": {
+        "description": "Rate limited; starts allow three requests per minute per licensed organization and grant",
+        "headers": {
+          "Retry-After": {
+            "schema": {
+              "type": "integer",
+              "const": 60
+            }
+          },
+          "X-RateLimit-Limit": {
+            "schema": {
+              "type": "integer"
+            }
+          },
+          "X-RateLimit-Remaining": {
+            "schema": {
+              "type": "integer",
+              "const": 0
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/HistoricalError"
+            }
+          }
+        }
+      },
       "Error": {
         "description": "Bounded error response",
         "content": {
@@ -1305,7 +2369,7 @@
     }
   },
   "x-decionis-source": {
-    "path": "apps/api/erp/openapi/CommerceGateErp.v1.yaml",
-    "sha256": "3f946a6586253515eaa99aed79a8da4007420454a8d86538814ef8733f6f372a"
+    "path": "connectors/erp-guard/openapi/CommerceGateErp.v1.yaml",
+    "sha256": "285e48a4e5e4fe2cf9e67f685bd7a5884bad88c6df29f48852435cb15e93a63e"
   }
 }

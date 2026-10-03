@@ -20,6 +20,7 @@ const expectedToolNames = [
   "commercegate_get_proof_packet",
   "commercegate_list_shadow_reports",
   "commercegate_summarize_shadow_reports",
+  "commercegate_evaluate_marketplace_offer_submission",
 ];
 
 function safeEnvironment() {
@@ -206,7 +207,7 @@ async function verifyPackage() {
     assert.deepEqual(
       responses.get(2)?.result?.tools?.map((tool) => tool.name),
       expectedToolNames,
-      "Packed MCP tool catalog drifted from the seven public tools.",
+      "Packed MCP tool catalog drifted from the public tool manifest.",
     );
     assert.equal(
       responses.get(3)?.result?.structuredContent?.guarantees?.credential_values_are_never_returned,

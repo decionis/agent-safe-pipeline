@@ -76,7 +76,7 @@ test("uses the canonical copy and extension-subtree URLs", async () => {
     assert.deepEqual(manifest[field], directoryListing[field]);
   }
   assert.ok(
-    readme.startsWith(`# Decionis CommerceGate for Claude Desktop\n\n${manifest.description}\n`),
+    readme.startsWith(`# Decionis Commerce Gate for Claude Desktop\n\n${manifest.description}\n`),
   );
   const directoryCopy = readme
     .slice(readme.indexOf("## Directory description"))

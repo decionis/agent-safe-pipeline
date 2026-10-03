@@ -1,8 +1,8 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "com.decionis/commerce-gate",
-  "title": "Decionis CommerceGate MCP",
-  "description": "Commerce preflights, D365 authorization, signed evidence, and reports; no marketplace or ERP writes.",
+  "title": "Decionis Commerce Gate MCP",
+  "description": "Commerce preflights, Walmart mappings, D365 authorization, and offer checks; no external writes.",
   "websiteUrl": "https://commerce.decionis.com",
   "version": "0.1.5",
   "packages": [

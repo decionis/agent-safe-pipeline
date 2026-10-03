@@ -2,7 +2,7 @@ export const PACKED_PACKAGE = Object.freeze({
   name: "@decionis/commercegate-claude-extension",
   version: "0.1.5",
   private: true,
-  description: "MIT-licensed Claude Desktop extension wrapper for Decionis CommerceGate.",
+  description: "MIT-licensed Claude Desktop extension wrapper for Decionis Commerce Gate.",
   author: "Decionis, Inc.",
   license: "MIT",
   type: "module",
@@ -50,4 +50,5 @@ export const TOOL_NAMES = Object.freeze([
   "commercegate_get_proof_packet",
   "commercegate_list_shadow_reports",
   "commercegate_summarize_shadow_reports",
+  "commercegate_evaluate_marketplace_offer_submission",
 ]);

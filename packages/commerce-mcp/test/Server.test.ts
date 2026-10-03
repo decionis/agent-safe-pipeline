@@ -50,7 +50,10 @@ describe("CommerceGateMcpHandler", () => {
     expect(COMMERCEGATE_MCP_INSTRUCTIONS).toContain("REFUND_REQUEST");
     expect(COMMERCEGATE_MCP_INSTRUCTIONS).toContain("INVENTORY_MUTATION");
     expect(COMMERCEGATE_MCP_INSTRUCTIONS).toContain("Connector execution");
-    expect(COMMERCEGATE_MCP_INSTRUCTIONS).toContain("hard-locked to SHADOW");
+    expect(COMMERCEGATE_MCP_INSTRUCTIONS).toContain(
+      "evaluates supplied tenant-scoped facts without blocking",
+    );
+    expect(COMMERCEGATE_MCP_INSTRUCTIONS).toContain("customer-activated native executor");
     expect(COMMERCEGATE_MCP_INSTRUCTIONS).toContain("enforced binary policy");
     expect(COMMERCEGATE_MCP_INSTRUCTIONS).toContain("never writes, posts, releases, or modifies");
   });
