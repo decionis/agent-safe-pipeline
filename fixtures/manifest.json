@@ -867,6 +867,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/gateway/HostedUpstreamProof.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/gateway/InstallSurface.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
@@ -904,6 +910,12 @@
     },
     {
       "path": "packages/agentsafe/test/gateway/Upstream.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/gateway/UpstreamProof.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false

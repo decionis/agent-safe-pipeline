@@ -40,6 +40,8 @@ export const SHARED_ENVIRONMENT = [
 
 /** How long a replaced or removed tenant's gateway keeps finishing requests already in flight. */
 export const DEFAULT_DRAIN_MS = 30_000;
+/** The longest readiness waits for the tenants' first looks at their upstreams' proofs. */
+export const PROOF_READY_CAP_MS = 30_000;
 
 export interface TenantHostOptions {
   readonly registryPath: string;
@@ -50,6 +52,12 @@ export interface TenantHostOptions {
   readonly readFile: (path: string) => string | null;
   readonly version?: string;
   readonly drainMs?: number;
+  /**
+   * Every tenant's gateway forwards nothing until its upstream's origin
+   * serves a token bound to the tenant (`--require-upstream-proof`).
+   */
+  readonly requireUpstreamProof?: boolean;
+  readonly clock?: () => number;
   /** Assembles one tenant's gateway; `Gateway.create` unless a test says otherwise. */
   readonly createGateway?: (
     config: GatewayConfig,
@@ -112,13 +120,19 @@ export class TenantHost {
   private currentDomain: string | null = null;
   /** How the tenants' hosts are reached, once the listener is bound; null before. */
   private scheme: "http" | "https" | null = null;
-  private everyTenantServed = false;
+  /** When one load first served every tenant the registry names; null until then. */
+  private everyTenantServedAt: number | null = null;
+  private readyLatched = false;
 
   /** The gateway for a request's host, or null (the listener answers 421). */
   public readonly select: GatewaySelector = (hostname) =>
     hostname === null ? null : (this.served.get(hostname)?.gateway ?? null);
 
-  private constructor(private readonly options: TenantHostOptions) {}
+  private readonly clock: () => number;
+
+  private constructor(private readonly options: TenantHostOptions) {
+    this.clock = options.clock ?? Date.now;
+  }
 
   /** Loads the registry and builds every tenant; a registry that cannot be served refuses the start. */
   public static async start(options: TenantHostOptions): Promise<TenantHost> {
@@ -142,13 +156,20 @@ export class TenantHost {
 
   /**
    * Whether the process is ready for traffic: from the first load that served
-   * every tenant its registry names, and from then on. A new process, in a
-   * rollout or after a restart, gets no traffic while a tenant it should
-   * serve would be answered 421; once ready, a tenant that cannot be built
-   * later is reported, and never takes every other tenant out of service.
+   * every tenant its registry names, once each of their gateways has had its
+   * first look at its upstream's proof, or 30 seconds have passed, and from
+   * then on. A new process, in a rollout or after a restart, gets no traffic
+   * while a tenant it should serve would be answered 421, or 503 only for
+   * want of a first look; once ready, a tenant that cannot be built later
+   * is reported, and never takes every other tenant out of service.
    */
   public ready(): boolean {
-    return this.everyTenantServed;
+    const servedAt = this.everyTenantServedAt;
+    if (!this.readyLatched && servedAt !== null) {
+      const looked = [...this.served.values()].every((entry) => entry.gateway.upstreamProofSettled);
+      this.readyLatched = looked || this.clock() - servedAt >= PROOF_READY_CAP_MS;
+    }
+    return this.readyLatched;
   }
 
   /** The domain of the registry last loaded: the apex, and the parent of every tenant's host. */
@@ -279,10 +300,11 @@ export class TenantHost {
       await Promise.all([...next.values()].map((entry) => entry.gateway.close()));
     } else {
       this.served = next;
-      if (next.size === registry.tenants.length) this.everyTenantServed = true;
-      // The replacement persists the chains' heads from now on, not the
-      // gateway it replaced, which links on them only until it has drained.
-      for (const gateway of replaced) gateway.releaseJournal();
+      if (next.size === registry.tenants.length) this.everyTenantServedAt ??= this.clock();
+      // The replacement persists the chains' heads and checks the upstream's
+      // proof from now on, not the gateway it replaced, which links on the
+      // chains only until it has drained.
+      for (const gateway of replaced) gateway.handedOn();
       for (const entry of retired) this.drain(entry);
       for (const entry of next.values()) {
         entry.gateway.builtFrom({ revision, entry: shortDigest(`sha256:${entry.fingerprint}`) });
@@ -348,7 +370,9 @@ export class TenantHost {
     tenant: TenantEntry,
     replacing: Gateway | undefined,
   ): Promise<Gateway> {
-    const env = TenantHost.tenantEnvironment(this.options.env, tenant);
+    const env = TenantHost.tenantEnvironment(this.options.env, tenant, {
+      upstreamProof: this.options.requireUpstreamProof === true,
+    });
     const rateLimit = tenant.rateLimit ?? registry.rateLimit;
     const config = GatewayConfigLoader.load({
       flags: { json: true },
@@ -374,10 +398,14 @@ export class TenantHost {
     });
   }
 
-  /** The environment a tenant's gateway runs in: the shared settings, and its own entry. */
+  /**
+   * The environment a tenant's gateway runs in: the shared settings, its own
+   * entry, and the host's own settings for every tenant.
+   */
   public static tenantEnvironment(
     host: Readonly<Record<string, string | undefined>>,
     tenant: TenantEntry,
+    settings: { readonly upstreamProof?: boolean } = {},
   ): Record<string, string> {
     const env: Record<string, string> = {};
     for (const name of SHARED_ENVIRONMENT) {
@@ -397,6 +425,9 @@ export class TenantHost {
         : { AGENTSAFE_UPSTREAM_TIMEOUT_MS: String(tenant.upstreamTimeoutMs) }),
       DECIONIS_TENANT_ID: tenant.workspace.tenantId,
       DECIONIS_API_KEY_FILE: tenant.workspace.apiKeyFile,
+      // The proof binds the tenant's id, its workspace and its upstream's
+      // origin, all read from the entry above: no field of its own.
+      ...(settings.upstreamProof === true ? { AGENTSAFE_UPSTREAM_PROOF_REQUIRED: "true" } : {}),
     };
   }
 

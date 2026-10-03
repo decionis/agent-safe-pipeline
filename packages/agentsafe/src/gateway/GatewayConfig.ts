@@ -89,6 +89,13 @@ export interface GatewayConfig {
      * loopback address is refused before a socket exists.
      */
     readonly publicOnly: boolean;
+    /**
+     * Forward nothing until the upstream's origin serves a token bound to this
+     * tenant, its organization and that origin, and keep checking that it
+     * does (gateway/UpstreamProof.ts). Hosted only: the binding is the
+     * hosted tenant and the Decionis organization it runs under.
+     */
+    readonly proofRequired: boolean;
     readonly system: string;
     readonly environment: string;
     readonly timeoutMs: number;
@@ -305,6 +312,7 @@ const ENVIRONMENT = {
   upstream: "AGENTSAFE_UPSTREAM",
   upstreamInsecure: "AGENTSAFE_UPSTREAM_INSECURE",
   upstreamPublicOnly: "AGENTSAFE_UPSTREAM_PUBLIC_ONLY",
+  upstreamProofRequired: "AGENTSAFE_UPSTREAM_PROOF_REQUIRED",
   hosted: "AGENTSAFE_HOSTED_GATEWAY",
   hostedTenant: "AGENTSAFE_HOSTED_TENANT",
   tenantKeyDigests: "AGENTSAFE_TENANT_KEY_DIGESTS",
@@ -832,6 +840,28 @@ export class GatewayConfigLoader {
       );
     }
     GatewayConfigLoader.requireTenantKey(tenantKeys, hosted);
+    // The proof binds the hosted tenant and the organization its key belongs
+    // to, so it means nothing on a gateway that has neither.
+    const proofRequired = resolve(
+      "upstream.proofRequired",
+      [
+        {
+          source: "environment",
+          raw: parseBoolean(
+            env[ENVIRONMENT.upstreamProofRequired],
+            ENVIRONMENT.upstreamProofRequired,
+          ),
+        },
+      ],
+      false,
+    );
+    if (proofRequired && (!hosted || hostedTenant === null || kind !== "DECIONIS")) {
+      throw new GatewayConfigError(
+        "CONFIG_INVALID",
+        ENVIRONMENT.upstreamProofRequired,
+        `a hosted gateway with ${ENVIRONMENT.hostedTenant} and a Decionis organization in ${ENVIRONMENT.tenantId}`,
+      );
+    }
 
     const rateLimit =
       resolve<RateLimit | null>(
@@ -899,6 +929,7 @@ export class GatewayConfigLoader {
         url: upstreamUrl,
         insecure: upstreamInsecure,
         publicOnly: upstreamPublicOnly,
+        proofRequired,
         system: resolve(
           "upstream.system",
           [

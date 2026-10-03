@@ -40,14 +40,26 @@ For a tenant, that means:
   `TENANT_KEY_INVALID` and `WWW-Authenticate: AgentSafe-Tenant-Key`; `421 HOST_NOT_SERVED` for a
   host that is no tenant's; `429 RATE_LIMITED` with `Retry-After` above the rate (50 requests a
   second with a burst of 100 unless the operator set another, per replica); `413 BODY_TOO_LARGE`
-  for an evaluated body over 1 MiB; and `502` when the API does not answer, which is
-  `UPSTREAM_TIMEOUT` after 10 seconds unless the operator set another, and never claims the request
-  was not sent once it may have been ([responses the gateway makes itself](../gateway/http-interception.md#responses-the-gateway-makes-itself)).
+  for an evaluated body over 1 MiB; `502` when the API does not answer (`UPSTREAM_TIMEOUT` after
+  10 seconds unless the operator set another, which never claims the request was not sent once it
+  may have been) or its TLS refused the gateway (`UPSTREAM_TLS_REJECTED`,
+  `UPSTREAM_CLIENT_CERT_REFUSED`); and `503 UPSTREAM_UNVERIFIED` (below) ([responses the gateway makes itself](../gateway/http-interception.md#responses-the-gateway-makes-itself)).
   Each carries `agentsafe-execution`: `NOT_FORWARDED` when the request did not reach the API,
   `INDETERMINATE` once it may have. The API's own answer, relayed, carries `PASSTHROUGH` (above),
   so an answer without `agentsafe-execution` did not come through the gateway.
 - **Bodies are read whole.** A response is read in full, up to 16 MiB, before it is relayed; there
   is no streaming and no WebSocket upgrade.
+- **The API's origin is proved, and goes on being proved.** A tenant proves it controls its API's
+  origin by serving a token bound to the tenant, its Decionis workspace and that origin, at
+  `https://<host>/.well-known/agentsafe-upstream` or in a TXT record at
+  `_agentsafe-challenge.<host>` ([the upstream's proof](../gateway/configuration.md#the-upstreams-proof)),
+  and keeps it served. A host run with `--require-upstream-proof` forwards nothing for the tenant
+  until it has seen the proof, and looks again every day: while it is not seen, an admitted request
+  is `503 UPSTREAM_UNVERIFIED` with `fallback` naming the API to call directly, and when it goes
+  missing, answers carry `agentsafe-upstream-proof: missing` for 72 hours before forwarding stops. An API the gateway cannot front (mutual TLS, a third-party
+  host the tenant cannot serve a file on) is answered with its code, and the
+  [in-process path](../shadow-mode.md#when-the-gateway-cannot-front-your-api-mutual-tls-third-party-saas)
+  gives the same report without a relay.
 
 ## The boundaries the runtime keeps for a host
 

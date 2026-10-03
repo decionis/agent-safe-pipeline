@@ -677,6 +677,20 @@ export {
   type UpstreamResult,
 } from "./gateway/Upstream.js";
 export {
+  UPSTREAM_PROOF_HEADER,
+  UPSTREAM_PROOF_PATH,
+  UPSTREAM_PROOF_TXT_LABEL,
+  UpstreamProofCheck,
+  proofLines,
+  proofToken,
+  provesUpstream,
+  type ProofBinding,
+  type ProofMethod,
+  type ProofOutcome,
+  type TxtResolver,
+  type UpstreamProofCheckOptions,
+} from "./gateway/UpstreamProof.js";
+export {
   GatewayHttpServer,
   type GatewayHttpServerOptions,
   type GatewaySelector,

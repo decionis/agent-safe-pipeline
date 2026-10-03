@@ -13,7 +13,7 @@ import type { CliProcess } from "./CliProcess.js";
 
 export const HOST_ARGUMENTS = {
   valued: ["registry", "port", "listen", "tls-cert", "tls-key", "redirect-listen", "apex-page"],
-  flags: [],
+  flags: ["require-upstream-proof"],
 } as const;
 
 /** How often the registry is read for a change, when nothing says otherwise. */
@@ -39,7 +39,11 @@ export const TENANT_RETRY_MS = 60_000;
  * secret, and a renewed certificate and key replace the context in place.
  * `--redirect-listen` adds a plain-HTTP listener that only redirects to
  * HTTPS, and `--apex-page` (an HTML file) is what the registry's domain
- * itself answers at `/`.
+ * itself answers at `/`. `--require-upstream-proof` makes every tenant's
+ * gateway forward nothing until its upstream's origin serves a token bound to
+ * the tenant, its workspace and that origin, and keep checking that it does
+ * (gateway/UpstreamProof.ts); `readyz` then also waits, at most 30 seconds,
+ * for each tenant's first look.
  */
 export async function runHost(
   io: CliProcess,
@@ -58,6 +62,7 @@ export async function runHost(
   let tlsFiles: { cert: string; key: string } | null;
   let redirectListen: { host: string; port: number } | null;
   let apexPath: string | null;
+  let requireUpstreamProof: boolean;
   try {
     const parsed = parseArguments(argv, HOST_ARGUMENTS);
     const named = optionValue(parsed, "registry") ?? io.env["AGENTSAFE_TENANT_REGISTRY"];
@@ -92,6 +97,7 @@ export async function runHost(
     }
     redirectListen = redirect === undefined ? null : parseListen(redirect, "redirect-listen");
     apexPath = optionValue(parsed, "apex-page") ?? io.env["AGENTSAFE_APEX_PAGE"] ?? null;
+    requireUpstreamProof = parsed.options.has("require-upstream-proof");
   } catch (error) {
     refuse(error instanceof Error ? error.message : "UNKNOWN", 2);
     return;
@@ -110,6 +116,8 @@ export async function runHost(
       io: lines,
       readFile: (path) => io.files.read(path),
       version: packageVersion(),
+      requireUpstreamProof,
+      clock,
       dependencies,
     });
   } catch (error) {
@@ -152,7 +160,8 @@ export async function runHost(
   const server = new GatewayHttpServer(host.select, {
     metricsToken: io.env["AGENTSAFE_METRICS_TOKEN"] ?? null,
     // Not ready until every tenant the registry names has been served once,
-    // so a rollout or a restart that cannot serve one takes no traffic.
+    // and has had its first look at its upstream's proof (30 seconds at
+    // most), so a rollout or a restart that cannot serve one takes no traffic.
     probe: { ready: () => host.ready() },
     tls,
     apex: { hostname: () => host.domain(), page: apexPage },
@@ -190,6 +199,7 @@ export async function runHost(
       tls: tls !== null,
       redirect: redirectListen === null ? null : `${redirectListen.host}:${redirectListen.port}`,
       tenants: host.hostnames().length,
+      upstream_proof: requireUpstreamProof,
     }),
   );
   host.listening(tls === null ? "http" : "https");

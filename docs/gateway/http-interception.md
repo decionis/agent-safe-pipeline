@@ -108,9 +108,11 @@ identifiers, with the same `agentsafe-state` and `agentsafe-execution` headers:
 
 A request forwarded unchanged (a passthrough, a request observed in shadow, a fail-open forward)
 that gets no answer is `502` with state `ERROR`. It is `NOT_FORWARDED` only when no connection was
-ever made: `UPSTREAM_UNREACHABLE` when the name did not resolve or the connection was refused or
-never established, `UPSTREAM_ADDRESS_REFUSED` when a public-only upstream resolved inward. Anything
-later is `INDETERMINATE`, since the upstream may have acted on the request: `UPSTREAM_TIMEOUT` when
+ever made, or the handshake never finished: `UPSTREAM_UNREACHABLE` when the name did not resolve
+or the connection was refused or never established, `UPSTREAM_ADDRESS_REFUSED` when a public-only
+upstream resolved inward, `UPSTREAM_TLS_REJECTED` when the upstream's certificate did not verify or
+it refused the handshake, and `UPSTREAM_CLIENT_CERT_REFUSED` when it asked for a client
+certificate, which a gateway never presents. Anything later is `INDETERMINATE`, since the upstream may have acted on the request: `UPSTREAM_TIMEOUT` when
 `gateway.upstreamTimeoutMs` (10 seconds by default) ran out, `UPSTREAM_RESPONSE_TOO_LARGE`, or
 `UPSTREAM_TRANSPORT_FAILED`. A timeout is indeterminate wherever the send was when it ran out,
 because the gateway cannot tell whether the request had been written, so a caller never reads one
@@ -119,7 +121,10 @@ as safe to retry.
 The listener refuses some requests before the gateway sees them: a missing or wrong tenant key
 (`401 TENANT_KEY_MISSING` or `TENANT_KEY_INVALID`, with `WWW-Authenticate: AgentSafe-Tenant-Key`),
 the gateway's rate (`429 RATE_LIMITED`), a body over the bound (`413 BODY_TOO_LARGE`) and a host it
-does not serve (`421 HOST_NOT_SERVED`). Each is a `code` and nothing else, with
+does not serve (`421 HOST_NOT_SERVED`). A hosted gateway that requires its upstream's proof refuses
+an admitted request with `503 UPSTREAM_UNVERIFIED` while the proof is not established, and marks a
+forwarded answer `agentsafe-upstream-proof: missing` while it is gone
+([the upstream's proof](./configuration.md#the-upstreams-proof)). Each is a `code` and nothing else, with
 `agentsafe-execution: NOT_FORWARDED`; a failure of the listener's own is `500 INTERNAL_ERROR` with
 `agentsafe-execution: INDETERMINATE`, since it cannot say whether anything was sent. Every answer to
 a request that is not the gateway's own route carries `agentsafe-execution`, and an upstream's

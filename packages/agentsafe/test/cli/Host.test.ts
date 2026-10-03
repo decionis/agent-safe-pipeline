@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { LOCAL_AUTHORITY_API_KEY, LocalAuthority } from "@decionis/agent-safe-pipeline/testing";
 import { runHost } from "../../src/cli/Host.js";
+import { proofToken, UPSTREAM_PROOF_PATH } from "../../src/gateway/UpstreamProof.js";
 import { closedPort } from "../support/Environment.js";
 import { TestCertificateAuthority } from "../support/TestCertificateAuthority.js";
 import { fakeProcess, TENANT_KEY, TENANT_KEY_DIGEST } from "../support/GatewayHarness.js";
@@ -120,6 +121,7 @@ describe("agentsafe host", () => {
     expect(own(io.out)[1]).toMatchObject({
       listen: `127.0.0.1:${port}`,
       tenants: 1,
+      upstream_proof: false,
     });
     // Each tenant's gateway starts once the listener is bound, at its own host.
     expect(
@@ -165,6 +167,56 @@ describe("agentsafe host", () => {
       ]);
     }
     expect(io.out.join("")).not.toContain(TENANT_KEY);
+  });
+
+  it("requires every tenant's upstream proof with --require-upstream-proof, and says so when it starts", async () => {
+    const port = await closedPort();
+    const io = fakeProcess({
+      env: {
+        AGENTSAFE_TENANT_REGISTRY: REGISTRY,
+        DECIONIS_API_URL: authority.baseUrl,
+        DECIONIS_ALLOW_INSECURE_LOOPBACK: "true",
+      },
+      files: { [REGISTRY]: registry(["acme", "globex"]) },
+    });
+    const token = proofToken(
+      { tenant: "acme", org: WORKSPACE, origin: upstreamOf("acme") },
+      1_759_492_800,
+    );
+    await runHost(
+      io,
+      ["--listen", `127.0.0.1:${port}`, "--require-upstream-proof"],
+      {
+        // acme's origin serves its proof; globex's does not.
+        upstreamFetch: async (input) => {
+          const url = new URL(String(input));
+          if (url.pathname !== UPSTREAM_PROOF_PATH) return new Response("ok", { status: 200 });
+          return url.host === "acme.shop.example"
+            ? new Response(token, { status: 200 })
+            : new Response("not here", { status: 404 });
+        },
+        upstreamResolveTxt: async () => [],
+      },
+      0,
+    );
+    expect(io.exits).toEqual([]);
+    expect(own(io.out)[1]).toMatchObject({ event: "TENANT_HOST_STARTED", upstream_proof: true });
+    let ready = 0;
+    for (let attempt = 0; attempt < 40 && ready !== 200; attempt += 1) {
+      ready = await get(port, "10.0.0.8:8080", "/_agentsafe/readyz");
+      if (ready !== 200) await settle();
+    }
+    expect(ready).toBe(200);
+    const key = { "agentsafe-tenant-key": TENANT_KEY };
+    expect(await get(port, "acme.decionisedge.example", "/orders", key)).toBe(200);
+    expect(await get(port, "globex.decionisedge.example", "/orders", key)).toBe(503);
+    // A flag is a flag: it takes no value.
+    const valued = fakeProcess({ env: { AGENTSAFE_TENANT_REGISTRY: REGISTRY } });
+    await runHost(valued, ["--require-upstream-proof=true"]);
+    expect(valued.exits).toEqual([2]);
+    io.signals.get("SIGTERM")?.();
+    for (let attempt = 0; attempt < 40 && io.exits.length === 0; attempt += 1) await settle();
+    expect(io.exits).toEqual([0]);
   });
 
   it("tries a tenant it could not build again, until its key arrives, with the registry unchanged", async () => {

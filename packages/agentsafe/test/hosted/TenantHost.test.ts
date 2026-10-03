@@ -7,6 +7,7 @@ import { LOCAL_AUTHORITY_API_KEY, LocalAuthority } from "@decionis/agent-safe-pi
 import { ChainJournal } from "../../src/audit/ChainJournal.js";
 import { EVIDENCE_STREAM } from "../../src/audit/HashChainedAuditSink.js";
 import { GATEWAY_STREAM } from "../../src/gateway/Gateway.js";
+import { proofToken, UPSTREAM_PROOF_PATH } from "../../src/gateway/UpstreamProof.js";
 import { TenantHost } from "../../src/hosted/TenantHost.js";
 import { registryRevision, TenantRegistryError } from "../../src/hosted/TenantRegistry.js";
 import { GatewayHttpServer } from "../../src/http/GatewayHttpServer.js";
@@ -452,6 +453,16 @@ describe("the tenant host", () => {
       DECIONIS_TENANT_ID: WORKSPACE,
       DECIONIS_API_KEY_FILE: keyFile,
     });
+    // The host's `--require-upstream-proof` reaches every tenant as one setting.
+    const proved = TenantHost.tenantEnvironment({}, tenant("acme", TENANT_KEY_DIGEST) as never, {
+      upstreamProof: true,
+    });
+    expect(proved["AGENTSAFE_UPSTREAM_PROOF_REQUIRED"]).toBe("true");
+    expect(
+      TenantHost.tenantEnvironment({}, tenant("acme", TENANT_KEY_DIGEST) as never, {
+        upstreamProof: false,
+      }),
+    ).not.toHaveProperty("AGENTSAFE_UPSTREAM_PROOF_REQUIRED");
   });
 
   it("tags a JSON line in place, leaves a line that already names its tenant alone, and wraps anything else", () => {
@@ -801,6 +812,7 @@ describe("the tenant host", () => {
         revision: short(registryRevision(files.get(REGISTRY_PATH) ?? "")),
         entry: expect.stringMatching(/^sha256:[0-9a-f]{12}$/) as unknown,
       },
+      upstream_proof: null,
     });
     expect(JSON.stringify(gateway?.status())).not.toContain(TENANT_KEY_DIGEST);
 
@@ -817,6 +829,7 @@ describe("the tenant host", () => {
       tenant: "acme",
       tenant_keys: [short(TENANT_KEY_DIGEST), short(OTHER_DIGEST)],
       registry: { revision: report.revision, entry: first?.registry?.entry },
+      upstream_proof: null,
     });
 
     files.set(REGISTRY_PATH, "version: 1\ndomain: [");
@@ -851,6 +864,87 @@ describe("the tenant host", () => {
     });
     expect(host.select(ACME)?.config.upstream.timeoutMs).toBe(45_000);
     expect(host.select("globex.decionisedge.example")?.config.upstream.timeoutMs).toBe(20_000);
+    await host.close();
+  });
+
+  it("with the upstream's proof required, forwards a tenant's traffic only once its origin serves the proof, and is ready after each first look or 30 seconds", async () => {
+    const token = proofToken(
+      { tenant: "acme", org: WORKSPACE, origin: upstreamOf("acme") },
+      1_759_492_800,
+    );
+    const proofs: string[] = [];
+    const forwarded: string[] = [];
+    let now = 1_000;
+    const files = new Map([
+      [
+        REGISTRY_PATH,
+        registry([tenant("acme", TENANT_KEY_DIGEST), tenant("globex", OTHER_DIGEST)]),
+      ],
+    ]);
+    const io = collectedIo();
+    const host = await TenantHost.start({
+      registryPath: REGISTRY_PATH,
+      env: { DECIONIS_API_URL: authority.baseUrl, DECIONIS_ALLOW_INSECURE_LOOPBACK: "true" },
+      io,
+      readFile: (path) => files.get(path) ?? null,
+      requireUpstreamProof: true,
+      clock: () => now,
+      dependencies: {
+        upstreamFetch: async (input) => {
+          const url = new URL(String(input));
+          if (url.pathname === UPSTREAM_PROOF_PATH) {
+            proofs.push(url.host);
+            // acme serves its proof; globex's origin never answers at all.
+            return url.host === "acme.shop.example"
+              ? new Response(`${token}\n`)
+              : new Promise<Response>(() => undefined);
+          }
+          forwarded.push(url.host);
+          return new Response(`from ${url.host}`);
+        },
+        upstreamResolveTxt: async () => [],
+      },
+    });
+    await until(() => host.select(ACME)?.upstreamProofSettled === true);
+    expect(proofs.sort()).toEqual(["acme.shop.example", "globex.shop.example"]);
+    // Every tenant is served, but globex has not had its first look yet.
+    expect(host.ready()).toBe(false);
+    now += 29_999;
+    expect(host.ready()).toBe(false);
+    now += 1;
+    expect(host.ready()).toBe(true);
+
+    const { port, server } = await serve(host);
+    expect(await get(port, ACME, "/orders", { "agentsafe-tenant-key": TENANT_KEY })).toEqual({
+      status: 200,
+      body: "from acme.shop.example",
+    });
+    const globex = await get(port, "globex.decionisedge.example", "/orders", {
+      "agentsafe-tenant-key": OTHER_KEY,
+    });
+    expect(globex.status).toBe(503);
+    expect(JSON.parse(globex.body)).toMatchObject({ reason_codes: ["UPSTREAM_UNVERIFIED"] });
+    expect(forwarded).toEqual(["acme.shop.example"]);
+
+    // A rebuild for another reason keeps where acme's proof stood: no new look, no refusal.
+    files.set(
+      REGISTRY_PATH,
+      registry([
+        tenant("acme", TENANT_KEY_DIGEST, { rateLimit: { requestsPerSecond: 5, burst: 20 } }),
+        tenant("globex", OTHER_DIGEST),
+      ]),
+    );
+    expect(await host.reload()).toMatchObject({ built: ["acme"] });
+    expect(await get(port, ACME, "/orders", { "agentsafe-tenant-key": TENANT_KEY })).toEqual({
+      status: 200,
+      body: "from acme.shop.example",
+    });
+    expect(proofs.filter((origin) => origin === "acme.shop.example")).toHaveLength(1);
+    expect(host.select(ACME)?.status().hosted?.upstream_proof).toMatchObject({
+      state: "verified",
+      method: "file",
+    });
+    await server.close();
     await host.close();
   });
 });

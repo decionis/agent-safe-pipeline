@@ -1047,9 +1047,83 @@ describe("an upstream that fails", () => {
     const lost = { reason_codes: ["UPSTREAM_TRANSPORT_FAILED"], execution: "INDETERMINATE" };
     expect(await failure(coded("ECONNRESET", "socket hang up"))).toEqual(lost);
     expect(await failure(fetchFailed(coded("UND_ERR_SOCKET", "other side closed")))).toEqual(lost);
-    expect(await failure(new EgressError("EGRESS_TLS_REJECTED"))).toEqual(lost);
     expect(await failure(new Error("no code at all"))).toEqual(lost);
     expect(await failure(null)).toEqual(lost);
+  });
+
+  it("says the upstream refused the handshake, or wants a client certificate, and that nothing was sent", async () => {
+    const lost = { reason_codes: ["UPSTREAM_TRANSPORT_FAILED"], execution: "INDETERMINATE" };
+    const rejected = { reason_codes: ["UPSTREAM_TLS_REJECTED"], execution: "NOT_FORWARDED" };
+    const certificate = {
+      reason_codes: ["UPSTREAM_CLIENT_CERT_REFUSED"],
+      execution: "NOT_FORWARDED",
+    };
+    // As the guarded egress reports a handshake that failed.
+    expect(await failure(new EgressError("EGRESS_TLS_REJECTED"))).toEqual(rejected);
+    expect(await failure(new EgressError("EGRESS_TLS_CLIENT_CERT_REFUSED"))).toEqual(certificate);
+    // As `fetch` reports one: the upstream's certificate did not verify here, or it asked for ours.
+    for (const code of [
+      "DEPTH_ZERO_SELF_SIGNED_CERT",
+      "SELF_SIGNED_CERT_IN_CHAIN",
+      "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+      "CERT_HAS_EXPIRED",
+      "ERR_TLS_CERT_ALTNAME_INVALID",
+    ]) {
+      expect([code, await failure(fetchFailed(coded(code)))]).toEqual([code, rejected]);
+    }
+    expect(await failure(fetchFailed(coded("ERR_SSL_TLSV13_ALERT_CERTIFICATE_REQUIRED")))).toEqual(
+      certificate,
+    );
+    // A TLS failure that says no more may have come after the request was written.
+    expect(await failure(coded("ERR_SSL_DECRYPTION_FAILED_OR_BAD_RECORD_MAC"))).toEqual(lost);
+    expect(await failure(fetchFailed(coded("ERR_SSL_SSL/TLS_ALERT_HANDSHAKE_FAILURE")))).toEqual(
+      lost,
+    );
+  });
+
+  it("puts a refused handshake on its own security event, not EGRESS_REFUSED, and on the INTERCEPTED line", async () => {
+    const io = collectedIo();
+    const gateway = await Gateway.create(
+      testConfig("https://shop.tenant.example", {
+        flags: { mode: "shadow" },
+        env: { AGENTSAFE_UPSTREAM_PUBLIC_ONLY: "true" },
+      }),
+      {
+        env: {},
+        io,
+        upstreamFetch: async () => {
+          throw new EgressError("EGRESS_TLS_CLIENT_CERT_REFUSED", "https://shop.tenant.example");
+        },
+      },
+    );
+    const answer = await gateway.govern(request("POST", "/payments", { amount: 10 }), "http.post");
+    expect(answer.status).toBe(502);
+    expect(json(answer.body)).toMatchObject({
+      reason_codes: ["UPSTREAM_CLIENT_CERT_REFUSED"],
+      execution: "NOT_FORWARDED",
+    });
+    await settle();
+    expect(reports(io).at(-1)).toMatchObject({
+      state: "SHADOW",
+      execution: "NOT_FORWARDED",
+      upstream_status: null,
+    });
+    expect((reports(io).at(-1)?.["reason_codes"] as string[]).at(-1)).toBe(
+      "UPSTREAM_CLIENT_CERT_REFUSED",
+    );
+    const security = [...io.out, ...io.err]
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+      .filter(
+        (line) => line["event"] === "UPSTREAM_TLS_REFUSED" || line["event"] === "EGRESS_REFUSED",
+      );
+    expect(security).toMatchObject([
+      {
+        event: "UPSTREAM_TLS_REFUSED",
+        origin: "https://shop.tenant.example",
+        code: "UPSTREAM_CLIENT_CERT_REFUSED",
+      },
+    ]);
+    await gateway.close();
   });
 
   it("tells a refused connection from a request the upstream never answered, on real sockets", async () => {
@@ -1200,6 +1274,7 @@ describe("the tenant key check", () => {
       tenant: null,
       tenant_keys: [secondDigest.slice(0, "sha256:".length + 12)],
       registry: null,
+      upstream_proof: null,
     });
     expect(JSON.stringify(gateway.status())).not.toContain(secondDigest);
     await gateway.close();

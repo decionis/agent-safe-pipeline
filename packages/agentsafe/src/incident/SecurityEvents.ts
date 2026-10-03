@@ -37,6 +37,28 @@ export const SecurityEventSchema = z.discriminatedUnion("event", [
     patterns: z.array(z.string().max(32)).max(8),
   }),
   z.strictObject({ event: z.literal("EGRESS_REFUSED"), origin: origin.nullable(), code }),
+  z.strictObject({
+    // A tenant's upstream refused the handshake, or its certificate did not
+    // verify: the tenant's configuration, not an attack on this process, so
+    // it is apart from EGRESS_REFUSED and pages no one.
+    event: z.literal("UPSTREAM_TLS_REFUSED"),
+    origin,
+    code,
+  }),
+  // A hosted gateway's proof that its tenant controls the upstream's origin
+  // (gateway/UpstreamProof.ts): gone, with when forwarding stops; stopped;
+  // and served again. Never the proof's text.
+  z.strictObject({
+    event: z.literal("UPSTREAM_PROOF_MISSING"),
+    origin,
+    stops_at: z.string().datetime(),
+  }),
+  z.strictObject({ event: z.literal("UPSTREAM_UNVERIFIED"), origin, code }),
+  z.strictObject({
+    event: z.literal("UPSTREAM_PROOF_RESTORED"),
+    origin,
+    method: z.enum(["file", "dns"]),
+  }),
   z.strictObject({ event: z.literal("AUTH_FAILED"), method: authMethod, code }),
   z.strictObject({
     // Refusals a window did not write one line each, counted: a flood is a

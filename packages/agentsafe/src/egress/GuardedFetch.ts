@@ -3,7 +3,12 @@ import { lookup } from "node:dns/promises";
 import { Agent as HttpAgent, request as httpRequest, type IncomingMessage } from "node:http";
 import { Agent as HttpsAgent, request as httpsRequest } from "node:https";
 import type { LookupFunction } from "node:net";
-import { checkServerIdentity, type DetailedPeerCertificate, type PeerCertificate } from "node:tls";
+import {
+  checkServerIdentity,
+  type DetailedPeerCertificate,
+  type PeerCertificate,
+  type TLSSocket,
+} from "node:tls";
 import type { FetchLike } from "../handlers/HandlerRegistration.js";
 import type { SecurityEvents } from "../incident/SecurityEvents.js";
 import { EgressError, type EgressCode } from "./EgressError.js";
@@ -28,6 +33,14 @@ export interface GuardedFetchOptions {
   readonly timeoutMs?: number;
   /** Refuse every private and shared address too (EgressPolicy.addressRefused). */
   readonly publicOnly?: boolean;
+  /**
+   * Whether a refused handshake is this process's own `EGRESS_REFUSED`, as
+   * it is unless this says otherwise: a destination the operator named whose
+   * handshake fails is an attack until shown otherwise. False is for a
+   * destination someone else chose, whose TLS is theirs to fix: the refusal
+   * is thrown with its code and the caller reports it as it sees fit.
+   */
+  readonly reportTls?: boolean;
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -35,6 +48,14 @@ const REDIRECTS: ReadonlySet<number> = new Set([301, 302, 303, 307, 308]);
 const NULL_BODY: ReadonlySet<number> = new Set([204, 205, 304]);
 const TLS_FAILURE =
   /^(?:ERR_TLS_|ERR_SSL_|ERR_OSSL_|EPROTO$|UNABLE_TO_|SELF_SIGNED|DEPTH_ZERO|CERT_)/;
+/**
+ * The peer's `certificate_required` alert (TLS 1.3): it wants a client
+ * certificate this process does not present. It arrives after this side's
+ * half of the handshake, but the peer's never completed, so nothing was
+ * accepted. Under TLS 1.2 the same refusal is a bare handshake failure,
+ * which says no more than that.
+ */
+const CERTIFICATE_REQUIRED = /ALERT_CERTIFICATE_REQUIRED$/;
 
 async function systemResolver(hostname: string): Promise<readonly ResolvedAddress[]> {
   const addresses = await lookup(hostname, { all: true });
@@ -121,7 +142,10 @@ export class GuardedFetch {
         outcome();
       };
       const fail = (error: unknown): void => {
-        settle(() => reject(this.classify(origin, pending ?? error)));
+        // A socket that verified its peer had finished the handshake: a TLS
+        // failure after it broke a connection, it did not refuse a peer.
+        const verified = (request.socket as TLSSocket | null)?.authorized === true;
+        settle(() => reject(this.classify(origin, pending ?? error, verified)));
       };
       const request = transport(
         url,
@@ -218,17 +242,33 @@ export class GuardedFetch {
     return new EgressError(code, origin);
   }
 
-  /** A failure of the executor's own making is reported; the caller's abort and the network's failures pass through. */
-  private classify(origin: string, error: unknown): unknown {
+  /**
+   * A failure of the executor's own making is reported; the caller's abort
+   * and the network's failures pass through. A handshake that failed is a
+   * refusal, and nothing was sent: the peer's certificate did not verify,
+   * or the peer refused this side, by asking for a client certificate
+   * (`EGRESS_TLS_CLIENT_CERT_REFUSED`) or otherwise. A TLS failure once the
+   * peer was verified broke a connection that may have carried the request,
+   * and passes through like any other.
+   */
+  private classify(origin: string, error: unknown, verified: boolean): unknown {
     if (error instanceof EgressError) {
       this.options.events.emit({ event: "EGRESS_REFUSED", origin, code: error.code });
       return error;
     }
     const code = (error as { code?: unknown } | null)?.code;
-    if (typeof code === "string" && TLS_FAILURE.test(code)) {
-      return this.refuse(origin, "EGRESS_TLS_REJECTED");
+    if (typeof code !== "string" || !TLS_FAILURE.test(code)) return error;
+    if (CERTIFICATE_REQUIRED.test(code)) {
+      return this.refuseTls(origin, "EGRESS_TLS_CLIENT_CERT_REFUSED");
     }
-    return error;
+    return verified ? error : this.refuseTls(origin, "EGRESS_TLS_REJECTED");
+  }
+
+  /** A refused handshake: on the security stream, unless the caller reports it itself. */
+  private refuseTls(origin: string, code: EgressCode): EgressError {
+    return this.options.reportTls === false
+      ? new EgressError(code, origin)
+      : this.refuse(origin, code);
   }
 
   private agentFor(destination: EgressDestination): HttpAgent | HttpsAgent {

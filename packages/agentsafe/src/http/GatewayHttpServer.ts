@@ -18,6 +18,7 @@ import {
 } from "../gateway/Gateway.js";
 import { TENANT_KEY_HEADER } from "../gateway/GatewayConfig.js";
 import type { InterceptedRequest } from "../gateway/InterceptedRequest.js";
+import { UPSTREAM_PROOF_HEADER } from "../gateway/UpstreamProof.js";
 import { METRICS_CONTENT_TYPE, RESPONSE_HEADERS } from "./Routes.js";
 import type { TlsListener } from "./TlsListener.js";
 
@@ -162,6 +163,10 @@ export class GatewayHttpServer {
       if (refusal !== null) {
         throw new GuardError(401, refusal, { "www-authenticate": TENANT_KEY_CHALLENGE });
       }
+      // Only the tenant learns where its upstream's proof stands: a caller
+      // without the key is refused above, the same whatever the proof.
+      const proof = gateway.upstreamProof();
+      if (proof === "REFUSE") return this.write(response, gateway.unverified());
       const rate = gateway.rate();
       if (!rate.admitted) {
         throw new GuardError(429, "RATE_LIMITED", {
@@ -188,7 +193,12 @@ export class GatewayHttpServer {
         plan.kind === "GOVERN"
           ? await gateway.govern(intercepted, plan.action)
           : await gateway.passthrough(intercepted);
-      this.write(response, answer);
+      this.write(
+        response,
+        proof === "MISSING"
+          ? { ...answer, headers: [...answer.headers, [UPSTREAM_PROOF_HEADER, "missing"]] }
+          : answer,
+      );
     } catch (error) {
       // A refusal is the listener's own, made before anything was forwarded;
       // any other failure may come after a forward, so it claims neither way.

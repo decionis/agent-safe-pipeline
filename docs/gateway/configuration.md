@@ -74,6 +74,17 @@ benchmarking (`198.18/15`), NAT64 (`64:ff9b::/96`) or the Azure platform address
 checked the same way, at start and on every request. Without it, as by default, private addresses
 are allowed, because that is where an operator's own services live.
 
+An upstream whose certificate does not verify, or that refuses the handshake, is sent nothing
+either: the answer is `502` with `UPSTREAM_TLS_REJECTED`, or `UPSTREAM_CLIENT_CERT_REFUSED` when
+the upstream said it wants a client certificate (TLS 1.3's `certificate_required`), which a gateway
+never presents; both are `NOT_FORWARDED`. Under TLS 1.2 that refusal is a bare handshake failure,
+reported as `UPSTREAM_TLS_REJECTED`. The security stream carries `UPSTREAM_TLS_REFUSED` with the
+origin and the code, apart from `EGRESS_REFUSED`: an upstream's TLS is its owner's to fix, not an
+attack on the gateway. A TLS failure after a verified handshake broke a connection that may have
+carried the request, and is `UPSTREAM_TRANSPORT_FAILED` and `INDETERMINATE`. An API that requires
+mutual TLS cannot be fronted by a gateway at all; [shadow mode](../shadow-mode.md#when-the-gateway-cannot-front-your-api-mutual-tls-third-party-saas)
+says what to run instead.
+
 ## Hosted
 
 `gateway.hosted: true` (`AGENTSAFE_HOSTED_GATEWAY=true`) is for a gateway someone runs on a
@@ -89,6 +100,12 @@ $AGENTSAFE_METRICS_TOKEN`, the operator's token, with `401` for any other, and a
   kept for the exact host it came from and one tenant's upstream cannot set a cookie that the
   client would send to another tenant's host under the same domain;
 - the tenant's key is required (below), so a hosted gateway admits only its tenant.
+
+`AGENTSAFE_UPSTREAM_PROOF_REQUIRED=true`, which `agentsafe host --require-upstream-proof` sets for
+every tenant, makes a hosted gateway forward nothing until its upstream's origin serves a proof
+bound to its tenant ([the upstream's proof](#the-upstreams-proof)). It is refused on a gateway that
+is not hosted, has no `AGENTSAFE_HOSTED_TENANT`, or has no Decionis organization in
+`DECIONIS_TENANT_ID`, since those are what the proof is bound to.
 
 ## Many tenants in one process
 
@@ -166,10 +183,69 @@ Once the listener is bound, each tenant's gateway prints its banner (`GATEWAY_ST
 gateway-events chain, and so does each gateway a reload builds. A replaced or removed gateway, once
 it has drained, prints its `SHADOW_REPORT`, counting what settled while it drained, and
 `GATEWAY_STOPPED` with `signal: RELOAD`; on `SIGTERM` or `SIGINT` every gateway does the same with
-the signal. `readyz` answers `503` until one load has served every tenant the registry names, and
-`200` from then on: a new process, in a rollout or after a restart, takes no traffic while it would
-answer a tenant `421`, and a tenant that fails later is reported without taking every other tenant
-out of service.
+the signal. `readyz` answers `503` until one load has served every tenant the registry names (and,
+with `--require-upstream-proof`, each of their gateways has had its first look at its upstream's
+proof, or 30 seconds have passed), and `200` from then on: a new process, in a rollout or after a
+restart, takes no traffic while it would answer a tenant `421`, and a tenant that fails later is
+reported without taking every other tenant out of service.
+
+### The upstream's proof
+
+Without it, a host is a relay from its own address to any public site a registry entry names. With
+`agentsafe host --require-upstream-proof`, each tenant's gateway forwards nothing until its
+upstream's origin serves a token bound to three things every entry already has: the tenant's `id`,
+its `workspace.tenantId` (the Decionis organization it runs under) and the upstream's origin, as
+the WHATWG URL spells it (`https`, the host in lower case, no port when it is 443, no path). The
+base path is never part of it: the gateway is sealed to the whole origin, so the proof covers the
+whole origin. There is no registry field to write.
+
+The token is
+`v1.<issued>.<base64url(SHA-256("agentsafe-upstream\nv1\n" + id + "\n" + organization + "\n" + origin + "\n" + issued)[0:16])>`,
+where `<issued>` is the ten-digit Unix time it was issued at and the base64url has no padding. It
+holds no secret: whoever
+asks for one is given it, and what proves control is that only the origin's controller can serve
+it there. For `acme`, organization `6f1c1e0e-2a8b-4a35-9c55-0d6f0a3d2b11`, origin
+`https://api.acme.example`, issued `1759492800`, it is `v1.1759492800.GCO1YWc5UIsWe8_w9vbzTQ`.
+The origin serves it in either of two ways:
+
+- **A file.** `GET https://<host>/.well-known/agentsafe-upstream` answers `200` with text of at most
+  1 KiB, at the origin itself (a redirect is not followed) and without credentials, from the
+  fleet's egress address. Any line that is a token bound to the tenant proves it; other lines,
+  `#` comments among them, are ignored, so one file can carry several tenants' tokens and a
+  rotation's two.
+- **A TXT record** at `_agentsafe-challenge.<host>` that contains the token: the record's strings
+  are joined, and the token may stand alone or as a part separated by spaces or `=`
+  (`agentsafe-upstream=<token>`). It counts only when the origin also answered the file's `GET`
+  over verified TLS, because DNS is not authenticated and only that answer ties the name to where
+  traffic goes. An address written as the host has no name to publish one under.
+
+The check is the gateway's own, apart from its relay: public addresses only, TLS verified against
+the public roots, a loopback name refused, no header of the tenant's, and
+`User-Agent: agentsafe-upstream-proof/1`. It runs when the gateway is built and every minute until
+the proof is seen, then once a day, give or take an hour. The host checks only the binding, never
+a token's age; how fresh a token must be is onboarding's rule. What a tenant's request gets:
+
+| Proof                                              | Request with the tenant key                                                                                                  |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| not seen yet, or not served when first looked for  | `503 UPSTREAM_UNVERIFIED`, `NOT_FORWARDED`, `Retry-After: 60`, and `fallback`, the upstream to call directly in the meantime |
+| seen                                               | forwarded                                                                                                                    |
+| gone: the origin answered with no bound token      | forwarded with `agentsafe-upstream-proof: missing` for 72 hours, looked for every hour, then `503 UPSTREAM_UNVERIFIED`       |
+| no answer at all (a timeout, a refused connection) | whatever it was before                                                                                                       |
+
+A request without the key is refused as before, so only the tenant learns where its proof stands;
+the gateway's own routes are unaffected. A redirect or an error status at the proof's path is an
+answer without a token. The tenant's security stream carries `UPSTREAM_PROOF_MISSING` (the origin
+and `stops_at`), `UPSTREAM_UNVERIFIED` (the origin and `UPSTREAM_PROOF_NOT_SERVED` or
+`UPSTREAM_PROOF_GRACE_ENDED`) and `UPSTREAM_PROOF_RESTORED` (the origin and `file` or `dns`); the
+proof's text is never written anywhere. The operator's `/_agentsafe/status` carries
+`hosted.upstream_proof`: the state, the method, when it was last checked, when a missing proof
+stops forwarding, and the code of a check that got no answer.
+
+Where a proof stands is kept per process. A gateway rebuilt for the same tenant, organization and
+origin keeps it, so a change to anything else in an entry never stops a proven tenant for a check;
+a new origin or organization is proved from the start. A new process looks again, so a grace in
+progress does not survive a restart. Turn the flag on only once every tenant's origin serves its
+proof.
 
 ### Evidence across reloads, restarts and replicas
 
