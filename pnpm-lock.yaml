@@ -288,7 +288,7 @@ importers:
   packages/commerce-mcp-claude-extension:
     devDependencies:
       '@decionis/commerce':
-        specifier: workspace:0.1.5
+        specifier: workspace:0.1.6
         version: link:../commerce-mcp
       '@types/node':
         specifier: ^20.11.30

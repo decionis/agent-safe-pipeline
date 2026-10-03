@@ -27,7 +27,7 @@ Outcomes map to the operator vocabulary used across Commerce Gate: APPROVE → P
 CommerceGate requires Node.js 20 or later. Start the pinned public package with:
 
 ```sh
-npx -y @decionis/commerce@0.1.5
+npx -y @decionis/commerce@0.1.6
 ```
 
 The process starts without credentials for capability discovery. For an unconfigured local STDIO client on macOS or Linux, the first valid `commercegate_evaluate_action` call creates a provisional Shadow workspace without a registration form. It reuses that workspace on later calls and restarts. Discovery, invalid input, evidence reads, and ERP calls never create a workspace. Provisional access is subject to the service's trial limits and cannot authorize ERP transactions.
@@ -49,7 +49,7 @@ Optionally forward existing credentials and local access preferences from the en
 ```toml
 [mcp_servers.commercegate]
 command = "npx"
-args = ["-y", "@decionis/commerce@0.1.5"]
+args = ["-y", "@decionis/commerce@0.1.6"]
 env_vars = ["DECIONIS_API_KEY", "DECIONIS_ORG_ID", "DECIONIS_API_BASE", "AGENTOPS_HOME", "AGENTOPS_AUTO_PROVISION"]
 enabled = true
 required = true
