@@ -344,13 +344,20 @@ describe("GuardedFetch and a peer that refuses it", () => {
     // record stream: the connection fails after it may have carried the request.
     const raw: Socket[] = [];
     const corrupting = createTlsServer(material, (socket) => {
+      // The client answers the broken record with an alert (bad record mac on
+      // some OpenSSL builds), which errors this side's socket: expected here.
+      socket.on("error", () => undefined);
       socket.once("data", () => {
         raw
           .at(-1)
           ?.write(Buffer.from([0x17, 0x03, 0x03, 0x00, 0x20, ...Array<number>(32).fill(7)]));
       });
     });
-    corrupting.on("connection", (socket: Socket) => raw.push(socket));
+    corrupting.on("connection", (socket: Socket) => {
+      socket.on("error", () => undefined);
+      raw.push(socket);
+    });
+    corrupting.on("tlsClientError", () => undefined);
     // A peer that asks for nothing, for alerts this side meets once its half is done.
     const open13 = createHttpsServer({ ...material, minVersion: "TLSv1.3" }, handler);
     servers.push(tls13, tls12, corrupting, open13);
