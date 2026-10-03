@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { EDGE_COMMANDS, runEdge } from "../../src/cli/Edge.js";
 import { readUsageReport } from "../../src/edge/UsageReport.js";
 import { fakeProcess } from "../support/GatewayHarness.js";
@@ -342,6 +342,210 @@ describe("agentsafe edge usage-key and replay-schema", () => {
     expect(lastJson(unnamed.out)).toMatchObject({
       kid: "usage-key-2",
       registration: { issuer: "<installation id>" },
+    });
+  });
+
+  describe("--register", () => {
+    type Call = {
+      method: string;
+      url: string;
+      body: string | null;
+      headers: Record<string, string>;
+    };
+    const decionis = (
+      listed: readonly Record<string, unknown>[],
+      answer: () => Response = () => new Response("{}", { status: 201 }),
+    ) => {
+      const calls: Call[] = [];
+      const fetch = (async (url: string, init: RequestInit) => {
+        calls.push({
+          method: init.method ?? "GET",
+          url,
+          body: typeof init.body === "string" ? init.body : null,
+          headers: init.headers as Record<string, string>,
+        });
+        return init.method === "GET"
+          ? Response.json({ service: "decionis", keys: listed })
+          : answer();
+      }) as typeof globalThis.fetch;
+      return { calls, fetch };
+    };
+    const env = (extra: Record<string, string> = {}) => ({
+      EXECUTOR_EDGE_USAGE_SIGNING_KEY_FILE: "/work/usage.pem",
+      DECIONIS_API_URL: "https://api.decionis.example/",
+      DECIONIS_API_KEY: "synthetic-operator-key",
+      ...extra,
+    });
+    const key = vectorKey(null);
+
+    it("registers the key as a usage_report key whose issuer is the installation", async () => {
+      const { calls, fetch } = decionis([]);
+      const io = fakeProcess({
+        files: files(),
+        env: env({ EXECUTOR_EDGE_INSTALLATION_ID: VECTOR_INSTALLATION }),
+        fetch,
+      });
+      await runEdge(io, ["usage-key", "--register"]);
+      expect(io.exits).toEqual([0]);
+      expect(calls.map(({ method, url }) => `${method} ${url}`)).toEqual([
+        "GET https://api.decionis.example/v1/execution/provider-keys",
+        "POST https://api.decionis.example/v1/execution/provider-keys",
+      ]);
+      expect(calls.map(({ headers }) => headers)).toEqual([
+        { authorization: "Bearer synthetic-operator-key", accept: "application/json" },
+        {
+          authorization: "Bearer synthetic-operator-key",
+          accept: "application/json",
+          "content-type": "application/json",
+        },
+      ]);
+      expect(JSON.parse(calls[1]?.body ?? "null")).toEqual({
+        kid: key.kid,
+        issuer: VECTOR_INSTALLATION,
+        algorithm: "EdDSA",
+        public_jwk: key.publicJwk,
+        purpose: "usage_report",
+      });
+      expect(lastJson(io.out)).toEqual({
+        event: "USAGE_KEY_REGISTRATION",
+        kid: key.kid,
+        installation: VECTOR_INSTALLATION,
+        result: "REGISTERED",
+      });
+    });
+
+    it("takes the installation the executor generated and kept", async () => {
+      const { calls, fetch } = decionis([{ kid: key.kid, issuer: "inst_kept", revoked_at: null }]);
+      const io = fakeProcess({
+        files: {
+          ...files(),
+          "/journal/edge/usage.json": JSON.stringify({ installation_id: "inst_kept" }),
+        },
+        env: env({ EXECUTOR_JOURNAL_DIR: "/journal" }),
+        fetch,
+      });
+      await runEdge(io, ["usage-key", "--register"]);
+      // Registering again for the same installation is allowed (it re-registers).
+      expect(io.exits).toEqual([0]);
+      expect(JSON.parse(calls[1]?.body ?? "null")).toMatchObject({ issuer: "inst_kept" });
+    });
+
+    it("refuses a kid registered to another installation, and changes nothing", async () => {
+      const { calls, fetch } = decionis([
+        { kid: "other", issuer: "branch-7.executor-9", revoked_at: null },
+        { kid: key.kid, issuer: "branch-7.executor-1", revoked_at: null },
+      ]);
+      const io = fakeProcess({
+        files: files(),
+        env: env({ EXECUTOR_EDGE_INSTALLATION_ID: VECTOR_INSTALLATION }),
+        fetch,
+      });
+      await runEdge(io, ["usage-key", "--register"]);
+      expect(io.exits).toEqual([1]);
+      expect(calls).toHaveLength(1);
+      expect(lastJson(io.out)).toMatchObject({
+        result: "KEY_ID_IN_USE",
+        issuer: "branch-7.executor-1",
+      });
+    });
+
+    it("may reuse a kid whose registration was revoked", async () => {
+      const { calls, fetch } = decionis([
+        { kid: key.kid, issuer: "branch-7.executor-1", revoked_at: "2026-10-01T00:00:00.000Z" },
+      ]);
+      const io = fakeProcess({
+        files: files(),
+        env: env({ EXECUTOR_EDGE_INSTALLATION_ID: VECTOR_INSTALLATION }),
+        fetch,
+      });
+      await runEdge(io, ["usage-key", "--register"]);
+      expect(io.exits).toEqual([0]);
+      expect(calls).toHaveLength(2);
+    });
+
+    it("reports Decionis's refusal by its code, or the status when it names none", async () => {
+      for (const [answer, code] of [
+        [() => Response.json({ error: "FORBIDDEN_SCOPE" }, { status: 403 }), "FORBIDDEN_SCOPE"],
+        [() => new Response("nope", { status: 500 }), "USAGE_KEY_HTTP_500"],
+        // An error that is not a code is reported by status.
+        [() => Response.json({ error: "Not a code" }, { status: 400 }), "USAGE_KEY_HTTP_400"],
+        [() => Response.json({ error: "lower_CODE" }, { status: 400 }), "USAGE_KEY_HTTP_400"],
+        [() => Response.json({ error: "CODE_lower" }, { status: 400 }), "USAGE_KEY_HTTP_400"],
+        [() => Response.json({ error: ["FORBIDDEN"] }, { status: 400 }), "USAGE_KEY_HTTP_400"],
+        [
+          () => {
+            throw new Error("offline");
+          },
+          "USAGE_KEY_SEND_FAILED",
+        ],
+      ] as const) {
+        const { fetch } = decionis([], answer);
+        const io = fakeProcess({
+          files: files(),
+          env: env({ EXECUTOR_EDGE_INSTALLATION_ID: VECTOR_INSTALLATION }),
+          fetch,
+        });
+        await runEdge(io, ["usage-key", "--register"]);
+        expect(io.exits).toEqual([1]);
+        expect(lastJson(io.out)).toMatchObject({ result: "FAILED", code });
+      }
+      const listing = fakeProcess({
+        files: files(),
+        env: env({ EXECUTOR_EDGE_INSTALLATION_ID: VECTOR_INSTALLATION }),
+        fetch: (async () => new Response("{}", { status: 401 })) as typeof fetch,
+      });
+      await runEdge(listing, ["usage-key", "--register"]);
+      expect(lastJson(listing.out)).toMatchObject({ result: "FAILED", code: "USAGE_KEY_HTTP_401" });
+    });
+
+    it("gives up on a Decionis that does not answer within ten seconds", async () => {
+      vi.useFakeTimers();
+      try {
+        const io = fakeProcess({
+          files: files(),
+          env: env({ EXECUTOR_EDGE_INSTALLATION_ID: VECTOR_INSTALLATION }),
+          fetch: ((_url: string, init: RequestInit) =>
+            new Promise((_resolve, reject) => {
+              init.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+            })) as typeof fetch,
+        });
+        const run = runEdge(io, ["usage-key", "--register"]);
+        await vi.advanceTimersByTimeAsync(9_999);
+        expect(io.exits).toEqual([]);
+        await vi.advanceTimersByTimeAsync(1);
+        await run;
+        expect(lastJson(io.out)).toMatchObject({ result: "FAILED", code: "USAGE_KEY_SEND_FAILED" });
+        const { fetch } = decionis([]);
+        const answered = fakeProcess({
+          files: files(),
+          env: env({ EXECUTOR_EDGE_INSTALLATION_ID: VECTOR_INSTALLATION }),
+          fetch,
+        });
+        await runEdge(answered, ["usage-key", "--register"]);
+        // An answered call leaves no timer behind.
+        expect(vi.getTimerCount()).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("needs an installation and Decionis to register", async () => {
+      const unnamed = fakeProcess({ files: files(), env: env() });
+      await runEdge(unnamed, ["usage-key", "--register"]);
+      expect(unnamed.exits).toEqual([2]);
+      expect(lastJson(unnamed.err)).toEqual({
+        event: "EDGE_USAGE_ERROR",
+        code: "INSTALLATION_REQUIRED",
+      });
+      const nowhere = fakeProcess({
+        files: files(),
+        env: { EXECUTOR_EDGE_USAGE_SIGNING_KEY_FILE: "/work/usage.pem" },
+      });
+      await runEdge(nowhere, ["usage-key", "--register", "--installation", "branch-7.executor-0"]);
+      expect(lastJson(nowhere.err)).toEqual({
+        event: "EDGE_USAGE_ERROR",
+        code: "DECIONIS_REQUIRED",
+      });
     });
   });
 

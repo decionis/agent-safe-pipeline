@@ -1,10 +1,10 @@
 /**
  * `agentsafe edge <command>`: the edge evaluator's operator commands, all
- * offline except `usage-report --send`.
+ * offline except `usage-report --send` and `usage-key --register`.
  *
  *   usage-report         Count a month's edge decisions from a collected log and sign the report
  *   verify-usage-report  Check a report's signature and recount it from the log
- *   usage-key            Print the usage-report key's kid and public JWK, for registration
+ *   usage-key            Print the usage-report key's kid and public JWK; `--register` registers it
  *   replay-schema        Print the DDL for the shared Postgres replay store
  *
  * Exit 0 when the command did its job, 1 when a count or a check failed,
@@ -23,6 +23,7 @@ import {
   usageSigningKey,
   type UsageSigningKey,
 } from "../edge/UsageReport.js";
+import { registerUsageKey } from "../edge/UsageKeyRegistration.js";
 import { UrlUsageDelivery } from "../edge/UsageMeter.js";
 import { ArgumentError, optionValue, parseArguments, type ParsedArguments } from "./Arguments.js";
 import type { CliProcess } from "./CliProcess.js";
@@ -40,7 +41,7 @@ const SPECS = {
     flags: ["send"],
   },
   "verify-usage-report": { valued: ["log", "public-jwk", "key"], flags: [] },
-  "usage-key": { valued: ["key", "key-id"], flags: [] },
+  "usage-key": { valued: ["key", "key-id", "installation"], flags: ["register"] },
   "replay-schema": { valued: ["table"], flags: [] },
 } as const;
 
@@ -93,6 +94,16 @@ function installation(io: CliProcess, parsed: ParsedArguments): string {
   throw new UsageError("INSTALLATION_REQUIRED");
 }
 
+/** Where Decionis is and the key to call it with: `DECIONIS_API_URL`, `DECIONIS_API_KEY(_FILE)`. */
+function decionis(io: CliProcess): { baseUrl: string; apiKey: string } {
+  const baseUrl = io.env["DECIONIS_API_URL"];
+  const apiKeyFile = io.env["DECIONIS_API_KEY_FILE"];
+  const apiKey =
+    apiKeyFile === undefined ? io.env["DECIONIS_API_KEY"] : io.files.read(apiKeyFile)?.trim();
+  if (baseUrl === undefined || apiKey === undefined) throw new UsageError("DECIONIS_REQUIRED");
+  return { baseUrl, apiKey };
+}
+
 async function usageReport(io: CliProcess, parsed: ParsedArguments): Promise<number> {
   const period = usagePeriod(optionValue(parsed, "period") ?? "");
   if (period === null) throw new UsageError("PERIOD_REQUIRED");
@@ -128,11 +139,7 @@ async function usageReport(io: CliProcess, parsed: ParsedArguments): Promise<num
     `${JSON.stringify({ event: "USAGE_REPORT_SIGNED", kid: key.kid, period: claims.period, counts: claims.counts, delegated: claims.delegated, chain: claims.chain })}\n`,
   );
   if (parsed.options.get("send") !== true) return 0;
-  const baseUrl = io.env["DECIONIS_API_URL"];
-  const apiKeyFile = io.env["DECIONIS_API_KEY_FILE"];
-  const apiKey =
-    apiKeyFile === undefined ? io.env["DECIONIS_API_KEY"] : io.files.read(apiKeyFile)?.trim();
-  if (baseUrl === undefined || apiKey === undefined) throw new UsageError("DECIONIS_REQUIRED");
+  const { baseUrl, apiKey } = decionis(io);
   const code = await new UrlUsageDelivery({
     baseUrl,
     apiKey: () => apiKey,
@@ -174,23 +181,41 @@ async function verifyUsageReport(io: CliProcess, parsed: ParsedArguments): Promi
   return recount.ok ? 0 : 1;
 }
 
-function usageKey(io: CliProcess, parsed: ParsedArguments): number {
+async function usageKey(io: CliProcess, parsed: ParsedArguments): Promise<number> {
   const key = signingKey(io, parsed);
+  const register = parsed.options.get("register") === true;
+  let issuer: string;
+  try {
+    issuer = installation(io, parsed);
+  } catch (error) {
+    // Printing works before the installation has an id; registering does not.
+    if (register) throw error;
+    issuer = "<installation id>";
+  }
+  const registration = {
+    kid: key.kid,
+    issuer,
+    algorithm: "EdDSA",
+    public_jwk: key.publicJwk,
+    purpose: "usage_report",
+  };
+  if (!register) {
+    // The body for POST /v1/execution/provider-keys; `issuer` is the installation id.
+    io.stdout(`${JSON.stringify({ kid: key.kid, public_jwk: key.publicJwk, registration })}\n`);
+    return 0;
+  }
+  const { baseUrl, apiKey } = decionis(io);
+  const outcome = await registerUsageKey({
+    baseUrl,
+    apiKey,
+    fetch: io.fetch,
+    key,
+    installationId: issuer,
+  });
   io.stdout(
-    `${JSON.stringify({
-      kid: key.kid,
-      public_jwk: key.publicJwk,
-      // The body for POST /v1/execution/provider-keys; `issuer` is the installation id.
-      registration: {
-        kid: key.kid,
-        issuer: io.env["EXECUTOR_EDGE_INSTALLATION_ID"] ?? "<installation id>",
-        algorithm: "EdDSA",
-        public_jwk: key.publicJwk,
-        purpose: "usage_report",
-      },
-    })}\n`,
+    `${JSON.stringify({ event: "USAGE_KEY_REGISTRATION", kid: key.kid, installation: issuer, ...outcome })}\n`,
   );
-  return 0;
+  return outcome.result === "REGISTERED" ? 0 : 1;
 }
 
 function replaySchema(io: CliProcess, parsed: ParsedArguments): number {
@@ -223,7 +248,7 @@ export async function runEdge(io: CliProcess, argv: readonly string[]): Promise<
         exit = await verifyUsageReport(io, parsed);
         break;
       case "usage-key":
-        exit = usageKey(io, parsed);
+        exit = await usageKey(io, parsed);
         break;
       case "replay-schema":
         exit = replaySchema(io, parsed);

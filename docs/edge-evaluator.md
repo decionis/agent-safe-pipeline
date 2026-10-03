@@ -185,13 +185,18 @@ already metered).
   executor generates `inst_<uuid>` and keeps it in `<EXECUTOR_JOURNAL_DIR>/edge/usage.json` beside
   the tally, which persists with the chain's head (at the journal's cadence and on stop) so the count
   resumes exactly where the chain does. With several replicas each has its own installation id (in
-  Kubernetes, a StatefulSet's pod name with its journal volume). A tally whose head is not the
+  Kubernetes, a StatefulSet's pod name with its journal volume; see "Several replicas" below). A tally whose head is not the
   chain's restored head belongs to a chain that is gone; it is dropped with `EDGE_USAGE_TALLY_RESET`
   and that month is recounted from the log.
 - **The key.** `EXECUTOR_EDGE_USAGE_SIGNING_KEY` (Ed25519, PKCS#8). The executor logs
   `EDGE_USAGE_KEY_LOADED` with its `kid` at start; `agentsafe edge usage-key` prints the `kid`, the
   public JWK and the body to register it with `POST /v1/execution/provider-keys` as a
-  `usage_report` key whose `issuer` is the installation id.
+  `usage_report` key whose `issuer` is the installation id, and
+  `agentsafe edge usage-key --register` registers it (`DECIONIS_API_URL`, and in
+  `DECIONIS_API_KEY` or `DECIONIS_API_KEY_FILE` an operator's key with `policy:write`, used for
+  this call only; the executor's runtime key needs only `policy:read`). Register each
+  installation once, before its first month ends; until then its reports are refused
+  `USAGE_REPORT_KEY_UNKNOWN` and retried every hour.
 - **When.** Within the hour after a month ends, and every hour until delivered: `url` deployments
   `POST /v1/edge/usage-reports` (`{"report": "<compact JWS>"}`, the organisation's key; a
   `USAGE_REPORT_DUPLICATE` conflict, Decionis already holding the month at the same or a later
@@ -201,6 +206,42 @@ already metered).
   A month with no decision is still reported, so a quiet installation is never overdue. Each
   delivery is an `EDGE_USAGE_REPORTED` line, each failure an `EDGE_USAGE_REPORT_FAILED` line with a
   code, and `agentsafe_edge_usage_reports{result}` counts both.
+
+### Several replicas
+
+Decionis keeps one current report per installation per month, and binds each registered key to
+one installation (its `issuer`). So every replica is its own installation, with its own id, its
+own evidence chain and its own registered `kid`:
+
+- **Installation id.** One per replica, stable across restarts. In Kubernetes, run the executor as
+  a StatefulSet and set `EXECUTOR_EDGE_INSTALLATION_ID` from the pod name, which is stable and
+  unique, with each pod's journal on its own volume. A Deployment's replicas share one
+  configuration, so a fixed id there would name several chains: Decionis keeps the first chain it
+  sees for the month and refuses the others `USAGE_REPORT_STREAM_CHANGED`, and their decisions go
+  unreported.
+- **Key id.** Replicas may share one key file, but not one `kid`: Decionis keeps one registration
+  per `kid`, and registering it again for another installation re-points it, after which the first
+  installation's reports are refused `USAGE_REPORT_ISSUER_MISMATCH`. Give each replica its own
+  `EXECUTOR_EDGE_USAGE_KEY_ID` (for example the pod name with a suffix).
+  `agentsafe edge usage-key --register` refuses a `kid` already registered, unrevoked, to another
+  installation (`KEY_ID_IN_USE`) and changes nothing.
+
+```yaml
+# StatefulSet container env (the pod name is <statefulset>-<ordinal>)
+- name: POD_NAME
+  valueFrom: { fieldRef: { fieldPath: metadata.name } }
+- name: EXECUTOR_EDGE_INSTALLATION_ID
+  value: "branch-7.$(POD_NAME)"
+- name: EXECUTOR_EDGE_USAGE_KEY_ID
+  value: "usage-branch-7.$(POD_NAME)"
+```
+
+Register each replica once (for example from a job per ordinal, or by hand when scaling up):
+
+```bash
+EXECUTOR_EDGE_INSTALLATION_ID=branch-7.executor-0 EXECUTOR_EDGE_USAGE_KEY_ID=usage-branch-7.executor-0 \
+  agentsafe edge usage-key --register
+```
 
 The report is a compact JWS, `alg` EdDSA, `typ` `decionis-edge-usage+jwt`, `kid` the registered key:
 
@@ -289,7 +330,7 @@ would cross the network crosses it by hand:
 | Policy bundle             | Decionis → executor | Place it at `EXECUTOR_EDGE_BUNDLE_FILE`; read every ten seconds                               |
 | Entitlement and JWKS      | Decionis → executor | Place them at `EXECUTOR_EDGE_ENTITLEMENT_FILE` and `EXECUTOR_EDGE_JWKS_FILE`; re-read hourly  |
 | Monthly usage report      | executor → Decionis | Collect `usage-<YYYY-MM>-<installation>.jws` from `EXECUTOR_EDGE_USAGE_REPORT_DIR` and upload |
-| Usage-report key (public) | executor → Decionis | `agentsafe edge usage-key`, registered once per installation                                  |
+| Usage-report key (public) | executor → Decionis | `agentsafe edge usage-key --register`, once per installation (each replica is one)            |
 
 The entitlement's `exp` (about 35 days) and the report's due days set the rhythm: one transfer a
 month in each direction keeps every warning clear. Escalations still need Decionis: an `ESCALATE` is handed to the hosted authority, and in a

@@ -29,7 +29,7 @@ export function usage(version: string): string {
     "  probe-containment    Report whether a system of record answers the agent zone",
     "  edge usage-report    Count a month's edge decisions from a log and sign the report (--send)",
     "  edge verify-usage-report <report>  Check a usage report's signature and recount it",
-    "  edge usage-key       Print the usage-report key's kid and public JWK for registration",
+    "  edge usage-key       Print the usage-report key's kid and public JWK (--register registers it)",
     "  edge replay-schema   Print the DDL for the shared Postgres replay store",
     "",
     "  test [name=host:port]...  also dials each real target: does it answer without the gateway?",
