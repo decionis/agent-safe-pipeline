@@ -81,6 +81,54 @@ export const COMMERCEGATE_ACTION_SUPPORT = {
       "digest_bound_release_evidence",
     ],
   },
+  walmart_marketplace: {
+    platform: "walmart-marketplace",
+    connection: {
+      connector: "Commerce Gate Walmart Marketplace connector",
+      connection_required: true,
+      connection_state_is_not_probed_by_this_mcp: true,
+      merchant_granted_scope_required_for_execution: true,
+    },
+    commerce_evaluation: {
+      tool: "commercegate_evaluate_action",
+      mode: "SHADOW",
+      action_types: SUPPORTED_ACTION_TYPES,
+    },
+    price_guard: {
+      tool: "commercegate_evaluate_action",
+      action_type: "PRICE_CHANGE",
+      mode: "SHADOW",
+    },
+    order_guard: {
+      tool: "commercegate_evaluate_action",
+      action_type: "ORDER_ACCEPTANCE",
+      mode: "SHADOW",
+      evaluates_landed_margin_and_available_inventory_when_supplied: true,
+    },
+    order_operations: {
+      intercept: { action_type: "ORDER_ACCEPTANCE", mode: "SHADOW" },
+      margin_protection: { action_type: "ORDER_ACCEPTANCE", mode: "SHADOW" },
+      release: {
+        action_type: "FULFILLMENT_ACTION",
+        fulfillment_action: "acknowledge",
+        mode: "SHADOW",
+      },
+      hold: { action_type: "FULFILLMENT_ACTION", fulfillment_action: "hold", mode: "SHADOW" },
+      cancel: { action_type: "FULFILLMENT_ACTION", fulfillment_action: "cancel", mode: "SHADOW" },
+    },
+    connector_execution: {
+      exposed_by_this_mcp: false,
+      implementation: [
+        "order_intercept",
+        "landed_margin_protection",
+        "inventory_guard_when_enabled_and_scoped",
+        "walmart_order_acknowledgment_release",
+        "withheld_acknowledgment_hold",
+        "operator_confirmed_cancel",
+      ],
+      explicit_execution_authority_required: true,
+    },
+  },
   connector_execution: {
     exposed_by_this_mcp: false,
     connected_status_alone_is_sufficient: false,
@@ -105,7 +153,7 @@ const POLICY_VERSION_PATTERN = /^[a-z0-9][\w.:/-]{0,119}$/i;
 const SHA256_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/;
 const MARKET_CODE_PATTERN = /^[A-Z]{2}$/;
 const AWS_ACCOUNT_ID_PATTERN = /^\d{12}$/;
-const AWS_IAM_ROLE_ARN_PATTERN = /^arn:aws(?:-[a-z-]+)?:iam::\d{12}:role\/[A-Za-z0-9+=,.@_/-]{1,450}$/;
+const AWS_IAM_ROLE_ARN_PATTERN = /^arn:aws(?:-[a-z-]+)?:iam::\d{12}:role\/[\w+=,.@/-]{1,450}$/;
 
 const annotations = (readOnlyHint: boolean, openWorldHint: boolean) => ({
   readOnlyHint,
@@ -953,7 +1001,10 @@ function httpsUrl(value: unknown, label: string): string {
 function sha256Digest(value: unknown, label: string): string {
   const result = boundedText(value, label, 71);
   if (!SHA256_DIGEST_PATTERN.test(result)) {
-    throw new CommerceGateError("INVALID_INPUT", `${label} must be a sha256:<64 lowercase hex> digest.`);
+    throw new CommerceGateError(
+      "INVALID_INPUT",
+      `${label} must be a sha256:<64 lowercase hex> digest.`,
+    );
   }
   return result;
 }
@@ -1323,16 +1374,30 @@ function parseMarketplaceOfferSubmissionInput(
       "submission.idempotency_key may contain only letters, digits, dot, underscore, colon, slash, and hyphen.",
     );
   }
-  if (!Array.isArray(submission.plans) || submission.plans.length < 1 || submission.plans.length > 100) {
-    throw new CommerceGateError("INVALID_INPUT", "submission.plans must contain from 1 through 100 plans.");
+  if (
+    !Array.isArray(submission.plans) ||
+    submission.plans.length < 1 ||
+    submission.plans.length > 100
+  ) {
+    throw new CommerceGateError(
+      "INVALID_INPUT",
+      "submission.plans must contain from 1 through 100 plans.",
+    );
   }
   const planIds = new Set<string>();
   const plans = submission.plans.map((value, index) => {
     const plan = record(value, `submission.plans[${index}]`);
-    assertAllowedKeys(plan, ["plan_id", "display_name", "billing_term", "markets"], `submission.plans[${index}]`);
+    assertAllowedKeys(
+      plan,
+      ["plan_id", "display_name", "billing_term", "markets"],
+      `submission.plans[${index}]`,
+    );
     const planId = boundedText(plan.plan_id, `submission.plans[${index}].plan_id`, 200);
     if (planIds.has(planId)) {
-      throw new CommerceGateError("INVALID_INPUT", "submission.plans must not repeat plan_id values.");
+      throw new CommerceGateError(
+        "INVALID_INPUT",
+        "submission.plans must not repeat plan_id values.",
+      );
     }
     planIds.add(planId);
     const billingTerms = ["MONTHLY", "ANNUAL", "ONE_TIME"] as const;
@@ -1361,7 +1426,7 @@ function parseMarketplaceOfferSubmissionInput(
       }
       return value;
     });
-  if (new Set(markets).size !== markets.length) {
+    if (new Set(markets).size !== markets.length) {
       throw new CommerceGateError(
         "INVALID_INPUT",
         `submission.plans[${index}].markets must not repeat market codes.`,
@@ -1374,7 +1439,10 @@ function parseMarketplaceOfferSubmissionInput(
       markets,
     };
   });
-  const marketplaceIdentity = record(submission.marketplace_identity, "submission.marketplace_identity");
+  const marketplaceIdentity = record(
+    submission.marketplace_identity,
+    "submission.marketplace_identity",
+  );
   const parsedMarketplaceIdentity =
     marketplace === "MICROSOFT_PARTNER_CENTER"
       ? (() => {
@@ -1391,7 +1459,10 @@ function parseMarketplaceOfferSubmissionInput(
           }
           return {
             provider: "MICROSOFT_ENTRA" as const,
-            tenant_id: uuid(marketplaceIdentity.tenant_id, "submission.marketplace_identity.tenant_id"),
+            tenant_id: uuid(
+              marketplaceIdentity.tenant_id,
+              "submission.marketplace_identity.tenant_id",
+            ),
             application_id: uuid(
               marketplaceIdentity.application_id,
               "submission.marketplace_identity.application_id",
@@ -1486,7 +1557,10 @@ function parseMarketplaceOfferSubmissionInput(
     "marketplace_identity_verified",
   ] as const) {
     if (releaseEvidence[name] !== true) {
-      throw new CommerceGateError("INVALID_INPUT", `submission.release_evidence.${name} must be true.`);
+      throw new CommerceGateError(
+        "INVALID_INPUT",
+        `submission.release_evidence.${name} must be true.`,
+      );
     }
   }
   const extension =
@@ -1686,7 +1760,7 @@ export class CommerceGateTools {
         name: COMMERCEGATE_TOOL_NAMES[0],
         title: "Describe CommerceGate Capabilities",
         description:
-          "Use this first, or when someone asks 'can you check prices, orders, refunds, or a marketplace offer against our policy?'. It lists the seven commerce-action preflights, the separate Dynamics 365 guard, and the Microsoft Partner Center and AWS Marketplace SaaS offer-submission preflight. It also explains PROCEED, HOLD, and BLOCK, tenant connection state, and available evidence tools. This local diagnostic never calls the Decionis API, reveals credentials, or claims that a platform connector can execute an action.",
+          "Use this first, or when someone asks 'can you check prices, Walmart orders, refunds, or a marketplace offer against our policy?'. It lists the seven commerce-action preflights, the Walmart connection and order-path mappings, the separate Dynamics 365 guard, and the Microsoft Partner Center and AWS Marketplace SaaS offer-submission preflight. It also explains PROCEED, HOLD, and BLOCK, tenant connection state, and available evidence tools. This local diagnostic never calls the Decionis API, reveals credentials, or claims that a platform connector can execute an action.",
         inputSchema: { type: "object", properties: {}, additionalProperties: false },
         annotations: annotations(true, false),
         handler: async (args) =>

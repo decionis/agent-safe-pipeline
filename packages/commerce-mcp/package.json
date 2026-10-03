@@ -1,7 +1,7 @@
 {
   "name": "@decionis/commerce",
   "version": "0.1.5",
-  "description": "Commerce Gate MCP with seven commerce-action preflights, a D365 guard, and a marketplace SaaS offer-submission preflight. It records policy evidence and never writes to a marketplace or ERP.",
+  "description": "Commerce Gate MCP with seven commerce-action preflights, Walmart connection mappings, a D365 guard, and a marketplace SaaS offer-submission preflight. It records policy evidence and never writes to a marketplace or ERP.",
   "author": "Decionis",
   "license": "Apache-2.0",
   "type": "module",

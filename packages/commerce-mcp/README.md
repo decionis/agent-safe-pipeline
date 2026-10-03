@@ -40,7 +40,7 @@ Existing `DECIONIS_API_KEY` and `DECIONIS_ORG_ID` configuration takes precedence
 
 ### Registry sign-in
 
-The same MCP package is published across registries. A Decionis Account is the default sign-in. Microsoft surfaces can use Microsoft Entra, and AWS surfaces can use Login with Amazon. Those sign-ins establish the Decionis session; they do not pass marketplace credentials into the MCP. A Marketplace offer packet still carries only bounded identity evidence: Entra tenant and application IDs for Microsoft, or a Login with Amazon subject linked to an AWS account and IAM role for AWS Marketplace.
+The same MCP package is published across registries. `accounts.decionis.com` owns the Decionis Account sign-in. Microsoft surfaces can use Microsoft Entra, and AWS surfaces can use Login with Amazon through that Account flow. Those sign-ins establish the Decionis session; they do not pass marketplace credentials into the MCP. A Marketplace offer packet still carries only bounded identity evidence: Entra tenant and application IDs for Microsoft, or a Login with Amazon subject linked to an AWS account and IAM role for AWS Marketplace.
 
 ### Codex client configuration
 
@@ -70,16 +70,16 @@ enabled_tools = [
 
 ## Tools
 
-| Tool                                    | Purpose                                                                                  | External effect                                                |
-| --------------------------------------- | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| `commercegate_describe_capabilities`    | Inspect action coverage, safety guarantees, connector boundaries, and connection state   | None; local only                                               |
-| `commercegate_validate_erp_transaction` | Enforced binary authorization for one complete D365 transaction                          | Policy decision and idempotent agent-budget authorization only |
-| `commercegate_evaluate_action`          | Check a price change, stock change, order, fulfillment step, promotion, refund or return | Writes only a Shadow Mode evaluation/evidence record           |
-| `commercegate_evaluate_marketplace_offer_submission` | Check a Microsoft Partner Center or AWS Marketplace SaaS offer packet before manual submission | Writes only a Shadow Mode evaluation/evidence record |
-| `commercegate_get_dossier`              | Read a signed Decision Dossier by UUID                                                   | Protocol tenant read                                           |
-| `commercegate_get_proof_packet`         | Read a dossier proof packet by UUID                                                      | Protocol tenant read                                           |
-| `commercegate_list_shadow_reports`      | Read recent Shadow Mode evaluation rows                                                  | Protocol tenant read                                           |
-| `commercegate_summarize_shadow_reports` | Read aggregate Shadow Mode outcomes and near misses                                      | Protocol tenant read                                           |
+| Tool                                                 | Purpose                                                                                           | External effect                                                |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `commercegate_describe_capabilities`                 | Inspect action coverage, Walmart connection mappings, safety guarantees, and connector boundaries | None; local only                                               |
+| `commercegate_validate_erp_transaction`              | Enforced binary authorization for one complete D365 transaction                                   | Policy decision and idempotent agent-budget authorization only |
+| `commercegate_evaluate_action`                       | Check a price change, stock change, order, fulfillment step, promotion, refund or return          | Writes only a Shadow Mode evaluation/evidence record           |
+| `commercegate_evaluate_marketplace_offer_submission` | Check a Microsoft Partner Center or AWS Marketplace SaaS offer packet before manual submission    | Writes only a Shadow Mode evaluation/evidence record           |
+| `commercegate_get_dossier`                           | Read a signed Decision Dossier by UUID                                                            | Protocol tenant read                                           |
+| `commercegate_get_proof_packet`                      | Read a dossier proof packet by UUID                                                               | Protocol tenant read                                           |
+| `commercegate_list_shadow_reports`                   | Read recent Shadow Mode evaluation rows                                                           | Protocol tenant read                                           |
+| `commercegate_summarize_shadow_reports`              | Read aggregate Shadow Mode outcomes and near misses                                               | Protocol tenant read                                           |
 
 ### Action contract
 
@@ -149,6 +149,7 @@ Refund and oversell controls are connector-gated. Depending on the connector, Co
 
 Current shipped examples:
 
+- Walmart Marketplace has a Commerce Gate connector. `commercegate_evaluate_action` is the preflight for Commerce Evaluation, Price Guard (`PRICE_CHANGE`), and Order Guard (`ORDER_ACCEPTANCE`). The same preflight maps order interception and margin protection to `ORDER_ACCEPTANCE`; it maps release to `FULFILLMENT_ACTION` with `acknowledge`, and hold or cancel to `FULFILLMENT_ACTION` with `hold` or `cancel`. The connected path implements interception, fee-aware margin protection, optional scoped inventory protection, Walmart acknowledgment release, withheld-acknowledgment hold, and operator-confirmed cancel. Capability discovery does not probe a merchant connection, and none of those writes are exposed through this MCP.
 - Walmart supports order reads, policy-evaluated acknowledgment, and operator-confirmed ship, cancel, and product-line refund paths. Refunds are limited to eligible shipped or delivered lines and the remaining refundable product amount. None of those writes are exposed through this MCP.
 - Shopify Functions enforce configured margin rules at checkout, in discount handling, and in payment-method selection. A separate Shopify Flow action performs a post-order Shopify inventory-floor check and records a decision; it does not hold, cancel, modify, or refund the order, and it does not currently compare another marketplace’s inventory.
 
