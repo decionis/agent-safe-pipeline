@@ -8,6 +8,7 @@ import {
   advance,
   admission,
   MAX_PROOF_BYTES,
+  MAX_PROOF_RECORDS,
   nextCheckIn,
   PENDING,
   PROOF_GRACE_MS,
@@ -18,6 +19,7 @@ import {
   proofLines,
   proofToken,
   provesUpstream,
+  sameBinding,
   UPSTREAM_PROOF_HEADER,
   UPSTREAM_PROOF_PATH,
   UPSTREAM_PROOF_TXT_LABEL,
@@ -25,6 +27,7 @@ import {
   UpstreamProofMonitor,
   type ProofBinding,
   type ProofOutcome,
+  type ProofStanding,
   type ProofState,
   type TxtResolver,
 } from "../../src/gateway/UpstreamProof.js";
@@ -108,21 +111,71 @@ describe("the proof token", () => {
     expect(provesUpstream([`  ${GOLDEN}`], BINDING)).toBe(true);
     expect(provesUpstream([`${GOLDEN}\r`], BINDING)).toBe(true);
     expect(provesUpstream([`\t${GOLDEN} \r`], BINDING)).toBe(true);
+    expect(provesUpstream([`${GOLDEN}  `], BINDING)).toBe(true);
+    // Only the ends: white space inside a token is part of what fails to match.
+    expect(provesUpstream([`${GOLDEN.slice(0, 13)} ${GOLDEN.slice(13)}`], BINDING)).toBe(false);
+    expect(provesUpstream([" \t\r\n"], BINDING)).toBe(false);
+  });
+
+  it("trims exactly the white space Python's str.strip() does, so onboarding and the host read one proof alike", () => {
+    // Every code point Python's str.isspace() is true for, and nothing else.
+    const python = [
+      0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x85, 0xa0, 0x1680, 0x2000,
+      0x2001, 0x2002, 0x2003, 0x2004, 0x2005, 0x2006, 0x2007, 0x2008, 0x2009, 0x200a, 0x2028,
+      0x2029, 0x202f, 0x205f, 0x3000,
+    ];
+    for (const code of python) {
+      const space = String.fromCharCode(code);
+      expect([code, provesUpstream([`${space}${space}${GOLDEN}${space}`], BINDING)]).toEqual([
+        code,
+        true,
+      ]);
+    }
+    // JavaScript's trim() would take these; Python's strip() does not, and neither does the host.
+    for (const code of [0xfeff, 0x180e, 0x200b]) {
+      const other = String.fromCharCode(code);
+      expect([code, provesUpstream([`${other}${GOLDEN}`], BINDING)]).toEqual([code, false]);
+      expect([code, provesUpstream([`${GOLDEN}${other}`], BINDING)]).toEqual([code, false]);
+    }
+  });
+});
+
+describe("whether a kept proof holds for a binding", () => {
+  it("holds only for the same tenant, organization and origin, all three", () => {
+    expect(sameBinding(BINDING, { ...BINDING })).toBe(true);
+    for (const other of [
+      { ...BINDING, tenant: "globex" },
+      { ...BINDING, org: "00000000-0000-4000-8000-000000000009" },
+      { ...BINDING, origin: "https://api.globex.example" },
+    ]) {
+      expect(sameBinding(BINDING, other)).toBe(false);
+      expect(sameBinding(other, BINDING)).toBe(false);
+    }
   });
 });
 
 describe("a proof file's lines", () => {
-  it("are its lines as UTF-8, without a byte-order mark; a stray byte spoils only its own line", () => {
+  it("are its lines as UTF-8, without a byte-order mark at its start", () => {
     expect(proofLines(Buffer.from("a\nb\r\n\nc", "utf8"))).toEqual(["a", "b\r", "", "c"]);
     const file = Buffer.concat([
       Buffer.from([0xef, 0xbb, 0xbf]),
-      Buffer.from(`${GOLDEN}\r\n# workspace \xff\n`, "latin1"),
-      Buffer.from([0xc3, 0x28, 0x0a]),
+      Buffer.from(`${GOLDEN}\r\n# workspace caf\u00e9\n`, "utf8"),
     ]);
     const lines = proofLines(file);
-    expect(lines[0]).toBe(`${GOLDEN}\r`);
+    expect(lines).toEqual([`${GOLDEN}\r`, "# workspace caf\u00e9", ""]);
     expect(provesUpstream(lines, BINDING)).toBe(true);
     expect(provesUpstream(proofLines(new Uint8Array()), BINDING)).toBe(false);
+  });
+
+  it("are none at all when the body is not UTF-8, whatever one line holds", () => {
+    for (const stray of [[0xff], [0xc3, 0x28], [0xed, 0xa0, 0x80]]) {
+      const file = Buffer.concat([
+        Buffer.from(`${GOLDEN}\n# workspace `, "utf8"),
+        Buffer.from(stray),
+        Buffer.from("\n", "utf8"),
+      ]);
+      expect(proofLines(file)).toEqual([]);
+    }
   });
 });
 
@@ -210,19 +263,53 @@ describe("one look at an upstream's proof", () => {
     expect(await chunked.check.check()).toEqual(PROVEN_DNS);
     const neither = harness(answer(404, GOLDEN), records(["v=spf1 -all"], [`${GOLDEN}x`]));
     expect(await neither.check.check()).toEqual(MISSING);
-    // A record contains the token as a part of its value, named or among others.
-    for (const value of [`agentsafe-upstream=${GOLDEN}`, `issued-by-operator ${GOLDEN}`]) {
-      expect(await harness(answer(404), records([value])).check.check()).toEqual(PROVEN_DNS);
+    // A record is the token and nothing else, trimmed, as onboarding reads it.
+    expect(await harness(answer(404), records([` ${GOLDEN}\t`])).check.check()).toEqual(PROVEN_DNS);
+    for (const value of [
+      `agentsafe-upstream=${GOLDEN}`,
+      `agentsafe-upstream ${GOLDEN}`,
+      `${GOLDEN}=`,
+      `${GOLDEN} ${GOLDEN}`,
+    ]) {
+      expect([value, await harness(answer(404), records([value])).check.check()]).toEqual([
+        value,
+        MISSING,
+      ]);
     }
-    expect(
-      await harness(answer(404), records([`agentsafe-upstream:${GOLDEN}`])).check.check(),
-    ).toEqual(MISSING);
     // A redirect is an answer from the origin, without the file at the origin itself.
     const moved = harness(answer(302, null, { location: "https://www.acme.example/proof" }));
     expect(await moved.check.check()).toEqual(MISSING);
     expect(moved.sent).toHaveLength(1);
     // So is a server error: the origin answered over verified TLS and served no token.
     expect(await harness(answer(503, GOLDEN)).check.check()).toEqual(MISSING);
+  });
+
+  it("reads the first 32 TXT records, and none longer than a proof file", async () => {
+    expect(MAX_PROOF_RECORDS).toBe(32);
+    const filler = Array.from({ length: 31 }, (_, index) => [`v=filler${index}`]);
+    expect(await harness(answer(404), records(...filler, [GOLDEN])).check.check()).toEqual(
+      PROVEN_DNS,
+    );
+    expect(
+      await harness(answer(404), records(...filler, ["v=one-more"], [GOLDEN])).check.check(),
+    ).toEqual(MISSING);
+    // A record is measured in bytes, its strings joined, before it is trimmed.
+    const padded = (pad: string, count: number): string => `${GOLDEN}${pad.repeat(count)}`;
+    expect(Buffer.byteLength(padded(" ", 988))).toBe(MAX_PROOF_BYTES);
+    expect(await harness(answer(404), records([padded(" ", 988)])).check.check()).toEqual(
+      PROVEN_DNS,
+    );
+    expect(
+      await harness(answer(404), records([padded(" ", 500), " ".repeat(488)])).check.check(),
+    ).toEqual(PROVEN_DNS);
+    expect(await harness(answer(404), records([padded(" ", 989)])).check.check()).toEqual(MISSING);
+    // Two bytes each in UTF-8: 531 characters, 1,026 bytes.
+    expect(await harness(answer(404), records([padded("\u00a0", 495)])).check.check()).toEqual(
+      MISSING,
+    );
+    expect(await harness(answer(404), records([padded("\u00a0", 494)])).check.check()).toEqual(
+      PROVEN_DNS,
+    );
   });
 
   it("takes an answer over the bound as an answer that is not a proof", async () => {
@@ -403,10 +490,11 @@ describe("a tenant's proof, kept", () => {
     vi.useRealTimers();
   });
 
-  function monitor(
-    outcomes: ProofOutcome[],
-    initial: ProofState = PENDING,
-  ): { monitor: UpstreamProofMonitor; events: SecurityEvent[]; checks: () => number } {
+  function monitor(outcomes: ProofOutcome[]): {
+    monitor: UpstreamProofMonitor;
+    events: SecurityEvent[];
+    checks: () => number;
+  } {
     const events: SecurityEvent[] = [];
     let checks = 0;
     const kept = new UpstreamProofMonitor({
@@ -418,10 +506,18 @@ describe("a tenant's proof, kept", () => {
       report: (event) => events.push(event),
       clock: () => Date.now(),
       random: () => 0.5,
-      initial,
     });
     return { monitor: kept, events, checks: () => checks };
   }
+
+  /** A proof verified by file at a time, its next look a day after it. */
+  const verifiedAt = (at: number): ProofStanding => ({
+    state: VERIFIED_FILE,
+    checkedAt: at,
+    code: null,
+    dueAt: at + PROOF_RECHECK_MS,
+    settled: true,
+  });
 
   it("looks at once while pending, every minute until it sees the proof, then daily", async () => {
     const look = deferred();
@@ -437,8 +533,9 @@ describe("a tenant's proof, kept", () => {
       report: (event) => events.push(event),
       clock: () => Date.now(),
       random: () => 0.5,
-      initial: PENDING,
     });
+    expect(kept.settled).toBe(false);
+    expect(kept.current).toEqual(PENDING);
     expect(kept.snapshot()).toEqual({
       state: "pending",
       method: null,
@@ -486,9 +583,9 @@ describe("a tenant's proof, kept", () => {
 
   it("marks a verified tenant whose proof is gone, refuses it after the grace, and restores it when it is back", async () => {
     const outcomes: ProofOutcome[] = [MISSING, ...Array<ProofOutcome>(71).fill(MISSING), MISSING];
-    const { monitor: kept, events, checks } = monitor(outcomes, VERIFIED_FILE);
+    const { monitor: kept, events, checks } = monitor(outcomes);
+    kept.resume(verifiedAt(T0));
     expect(kept.settled).toBe(true);
-    kept.start();
     expect(checks()).toBe(0);
     await vi.advanceTimersByTimeAsync(PROOF_RECHECK_MS);
     expect(checks()).toBe(1);
@@ -551,7 +648,6 @@ describe("a tenant's proof, kept", () => {
       report: (event) => events.push(event),
       clock: () => Date.now(),
       random: () => 0.5,
-      initial: PENDING,
     });
     kept.start();
     kept.stop();
@@ -562,11 +658,109 @@ describe("a tenant's proof, kept", () => {
     expect(kept.settled).toBe(false);
     expect(events).toEqual([]);
 
-    const waiting = monitor([PROVEN_FILE], VERIFIED_FILE);
-    waiting.monitor.start();
+    const waiting = monitor([PROVEN_FILE]);
+    waiting.monitor.resume(verifiedAt(T0));
     waiting.monitor.stop();
     await vi.advanceTimersByTimeAsync(PROOF_RECHECK_MS * 2);
     expect(waiting.checks()).toBe(0);
+  });
+
+  it("stands where its last look left it, and is due when its next look is", async () => {
+    const look = deferred();
+    let checks = 0;
+    const kept = new UpstreamProofMonitor({
+      origin: BINDING.origin,
+      check: () => {
+        checks += 1;
+        return checks === 1 ? Promise.resolve(PROVEN_FILE) : look.promise;
+      },
+      report: () => undefined,
+      clock: () => Date.now(),
+      random: () => 0.25,
+    });
+    expect(kept.standing()).toEqual({
+      state: PENDING,
+      checkedAt: null,
+      code: null,
+      dueAt: null,
+      settled: false,
+    });
+    kept.start();
+    await vi.advanceTimersByTimeAsync(0);
+    // Verified, its next look a day less half an hour away (random 0.25).
+    const due = T0 + PROOF_RECHECK_MS - PROOF_JITTER_MS / 2;
+    expect(kept.standing()).toEqual({
+      state: VERIFIED_FILE,
+      checkedAt: T0,
+      code: null,
+      dueAt: due,
+      settled: true,
+    });
+    await vi.advanceTimersByTimeAsync(due - T0);
+    // A look in flight has no time it is due: whoever takes over looks at once.
+    expect(checks).toBe(2);
+    expect(kept.standing()).toMatchObject({ checkedAt: T0, dueAt: null });
+    kept.stop();
+    look.settle(MISSING);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(kept.standing()).toEqual({
+      state: VERIFIED_FILE,
+      checkedAt: T0,
+      code: null,
+      dueAt: null,
+      settled: true,
+    });
+  });
+
+  it("takes over a standing whole: the next look stays when it was due, and the last look is still the last", async () => {
+    const before = T0 - 5 * HOUR;
+    const { monitor: kept, events, checks } = monitor([MISSING]);
+    kept.resume({
+      state: { kind: "pending" },
+      checkedAt: before,
+      code: "ETIMEDOUT",
+      dueAt: T0 + 30_000,
+      settled: true,
+    });
+    expect(kept.settled).toBe(true);
+    expect(kept.current).toEqual(PENDING);
+    expect(kept.snapshot()).toEqual({
+      state: "pending",
+      method: null,
+      checked_at: new Date(before).toISOString(),
+      stops_at: null,
+      code: "ETIMEDOUT",
+    });
+    // Not a fresh minute from the takeover: thirty seconds, when it was due.
+    await vi.advanceTimersByTimeAsync(30_000 - 1);
+    expect(checks()).toBe(0);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(checks()).toBe(1);
+    expect(events).toEqual([
+      { event: "UPSTREAM_UNVERIFIED", origin: BINDING.origin, code: "UPSTREAM_PROOF_NOT_SERVED" },
+    ]);
+    kept.stop();
+
+    // A verified proof whose next look was 20 hours away is looked at in 20 hours, not 24.
+    const daily = monitor([PROVEN_DNS]);
+    daily.monitor.resume(verifiedAt(Date.now() - 4 * HOUR));
+    expect(daily.monitor.admits()).toBe("FORWARD");
+    await vi.advanceTimersByTimeAsync(20 * HOUR - 1);
+    expect(daily.checks()).toBe(0);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(daily.checks()).toBe(1);
+    daily.monitor.stop();
+  });
+
+  it("looks at once when what it takes over had a look in flight, or was already due", async () => {
+    for (const dueAt of [null, T0 - HOUR]) {
+      const { monitor: kept, checks } = monitor([PROVEN_FILE]);
+      kept.resume({ ...verifiedAt(T0 - 2 * HOUR), dueAt });
+      expect(checks()).toBe(0);
+      await vi.advanceTimersByTimeAsync(1);
+      expect([dueAt, checks()]).toEqual([dueAt, 1]);
+      kept.stop();
+    }
   });
 });
 
@@ -578,9 +772,14 @@ describe("a tenant's proof, kept, in a real process", () => {
       report: () => undefined,
       clock: () => Date.now(),
       random: () => 0.5,
-      initial: VERIFIED_FILE,
     });
-    kept.start();
+    kept.resume({
+      state: VERIFIED_FILE,
+      checkedAt: Date.now(),
+      code: null,
+      dueAt: Date.now() + PROOF_RECHECK_MS,
+      settled: true,
+    });
     const timer = (kept as unknown as { readonly timer: ReturnType<typeof setTimeout> }).timer;
     expect(timer.hasRef()).toBe(false);
     kept.stop();

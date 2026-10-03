@@ -105,7 +105,8 @@ interface Served {
  * A reload rebuilds only the tenants whose entry changed, swaps the set at
  * once, and lets a replaced gateway drain before it is closed; the gateway
  * built in its place continues its chains, found by the tenant's id and not
- * its host. A change to a tenant's keys alone rebuilds nothing: its gateway
+ * its host, and takes over its upstream's proof at the swap, as it stands
+ * then. A change to a tenant's keys alone rebuilds nothing: its gateway
  * takes them in place. A registry that cannot be read or is not valid
  * changes nothing: the tenants served stay served.
  */
@@ -250,7 +251,8 @@ export class TenantHost {
     const next = new Map<string, Served>();
     const built: string[] = [];
     const fresh: [string, Gateway][] = [];
-    const replaced: Gateway[] = [];
+    // Each rebuilt gateway and the one it replaces, which hands over at the swap.
+    const handovers: (readonly [Gateway, Gateway])[] = [];
     const rekeyed: string[] = [];
     const failed: { tenant: string; code: string }[] = [];
     const byId = new Map([...this.served.values()].map((entry) => [entry.id, entry.gateway]));
@@ -273,7 +275,7 @@ export class TenantHost {
           next.set(hostname, { id: tenant.id, fingerprint, gateway });
           built.push(tenant.id);
           fresh.push([hostname, gateway]);
-          if (predecessor !== undefined) replaced.push(predecessor);
+          if (predecessor !== undefined) handovers.push([gateway, predecessor]);
           continue;
         } catch (error) {
           failure = error;
@@ -301,10 +303,11 @@ export class TenantHost {
     } else {
       this.served = next;
       if (next.size === registry.tenants.length) this.everyTenantServedAt ??= this.clock();
-      // The replacement persists the chains' heads and checks the upstream's
+      // The replacement persists the chains' heads and looks at the upstream's
       // proof from now on, not the gateway it replaced, which links on the
-      // chains only until it has drained.
-      for (const gateway of replaced) gateway.handedOn();
+      // chains only until it has drained. It takes the proof as it stands at
+      // this swap, so a look the old one finished during the builds counts.
+      for (const [gateway, predecessor] of handovers) gateway.takeOver(predecessor);
       for (const entry of retired) this.drain(entry);
       for (const entry of next.values()) {
         entry.gateway.builtFrom({ revision, entry: shortDigest(`sha256:${entry.fingerprint}`) });

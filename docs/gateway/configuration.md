@@ -212,16 +212,21 @@ it there. For `acme`, organization `6f1c1e0e-2a8b-4a35-9c55-0d6f0a3d2b11`, origi
 `https://api.acme.example`, issued `1759492800`, it is `v1.1759492800.GCO1YWc5UIsWe8_w9vbzTQ`.
 The origin serves it in either of two ways:
 
-- **A file.** `GET https://<host>/.well-known/agentsafe-upstream` answers `200` with text of at most
-  1 KiB, at the origin itself (a redirect is not followed) and without credentials, from the
-  fleet's egress address. Any line that is a token bound to the tenant proves it; other lines,
-  `#` comments among them, are ignored, so one file can carry several tenants' tokens and a
-  rotation's two.
-- **A TXT record** at `_agentsafe-challenge.<host>` that contains the token: the record's strings
-  are joined, and the token may stand alone or as a part separated by spaces or `=`
-  (`agentsafe-upstream=<token>`). It counts only when the origin also answered the file's `GET`
-  over verified TLS, because DNS is not authenticated and only that answer ties the name to where
-  traffic goes. An address written as the host has no name to publish one under.
+- **A file.** `GET https://<host>/.well-known/agentsafe-upstream` answers `200` with UTF-8 text of
+  at most 1 KiB, at the origin itself (a redirect is not followed) and without credentials, from
+  the fleet's egress address. Any line that, trimmed of white space at its ends, is a token bound
+  to the tenant proves it; other lines, `#` comments among them, are ignored, so one file can
+  carry several tenants' tokens and a rotation's two. A byte-order mark at the start is allowed;
+  a body that is not UTF-8 proves nothing, whatever a line of it holds.
+- **A TXT record** at `_agentsafe-challenge.<host>` whose value is the token and nothing else: the
+  record's strings are joined, as DNS may split them, and trimmed of white space at its ends. Not
+  `agentsafe-upstream=<token>`, and not the token among other words. The first 32 records are
+  read, and a record over 1 KiB is ignored. It counts only when the origin also answered the
+  file's `GET` over verified TLS, because DNS is not authenticated and only that answer ties the
+  name to where traffic goes. An address written as the host has no name to publish one under.
+
+White space here is what Python's `str.strip()` removes, so a check written in Python reads a
+proof exactly as the host does.
 
 The check is the gateway's own, apart from its relay: public addresses only, TLS verified against
 the public roots, a loopback name refused, no header of the tenant's, and
@@ -246,10 +251,13 @@ proof's text is never written anywhere. The operator's `/_agentsafe/status` carr
 stops forwarding, and the code of a check that got no answer.
 
 Where a proof stands is kept per process. A gateway rebuilt for the same tenant, organization and
-origin keeps it, so a change to anything else in an entry never stops a proven tenant for a check;
-a new origin or organization is proved from the start. A new process looks again, so a grace in
-progress does not survive a restart. Turn the flag on only once every tenant's origin serves its
-proof.
+origin takes it over from the gateway it replaces when the two are swapped, as it stands then: its
+state, its last look and when its next look is due, so a change to anything else in an entry never
+stops a proven tenant for a check, never moves its next look, and never loses a look the old
+gateway finished while the registry was loading. The old gateway looks no more from the swap, and
+a look it had in flight is dropped: the new one looks at once instead. A new tenant id, origin or
+organization is proved from the start. A new process looks again, so a grace in progress does not
+survive a restart. Turn the flag on only once every tenant's origin serves its proof.
 
 ### Evidence across reloads, restarts and replicas
 

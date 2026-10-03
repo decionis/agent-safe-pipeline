@@ -70,14 +70,13 @@ import { RefusalSampler } from "./RefusalSampler.js";
 import { RouteTable, type RoutePlan } from "./RouteTable.js";
 import { enforcementSwitch, ShadowLedger, type ShadowSummary } from "./ShadowLedger.js";
 import {
-  PENDING,
   PROOF_PENDING_RETRY_MS,
+  sameBinding,
   UpstreamProofCheck,
   UpstreamProofMonitor,
   type ProofAdmission,
   type ProofBinding,
   type ProofSnapshot,
-  type ProofState,
   type TxtResolver,
 } from "./UpstreamProof.js";
 
@@ -135,6 +134,8 @@ interface UpstreamProof {
   readonly binding: ProofBinding;
   readonly check: UpstreamProofCheck;
   readonly monitor: UpstreamProofMonitor;
+  /** Built to replace another gateway: its first look waits for the swap (`takeOver`). */
+  readonly takesOver: boolean;
 }
 
 export interface GatewayResponse {
@@ -181,7 +182,9 @@ export interface GatewayDependencies {
   /**
    * What the gateway this one replaces hands on: its chains are continued,
    * neither restored from the journal nor started again from genesis, and
-   * its funnel's milestones are not reported twice.
+   * its funnel's milestones are not reported twice. The upstream's proof is
+   * not part of it: that is taken over at the swap (`takeOver`), as it
+   * stands then.
    */
   readonly continues?: GatewayContinuation;
 }
@@ -196,12 +199,6 @@ export interface GatewayContinuation {
   readonly gateway: HashChain;
   readonly security: HashChain;
   readonly activation: ActivationFunnel;
-  /**
-   * Where the upstream's proof stood, and for whom: a replacement bound to
-   * the same tenant, organization and origin takes it up, so a rebuild for
-   * any other reason never stops a proven tenant's traffic for a check.
-   */
-  readonly proof: { readonly binding: ProofBinding; readonly state: ProofState } | null;
 }
 
 /** Where a hosted gateway's configuration came from, when a host built it from a tenant registry. */
@@ -550,7 +547,7 @@ export class Gateway {
       new NoneProvenanceProvider(),
     ];
     const workload = resolveWorkload(dependencies.provenance ?? providers, { env });
-    const proof = Gateway.upstreamProof(config, dependencies, security, clock, continues);
+    const proof = Gateway.upstreamProof(config, dependencies, security, clock, continues !== null);
     // A chain that does not start at genesis says where it was taken up, once
     // nothing is left that can refuse the gateway.
     for (const [stream, head] of [
@@ -584,23 +581,23 @@ export class Gateway {
       continues?.activation ?? null,
       proof,
     );
-    // The first look at the proof starts once nothing can refuse the gateway.
-    proof?.monitor.start();
+    // The first look at the proof starts once nothing can refuse the gateway;
+    // a gateway built to replace another takes the proof over at the swap.
+    if (proof !== null && !proof.takesOver) proof.monitor.start();
     return gateway;
   }
 
   /**
    * The upstream's proof, when the configuration requires one: a check of its
-   * own and the state kept from it, taken up from the gateway this one
-   * replaces when that one was bound to the same tenant, organization and
-   * origin, and otherwise pending.
+   * own and a monitor, pending until it looks or takes over from the gateway
+   * this one replaces (`takeOver`).
    */
   private static upstreamProof(
     config: GatewayConfig,
     dependencies: GatewayDependencies,
     security: SecurityEvents,
     clock: () => number,
-    continues: GatewayContinuation | null,
+    takesOver: boolean,
   ): UpstreamProof | null {
     if (!config.upstream.proofRequired || config.hostedTenant === null) return null;
     const binding: ProofBinding = {
@@ -617,23 +614,14 @@ export class Gateway {
         ? {}
         : { resolve: dependencies.upstreamResolve }),
     });
-    const handed = continues?.proof ?? null;
-    const initial =
-      handed !== null &&
-      handed.binding.tenant === binding.tenant &&
-      handed.binding.org === binding.org &&
-      handed.binding.origin === binding.origin
-        ? handed.state
-        : PENDING;
     const monitor = new UpstreamProofMonitor({
       origin: binding.origin,
       check: () => check.check(),
       report: (event) => security.emit(event),
       clock,
       random: Math.random,
-      initial,
     });
-    return { binding, check, monitor };
+    return { binding, check, monitor, takesOver };
   }
 
   /** TXT through the system's resolver, bounded, so a check never waits on DNS for long. */
@@ -808,17 +796,35 @@ export class Gateway {
       gateway: this.chain,
       security: this.security.chain,
       activation: this.activation,
-      proof:
-        this.proof === null
-          ? null
-          : { binding: this.proof.binding, state: this.proof.monitor.current },
     };
   }
 
   /**
+   * The swap: this gateway, built to replace `from` with its continuation,
+   * takes over what `from` still did itself. `from` stops persisting the
+   * chains' heads and looking at the upstream's proof, a look in flight
+   * included, and only finishes what it has in flight. The proof is taken as
+   * it stands now, not as it stood when this one was built: a look that ended
+   * while the registry was loading counts, and is reported once, by `from`;
+   * the last look and the next stay when they were. When `from` was bound to
+   * another tenant, organization or origin, this one looks from the start.
+   */
+  public takeOver(from: Gateway): void {
+    from.handedOn();
+    const proof = this.proof;
+    if (proof === null || !proof.takesOver) return;
+    const kept = from.proof;
+    if (kept !== null && sameBinding(kept.binding, proof.binding)) {
+      proof.monitor.resume(kept.monitor.standing());
+    } else {
+      proof.monitor.start();
+    }
+  }
+
+  /**
    * Hands on what the gateway that continues this one now does itself:
-   * persisting the chains' heads, and checking the upstream's proof. This one
-   * goes on finishing what it has in flight.
+   * persisting the chains' heads, and looking at the upstream's proof. This
+   * one goes on finishing what it has in flight. Called again, it does nothing.
    */
   public handedOn(): void {
     this.releaseJournal();

@@ -121,14 +121,23 @@ as safe to retry.
 The listener refuses some requests before the gateway sees them: a missing or wrong tenant key
 (`401 TENANT_KEY_MISSING` or `TENANT_KEY_INVALID`, with `WWW-Authenticate: AgentSafe-Tenant-Key`),
 the gateway's rate (`429 RATE_LIMITED`), a body over the bound (`413 BODY_TOO_LARGE`) and a host it
-does not serve (`421 HOST_NOT_SERVED`). A hosted gateway that requires its upstream's proof refuses
-an admitted request with `503 UPSTREAM_UNVERIFIED` while the proof is not established, and marks a
-forwarded answer `agentsafe-upstream-proof: missing` while it is gone
-([the upstream's proof](./configuration.md#the-upstreams-proof)). Each is a `code` and nothing else, with
+does not serve (`421 HOST_NOT_SERVED`). Each is a `code` and nothing else, with
 `agentsafe-execution: NOT_FORWARDED`; a failure of the listener's own is `500 INTERNAL_ERROR` with
-`agentsafe-execution: INDETERMINATE`, since it cannot say whether anything was sent. Every answer to
-a request that is not the gateway's own route carries `agentsafe-execution`, and an upstream's
-`agentsafe-*` headers are never relayed, so an answer without one did not come from the gateway.
+`agentsafe-execution: INDETERMINATE`, since it cannot say whether anything was sent.
+
+A hosted gateway that requires its upstream's proof answers an admitted request with
+`503 UPSTREAM_UNVERIFIED` while the proof is not established, before the request spends any of the
+gateway's rate. That answer is not a `code`: it is the gateway's own response
+(`version: agent-safe.gateway/1`), with state `ERROR`, `verdict` null,
+`reason_codes: ["UPSTREAM_UNVERIFIED"]`, `execution: NOT_FORWARDED` and `fallback`, the upstream to
+call directly in the meantime, and the headers `agentsafe-state: ERROR`,
+`agentsafe-execution: NOT_FORWARDED` and `Retry-After: 60`. While the proof is gone but still in
+its grace, a forwarded answer is marked `agentsafe-upstream-proof: missing`
+([the upstream's proof](./configuration.md#the-upstreams-proof)).
+
+Every answer to a request that is not the gateway's own route carries `agentsafe-execution`, and an
+upstream's `agentsafe-*` headers are never relayed, so an answer without one did not come from the
+gateway.
 
 ### Holds and resume
 

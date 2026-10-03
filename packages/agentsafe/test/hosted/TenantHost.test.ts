@@ -2,12 +2,18 @@ import { mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { LOCAL_AUTHORITY_API_KEY, LocalAuthority } from "@decionis/agent-safe-pipeline/testing";
 import { ChainJournal } from "../../src/audit/ChainJournal.js";
 import { EVIDENCE_STREAM } from "../../src/audit/HashChainedAuditSink.js";
-import { GATEWAY_STREAM } from "../../src/gateway/Gateway.js";
-import { proofToken, UPSTREAM_PROOF_PATH } from "../../src/gateway/UpstreamProof.js";
+import { Gateway, GATEWAY_STREAM } from "../../src/gateway/Gateway.js";
+import {
+  PROOF_GRACE_MS,
+  PROOF_MISSING_RECHECK_MS,
+  PROOF_RECHECK_MS,
+  proofToken,
+  UPSTREAM_PROOF_PATH,
+} from "../../src/gateway/UpstreamProof.js";
 import { TenantHost } from "../../src/hosted/TenantHost.js";
 import { registryRevision, TenantRegistryError } from "../../src/hosted/TenantRegistry.js";
 import { GatewayHttpServer } from "../../src/http/GatewayHttpServer.js";
@@ -946,5 +952,110 @@ describe("the tenant host", () => {
     });
     await server.close();
     await host.close();
+  });
+
+  it("with the upstream's proof required, hands a rebuilt tenant its proof as it stands at the swap: a look that ends while the registry loads counts once, and the next look stays when it was due", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    try {
+      const t0 = Date.parse("2026-10-03T12:00:00.000Z");
+      let now = t0;
+      const clock = (): number => now;
+      const pass = async (ms: number): Promise<void> => {
+        now += ms;
+        await vi.advanceTimersByTimeAsync(ms);
+      };
+      const token = proofToken(
+        { tenant: "acme", org: WORKSPACE, origin: upstreamOf("acme") },
+        1_759_492_800,
+      );
+      // What acme's origin serves at the proof's path; a promise answers when it settles.
+      let serving: string | null | Promise<Response> = `${token}\n`;
+      const looks: number[] = [];
+      let duringRebuild: (() => Promise<void>) | null = null;
+      const files = new Map([[REGISTRY_PATH, registry([tenant("acme", TENANT_KEY_DIGEST)])]]);
+      const io = collectedIo();
+      const host = await TenantHost.start({
+        registryPath: REGISTRY_PATH,
+        env: { DECIONIS_API_URL: authority.baseUrl, DECIONIS_ALLOW_INSECURE_LOOPBACK: "true" },
+        io,
+        readFile: (path) => files.get(path) ?? null,
+        requireUpstreamProof: true,
+        clock,
+        createGateway: async (config, dependencies) => {
+          if (dependencies.continues !== undefined) await duringRebuild?.();
+          return await Gateway.create(config, dependencies);
+        },
+        dependencies: {
+          clock,
+          upstreamFetch: async (input) => {
+            const url = new URL(String(input));
+            if (url.pathname !== UPSTREAM_PROOF_PATH) return new Response(`from ${url.host}`);
+            looks.push(now);
+            const answer = serving;
+            if (answer instanceof Promise) return await answer;
+            return answer === null
+              ? new Response("gone", { status: 404 })
+              : new Response(answer, { status: 200 });
+          },
+          upstreamResolveTxt: async () => [],
+        },
+      });
+      await pass(0);
+      const old = host.select(ACME);
+      expect(old?.upstreamProof()).toBe("FORWARD");
+
+      // A day later the old gateway looks again, and the origin answers only when told.
+      let answer: (response: Response) => void = () => undefined;
+      serving = new Promise<Response>((resolve) => {
+        answer = resolve;
+      });
+      await pass(PROOF_RECHECK_MS);
+      expect(looks).toEqual([t0, t0 + PROOF_RECHECK_MS]);
+      // A change to acme's entry rebuilds it, and the look ends, without the proof, mid-reload.
+      duringRebuild = async () => {
+        answer(new Response("gone", { status: 404 }));
+        while (old?.upstreamProof() !== "MISSING") {
+          await new Promise((resolve) => setImmediate(resolve));
+        }
+      };
+      files.set(
+        REGISTRY_PATH,
+        registry([
+          tenant("acme", TENANT_KEY_DIGEST, { rateLimit: { requestsPerSecond: 5, burst: 20 } }),
+        ]),
+      );
+      expect(await host.reload()).toMatchObject({ built: ["acme"] });
+      const rebuilt = host.select(ACME);
+      expect(rebuilt).not.toBe(old);
+      const since = t0 + PROOF_RECHECK_MS;
+      expect(rebuilt?.upstreamProof()).toBe("MISSING");
+      expect(rebuilt?.status().hosted?.upstream_proof).toEqual({
+        state: "missing",
+        method: null,
+        checked_at: new Date(since).toISOString(),
+        stops_at: new Date(since + PROOF_GRACE_MS).toISOString(),
+        code: null,
+      });
+      const proofEvents = (): Record<string, unknown>[] =>
+        printed(io).filter(
+          (line) => line["tenant"] === "acme" && String(line["event"]).startsWith("UPSTREAM_"),
+        );
+      expect(proofEvents()).toMatchObject([{ event: "UPSTREAM_PROOF_MISSING" }]);
+
+      // The next look is an hour after the miss, and the new gateway's alone.
+      serving = null;
+      await pass(PROOF_MISSING_RECHECK_MS - 1);
+      expect(looks).toHaveLength(2);
+      await pass(1);
+      expect(looks).toEqual([t0, since, since + PROOF_MISSING_RECHECK_MS]);
+      await pass(PROOF_MISSING_RECHECK_MS);
+      expect(looks).toHaveLength(4);
+      expect(proofEvents()).toHaveLength(1);
+      await host.close();
+    } finally {
+      vi.useRealTimers();
+      vi.restoreAllMocks();
+    }
   });
 });

@@ -14,8 +14,10 @@ export const UPSTREAM_PROOF_PATH = "/.well-known/agentsafe-upstream";
 export const UPSTREAM_PROOF_TXT_LABEL = "_agentsafe-challenge";
 /** The header a forwarded answer carries while its upstream's proof is missing. */
 export const UPSTREAM_PROOF_HEADER = "agentsafe-upstream-proof";
-/** The most a proof file may be; a longer answer is not a proof. */
+/** The most a proof file, or one TXT record, may be; anything longer is not a proof. */
 export const MAX_PROOF_BYTES = 1_024;
+/** The TXT records read at the proof's name, in the order the resolver gives them. */
+export const MAX_PROOF_RECORDS = 32;
 export const PROOF_TIMEOUT_MS = 10_000;
 const HOUR_MS = 60 * 60 * 1_000;
 /** A proven upstream is checked again a day later, give or take the jitter. */
@@ -31,6 +33,30 @@ const TOKEN_DOMAIN = "agentsafe-upstream\nv1\n";
 /** Ten digits; anchors would add nothing, since what it is tested on is ten characters at most. */
 const ISSUED = /\d{10}/;
 const REQUEST_HEADERS = { accept: "text/plain", "user-agent": "agentsafe-upstream-proof/1" };
+/**
+ * What a line or a record is trimmed of at both ends: the white space
+ * Python's `str.strip()` removes, which is how onboarding's own check reads
+ * the same proof, so the two never disagree about one. It is not
+ * JavaScript's `trim()`, which also removes U+FEFF and keeps U+001C to
+ * U+001F and U+0085.
+ */
+const SPACE: ReadonlySet<number> = new Set([
+  0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x85, 0xa0, 0x1680, 0x2000, 0x2001,
+  0x2002, 0x2003, 0x2004, 0x2005, 0x2006, 0x2007, 0x2008, 0x2009, 0x200a, 0x2028, 0x2029, 0x202f,
+  0x205f, 0x3000,
+]);
+
+/**
+ * A text without the white space at its ends. A position past either end
+ * reads as no code unit at all, never a space, so each scan stops there.
+ */
+function stripped(text: string): string {
+  let start = 0;
+  let end = text.length;
+  while (SPACE.has(text.charCodeAt(start))) start += 1;
+  while (SPACE.has(text.charCodeAt(end - 1))) end -= 1;
+  return text.slice(start, end);
+}
 
 /**
  * Whom a proof is for: the tenant's id, the Decionis organization it runs
@@ -66,13 +92,13 @@ export function proofToken(binding: ProofBinding, issued: number): string {
 }
 
 /**
- * Whether any candidate, trimmed, is a token bound to this tenant,
- * organization and origin, at any issue time: its age is onboarding's
- * concern, never a recheck's.
+ * Whether any candidate, trimmed of white space at its ends and nothing
+ * else, is a token bound to this tenant, organization and origin, at any
+ * issue time: its age is onboarding's concern, never a recheck's.
  */
 export function provesUpstream(candidates: readonly string[], binding: ProofBinding): boolean {
   return candidates.some((candidate) => {
-    const line = candidate.trim();
+    const line = stripped(candidate);
     const issued = line.slice(3, 13);
     return ISSUED.test(issued) && line === token(binding, issued);
   });
@@ -81,10 +107,18 @@ export function provesUpstream(candidates: readonly string[], binding: ProofBind
 /**
  * A proof file's lines. A comment, a blank line and anything else that is not
  * a token never proves anything, so nothing needs removing; a byte-order
- * mark is dropped and a line's carriage return is trimmed with its spaces.
+ * mark at the start is dropped and a line's carriage return is trimmed with
+ * its spaces. A body that is not UTF-8 has no lines at all, whatever one of
+ * them might hold: onboarding refuses such a file whole, and so does this.
  */
 export function proofLines(body: Uint8Array): readonly string[] {
-  return new TextDecoder().decode(body).split("\n");
+  let text: string;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(body);
+  } catch {
+    return [];
+  }
+  return text.split("\n");
 }
 
 export type ProofMethod = "file" | "dns";
@@ -196,10 +230,15 @@ export class UpstreamProofCheck {
       if (code !== "ENODATA" && code !== "ENOTFOUND") return { kind: "unreachable", code };
       records = [];
     }
-    // A record proves the origin when it contains the token: its strings
-    // joined, as one value, whose parts are separated by spaces or `=`.
-    const parts = records.flatMap((strings) => strings.join("").split(/[\s=]/));
-    return provesUpstream(parts, this.binding) ? { kind: "proven", method: "dns" } : MISSING;
+    // A record proves the origin when it is the token: its strings joined, as
+    // DNS may have split them, and trimmed, with nothing else in it. Only the
+    // first records are read, and none longer than a proof file, exactly as
+    // onboarding reads them, so a record it refuses never proves anything here.
+    const values = records
+      .slice(0, MAX_PROOF_RECORDS)
+      .map((strings) => strings.join(""))
+      .filter((value) => Buffer.byteLength(value) <= MAX_PROOF_BYTES);
+    return provesUpstream(values, this.binding) ? { kind: "proven", method: "dns" } : MISSING;
   }
 
   private static codeOf(error: unknown): string {
@@ -327,6 +366,34 @@ export interface ProofSnapshot {
   readonly code: string | null;
 }
 
+/**
+ * Whether a proof kept for one binding holds for another: the same tenant,
+ * organization and origin, all three. A gateway rebuilt with any of them
+ * changed looks from the start, so an edit to a registry entry never carries
+ * a proof over to a binding no origin has proved.
+ */
+export function sameBinding(kept: ProofBinding, binding: ProofBinding): boolean {
+  return (
+    kept.tenant === binding.tenant && kept.org === binding.org && kept.origin === binding.origin
+  );
+}
+
+/**
+ * Where a tenant's proof stands, whole: its state, when it was last looked
+ * at and why that look had no answer, when the next look is due, and whether
+ * any look has ended. A gateway built to replace another takes it over as it
+ * stands at the swap, so a rebuild neither forgets the last look nor moves
+ * the next one.
+ */
+export interface ProofStanding {
+  readonly state: ProofState;
+  readonly checkedAt: number | null;
+  readonly code: string | null;
+  /** When the next look is due; null while one is in flight, so whoever takes over looks at once. */
+  readonly dueAt: number | null;
+  readonly settled: boolean;
+}
+
 export interface UpstreamProofMonitorOptions {
   readonly origin: string;
   /** One look; never rejects. */
@@ -335,41 +402,60 @@ export interface UpstreamProofMonitorOptions {
   readonly report: (event: SecurityEvent) => void;
   readonly clock: () => number;
   readonly random: () => number;
-  /** Where the gateway this one replaces left the same proof, or `PENDING`. */
-  readonly initial: ProofState;
 }
 
 /**
- * A tenant's proof, kept: checked at once while pending, then on the cadence
- * its state sets, each change reported. It holds no socket and no timer
- * that keeps a process alive.
+ * A tenant's proof, kept: looked at once when nothing is known, or taken
+ * over from the monitor it replaces, then on the cadence its state sets, each
+ * change reported. It holds no socket and no timer that keeps a process alive.
  */
 export class UpstreamProofMonitor {
-  private state: ProofState;
-  private settledOnce: boolean;
+  private state: ProofState = PENDING;
+  private settledOnce = false;
   private checkedAt: number | null = null;
   private lastCode: string | null = null;
+  private dueAt: number | null = null;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private stopped = false;
 
-  public constructor(private readonly options: UpstreamProofMonitorOptions) {
-    this.state = options.initial;
-    this.settledOnce = options.initial.kind !== "pending";
-  }
+  public constructor(private readonly options: UpstreamProofMonitorOptions) {}
 
-  /** Checks now when nothing is known yet; otherwise when the state says to. */
+  /** Looks now: nothing is known yet. */
   public start(): void {
-    if (this.state.kind === "pending") void this.run();
-    else this.schedule();
+    void this.run();
   }
 
-  /** Whether a check has finished, or the state came from a gateway whose check had. */
+  /**
+   * Takes up a proof where another monitor bound the same way left it: its
+   * state and last look as they were, and its next look when it was due, or
+   * at once when that monitor was stopped with a look in flight.
+   */
+  public resume(standing: ProofStanding): void {
+    this.state = standing.state;
+    this.checkedAt = standing.checkedAt;
+    this.lastCode = standing.code;
+    this.settledOnce = standing.settled;
+    this.schedule(standing.dueAt ?? this.options.clock());
+  }
+
+  /** Whether a look has finished, here or in the monitor this one took over from. */
   public get settled(): boolean {
     return this.settledOnce;
   }
 
   public get current(): ProofState {
     return this.state;
+  }
+
+  /** Everything another monitor needs to go on from here; read it once this one is stopped. */
+  public standing(): ProofStanding {
+    return {
+      state: this.state,
+      checkedAt: this.checkedAt,
+      code: this.lastCode,
+      dueAt: this.dueAt,
+      settled: this.settledOnce,
+    };
   }
 
   public admits(): ProofAdmission {
@@ -388,13 +474,14 @@ export class UpstreamProofMonitor {
     };
   }
 
-  /** No further check, and a check in flight changes nothing when it ends. */
+  /** No further look, and a look in flight changes nothing when it ends. */
   public stop(): void {
     this.stopped = true;
     clearTimeout(this.timer);
   }
 
   private async run(): Promise<void> {
+    this.dueAt = null;
     const outcome = await this.options.check();
     if (this.stopped) return;
     const now = this.options.clock();
@@ -404,12 +491,13 @@ export class UpstreamProofMonitor {
     this.lastCode = outcome.kind === "unreachable" ? outcome.code : null;
     this.settledOnce = true;
     if (step.event !== null) this.options.report({ ...step.event, origin: this.options.origin });
-    this.schedule();
+    this.schedule(now + nextCheckIn(this.state, now, this.options.random()));
   }
 
-  private schedule(): void {
-    const delay = nextCheckIn(this.state, this.options.clock(), this.options.random());
-    this.timer = setTimeout(() => void this.run(), delay);
+  /** The next look, at a time; one already due runs at once. */
+  private schedule(at: number): void {
+    this.dueAt = at;
+    this.timer = setTimeout(() => void this.run(), at - this.options.clock());
     this.timer.unref();
   }
 }
