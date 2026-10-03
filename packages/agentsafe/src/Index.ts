@@ -537,10 +537,12 @@ export {
   GATEWAY_PREFIX,
   GATEWAY_RESPONSE_VERSION,
   GATEWAY_STREAM,
+  type GatewayContinuation,
   type GatewayDependencies,
   type GatewayIo,
   type GatewayResponse,
   type GatewayStatus,
+  type RegistrySource,
 } from "./gateway/Gateway.js";
 export {
   ACTION_NAME,
@@ -674,6 +676,20 @@ export {
   type UpstreamOptions,
   type UpstreamResult,
 } from "./gateway/Upstream.js";
+export {
+  UPSTREAM_PROOF_HEADER,
+  UPSTREAM_PROOF_PATH,
+  UPSTREAM_PROOF_TXT_LABEL,
+  UpstreamProofCheck,
+  proofLines,
+  proofToken,
+  provesUpstream,
+  type ProofBinding,
+  type ProofMethod,
+  type ProofOutcome,
+  type TxtResolver,
+  type UpstreamProofCheckOptions,
+} from "./gateway/UpstreamProof.js";
 export {
   GatewayHttpServer,
   type GatewayHttpServerOptions,

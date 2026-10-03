@@ -354,6 +354,14 @@ describe("EgressPolicy helpers", () => {
     expect(EgressPolicy.hostAddressRefused("localhost", true)).toBe(false);
   });
 
+  it("reads a URL's hostname as the address it is, without brackets, and a name as none", () => {
+    expect(EgressPolicy.addressOf("203.0.113.10")).toBe("203.0.113.10");
+    expect(EgressPolicy.addressOf("[2001:db8::10]")).toBe("2001:db8::10");
+    expect(EgressPolicy.addressOf("shop.tenant.example")).toBeNull();
+    expect(EgressPolicy.addressOf("[shop.tenant.example]")).toBeNull();
+    expect(EgressPolicy.addressOf("localhost")).toBeNull();
+  });
+
   it("refuses every private, shared and platform range too for a public-only destination", () => {
     const refused = [
       "10.0.0.0",

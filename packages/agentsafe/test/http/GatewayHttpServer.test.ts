@@ -1,7 +1,11 @@
-import { request as httpRequest } from "node:http";
+import { request as httpRequest, type IncomingMessage } from "node:http";
+import { request as httpsRequest } from "node:https";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Gateway } from "../../src/gateway/Gateway.js";
-import { GatewayHttpServer } from "../../src/http/GatewayHttpServer.js";
+import { GatewayHttpServer, HSTS } from "../../src/http/GatewayHttpServer.js";
+import { TlsListener } from "../../src/http/TlsListener.js";
+import { SecretHandle } from "../../src/secrets/SecretHandle.js";
+import { collectedEvents } from "../support/Environment.js";
 import {
   collectedIo,
   testConfig,
@@ -10,6 +14,7 @@ import {
   TENANT_KEY,
   TENANT_KEY_DIGEST,
 } from "../support/GatewayHarness.js";
+import { TestCertificateAuthority } from "../support/TestCertificateAuthority.js";
 
 describe("the gateway listener", () => {
   const upstream = new UpstreamDouble();
@@ -130,6 +135,7 @@ describe("the gateway listener", () => {
   it("passes a safe request through with its query, and bounds a governed body", async () => {
     const read = await fetch(`${origin}/health?x=1`);
     expect(read.status).toBe(200);
+    expect(read.headers.get("agentsafe-execution")).toBe("PASSTHROUGH");
     expect(((await read.json()) as { url: string }).url).toBe("/health?x=1");
     const declared = await fetch(`${origin}/payments/big`, {
       method: "POST",
@@ -137,6 +143,7 @@ describe("the gateway listener", () => {
       body: "x".repeat(4096),
     });
     expect(declared.status).toBe(413);
+    expect(declared.headers.get("agentsafe-execution")).toBe("NOT_FORWARDED");
     expect(await declared.json()).toEqual({ code: "BODY_TOO_LARGE" });
     const streamed = await fetch(`${origin}/payments/big`, {
       method: "POST",
@@ -157,6 +164,8 @@ describe("the gateway listener", () => {
     const address = await broken.listen(0, "127.0.0.1");
     const response = await fetch(`${LOOPBACK_ORIGIN}:${address.port}/anything`);
     expect(response.status).toBe(500);
+    // A failure of the listener's own cannot say whether anything was sent.
+    expect(response.headers.get("agentsafe-execution")).toBe("INDETERMINATE");
     expect(await response.text()).toBe('{"code":"INTERNAL_ERROR"}');
     await broken.close(10);
   });
@@ -252,6 +261,7 @@ describe("one listener in front of many gateways", () => {
     expect(statusB.mode).toBe("SHADOW");
     const unknown = await raw("GET", "/_agentsafe/healthz", "c.gateway.example");
     expect(unknown.status).toBe(421);
+    expect(unknown.headers["agentsafe-execution"]).toBe("NOT_FORWARDED");
     expect(JSON.parse(unknown.body)).toEqual({ code: "HOST_NOT_SERVED" });
     const bracketed = await raw("GET", "/_agentsafe/healthz", "[::1]:8080");
     expect(bracketed.status).toBe(421);
@@ -331,14 +341,18 @@ describe("a hosted gateway's tenant key", () => {
     const server = new GatewayHttpServer(gateway, { metricsToken: "synthetic-operator-token" });
     const origin = `${LOOPBACK_ORIGIN}:${(await server.listen(0, "127.0.0.1")).port}`;
 
-    for (const headers of [
-      {},
-      { "agentsafe-tenant-key": "" },
-      { "agentsafe-tenant-key": "synthetic-guess" },
-    ]) {
+    // Refused by reason, as the security stream has it, with the header the
+    // key belongs in named, and marked as the gateway's, never the upstream's.
+    for (const [headers, code] of [
+      [{}, "TENANT_KEY_MISSING"],
+      [{ "agentsafe-tenant-key": "" }, "TENANT_KEY_MISSING"],
+      [{ "agentsafe-tenant-key": "synthetic-guess" }, "TENANT_KEY_INVALID"],
+    ] as const) {
       const refused = await fetch(`${origin}/orders`, { headers });
       expect(refused.status).toBe(401);
-      expect(await refused.json()).toEqual({ code: "TENANT_KEY_INVALID" });
+      expect(refused.headers.get("www-authenticate")).toBe("AgentSafe-Tenant-Key");
+      expect(refused.headers.get("agentsafe-execution")).toBe("NOT_FORWARDED");
+      expect(await refused.json()).toEqual({ code });
     }
     expect(forwarded).toEqual([]);
 
@@ -346,6 +360,8 @@ describe("a hosted gateway's tenant key", () => {
       headers: { "agentsafe-tenant-key": TENANT_KEY },
     });
     expect(admitted.status).toBe(200);
+    expect(admitted.headers.get("agentsafe-execution")).toBe("PASSTHROUGH");
+    expect(admitted.headers.get("www-authenticate")).toBeNull();
     expect(forwarded).toHaveLength(1);
     expect(forwarded[0]).not.toHaveProperty("agentsafe-tenant-key");
 
@@ -405,6 +421,7 @@ describe("a gateway's rate", () => {
     const limited = await fetch(`${origin}/orders`, keyed);
     expect(limited.status).toBe(429);
     expect(limited.headers.get("retry-after")).toBe("10");
+    expect(limited.headers.get("agentsafe-execution")).toBe("NOT_FORWARDED");
     expect(limited.headers.get("content-security-policy")).toContain("default-src 'none'");
     expect(await limited.json()).toEqual({ code: "RATE_LIMITED" });
     expect(forwarded).toBe(2);
@@ -419,5 +436,58 @@ describe("a gateway's rate", () => {
     expect(metrics).toContain('agentsafe_requests_total{kind="rate_limited"} 1');
     await server.close(100);
     await gateway.close();
+  });
+});
+
+describe("a listener that terminates TLS", () => {
+  const ca = new TestCertificateAuthority("Synthetic Gateway CA");
+  const issued = ca.issueServer(["gateway.example"]);
+  const upstreamPolicy = "max-age=60; preload";
+
+  /** Every HSTS field on a relayed answer whose upstream sent its own, with TLS here or not. */
+  async function policies(tls: boolean): Promise<string[]> {
+    const gateway = await Gateway.create(testConfig("https://shop.tenant.example"), {
+      env: {},
+      io: collectedIo(),
+      upstreamFetch: async () =>
+        new Response("ok", {
+          status: 200,
+          headers: { "strict-transport-security": upstreamPolicy },
+        }),
+    });
+    const listener = new TlsListener({
+      minVersion: "TLSv1.3",
+      material: () => ({
+        cert: issued.cert,
+        key: SecretHandle.fromString("EXECUTOR_TLS_KEY", issued.key),
+        clientCa: null,
+      }),
+      events: collectedEvents(),
+    });
+    const server = new GatewayHttpServer(gateway, tls ? { tls: listener } : {});
+    const port = (await server.listen(0, "127.0.0.1")).port;
+    const raw = await new Promise<string[]>((resolve, reject) => {
+      const options = { host: "127.0.0.1", port, path: "/orders", agent: false as const };
+      const done = (response: IncomingMessage): void => {
+        response.resume();
+        response.on("end", () => resolve(response.rawHeaders));
+      };
+      const request = tls
+        ? httpsRequest({ ...options, ca: ca.certificate, servername: "gateway.example" }, done)
+        : httpRequest(options, done);
+      request.on("error", reject);
+      request.end();
+    });
+    await server.close(100);
+    await gateway.close();
+    return raw.filter(
+      (_value, index) =>
+        index % 2 === 1 && raw[index - 1]?.toLowerCase() === "strict-transport-security",
+    );
+  }
+
+  it("sends its own HSTS once and drops the upstream's, which a plain listener relays unchanged", async () => {
+    expect(await policies(true)).toEqual([HSTS]);
+    expect(await policies(false)).toEqual([upstreamPolicy]);
   });
 });

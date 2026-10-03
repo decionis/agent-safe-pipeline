@@ -58,6 +58,29 @@ return run.production; // observation is delivered to the audit sink
 const comparison = await shadow.compare(captured, () => legacyRefund(order));
 ```
 
+## When the gateway cannot front your API (mutual TLS, third-party SaaS)
+
+A gateway, hosted or your own, presents no client certificate to its upstream, and the hosted fleet
+forwards only to an origin its tenant has proved it controls, with a file at
+`/.well-known/agentsafe-upstream` or a TXT record
+([the upstream's proof](./gateway/configuration.md#the-upstreams-proof)). So no gateway can stand
+in front of an API that requires mutual TLS (the answer is `502 UPSTREAM_CLIENT_CERT_REFUSED`, or
+`UPSTREAM_TLS_REJECTED` under TLS 1.2), and the fleet cannot front a third-party SaaS API whose
+host you do not control, such as a marketplace's or a commerce platform's. Two paths give the same
+shadow observations without it:
+
+- **In process.** `ShadowPipeline`, above, wraps the call where your agent already makes it. The
+  agent keeps calling the API directly with its own client certificate and credentials, and the
+  observations go to Decionis under the same workspace and into the same shadow report. There is
+  no relay, no proof and no allowlist to change, and nothing of the certificate leaves your process.
+- **A self-hosted gateway, in shadow, with a sidecar that originates TLS.** Run the gateway beside
+  whoever holds the client certificate today, and point `gateway.upstream` at a sidecar on loopback
+  (`http://127.0.0.1:<port>`, which a plain-HTTP upstream on loopback is allowed to be) that opens
+  the mutual-TLS connection to the API: Envoy, NGINX or stunnel, with PKCS#11 when the key is in an
+  HSM. The key stays where it is.
+
+The hosted fleet never holds a tenant's client key.
+
 ## Observation shape
 
 ```ts

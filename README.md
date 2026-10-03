@@ -243,7 +243,7 @@ claim or finalization differs between them.
 | Linux       | `curl -fsSL https://raw.githubusercontent.com/decionis/agent-safe-pipeline/master/packaging/install.sh \| sh`, or the `.deb` / `.rpm` with a hardened systemd unit | [Linux](./docs/install/linux.md)           |
 | Docker      | `ghcr.io/decionis/agentsafe:<version>`, the same digest as `docker.io/decionis/agentsafe:<version>`; distroless, non-root, two architectures                       | [Docker](./docs/install/docker.md)         |
 | Kubernetes  | `helm install agentsafe oci://ghcr.io/decionis/charts/agentsafe`, one Deployment in front of one Service                                                           | [Kubernetes](./docs/install/kubernetes.md) |
-| Hosted      | `agentsafe.decionis.com`, the same runtime behind one listener; not live yet                                                                                       | [Hosted](./docs/install/hosted.md)         |
+| Hosted      | `{id}.decionisedge.com`, the same runtime, run by Decionis in shadow for the tenants it onboards; no self-serve sign-up yet                                        | [Hosted](./docs/install/hosted.md)         |
 | From source | `git clone`, `pnpm install --frozen-lockfile`, `pnpm build`, `node packages/agentsafe/dist/Cli.js`                                                                 | [Quickstart](./docs/quickstart/README.md)  |
 
 Every install page ends at the same place: send your first governed action.

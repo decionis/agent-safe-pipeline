@@ -4,6 +4,12 @@ import {
   type Server as HttpServer,
 } from "node:http";
 import { createServer as createHttpsServer, type Server as HttpsServer } from "node:https";
+import type { Socket } from "node:net";
+import nodeTls, {
+  createServer as createTlsServer,
+  type Server as TlsServer,
+  type TLSSocket,
+} from "node:tls";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { EgressError } from "../../src/egress/EgressError.js";
 import { EgressPolicy, type EgressDestination } from "../../src/egress/EgressPolicy.js";
@@ -103,7 +109,7 @@ const handler: RequestListener = (request, response): void => {
 const origin = (scheme: "http" | "https", host: string, port: number): string =>
   `${scheme}://${host}:${port}`;
 
-async function listen(server: HttpServer | HttpsServer): Promise<number> {
+async function listen(server: HttpServer | HttpsServer | TlsServer): Promise<number> {
   server.on("connection", () => {
     connections += 1;
   });
@@ -135,6 +141,7 @@ function guard(
     ...(options.resolve === undefined ? {} : { resolve: options.resolve }),
     ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
     ...(options.publicOnly === undefined ? {} : { publicOnly: options.publicOnly }),
+    ...(options.reportTls === undefined ? {} : { reportTls: options.reportTls }),
   });
   return { fetch: guarded.fetch, lines, guarded };
 }
@@ -310,6 +317,158 @@ describe("GuardedFetch over TLS", () => {
     const odd = await refused(fetch(`${tlsOrigin}/v1/odd-status`));
     expect(odd.code).toBe("EGRESS_RESPONSE_INVALID");
     expect(refusals(lines)).toEqual([[tlsOrigin, "EGRESS_RESPONSE_INVALID"]]);
+    guarded.close();
+  });
+});
+
+describe("GuardedFetch and a peer that refuses it", () => {
+  const servers: (HttpsServer | TlsServer)[] = [];
+  let mutual13 = "";
+  let mutual12 = "";
+  let broken = "";
+  let plain13 = "";
+
+  beforeAll(async () => {
+    const issued = authority.issueServer(["localhost"], ["127.0.0.1"]);
+    const material = { cert: issued.cert, key: issued.key, ca: authority.certificate };
+    // Peers that want a client certificate, which this process never presents.
+    const tls13 = createHttpsServer(
+      { ...material, requestCert: true, rejectUnauthorized: true, minVersion: "TLSv1.3" },
+      handler,
+    );
+    const tls12 = createHttpsServer(
+      { ...material, requestCert: true, rejectUnauthorized: true, maxVersion: "TLSv1.2" },
+      handler,
+    );
+    // A peer that completes the handshake, reads the request, then breaks the
+    // record stream: the connection fails after it may have carried the request.
+    const raw: Socket[] = [];
+    const corrupting = createTlsServer(material, (socket) => {
+      // The client answers the broken record with an alert (bad record mac on
+      // some OpenSSL builds), which errors this side's socket: expected here.
+      socket.on("error", () => undefined);
+      socket.once("data", () => {
+        raw
+          .at(-1)
+          ?.write(Buffer.from([0x17, 0x03, 0x03, 0x00, 0x20, ...Array<number>(32).fill(7)]));
+      });
+    });
+    corrupting.on("connection", (socket: Socket) => {
+      socket.on("error", () => undefined);
+      raw.push(socket);
+    });
+    corrupting.on("tlsClientError", () => undefined);
+    // A peer that asks for nothing, for alerts this side meets once its half is done.
+    const open13 = createHttpsServer({ ...material, minVersion: "TLSv1.3" }, handler);
+    servers.push(tls13, tls12, corrupting, open13);
+    mutual13 = origin("https", "localhost", await listen(tls13));
+    mutual12 = origin("https", "localhost", await listen(tls12));
+    broken = origin("https", "localhost", await listen(corrupting));
+    plain13 = origin("https", "localhost", await listen(open13));
+  });
+
+  afterAll(async () => {
+    for (const server of servers) {
+      if ("closeAllConnections" in server) server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  const policy = (): EgressPolicy =>
+    new EgressPolicy(
+      [mutual13, mutual12, broken, plain13, foreignOrigin].map((peer) => ({
+        origin: peer,
+        pathPrefixes: ["/v1"],
+        ca: authority.certificate,
+        pins: [],
+      })),
+    );
+
+  it("says a peer wants a client certificate when TLS 1.3 says so, and that it refused the handshake when TLS 1.2 can say no more", async () => {
+    const { fetch, lines, guarded } = guard({ policy: policy() });
+    const required = await refused(fetch(`${mutual13}/v1/echo`));
+    expect([required.code, required.origin]).toEqual(["EGRESS_TLS_CLIENT_CERT_REFUSED", mutual13]);
+    const failed = await refused(fetch(`${mutual12}/v1/echo`));
+    expect([failed.code, failed.origin]).toEqual(["EGRESS_TLS_REJECTED", mutual12]);
+    expect(refusals(lines)).toEqual([
+      [mutual13, "EGRESS_TLS_CLIENT_CERT_REFUSED"],
+      [mutual12, "EGRESS_TLS_REJECTED"],
+    ]);
+    guarded.close();
+  });
+
+  it("passes a TLS failure after a verified handshake through as the connection's, and still reports it for a destination the operator named", async () => {
+    for (const reportTls of [undefined, true, false]) {
+      const { fetch, lines, guarded } = guard({
+        policy: policy(),
+        ...(reportTls === undefined ? {} : { reportTls }),
+      });
+      const error = await fetch(`${broken}/v1/echo`).then(
+        () => null,
+        (failure: unknown) => failure,
+      );
+      // Never a refusal: the connection may have carried the request.
+      expect(error).not.toBeInstanceOf(EgressError);
+      expect((error as { code?: string }).code).toMatch(/^ERR_SSL_/);
+      // Reported, apart from a refused handshake, unless the caller reports TLS itself.
+      expect([reportTls, refusals(lines)]).toEqual([
+        reportTls,
+        reportTls === false ? [] : [[broken, "EGRESS_TLS_BROKEN"]],
+      ]);
+      guarded.close();
+    }
+  });
+
+  it("takes every alert refusing its certificate as the peer's refusal, even once it has verified the peer under TLS 1.3", async () => {
+    const connect = nodeTls.connect.bind(nodeTls) as (...args: unknown[]) => TLSSocket;
+    for (const code of [
+      "ERR_SSL_TLSV13_ALERT_CERTIFICATE_REQUIRED",
+      "ERR_SSL_SSLV3_ALERT_BAD_CERTIFICATE",
+      "ERR_SSL_SSLV3_ALERT_CERTIFICATE_UNKNOWN",
+      "ERR_SSL_TLSV1_ALERT_UNKNOWN_CA",
+      "ERR_SSL_TLSV1_ALERT_ACCESS_DENIED",
+    ]) {
+      // The alert as OpenSSL reports it after this side's half of a TLS 1.3
+      // handshake: on a socket that has verified its peer. Only a real peer's
+      // `certificate_required` can be had here (above); a server sends the
+      // others only about a certificate that was presented.
+      let verified: boolean | null = null;
+      const spy = vi.spyOn(nodeTls, "connect").mockImplementation(((...args: unknown[]) => {
+        const socket = connect(...args);
+        socket.once("secureConnect", () => {
+          verified = socket.authorized;
+          socket.destroy(Object.assign(new Error(code), { code }));
+        });
+        return socket;
+      }) as typeof nodeTls.connect);
+      try {
+        for (const reportTls of [true, false]) {
+          const { fetch, lines, guarded } = guard({ policy: policy(), reportTls });
+          const refusal = await refused(fetch(`${plain13}/v1/echo`));
+          guarded.close();
+          expect([code, refusal.code, refusal.origin]).toEqual([
+            code,
+            "EGRESS_TLS_CLIENT_CERT_REFUSED",
+            plain13,
+          ]);
+          expect(refusals(lines)).toEqual(
+            reportTls ? [[plain13, "EGRESS_TLS_CLIENT_CERT_REFUSED"]] : [],
+          );
+        }
+      } finally {
+        spy.mockRestore();
+      }
+      expect([code, verified]).toEqual([code, true]);
+    }
+  });
+
+  it("leaves a refused handshake to the caller to report when told to", async () => {
+    const { fetch, lines, guarded } = guard({ policy: policy(), reportTls: false });
+    expect((await refused(fetch(`${mutual13}/v1/echo`))).code).toBe(
+      "EGRESS_TLS_CLIENT_CERT_REFUSED",
+    );
+    expect((await refused(fetch(`${foreignOrigin}/v1/echo`))).code).toBe("EGRESS_TLS_REJECTED");
+    expect(lines).toEqual([]);
     guarded.close();
   });
 });

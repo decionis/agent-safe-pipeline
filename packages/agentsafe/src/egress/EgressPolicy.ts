@@ -170,11 +170,17 @@ export class EgressPolicy {
    * address is not refused here.
    */
   public static hostAddressRefused(hostname: string, publicOnly = false): boolean {
-    const literal = hostname.startsWith("[") ? hostname.slice(1, -1) : hostname;
+    const literal = EgressPolicy.addressOf(hostname);
     return (
-      isIP(literal) !== 0 &&
+      literal !== null &&
       EgressPolicy.addressRefused(literal, EgressPolicy.isLoopbackHost(hostname), publicOnly)
     );
+  }
+
+  /** A URL's hostname as the address it is, without an IPv6 address's brackets; null for a name. */
+  public static addressOf(hostname: string): string | null {
+    const literal = hostname.startsWith("[") ? hostname.slice(1, -1) : hostname;
+    return isIP(literal) === 0 ? null : literal;
   }
 
   /** The three loopback spellings the configuration accepts. */

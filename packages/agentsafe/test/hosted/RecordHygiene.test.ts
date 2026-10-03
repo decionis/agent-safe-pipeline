@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { LOCAL_AUTHORITY_API_KEY, LocalAuthority } from "@decionis/agent-safe-pipeline/testing";
+import { proofToken, UPSTREAM_PROOF_PATH } from "../../src/gateway/UpstreamProof.js";
 import { TenantHost } from "../../src/hosted/TenantHost.js";
 import { GatewayHttpServer } from "../../src/http/GatewayHttpServer.js";
 import { collectedIo, TENANT_KEY, TENANT_KEY_DIGEST } from "../support/GatewayHarness.js";
@@ -176,6 +177,67 @@ describe("what a hosted gateway records", () => {
 
     const everything = [...printed, ...written].join("\n");
     for (const [name, marker] of Object.entries({ ...MARKERS, tenantKey: TENANT_KEY })) {
+      expect([name, everything.includes(marker)]).toEqual([name, false]);
+    }
+  });
+
+  it("never holds a word of what an upstream serves as its proof, whether it proves or not", async () => {
+    const proofMarkers = {
+      comment: "synthetic-proof-comment-1180",
+      stray: "synthetic-proof-stray-2271",
+      record: "synthetic-proof-record-3362",
+    };
+    const token = proofToken({ tenant: "acme", org: WORKSPACE, origin: UPSTREAM }, 1_759_492_800);
+    const io = collectedIo();
+    const tenants = [
+      ["acme", UPSTREAM],
+      ["globex", "https://globex.shop.example"],
+    ].map(([id, upstream]) => ({
+      id,
+      upstream,
+      tenantKeyDigests: [TENANT_KEY_DIGEST],
+      workspace: { tenantId: WORKSPACE, apiKeyFile: keyFile },
+    }));
+    const host = await TenantHost.start({
+      registryPath: "/etc/agentsafe/tenants.json",
+      env: { DECIONIS_API_URL: authority.baseUrl, DECIONIS_ALLOW_INSECURE_LOOPBACK: "true" },
+      io,
+      readFile: () =>
+        JSON.stringify({ version: 1, domain: "decionisedge.example", evidenceDir, tenants }),
+      requireUpstreamProof: true,
+      dependencies: {
+        upstreamFetch: async (input) => {
+          const url = new URL(String(input));
+          if (url.pathname !== UPSTREAM_PROOF_PATH) return new Response("{}", { status: 200 });
+          // acme proves with its file; globex serves only text that proves nothing.
+          return url.host === "acme.shop.example"
+            ? new Response(`# ${proofMarkers.comment}\n${token}\n`)
+            : new Response(`${proofMarkers.stray}\n`);
+        },
+        upstreamResolveTxt: async () => [[proofMarkers.record]],
+      },
+    });
+    const server = new GatewayHttpServer(host.select, { probe: { ready: () => true } });
+    const { port } = await server.listen(0, "127.0.0.1");
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      if (host.ready()) break;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(await send(port, "GET", "/orders", { "agentsafe-tenant-key": TENANT_KEY })).toBe(200);
+    expect(
+      await send(port, "GET", "/orders", {
+        host: "globex.decionisedge.example",
+        "agentsafe-tenant-key": TENANT_KEY,
+      }),
+    ).toBe(503);
+    await server.close(100);
+    await host.close();
+
+    const printed = [...io.out, ...io.err];
+    // The records say what happened, so their silence below means something.
+    expect(printed.some((line) => line.includes('"UPSTREAM_UNVERIFIED"'))).toBe(true);
+    const everything = [...printed, ...filesUnder(evidenceDir)].join("\n");
+    for (const [name, marker] of Object.entries({ ...proofMarkers, token })) {
       expect([name, everything.includes(marker)]).toEqual([name, false]);
     }
   });

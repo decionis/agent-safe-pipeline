@@ -5,6 +5,13 @@ export type EgressCode =
   | "EGRESS_PATH_NOT_ALLOWED"
   | "EGRESS_ADDRESS_REFUSED"
   | "EGRESS_TLS_REJECTED"
+  | "EGRESS_TLS_CLIENT_CERT_REFUSED"
+  /**
+   * TLS failed once the peer was verified: reported on the security stream,
+   * never thrown, since the connection may have carried the request and its
+   * own error is what the caller gets.
+   */
+  | "EGRESS_TLS_BROKEN"
   | "EGRESS_TLS_PIN_MISMATCH"
   | "EGRESS_BODY_TOO_LARGE"
   | "EGRESS_TIMEOUT"

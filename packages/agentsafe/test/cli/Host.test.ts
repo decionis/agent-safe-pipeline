@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { LOCAL_AUTHORITY_API_KEY, LocalAuthority } from "@decionis/agent-safe-pipeline/testing";
 import { runHost } from "../../src/cli/Host.js";
+import { proofToken, UPSTREAM_PROOF_PATH } from "../../src/gateway/UpstreamProof.js";
 import { closedPort } from "../support/Environment.js";
 import { TestCertificateAuthority } from "../support/TestCertificateAuthority.js";
 import { fakeProcess, TENANT_KEY, TENANT_KEY_DIGEST } from "../support/GatewayHarness.js";
@@ -47,8 +48,18 @@ const registry = (ids: readonly string[]): string =>
   });
 
 const settle = (ms = 30): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+/** The host's own lines; every line a tenant's gateway prints names its tenant. */
+const own = (out: readonly string[]): Record<string, unknown>[] =>
+  out
+    .map((line) => JSON.parse(line) as Record<string, unknown>)
+    .filter((line) => !("tenant" in line));
 const events = (out: readonly string[]): string[] =>
-  out.map((line) => String((JSON.parse(line) as { event?: unknown }).event ?? ""));
+  own(out).map((line) => String(line["event"] ?? ""));
+/** What one tenant's gateway reported, by event, in order. */
+const reported = (out: readonly string[], tenant: string): Record<string, unknown>[] =>
+  out
+    .map((line) => JSON.parse(line) as Record<string, unknown>)
+    .filter((line) => line["tenant"] === tenant && !("stream" in line));
 
 function get(
   port: number,
@@ -107,10 +118,16 @@ describe("agentsafe host", () => {
     );
     expect(io.exits).toEqual([]);
     expect(events(io.out)).toEqual(["TENANT_REGISTRY_LOADED", "TENANT_HOST_STARTED"]);
-    expect(JSON.parse(io.out[1] ?? "{}")).toMatchObject({
+    expect(own(io.out)[1]).toMatchObject({
       listen: `127.0.0.1:${port}`,
       tenants: 1,
+      upstream_proof: false,
     });
+    // Each tenant's gateway starts once the listener is bound, at its own host.
+    expect(
+      reported(io.out, "acme").find((line) => line["event"] === "GATEWAY_STARTED"),
+    ).toMatchObject({ gateway: "http://acme.decionisedge.example", mode: "SHADOW" });
+    expect(await get(port, "10.0.0.8:8080", "/_agentsafe/readyz")).toBe(200);
     expect(
       await get(port, "acme.decionisedge.example", "/orders", {
         "agentsafe-tenant-key": TENANT_KEY,
@@ -131,7 +148,7 @@ describe("agentsafe host", () => {
     // And SIGHUP reads it again on demand.
     io.signals.get("SIGHUP")?.();
     for (let attempt = 0; attempt < 40 && events(io.out).length < 4; attempt += 1) await settle();
-    expect(JSON.parse(io.out[3] ?? "{}")).toMatchObject({
+    expect(own(io.out)[3]).toMatchObject({
       event: "TENANT_REGISTRY_LOADED",
       kept: 2,
       built: [],
@@ -142,7 +159,64 @@ describe("agentsafe host", () => {
     for (let attempt = 0; attempt < 40 && io.exits.length === 0; attempt += 1) await settle();
     expect(io.exits).toEqual([0]);
     expect(events(io.out).at(-1)).toBe("TENANT_HOST_STOPPED");
+    // Every tenant's gateway stops with the signal, and its shadow tally.
+    for (const tenant of ["acme", "globex"]) {
+      expect(reported(io.out, tenant).slice(-2)).toEqual([
+        expect.objectContaining({ event: "SHADOW_REPORT" }),
+        expect.objectContaining({ event: "GATEWAY_STOPPED", signal: "SIGTERM" }),
+      ]);
+    }
     expect(io.out.join("")).not.toContain(TENANT_KEY);
+  });
+
+  it("requires every tenant's upstream proof with --require-upstream-proof, and says so when it starts", async () => {
+    const port = await closedPort();
+    const io = fakeProcess({
+      env: {
+        AGENTSAFE_TENANT_REGISTRY: REGISTRY,
+        DECIONIS_API_URL: authority.baseUrl,
+        DECIONIS_ALLOW_INSECURE_LOOPBACK: "true",
+      },
+      files: { [REGISTRY]: registry(["acme", "globex"]) },
+    });
+    const token = proofToken(
+      { tenant: "acme", org: WORKSPACE, origin: upstreamOf("acme") },
+      1_759_492_800,
+    );
+    await runHost(
+      io,
+      ["--listen", `127.0.0.1:${port}`, "--require-upstream-proof"],
+      {
+        // acme's origin serves its proof; globex's does not.
+        upstreamFetch: async (input) => {
+          const url = new URL(String(input));
+          if (url.pathname !== UPSTREAM_PROOF_PATH) return new Response("ok", { status: 200 });
+          return url.host === "acme.shop.example"
+            ? new Response(token, { status: 200 })
+            : new Response("not here", { status: 404 });
+        },
+        upstreamResolveTxt: async () => [],
+      },
+      0,
+    );
+    expect(io.exits).toEqual([]);
+    expect(own(io.out)[1]).toMatchObject({ event: "TENANT_HOST_STARTED", upstream_proof: true });
+    let ready = 0;
+    for (let attempt = 0; attempt < 40 && ready !== 200; attempt += 1) {
+      ready = await get(port, "10.0.0.8:8080", "/_agentsafe/readyz");
+      if (ready !== 200) await settle();
+    }
+    expect(ready).toBe(200);
+    const key = { "agentsafe-tenant-key": TENANT_KEY };
+    expect(await get(port, "acme.decionisedge.example", "/orders", key)).toBe(200);
+    expect(await get(port, "globex.decionisedge.example", "/orders", key)).toBe(503);
+    // A flag is a flag: it takes no value.
+    const valued = fakeProcess({ env: { AGENTSAFE_TENANT_REGISTRY: REGISTRY } });
+    await runHost(valued, ["--require-upstream-proof=true"]);
+    expect(valued.exits).toEqual([2]);
+    io.signals.get("SIGTERM")?.();
+    for (let attempt = 0; attempt < 40 && io.exits.length === 0; attempt += 1) await settle();
+    expect(io.exits).toEqual([0]);
   });
 
   it("tries a tenant it could not build again, until its key arrives, with the registry unchanged", async () => {
@@ -176,15 +250,18 @@ describe("agentsafe host", () => {
       20,
       60,
     );
-    expect(JSON.parse(io.out[0] ?? "{}")).toMatchObject({
+    expect(own(io.out)[0]).toMatchObject({
       event: "TENANT_REGISTRY_LOADED",
       served: 0,
       failed: [{ tenant: "acme" }],
     });
+    // A process that cannot serve every tenant yet is not ready for traffic.
+    expect(await get(port, "10.0.0.8:8080", "/_agentsafe/readyz")).toBe(503);
     writeFileSync(late, LOCAL_AUTHORITY_API_KEY, { mode: 0o600 });
     const built = (): boolean => io.out.some((line) => line.includes('"built":["acme"]'));
     for (let attempt = 0; attempt < 100 && !built(); attempt += 1) await settle(20);
     expect(built()).toBe(true);
+    expect(await get(port, "10.0.0.8:8080", "/_agentsafe/readyz")).toBe(200);
     expect(
       await get(port, "acme.decionisedge.example", "/orders", {
         "agentsafe-tenant-key": TENANT_KEY,
@@ -243,11 +320,14 @@ describe("agentsafe host", () => {
       20,
     );
     expect(io.exits).toEqual([]);
-    expect(JSON.parse(io.out[1] ?? "{}")).toMatchObject({
+    expect(own(io.out)[1]).toMatchObject({
       event: "TENANT_HOST_STARTED",
       tls: true,
       redirect: `127.0.0.1:${redirectPort}`,
     });
+    expect(
+      reported(io.out, "acme").find((line) => line["event"] === "GATEWAY_STARTED"),
+    ).toMatchObject({ gateway: "https://acme.decionisedge.example" });
 
     const tenant = await secure(port, ca.certificate, "acme.decionisedge.example", "/orders", {
       "agentsafe-tenant-key": TENANT_KEY,

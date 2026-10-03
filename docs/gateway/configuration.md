@@ -74,6 +74,21 @@ benchmarking (`198.18/15`), NAT64 (`64:ff9b::/96`) or the Azure platform address
 checked the same way, at start and on every request. Without it, as by default, private addresses
 are allowed, because that is where an operator's own services live.
 
+An upstream whose certificate does not verify, or that refuses the handshake, is sent nothing
+either: the answer is `502` with `UPSTREAM_TLS_REJECTED`, or `UPSTREAM_CLIENT_CERT_REFUSED` when
+the upstream refused the client certificate a gateway never presents, with TLS 1.3's
+`certificate_required` or with the `bad_certificate`, `certificate_unknown`, `unknown_ca` or
+`access_denied` that some servers send instead; both are `NOT_FORWARDED`. Under TLS 1.2 that
+refusal is usually a bare handshake failure, reported as `UPSTREAM_TLS_REJECTED`. The security
+stream carries `UPSTREAM_TLS_REFUSED` with the origin and the code, apart from `EGRESS_REFUSED`: an
+upstream's TLS is its owner's to fix, not an attack on the gateway. Any other TLS failure after a
+verified handshake broke a connection that may have carried the request, and is
+`UPSTREAM_TRANSPORT_FAILED` and `INDETERMINATE`, with no security event. The same failure on a
+connection to a destination the operator names, such as the gateway's authority, is
+`EGRESS_REFUSED` with `EGRESS_TLS_BROKEN`. An API that requires
+mutual TLS cannot be fronted by a gateway at all; [shadow mode](../shadow-mode.md#when-the-gateway-cannot-front-your-api-mutual-tls-third-party-saas)
+says what to run instead.
+
 ## Hosted
 
 `gateway.hosted: true` (`AGENTSAFE_HOSTED_GATEWAY=true`) is for a gateway someone runs on a
@@ -90,6 +105,14 @@ $AGENTSAFE_METRICS_TOKEN`, the operator's token, with `401` for any other, and a
   client would send to another tenant's host under the same domain;
 - the tenant's key is required (below), so a hosted gateway admits only its tenant.
 
+`AGENTSAFE_UPSTREAM_PROOF_REQUIRED=true`, which `agentsafe host --require-upstream-proof` sets for
+every tenant, makes a hosted gateway forward nothing until its upstream's origin serves a proof
+bound to its tenant ([the upstream's proof](#the-upstreams-proof)). It is refused on a gateway that
+is not hosted, has no `AGENTSAFE_HOSTED_TENANT`, or has no Decionis organization in
+`DECIONIS_TENANT_ID`, since those are what the proof is bound to. A gateway built before it
+ignores the variable, as it ignores every variable it does not know, and forwards with no proof:
+set it on a gateway of your own only on an image that has it.
+
 ## Many tenants in one process
 
 `agentsafe host --registry /etc/agentsafe/tenants.yaml` serves every tenant the registry names, each
@@ -98,15 +121,16 @@ as its own hosted gateway at `{id}.{domain}`:
 ```yaml
 version: 1
 domain: decionisedge.com
-evidenceDir: /var/lib/agentsafe/tenants # optional: one directory per tenant
+evidenceDir: /var/lib/agent-safe/tenants # optional: one directory per tenant, on a volume (below)
 tenants:
   - id: acme # a DNS label; www, api, status, admin and console are the operator's
     upstream: https://api.acme.example
     tenantKeyDigests: ["sha256:…"] # one, or two during a rotation
     rateLimit: { requestsPerSecond: 5, burst: 20 } # optional; else the registry's, else 50/100
+    upstreamTimeoutMs: 30000 # optional; else AGENTSAFE_UPSTREAM_TIMEOUT_MS, else 10000
     workspace:
       tenantId: 7c0e… # the Decionis workspace the tenant's evaluations run in
-      apiKeyFile: /run/secrets/tenants/acme/decionis-api-key
+      apiKeyFile: /var/run/agent-safe/tenants/acme/decionis-api-key
     interception: # optional: the tenant's routes, as in agentsafe.yaml
       routes:
         - { path: /payments/**, action: payment.create, methods: [POST] }
@@ -117,7 +141,8 @@ upstream, shadow only, operator-only status and metrics, host-only cookies, its 
 and its workspace key read from its own mounted file. From the host's environment it inherits only
 how to reach the authority (`NODE_ENV`, `DECIONIS_API_URL`, `DECIONIS_TIMEOUT_MS`,
 `DECIONIS_ALLOW_INSECURE_LOOPBACK`, `AGENTSAFE_UPSTREAM_TIMEOUT_MS`, `AGENTSAFE_FAILURE_POLICY`),
-never a credential. A request is routed to one tenant by its `Host` alone, so nothing about one
+never a credential; a tenant's own `upstreamTimeoutMs` (1 to 120000) replaces the host's timeout
+for that tenant. A request is routed to one tenant by its `Host` alone, so nothing about one
 tenant is reachable from another's host. Every line a tenant's gateway prints names the tenant:
 its chained lines carry it in their envelope (`AGENTSAFE_HOSTED_TENANT`, set by the host), covered by
 the hash, and every other line gets it first, so the host's output can be retained and deleted per
@@ -133,8 +158,144 @@ so a key rotated in a mounted Secret takes effect without a rebuild or a restart
 `SECRET_ROTATED` on the tenant's security chain. A
 reload rebuilds only the tenants whose entry changed; a replaced or removed tenant's gateway
 finishes the requests in flight for 30 seconds before it is closed. Each load is one
-`TENANT_REGISTRY_LOADED` or `TENANT_REGISTRY_REFUSED` line naming what was built, kept, retired and
-failed.
+`TENANT_REGISTRY_LOADED` or `TENANT_REGISTRY_REFUSED` line naming the registry's `revision`
+(`sha256:` and the first 12 hex digits of the SHA-256 of its text, as read) and what was built,
+kept, rekeyed, retired and failed.
+
+The schema is strict, so a host refuses a field it does not know. A tenant's `upstreamTimeoutMs`,
+and an `interception.maxEmbeddedBodyBytes` of `0`, came after the first builds of `agentsafe host`.
+A host built before them refuses the whole registry over the first (`REGISTRY_INVALID`): on a
+reload no later change applies, a key revocation included, and at start the process exits, so a
+replica restarted on that host never comes up. It refuses that tenant's gateway over the second
+(`CONFIG_INVALID`). Write either only once every replica runs a host that accepts it, and take it
+out of the registry before rolling back to a host that does not. Between releases every build
+reports the same version, so check the image the replicas run, not the version.
+
+`--require-upstream-proof` is newer than the first builds too, and it is an argument, not a field:
+a host built before it refuses to start over it (`REFUSED_TO_START` with
+`UNKNOWN_OPTION: require-upstream-proof`, exit `2`), so every replica that restarts on such an
+image exits. Add it to the host's arguments only on an image that has it, take it out of them
+before rolling back to an image that does not, and check the image, not the version, here as
+well. Being refused is the point of a flag: a host that cannot check a proof does not start, where
+an environment variable it ignored would have it forward as though every origin were proven.
+
+A change to a tenant's `tenantKeyDigests` alone rebuilds nothing: the tenant's gateway admits the
+new set at once and goes on as it was, its chains, rate and counts included, and the tenant is
+`rekeyed`. A revocation never waits on a build. Digests are read the same way in place as at a
+build: split at commas, trimmed, and empty values dropped, so a reload of an entry its gateway was
+built from admits the same keys. When the rest of an entry cannot be applied, the
+tenant keeps the gateway it had, but that gateway admits only the keys the entry still lists; if
+the entry's digests are themselves malformed, it keeps only those it already admits that the entry
+still names, and a tenant left with none is not served (`421`) until its entry is fixed. Each
+replica reads the registry on its own, so a change reaches replicas at different moments: a
+tenant's `/_agentsafe/status`, which answers the operator's token only, carries `hosted`, with the
+registry `revision` that replica last loaded, the `entry` (a short digest) its gateway was built
+from, and a `sha256:` prefix of 12 hex digits for each tenant key it admits, never the digest.
+
+Once the listener is bound, each tenant's gateway prints its banner (`GATEWAY_STARTED`, at
+`https://{id}.{domain}` when the host terminates TLS) and links `GATEWAY_STARTED` on its own
+gateway-events chain, and so does each gateway a reload builds. A replaced or removed gateway, once
+it has drained, prints its `SHADOW_REPORT`, counting what settled while it drained, and
+`GATEWAY_STOPPED` with `signal: RELOAD`; on `SIGTERM` or `SIGINT` every gateway does the same with
+the signal. `readyz` answers `503` until one load has served every tenant the registry names (and,
+with `--require-upstream-proof`, each of their gateways has had its first look at its upstream's
+proof, or 30 seconds have passed), and `200` from then on: a new process, in a rollout or after a
+restart, takes no traffic while it would answer a tenant `421`, and a tenant that fails later is
+reported without taking every other tenant out of service.
+
+### The upstream's proof
+
+Without it, a host is a relay from its own address to any public site a registry entry names. With
+`agentsafe host --require-upstream-proof`, each tenant's gateway forwards nothing until its
+upstream's origin serves a token bound to three things every entry already has: the tenant's `id`,
+its `workspace.tenantId` (the Decionis organization it runs under) and the upstream's origin, as
+the WHATWG URL spells it (`https`, the host in lower case, no port when it is 443, no path). The
+base path is never part of it: the gateway is sealed to the whole origin, so the proof covers the
+whole origin. There is no registry field to write.
+
+The token is
+`v1.<issued>.<base64url(SHA-256("agentsafe-upstream\nv1\n" + id + "\n" + organization + "\n" + origin + "\n" + issued)[0:16])>`,
+where `<issued>` is the ten-digit Unix time it was issued at and the base64url has no padding. It
+holds no secret: whoever
+asks for one is given it, and what proves control is that only the origin's controller can serve
+it there. For `acme`, organization `6f1c1e0e-2a8b-4a35-9c55-0d6f0a3d2b11`, origin
+`https://api.acme.example`, issued `1759492800`, it is `v1.1759492800.GCO1YWc5UIsWe8_w9vbzTQ`.
+The origin serves it in either of two ways:
+
+- **A file.** `GET https://<host>/.well-known/agentsafe-upstream` answers `200` with UTF-8 text of
+  at most 1 KiB, at the origin itself (a redirect is not followed) and without credentials, from
+  the fleet's egress address. Any line that, trimmed of white space at its ends, is a token bound
+  to the tenant proves it; other lines, `#` comments among them, are ignored, so one file can
+  carry several tenants' tokens and a rotation's two. A byte-order mark at the start is allowed;
+  a body that is not UTF-8 proves nothing, whatever a line of it holds.
+- **A TXT record** at `_agentsafe-challenge.<host>` whose value is the token and nothing else: the
+  record's strings are joined, as DNS may split them, and trimmed of white space at its ends. Not
+  `agentsafe-upstream=<token>`, and not the token among other words. The first 32 records are
+  read, and a record over 1 KiB is ignored. It counts only when the origin also answered the
+  file's `GET` over verified TLS, because DNS is not authenticated and only that answer ties the
+  name to where traffic goes. An address written as the host has no name to publish one under.
+
+White space here is spaces, tabs and carriage returns, and nothing else, which is how
+onboarding's own check reads a proof, so the two never disagree about one.
+
+The check is the gateway's own, apart from its relay: public addresses only, TLS verified against
+the public roots, a loopback name refused, no header of the tenant's, and
+`User-Agent: agentsafe-upstream-proof/1`. It runs when the gateway is built and every minute until
+the proof is seen, then once a day, give or take an hour. The host checks only the binding, never
+a token's age; how fresh a token must be is onboarding's rule. What a tenant's request gets:
+
+| Proof                                              | Request with the tenant key                                                                                                  |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| not seen yet, or not served when first looked for  | `503 UPSTREAM_UNVERIFIED`, `NOT_FORWARDED`, `Retry-After: 60`, and `fallback`, the upstream to call directly in the meantime |
+| seen                                               | forwarded                                                                                                                    |
+| gone: the origin answered with no bound token      | forwarded with `agentsafe-upstream-proof: missing` for 72 hours, looked for every hour, then `503 UPSTREAM_UNVERIFIED`       |
+| no answer at all (a timeout, a refused connection) | whatever it was before                                                                                                       |
+
+A request without the key is refused as before, so only the tenant learns where its proof stands;
+the gateway's own routes are unaffected. A redirect or an error status at the proof's path is an
+answer without a token. The tenant's security stream carries `UPSTREAM_PROOF_MISSING` (the origin
+and `stops_at`), `UPSTREAM_UNVERIFIED` (the origin and `UPSTREAM_PROOF_NOT_SERVED` or
+`UPSTREAM_PROOF_GRACE_ENDED`) and `UPSTREAM_PROOF_RESTORED` (the origin and `file` or `dns`); the
+proof's text is never written anywhere. The operator's `/_agentsafe/status` carries
+`hosted.upstream_proof`: the state, the method, when it was last checked, when a missing proof
+stops forwarding, and the code of a check that got no answer.
+
+Where a proof stands is kept per process. A gateway rebuilt for the same tenant, organization and
+origin takes it over from the gateway it replaces when the two are swapped, as it stands then: its
+state, its last look and when its next look is due, so a change to anything else in an entry never
+stops a proven tenant for a check, never moves its next look, and never loses a look the old
+gateway finished while the registry was loading. The old gateway looks no more from the swap, and
+a look it had in flight is dropped: the new one looks at once instead. A new tenant id, origin or
+organization is proved from the start. A new process looks again, so a grace in progress does not
+survive a restart. Turn the flag on only once every tenant's origin serves its proof.
+
+### Evidence across reloads, restarts and replicas
+
+A tenant's chains belong to the process. A gateway a reload builds takes up the chains of the one
+it replaces, so the tenant's evidence goes on in one sequence, with `CHAIN_RESUMED` on its security
+chain naming each stream's head at the rebuild; the drained gateway finishes on the same chains.
+The one it replaces is found by the tenant's id, not its host, so the chains also go on when a
+change to the registry's `domain` moves every tenant to a new host, and when a tenant is removed
+and added back while its old gateway still drains.
+Without `evidenceDir`, a process start begins each tenant's chains from genesis, which
+`agentsafe verify-chain` counts as a start. With it, each tenant's chain heads are kept under
+`<evidenceDir>/<id>/chain/`, beside its `evidence.jsonl`, and the next process goes on from them
+(`CHAIN_RESUMED`).
+
+The published image runs Node under its permission model: it reads only `/app`, `/etc/agentsafe`
+and `/var/run/agent-safe`, and writes only under `/var/lib/agent-safe`. With a read-only root
+filesystem, mount a writable volume at `/var/lib/agent-safe` first, and only then set `evidenceDir`
+beneath it: a directory the process cannot create fails every tenant's build
+(`TENANT_BUILD_FAILED`), so tenants already served keep the gateways they had and a new process
+serves none and never becomes ready. The volume must be one replica's own (an `emptyDir` keeps
+the heads across a container restart, a volume claim per replica across a reschedule); two
+processes writing one tenant's heads fork its chains.
+
+Each replica runs its own chains for every tenant, from its own start, and nothing in a chained
+line names the replica. A log pipeline that merges replicas' output must keep each replica's lines
+apart (by pod) and in the order that process wrote them; each part then verifies on its own, with
+one start for each process start. Ordered by `seq` alone, or interleaved across replicas, the lines
+do not verify.
 
 ### TLS at the host
 
@@ -144,8 +305,9 @@ the whole edge. The key is watched like any mounted secret: when a certificate m
 certificate and key in a Kubernetes Secret, new connections get the new pair and open ones keep
 theirs (`TLS_CONTEXT_ROTATED`); a renewal that does not make a valid pair keeps the one in use
 (`TLS_ROTATION_REFUSED`). Every response then carries
-`Strict-Transport-Security: max-age=31536000; includeSubDomains`. `--redirect-listen` adds a
-plain-HTTP listener that answers only redirects to the same host over HTTPS (`301`, or `308` for a
+`Strict-Transport-Security: max-age=31536000; includeSubDomains`, once: the transport policy of
+the host is the operator's, so an upstream's own is not relayed beside it. `--redirect-listen` adds
+a plain-HTTP listener that answers only redirects to the same host over HTTPS (`301`, or `308` for a
 method other than `GET` and `HEAD`, never acting on the request), for the registry's domain and the
 hosts under it; any other host is `421`. `--apex-page` is the HTML the domain itself answers at `/`,
 with a policy that allows inline style and nothing else.
@@ -172,7 +334,9 @@ configuration: the operator issues it to the tenant and keeps only its digest.
 
 When digests are set, every request that is not the gateway's own must carry a key in the
 `AgentSafe-Tenant-Key` header that hashes to one of them, compared in constant time against each.
-Anything else is `401 TENANT_KEY_INVALID`, nothing is forwarded, the refusal is counted as
+A request without one is `401 TENANT_KEY_MISSING` and one with any other key is
+`401 TENANT_KEY_INVALID`, each with `WWW-Authenticate: AgentSafe-Tenant-Key` and
+`agentsafe-execution: NOT_FORWARDED`. Nothing is forwarded, the refusal is counted as
 `agentsafe_requests_total{kind="tenant_key_refused"}`, and `AUTH_FAILED` with method
 `tenant_key` and code `TENANT_KEY_MISSING` or `TENANT_KEY_INVALID` is on the security stream,
 never with the value presented. The header is removed before any request is forwarded, whether or
@@ -180,6 +344,16 @@ not digests are set, so an upstream never sees it, and it cannot be the
 `interception.principalHeader`. The gateway's own routes do not take it: `healthz` and `readyz`
 answer platform probes, and `status` and `metrics` answer the operator's token. A hosted gateway
 refuses to start without a digest.
+
+Anyone who knows a gateway's host can send requests without the key, so what a refusal writes to the
+chained security stream is bounded per gateway, whatever the rate and however many addresses it
+comes from. In each 60-second window, opened by the first refusal, the first 10 refusals are each an
+`AUTH_FAILED` line; the rest are counted by code, and each count is one `AUTH_FAILED_SUPPRESSED`
+line with `method`, `code` and `count` when the window closes, or when the gateway closes first. A
+gateway therefore writes at most 12 such lines a minute. Every request is still refused and counted
+in `agentsafe_requests_total{kind="tenant_key_refused"}`, and the tenant's own key is admitted as
+before: the bound is on the evidence a flood costs, not on the tenant's traffic, which a refusal
+never spends.
 
 ## Presence
 

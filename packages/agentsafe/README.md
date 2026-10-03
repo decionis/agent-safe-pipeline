@@ -784,8 +784,16 @@ one that leaves the origin is reported; the body is read whole under
 the verifier, the Presence transport and the handlers take from a fetch. Every refusal is
 `EGRESS_REFUSED` on the security stream with the origin and a code, `EGRESS_ORIGIN_NOT_ALLOWED`,
 `EGRESS_SCHEME_NOT_ALLOWED`, `EGRESS_PATH_NOT_ALLOWED`, `EGRESS_ADDRESS_REFUSED`,
-`EGRESS_TLS_REJECTED`, `EGRESS_TLS_PIN_MISMATCH`, `EGRESS_BODY_TOO_LARGE`, `EGRESS_TIMEOUT`,
-`EGRESS_REDIRECT_REFUSED`, `EGRESS_RESPONSE_INVALID` or `EGRESS_INIT_UNSUPPORTED`, and is counted.
+`EGRESS_TLS_REJECTED` (a handshake that failed), `EGRESS_TLS_CLIENT_CERT_REFUSED` (the peer
+refused the client certificate this process never presents), `EGRESS_TLS_PIN_MISMATCH`,
+`EGRESS_BODY_TOO_LARGE`, `EGRESS_TIMEOUT`, `EGRESS_REDIRECT_REFUSED`, `EGRESS_RESPONSE_INVALID` or
+`EGRESS_INIT_UNSUPPORTED`, and is counted. A TLS failure after a verified handshake is not a
+refusal: it broke a connection that may have carried the request, so the connection's own error
+passes through to the caller. It is still reported, as `EGRESS_REFUSED` with `EGRESS_TLS_BROKEN`,
+and counts toward the refusal spike that halts the executor, as it did when it was reported as a
+rejected handshake: records that break a verified session are an attack until shown otherwise.
+A gateway's public-only upstream is the one exception, since its TLS is its owner's to fix: a
+refused handshake there is `UPSTREAM_TLS_REFUSED` instead, and a broken session is not reported.
 
 Three layers hold this: the wiring, which hands the guarded fetch to every component and to the
 handler seam; the global `fetch`, which `serve` replaces at start with one that refuses and makes

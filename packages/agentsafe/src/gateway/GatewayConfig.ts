@@ -89,6 +89,13 @@ export interface GatewayConfig {
      * loopback address is refused before a socket exists.
      */
     readonly publicOnly: boolean;
+    /**
+     * Forward nothing until the upstream's origin serves a token bound to this
+     * tenant, its organization and that origin, and keep checking that it
+     * does (gateway/UpstreamProof.ts). Hosted only: the binding is the
+     * hosted tenant and the Decionis organization it runs under.
+     */
+    readonly proofRequired: boolean;
     readonly system: string;
     readonly environment: string;
     readonly timeoutMs: number;
@@ -113,6 +120,7 @@ export interface GatewayConfig {
     readonly routes: readonly RouteConfig[];
     readonly unmatched: UnmatchedPolicy;
     readonly maxBodyBytes: number;
+    /** The largest JSON body embedded in the intent for policy to read; 0 embeds none. */
     readonly maxEmbeddedBodyBytes: number;
     /** A request header whose value names the calling principal; carried, never verified. */
     readonly principalHeader: string | null;
@@ -208,7 +216,8 @@ export const GatewayFileSchema = z.strictObject({
       routes: z.array(RouteSchema).max(200).optional(),
       unmatched: lowerEnum(["govern", "passthrough"]).optional(),
       maxBodyBytes: positiveInt.max(MAX_BODY_BYTES).optional(),
-      maxEmbeddedBodyBytes: positiveInt.max(MAX_BODY_BYTES).optional(),
+      // 0 embeds no body at all: the authority sees its digest, size and type only.
+      maxEmbeddedBodyBytes: z.number().int().min(0).max(MAX_BODY_BYTES).optional(),
       principalHeader: z
         .string()
         .trim()
@@ -303,6 +312,7 @@ const ENVIRONMENT = {
   upstream: "AGENTSAFE_UPSTREAM",
   upstreamInsecure: "AGENTSAFE_UPSTREAM_INSECURE",
   upstreamPublicOnly: "AGENTSAFE_UPSTREAM_PUBLIC_ONLY",
+  upstreamProofRequired: "AGENTSAFE_UPSTREAM_PROOF_REQUIRED",
   hosted: "AGENTSAFE_HOSTED_GATEWAY",
   hostedTenant: "AGENTSAFE_HOSTED_TENANT",
   tenantKeyDigests: "AGENTSAFE_TENANT_KEY_DIGESTS",
@@ -829,12 +839,27 @@ export class GatewayConfigLoader {
         "a lower-case DNS label, on a hosted gateway",
       );
     }
-    // Hosted, the tenant is the only caller the gateway admits, from day one.
-    if (hosted && tenantKeys.length === 0) {
+    GatewayConfigLoader.requireTenantKey(tenantKeys, hosted);
+    // The proof binds the hosted tenant and the organization its key belongs
+    // to, so it means nothing on a gateway that has neither.
+    const proofRequired = resolve(
+      "upstream.proofRequired",
+      [
+        {
+          source: "environment",
+          raw: parseBoolean(
+            env[ENVIRONMENT.upstreamProofRequired],
+            ENVIRONMENT.upstreamProofRequired,
+          ),
+        },
+      ],
+      false,
+    );
+    if (proofRequired && (!hosted || hostedTenant === null || kind !== "DECIONIS")) {
       throw new GatewayConfigError(
-        "CONFIG_MISSING",
-        "tenantKeyDigests",
-        `${ENVIRONMENT.tenantKeyDigests} or gateway.tenantKeyDigests: a hosted gateway admits only its tenant`,
+        "CONFIG_INVALID",
+        ENVIRONMENT.upstreamProofRequired,
+        `a hosted gateway with ${ENVIRONMENT.hostedTenant} and a Decionis organization in ${ENVIRONMENT.tenantId}`,
       );
     }
 
@@ -904,6 +929,7 @@ export class GatewayConfigLoader {
         url: upstreamUrl,
         insecure: upstreamInsecure,
         publicOnly: upstreamPublicOnly,
+        proofRequired,
         system: resolve(
           "upstream.system",
           [
@@ -1059,6 +1085,28 @@ export class GatewayConfigLoader {
       );
     }
     return { requestsPerSecond: rate, burst: Number(burst) };
+  }
+
+  /**
+   * The tenant keys a running gateway may be given in place of its own: held
+   * to the same rule as the configuration's, one or two distinct digests,
+   * and at least one when it is hosted.
+   */
+  public static admittedKeys(digests: readonly string[], hosted: boolean): readonly string[] {
+    const keys = GatewayConfigLoader.tenantKeys(digests);
+    GatewayConfigLoader.requireTenantKey(keys, hosted);
+    return keys;
+  }
+
+  /** Hosted, the tenant is the only caller the gateway admits, from day one. */
+  private static requireTenantKey(keys: readonly string[], hosted: boolean): void {
+    if (hosted && keys.length === 0) {
+      throw new GatewayConfigError(
+        "CONFIG_MISSING",
+        "tenantKeyDigests",
+        `${ENVIRONMENT.tenantKeyDigests} or gateway.tenantKeyDigests: a hosted gateway admits only its tenant`,
+      );
+    }
   }
 
   /** One or two distinct `sha256:` digests, lower-case hex; anything else is refused by name. */

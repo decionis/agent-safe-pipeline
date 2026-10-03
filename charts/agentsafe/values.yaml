@@ -48,7 +48,7 @@ gateway:
   # downstream_target.environment in every intent.
   environment: production
   # Bodies: read in full under maxBodyBytes; JSON up to maxEmbeddedBodyBytes
-  # is visible to policy, larger is bound by digest only.
+  # is visible to policy, larger is bound by digest only (0: every body).
   maxBodyBytes: 1048576
   maxEmbeddedBodyBytes: 65536
   intentTtlSeconds: 120

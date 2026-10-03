@@ -17,6 +17,7 @@ import {
   SHADOW_REPORT_MILESTONES,
 } from "../../src/gateway/Gateway.js";
 import type { InterceptedRequest } from "../../src/gateway/InterceptedRequest.js";
+import { REFUSAL_LINES_PER_WINDOW } from "../../src/gateway/RefusalSampler.js";
 import { verifyAuditChain } from "../../src/verify/VerifyAuditChain.js";
 import { closedPort } from "../support/Environment.js";
 import {
@@ -217,11 +218,16 @@ describe("the gateway in enforcement with the demo authority", () => {
     expect(gateway.status().counts["indeterminate"]).toBe(1);
   });
 
-  it("passes a safe method through unchanged and counts it", async () => {
+  it("passes a safe method through unchanged, says so, and counts it", async () => {
     const answer = await gateway.passthrough(request("GET", "/health", undefined, {}, "?x=1&x=2"));
     expect(answer.status).toBe(200);
     expect(upstream.seen.at(-1)?.url).toBe("/health?x=1&x=2");
     expect(Object.fromEntries(answer.headers)["agentsafe-decision"]).toBeUndefined();
+    // Relayed through the gateway, and not observed: the mode header is the
+    // mark of a request the authority was asked about in shadow.
+    expect(answer.headers.filter(([name]) => name.startsWith("agentsafe-"))).toEqual([
+      ["agentsafe-execution", "PASSTHROUGH"],
+    ]);
     expect(gateway.metricsText()).toContain('agentsafe_requests_total{kind="passthrough"} 1');
   });
 
@@ -394,9 +400,16 @@ describe("the gateway in shadow", () => {
       reason_codes: ["POLICY_HARD_LIMIT_EXCEEDED"],
     });
     expect(gateway.metricsText()).toContain('agentsafe_shadow_decisions_total{verdict="BLOCK"} 1');
+    // The request was written and the upstream never answered: it may have
+    // acted, so the timeout is never reported as a request not forwarded.
     const failed = await gateway.govern(request("POST", "/hang", { amount: 1 }), "http.post");
     expect(failed.status).toBe(502);
-    expect(json(failed.body)["reason_codes"]).toEqual(["UPSTREAM_UNREACHABLE"]);
+    expect(json(failed.body)).toMatchObject({
+      reason_codes: ["UPSTREAM_TIMEOUT"],
+      execution: "INDETERMINATE",
+    });
+    expect(Object.fromEntries(failed.headers)["agentsafe-execution"]).toBe("INDETERMINATE");
+    expect(upstream.seen.at(-1)?.url).toBe("/hang");
     // The ledger counts every settled observation by verdict and action (the
     // upstream that hung was still observed: the authority would have allowed
     // it), and the status carries it; in enforcement there is no ledger.
@@ -487,6 +500,7 @@ describe("the gateway when the authority cannot be reached", () => {
 
   async function unreachable(
     failurePolicy: string,
+    upstreamUrl: string = upstream.baseUrl,
   ): Promise<{ gateway: Gateway; io: CollectedIo }> {
     const port = await closedPort();
     const env = {
@@ -498,7 +512,7 @@ describe("the gateway when the authority cannot be reached", () => {
     };
     const io = collectedIo();
     const gateway = await Gateway.create(
-      testConfig(upstream.baseUrl, { env, flags: { mode: "enforcement", failurePolicy } }),
+      testConfig(upstreamUrl, { env, flags: { mode: "enforcement", failurePolicy } }),
       { env, io },
     );
     return { gateway, io };
@@ -530,10 +544,10 @@ describe("the gateway when the authority cannot be reached", () => {
     const { gateway, io } = await unreachable("failOpen");
     const answer = await gateway.govern(request("POST", "/payments", { amount: 1 }), "http.post");
     expect(answer.status).toBe(201);
-    expect(Object.fromEntries(answer.headers)).toMatchObject({
-      "agentsafe-state": "AUTHORITY_UNAVAILABLE",
-      "agentsafe-execution": "FORWARDED_UNGOVERNED",
-    });
+    expect(answer.headers.filter(([name]) => name.startsWith("agentsafe-"))).toEqual([
+      ["agentsafe-state", "AUTHORITY_UNAVAILABLE"],
+      ["agentsafe-execution", "FORWARDED_UNGOVERNED"],
+    ]);
     expect(reports(io).at(-1)).toMatchObject({
       state: "AUTHORITY_UNAVAILABLE",
       execution: "FORWARDED_UNGOVERNED",
@@ -541,6 +555,17 @@ describe("the gateway when the authority cannot be reached", () => {
     });
     expect(io.out.some((line) => line.includes('"event":"EXECUTION_UNGOVERNED"'))).toBe(true);
     expect(gateway.metricsText()).toContain("agentsafe_ungoverned_forwards_total 1");
+    await gateway.close();
+  });
+
+  it("answers a fail-open forward that failed with the gateway's own response alone", async () => {
+    const { gateway } = await unreachable("failOpen", `${LOOPBACK_ORIGIN}:${await closedPort()}`);
+    const answer = await gateway.govern(request("POST", "/payments", { amount: 1 }), "http.post");
+    expect(answer.status).toBe(502);
+    expect(answer.headers.filter(([name]) => name.startsWith("agentsafe-"))).toEqual([
+      ["agentsafe-state", "ERROR"],
+      ["agentsafe-execution", "NOT_FORWARDED"],
+    ]);
     await gateway.close();
   });
 });
@@ -980,6 +1005,159 @@ describe("a public-only upstream, as a hosted gateway runs one", () => {
   });
 });
 
+describe("an upstream that fails", () => {
+  /** What a passthrough answers when the upstream's transport fails this way. */
+  async function failure(error: unknown): Promise<Record<string, unknown>> {
+    const gateway = await Gateway.create(testConfig("https://shop.tenant.example"), {
+      env: {},
+      io: collectedIo(),
+      upstreamFetch: async () => {
+        throw error;
+      },
+    });
+    const answer = await gateway.passthrough(request("GET", "/orders"));
+    await gateway.close();
+    expect(answer.status).toBe(502);
+    const body = json(answer.body);
+    expect(Object.fromEntries(answer.headers)["agentsafe-execution"]).toBe(body["execution"]);
+    return { reason_codes: body["reason_codes"], execution: body["execution"] };
+  }
+  const coded = (code: string, message = code): Error =>
+    Object.assign(new Error(message), { code });
+  const fetchFailed = (cause: Error): Error => new TypeError("fetch failed", { cause });
+  const notForwarded = { reason_codes: ["UPSTREAM_UNREACHABLE"], execution: "NOT_FORWARDED" };
+  const timedOut = { reason_codes: ["UPSTREAM_TIMEOUT"], execution: "INDETERMINATE" };
+
+  it("is not forwarded only when no connection was ever made", async () => {
+    // As `node:http` raises them through the guarded egress, and as `fetch` wraps them.
+    for (const code of ["ENOTFOUND", "EAI_AGAIN", "EAI_FAIL", "ECONNREFUSED"]) {
+      expect([code, await failure(coded(code))]).toEqual([code, notForwarded]);
+      expect([code, await failure(fetchFailed(coded(code)))]).toEqual([code, notForwarded]);
+    }
+    expect(await failure(fetchFailed(coded("UND_ERR_CONNECT_TIMEOUT")))).toEqual(notForwarded);
+  });
+
+  it("is indeterminate once a connection may have carried the request, and a timeout says so", async () => {
+    expect(await failure(new DOMException("aborted due to timeout", "TimeoutError"))).toEqual(
+      timedOut,
+    );
+    expect(await failure(new EgressError("EGRESS_TIMEOUT", "https://shop.tenant.example"))).toEqual(
+      timedOut,
+    );
+    const lost = { reason_codes: ["UPSTREAM_TRANSPORT_FAILED"], execution: "INDETERMINATE" };
+    expect(await failure(coded("ECONNRESET", "socket hang up"))).toEqual(lost);
+    expect(await failure(fetchFailed(coded("UND_ERR_SOCKET", "other side closed")))).toEqual(lost);
+    expect(await failure(new Error("no code at all"))).toEqual(lost);
+    expect(await failure(null)).toEqual(lost);
+  });
+
+  it("says the upstream refused the handshake, or wants a client certificate, and that nothing was sent", async () => {
+    const lost = { reason_codes: ["UPSTREAM_TRANSPORT_FAILED"], execution: "INDETERMINATE" };
+    const rejected = { reason_codes: ["UPSTREAM_TLS_REJECTED"], execution: "NOT_FORWARDED" };
+    const certificate = {
+      reason_codes: ["UPSTREAM_CLIENT_CERT_REFUSED"],
+      execution: "NOT_FORWARDED",
+    };
+    // As the guarded egress reports a handshake that failed.
+    expect(await failure(new EgressError("EGRESS_TLS_REJECTED"))).toEqual(rejected);
+    expect(await failure(new EgressError("EGRESS_TLS_CLIENT_CERT_REFUSED"))).toEqual(certificate);
+    // As `fetch` reports one: the upstream's certificate did not verify here, or it asked for ours.
+    for (const code of [
+      "DEPTH_ZERO_SELF_SIGNED_CERT",
+      "SELF_SIGNED_CERT_IN_CHAIN",
+      "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+      "CERT_HAS_EXPIRED",
+      "ERR_TLS_CERT_ALTNAME_INVALID",
+    ]) {
+      expect([code, await failure(fetchFailed(coded(code)))]).toEqual([code, rejected]);
+    }
+    // The alerts a server refusing the gateway's certificate sends: TLS 1.3's own, and what
+    // servers that do not send it send instead. None names the server's certificate, which
+    // the gateway had verified already.
+    for (const code of [
+      "ERR_SSL_TLSV13_ALERT_CERTIFICATE_REQUIRED",
+      "ERR_SSL_SSLV3_ALERT_BAD_CERTIFICATE",
+      "ERR_SSL_SSLV3_ALERT_CERTIFICATE_UNKNOWN",
+      "ERR_SSL_TLSV1_ALERT_UNKNOWN_CA",
+      "ERR_SSL_TLSV1_ALERT_ACCESS_DENIED",
+    ]) {
+      expect([code, await failure(fetchFailed(coded(code)))]).toEqual([code, certificate]);
+      expect([code, await failure(coded(code))]).toEqual([code, certificate]);
+    }
+    // A TLS failure that says no more may have come after the request was written.
+    expect(await failure(coded("ERR_SSL_DECRYPTION_FAILED_OR_BAD_RECORD_MAC"))).toEqual(lost);
+    expect(await failure(fetchFailed(coded("ERR_SSL_SSL/TLS_ALERT_HANDSHAKE_FAILURE")))).toEqual(
+      lost,
+    );
+  });
+
+  it("puts a refused handshake on its own security event, not EGRESS_REFUSED, and on the INTERCEPTED line", async () => {
+    const io = collectedIo();
+    const gateway = await Gateway.create(
+      testConfig("https://shop.tenant.example", {
+        flags: { mode: "shadow" },
+        env: { AGENTSAFE_UPSTREAM_PUBLIC_ONLY: "true" },
+      }),
+      {
+        env: {},
+        io,
+        upstreamFetch: async () => {
+          throw new EgressError("EGRESS_TLS_CLIENT_CERT_REFUSED", "https://shop.tenant.example");
+        },
+      },
+    );
+    const answer = await gateway.govern(request("POST", "/payments", { amount: 10 }), "http.post");
+    expect(answer.status).toBe(502);
+    expect(json(answer.body)).toMatchObject({
+      reason_codes: ["UPSTREAM_CLIENT_CERT_REFUSED"],
+      execution: "NOT_FORWARDED",
+    });
+    await settle();
+    expect(reports(io).at(-1)).toMatchObject({
+      state: "SHADOW",
+      execution: "NOT_FORWARDED",
+      upstream_status: null,
+    });
+    expect((reports(io).at(-1)?.["reason_codes"] as string[]).at(-1)).toBe(
+      "UPSTREAM_CLIENT_CERT_REFUSED",
+    );
+    const security = [...io.out, ...io.err]
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+      .filter(
+        (line) => line["event"] === "UPSTREAM_TLS_REFUSED" || line["event"] === "EGRESS_REFUSED",
+      );
+    expect(security).toMatchObject([
+      {
+        event: "UPSTREAM_TLS_REFUSED",
+        origin: "https://shop.tenant.example",
+        code: "UPSTREAM_CLIENT_CERT_REFUSED",
+      },
+    ]);
+    await gateway.close();
+  });
+
+  it("tells a refused connection from a request the upstream never answered, on real sockets", async () => {
+    const closed = await Gateway.create(testConfig(`${LOOPBACK_ORIGIN}:${await closedPort()}`), {
+      env: {},
+      io: collectedIo(),
+    });
+    expect(json((await closed.passthrough(request("GET", "/orders"))).body)).toMatchObject(
+      notForwarded,
+    );
+    await closed.close();
+    const upstream = new UpstreamDouble();
+    await upstream.start();
+    const hanging = await Gateway.create(
+      testConfig(upstream.baseUrl, { file: { version: 1, gateway: { upstreamTimeoutMs: 200 } } }),
+      { env: {}, io: collectedIo() },
+    );
+    expect(json((await hanging.passthrough(request("GET", "/hang"))).body)).toMatchObject(timedOut);
+    expect(upstream.seen.map((seen) => seen.url)).toEqual(["/hang"]);
+    await hanging.close();
+    await upstream.stop();
+  });
+});
+
 describe("a hosted gateway", () => {
   it("relays every cookie host-only, so one tenant's upstream cannot set one for another", async () => {
     const gateway = await Gateway.create(
@@ -1060,11 +1238,11 @@ describe("the tenant key check", () => {
       }),
       { env: {}, io },
     );
-    expect(gateway.admits(TENANT_KEY)).toBe(true);
-    expect(gateway.admits(second)).toBe(true);
-    expect(gateway.admits(undefined)).toBe(false);
-    expect(gateway.admits("")).toBe(false);
-    expect(gateway.admits("synthetic-guess")).toBe(false);
+    expect(gateway.keyRefusal(TENANT_KEY)).toBeNull();
+    expect(gateway.keyRefusal(second)).toBeNull();
+    expect(gateway.keyRefusal(undefined)).toBe("TENANT_KEY_MISSING");
+    expect(gateway.keyRefusal("")).toBe("TENANT_KEY_MISSING");
+    expect(gateway.keyRefusal("synthetic-guess")).toBe("TENANT_KEY_INVALID");
     const refusals = [...io.out, ...io.err]
       .filter((line) => line.includes('"tenant_key"'))
       .map((line) => (JSON.parse(line) as { code: string }).code);
@@ -1074,14 +1252,104 @@ describe("the tenant key check", () => {
     await gateway.close();
   });
 
+  it("takes new keys in place, held to the configuration's rule, and keeps its own when they break it", async () => {
+    const gateway = await Gateway.create(
+      testConfig("https://shop.tenant.example", {
+        flags: { mode: "shadow" },
+        env: { AGENTSAFE_HOSTED_GATEWAY: "true", AGENTSAFE_TENANT_KEY_DIGESTS: TENANT_KEY_DIGEST },
+      }),
+      { env: {}, io: collectedIo() },
+    );
+    gateway.admitKeys([TENANT_KEY_DIGEST, secondDigest]);
+    expect([gateway.keyRefusal(TENANT_KEY), gateway.keyRefusal(second)]).toEqual([null, null]);
+    gateway.admitKeys([secondDigest]);
+    expect([gateway.keyRefusal(TENANT_KEY), gateway.keyRefusal(second)]).toEqual([
+      "TENANT_KEY_INVALID",
+      null,
+    ]);
+    const refusal = (digests: readonly string[]): string => {
+      try {
+        gateway.admitKeys(digests);
+      } catch (error) {
+        return (error as Error).message.split(" (")[0] ?? "";
+      }
+      return "admitted";
+    };
+    expect(refusal(["sha256:not-a-digest"])).toBe("CONFIG_INVALID: tenantKeyDigests");
+    expect(refusal([secondDigest, secondDigest])).toBe("CONFIG_INVALID: tenantKeyDigests");
+    expect(refusal([])).toBe("CONFIG_MISSING: tenantKeyDigests");
+    expect(gateway.tenantKeys).toEqual([secondDigest]);
+    // The operator reads back a prefix of each digest, never the digest.
+    expect(gateway.status().hosted).toEqual({
+      tenant: null,
+      tenant_keys: [secondDigest.slice(0, "sha256:".length + 12)],
+      registry: null,
+      upstream_proof: null,
+    });
+    expect(JSON.stringify(gateway.status())).not.toContain(secondDigest);
+    await gateway.close();
+
+    // A gateway its owner runs says nothing of keys in a status anyone may read.
+    const owned = await Gateway.create(
+      testConfig("https://shop.tenant.example", {
+        flags: { mode: "shadow" },
+        env: { AGENTSAFE_TENANT_KEY_DIGESTS: TENANT_KEY_DIGEST },
+      }),
+      { env: {}, io: collectedIo() },
+    );
+    expect(owned.status().hosted).toBeNull();
+    await owned.close();
+  });
+
+  it("bounds what a flood without the key writes to the security stream, and counts the rest", async () => {
+    const io = collectedIo();
+    const gateway = await Gateway.create(
+      testConfig("https://shop.tenant.example", {
+        flags: { mode: "shadow" },
+        env: { AGENTSAFE_HOSTED_GATEWAY: "true", AGENTSAFE_TENANT_KEY_DIGESTS: TENANT_KEY_DIGEST },
+      }),
+      { env: {}, io },
+    );
+    for (let index = 0; index < 1_000; index += 1) gateway.keyRefusal(undefined);
+    for (let index = 0; index < 5; index += 1) gateway.keyRefusal("synthetic-guess");
+    const security = (): Record<string, unknown>[] =>
+      io.err
+        .map((line) => JSON.parse(line) as Record<string, unknown>)
+        .filter((line) => String(line["event"]).startsWith("AUTH_FAILED"));
+    expect(security()).toHaveLength(REFUSAL_LINES_PER_WINDOW);
+    expect(security().every((line) => line["code"] === "TENANT_KEY_MISSING")).toBe(true);
+    // Every refusal is still counted, and the tenant's own key still admits.
+    expect(gateway.metricsText()).toContain(
+      'agentsafe_requests_total{kind="tenant_key_refused"} 1005',
+    );
+    expect(gateway.keyRefusal(TENANT_KEY)).toBeNull();
+    // The window's counts are written when it closes, or when the gateway does.
+    await gateway.close();
+    expect(security().slice(REFUSAL_LINES_PER_WINDOW)).toEqual([
+      expect.objectContaining({
+        event: "AUTH_FAILED_SUPPRESSED",
+        method: "tenant_key",
+        code: "TENANT_KEY_MISSING",
+        count: 1_000 - REFUSAL_LINES_PER_WINDOW,
+      }),
+      expect.objectContaining({
+        event: "AUTH_FAILED_SUPPRESSED",
+        method: "tenant_key",
+        code: "TENANT_KEY_INVALID",
+        count: 5,
+      }),
+    ]);
+    expect(verifyAuditChain(io.err).ok).toBe(true);
+  });
+
   it("admits everything when the gateway has no keys, and says nothing", async () => {
     const io = collectedIo();
     const gateway = await Gateway.create(
       testConfig("https://shop.tenant.example", { flags: { mode: "shadow" } }),
       { env: {}, io },
     );
-    expect(gateway.admits(undefined)).toBe(true);
-    expect(gateway.admits("anything")).toBe(true);
+    expect(gateway.keyRefusal(undefined)).toBeNull();
+    expect(gateway.keyRefusal("anything")).toBeNull();
     expect([...io.out, ...io.err].some((line) => line.includes('"tenant_key"'))).toBe(false);
     await gateway.close();
   });

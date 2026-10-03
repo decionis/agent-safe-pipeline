@@ -82,6 +82,25 @@ describe("request normalization", () => {
     expect(vendor.context["body_embedded"]).toBe(true);
   });
 
+  it("embeds no body at all under a limit of zero, and still binds every byte by digest", () => {
+    const body = '{"amount": 5, "to": "acct-1"}';
+    const normalized = normalizeRequest(request(), "payment.create", {
+      ...options,
+      maxEmbeddedBodyBytes: 0,
+    });
+    expect(normalized.proposal.parameters).toEqual({
+      method: "POST",
+      path: "/payments",
+      query: {},
+    });
+    expect(normalized.context).toEqual({
+      body_sha256: `sha256:${createHash("sha256").update(body).digest("hex")}`,
+      body_bytes: 29,
+      content_type: "application/json",
+      body_embedded: false,
+    });
+  });
+
   it("carries the query as sorted keys, with a list where a key repeats", () => {
     const normalized = normalizeRequest(request({ search: "?z=1&a=2&a=3&empty=" }), "a", options);
     expect(normalized.proposal.parameters["query"]).toEqual({ a: ["2", "3"], empty: "", z: "1" });

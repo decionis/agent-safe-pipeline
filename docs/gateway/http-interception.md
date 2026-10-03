@@ -14,7 +14,8 @@ and governs the destinations an operator names in that same hop.
 ## What is consequential
 
 A request is consequential when its method is `POST`, `PUT`, `PATCH` or `DELETE`. `GET`, `HEAD`
-and `OPTIONS` are never evaluated; they pass through with their query and headers, and are counted.
+and `OPTIONS` are never evaluated; they pass through with their query and headers, and are counted,
+and the answer is relayed with `agentsafe-execution: PASSTHROUGH`.
 
 A consequential request is named by the [route table](./routes.md). One that no route names is
 governed under a derived name, `http.post`, `http.put`, `http.patch` or `http.delete`, unless the
@@ -45,7 +46,9 @@ captures an intent in the `agent-safe.intent/1` contract:
 | `actor`, `tenantId`, `downstreamTarget` | from the configuration: the gateway's actor, the tenant, the upstream as system, the action as operation      |
 
 Request headers are not part of the intent. An `Authorization` or `Cookie` header is the client's
-credential to the upstream and never reaches the authority or the evidence chain.
+credential to the upstream and never reaches the authority or the evidence chain. With
+`interception.maxEmbeddedBodyBytes: 0` no body is embedded either: the authority sees the method,
+the path, the query and the body's digest, size and type, and policy cannot read its fields.
 
 The intent is canonicalized (RFC 8785) and hashed by `CanonicalIntentHasher`, and sent to the
 authority as the `ExecutionAuthorityRequest` the [execution intent](../execution-intent.md) page
@@ -103,6 +106,39 @@ identifiers, with the same `agentsafe-state` and `agentsafe-execution` headers:
 | `EXECUTION_INDETERMINATE` | 502     | `INDETERMINATE` | the request was sent and no answer came back                 |
 | `ERROR`                   | 400–503 | `NOT_FORWARDED` | the intent could not be bound, or the grant not claimed      |
 
+A request forwarded unchanged (a passthrough, a request observed in shadow, a fail-open forward)
+that gets no answer is `502` with state `ERROR`. It is `NOT_FORWARDED` only when no connection was
+ever made, or the handshake never finished: `UPSTREAM_UNREACHABLE` when the name did not resolve
+or the connection was refused or never established, `UPSTREAM_ADDRESS_REFUSED` when a public-only
+upstream resolved inward, `UPSTREAM_TLS_REJECTED` when the upstream's certificate did not verify or
+it refused the handshake, and `UPSTREAM_CLIENT_CERT_REFUSED` when it asked for a client
+certificate, which a gateway never presents. Anything later is `INDETERMINATE`, since the upstream may have acted on the request: `UPSTREAM_TIMEOUT` when
+`gateway.upstreamTimeoutMs` (10 seconds by default) ran out, `UPSTREAM_RESPONSE_TOO_LARGE`, or
+`UPSTREAM_TRANSPORT_FAILED`. A timeout is indeterminate wherever the send was when it ran out,
+because the gateway cannot tell whether the request had been written, so a caller never reads one
+as safe to retry.
+
+The listener refuses some requests before the gateway sees them: a missing or wrong tenant key
+(`401 TENANT_KEY_MISSING` or `TENANT_KEY_INVALID`, with `WWW-Authenticate: AgentSafe-Tenant-Key`),
+the gateway's rate (`429 RATE_LIMITED`), a body over the bound (`413 BODY_TOO_LARGE`) and a host it
+does not serve (`421 HOST_NOT_SERVED`). Each is a `code` and nothing else, with
+`agentsafe-execution: NOT_FORWARDED`; a failure of the listener's own is `500 INTERNAL_ERROR` with
+`agentsafe-execution: INDETERMINATE`, since it cannot say whether anything was sent.
+
+A hosted gateway that requires its upstream's proof answers an admitted request with
+`503 UPSTREAM_UNVERIFIED` while the proof is not established, before the request spends any of the
+gateway's rate. That answer is not a `code`: it is the gateway's own response
+(`version: agent-safe.gateway/1`), with state `ERROR`, `verdict` null,
+`reason_codes: ["UPSTREAM_UNVERIFIED"]`, `execution: NOT_FORWARDED` and `fallback`, the upstream to
+call directly in the meantime, and the headers `agentsafe-state: ERROR`,
+`agentsafe-execution: NOT_FORWARDED` and `Retry-After: 60`. While the proof is gone but still in
+its grace, a forwarded answer is marked `agentsafe-upstream-proof: missing`
+([the upstream's proof](./configuration.md#the-upstreams-proof)).
+
+Every answer to a request that is not the gateway's own route carries `agentsafe-execution`, and an
+upstream's `agentsafe-*` headers are never relayed, so an answer without one did not come from the
+gateway.
+
 ### Holds and resume
 
 An `ESCALATE` is held in memory until the intent expires (`intentTtlSeconds`, 120 by default,
@@ -123,9 +159,10 @@ which was produced with the held request's own `Authorization` and `Cookie`.
 
 In `shadow` mode a consequential request is forwarded unchanged inside `ShadowPipeline.observe`
 while the authority is asked what it would have decided. The response carries `agentsafe-mode:
-SHADOW` and `agentsafe-execution: PASSTHROUGH`; the observation is reported when it settles and is
-never a grant. Shadow measures policy impact; it protects nothing, and the output says so. See
-[shadow mode](../shadow-mode.md).
+SHADOW` and `agentsafe-execution: PASSTHROUGH`; a request passed through without being evaluated
+carries the second alone, so `agentsafe-mode` marks the requests the authority was asked about. The
+observation is reported when it settles and is never a grant. Shadow measures policy impact; it
+protects nothing, and the output says so. See [shadow mode](../shadow-mode.md).
 
 ## Not yet
 

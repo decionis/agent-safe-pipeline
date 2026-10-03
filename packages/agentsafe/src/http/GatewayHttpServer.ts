@@ -18,6 +18,7 @@ import {
 } from "../gateway/Gateway.js";
 import { TENANT_KEY_HEADER } from "../gateway/GatewayConfig.js";
 import type { InterceptedRequest } from "../gateway/InterceptedRequest.js";
+import { UPSTREAM_PROOF_HEADER } from "../gateway/UpstreamProof.js";
 import { METRICS_CONTENT_TYPE, RESPONSE_HEADERS } from "./Routes.js";
 import type { TlsListener } from "./TlsListener.js";
 
@@ -29,10 +30,17 @@ const OWN_ROUTES = ["healthz", "readyz", "status", "metrics"] as const;
 const ESCALATIONS = `${GATEWAY_PREFIX}/v1/escalations/`;
 const INTENT_ID = /^[0-9a-f-]{36}$/;
 
+/**
+ * The challenge a missing or wrong tenant key is answered with: the scheme
+ * names the header the key travels in, so a 401 says what it wants.
+ */
+export const TENANT_KEY_CHALLENGE = "AgentSafe-Tenant-Key";
+
 class GuardError extends Error {
   public constructor(
     public readonly status: number,
     public readonly code: string,
+    public readonly headers: Readonly<Record<string, string>> = {},
   ) {
     super(code);
     this.name = "GuardError";
@@ -55,7 +63,8 @@ export interface GatewayHttpServerOptions {
   /**
    * Terminate TLS here, with the executor's listener (TLS 1.3, or 1.2 with
    * AEAD ciphers only): the hosted fleet's edge is a layer-4 load balancer
-   * and nothing else. Every response then carries HSTS.
+   * and nothing else. Every response then carries HSTS, this listener's
+   * once, and a relayed upstream's own is dropped.
    */
   readonly tls?: TlsListener | null;
   /**
@@ -87,7 +96,7 @@ export type GatewaySelector = (hostname: string | null) => Gateway | null;
  * read in full under the configured bound and handed to the gateway with the
  * method, path, query and headers, and what comes back is written as it is.
  * A refusal the listener makes itself is a status and a code, never a
- * message from the request.
+ * message from the request, with `agentsafe-execution: NOT_FORWARDED`.
  */
 export class GatewayHttpServer {
   private readonly server: Server;
@@ -150,19 +159,19 @@ export class GatewayHttpServer {
       // The tenant's traffic, and only it, needs the tenant's key; the gateway's
       // own routes answer platform probes and the operator.
       const presented = request.headers[TENANT_KEY_HEADER];
-      if (!gateway.admits(typeof presented === "string" ? presented : undefined)) {
-        throw new GuardError(401, "TENANT_KEY_INVALID");
+      const refusal = gateway.keyRefusal(typeof presented === "string" ? presented : undefined);
+      if (refusal !== null) {
+        throw new GuardError(401, refusal, { "www-authenticate": TENANT_KEY_CHALLENGE });
       }
+      // Only the tenant learns where its upstream's proof stands: a caller
+      // without the key is refused above, the same whatever the proof.
+      const proof = gateway.upstreamProof();
+      if (proof === "REFUSE") return this.write(response, gateway.unverified());
       const rate = gateway.rate();
       if (!rate.admitted) {
-        // Stryker disable next-line ConditionalExpression: a reply is written once per request; the guard is defensive.
-        if (response.headersSent) return;
-        response.writeHead(429, {
-          ...RESPONSE_HEADERS,
+        throw new GuardError(429, "RATE_LIMITED", {
           "retry-after": String(rate.retryAfterSeconds),
         });
-        response.end(JSON.stringify({ code: "RATE_LIMITED" }));
-        return;
       }
       const plan = gateway.plan(method, url.pathname);
       const body = await GatewayHttpServer.readBody(
@@ -184,12 +193,29 @@ export class GatewayHttpServer {
         plan.kind === "GOVERN"
           ? await gateway.govern(intercepted, plan.action)
           : await gateway.passthrough(intercepted);
-      GatewayHttpServer.write(response, answer);
+      this.write(
+        response,
+        proof === "MISSING"
+          ? { ...answer, headers: [...answer.headers, [UPSTREAM_PROOF_HEADER, "missing"]] }
+          : answer,
+      );
     } catch (error) {
+      // A refusal is the listener's own, made before anything was forwarded;
+      // any other failure may come after a forward, so it claims neither way.
       if (error instanceof GuardError) {
-        GatewayHttpServer.reply(response, error.status, { code: error.code });
+        GatewayHttpServer.reply(
+          response,
+          error.status,
+          { code: error.code },
+          { ...error.headers, "agentsafe-execution": "NOT_FORWARDED" },
+        );
       } else {
-        GatewayHttpServer.reply(response, 500, { code: "INTERNAL_ERROR" });
+        GatewayHttpServer.reply(
+          response,
+          500,
+          { code: "INTERNAL_ERROR" },
+          { "agentsafe-execution": "INDETERMINATE" },
+        );
       }
     }
   }
@@ -224,7 +250,7 @@ export class GatewayHttpServer {
       if (rest.length === 2 && rest[1] === "resume" && method === "POST") {
         // The body, if any, is read and discarded: the gateway holds the intent.
         await GatewayHttpServer.readBody(request, 1024);
-        return GatewayHttpServer.write(response, await gateway.resume(intentId, resumeToken));
+        return this.write(response, await gateway.resume(intentId, resumeToken));
       }
       throw new GuardError(
         rest.length === 1 || rest[1] === "resume" ? 405 : 404,
@@ -351,19 +377,29 @@ export class GatewayHttpServer {
     return headers;
   }
 
-  private static write(response: ServerResponse, answer: GatewayResponse): void {
+  private write(response: ServerResponse, answer: GatewayResponse): void {
     // Stryker disable next-line ConditionalExpression: a reply is written once per request; the guard is defensive.
     if (response.headersSent) return;
-    for (const [name, value] of answer.headers) response.appendHeader(name, value);
+    for (const [name, value] of answer.headers) {
+      // A listener that terminates TLS has set its host's HSTS already: the
+      // transport policy of this host is the operator's, never an upstream's.
+      if (this.options.tls && name === "strict-transport-security") continue;
+      response.appendHeader(name, value);
+    }
     response.setHeader("content-length", String(answer.body.length));
     response.writeHead(answer.status);
     response.end(answer.body);
   }
 
-  private static reply(response: ServerResponse, status: number, body: unknown): void {
+  private static reply(
+    response: ServerResponse,
+    status: number,
+    body: unknown,
+    headers: Readonly<Record<string, string>> = {},
+  ): void {
     // Stryker disable next-line ConditionalExpression: a reply is written once per request; the guard is defensive.
     if (response.headersSent) return;
-    response.writeHead(status, RESPONSE_HEADERS);
+    response.writeHead(status, { ...RESPONSE_HEADERS, ...headers });
     response.end(JSON.stringify(body));
   }
 }

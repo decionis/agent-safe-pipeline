@@ -40,6 +40,8 @@ const TenantSchema = z.strictObject({
   }),
   /** This tenant's rate, per process; the registry's `rateLimit` otherwise. */
   rateLimit: RateLimitSchema.optional(),
+  /** How long this tenant's upstream may take to answer, in ms; the host's own setting otherwise. */
+  upstreamTimeoutMs: z.number().int().positive().max(120_000).optional(),
   /** The tenant's `interception` section, as `agentsafe.yaml` has it; validated by the gateway's loader. */
   interception: z.record(z.string(), z.unknown()).optional(),
 });
@@ -113,13 +115,23 @@ export function tenantHostname(registry: TenantRegistry, tenant: TenantEntry): s
  * A digest of everything that shapes a tenant's gateway: its entry and the
  * registry-wide settings it inherits. A reload rebuilds a tenant's gateway
  * only when this changes, so an edit to one tenant never interrupts another.
+ * The tenant's key digests are not in it: a gateway takes new ones in place,
+ * so a rotation or a revocation rebuilds nothing.
  */
 export function tenantFingerprint(registry: TenantRegistry, tenant: TenantEntry): string {
+  const shape = Object.fromEntries(
+    Object.entries(tenant).filter(([field]) => field !== "tenantKeyDigests"),
+  );
   const canonical = CanonicalIntentHasher.stringify({
     domain: registry.domain,
     evidenceDir: registry.evidenceDir ?? null,
     rateLimit: registry.rateLimit ?? null,
-    tenant: tenant as unknown as JsonValue,
+    tenant: shape as unknown as JsonValue,
   });
   return createHash("sha256").update(canonical, "utf8").digest("hex");
+}
+
+/** The registry's text, as read, as a digest: the revision a host reports it loaded. */
+export function registryRevision(text: string): string {
+  return `sha256:${createHash("sha256").update(text, "utf8").digest("hex")}`;
 }

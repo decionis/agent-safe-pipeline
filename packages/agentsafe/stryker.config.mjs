@@ -69,6 +69,11 @@ export default {
   // grant can be for; and the matcher decides which issuer authorization
   // spends a held grant, so a mutant there approves a purchase at another
   // merchant, in another currency, or above the amount.
+  // The upstream proof is here because it decides whether a hosted gateway
+  // relays at all: a mutant that reads a token bound to another tenant,
+  // organization or origin as proof, takes a TXT record without a verified
+  // answer from the origin, or forwards after the grace has run out turns
+  // the fleet's address into a relay to an origin nobody proved.
   mutate: [
     "src/http/ExecutorHttpServer.ts",
     "src/identity/PrincipalRegistry.ts",
@@ -102,6 +107,7 @@ export default {
     "src/adapters/cards/Pan.ts",
     "src/adapters/cards/CardPurchase.ts",
     "src/adapters/cards/CardAuthorizationMatcher.ts",
+    "src/gateway/UpstreamProof.ts",
   ],
   reporters: ["clear-text", "progress"],
   coverageAnalysis: "perTest",

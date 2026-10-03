@@ -22,8 +22,8 @@ Canonical JSON is the same form the intent hash uses: object keys sorted, recurs
 ECMAScript number and string serialisation and no whitespace. The envelope wins over a field of
 the same name, so nothing a line says can move it in its chain. A hosted gateway's chains carry
 their tenant in the envelope, so the tenant is covered by every hash: a line moved to another
-tenant breaks its chain, and the output of `agentsafe host`, which holds many tenants' chains of
-the same stream, verifies whole. Lines the process writes about
+tenant breaks its chain, and the output of one `agentsafe host` process, which holds many tenants'
+chains of the same stream, verifies whole. Lines the process writes about
 itself at start, `POSTURE_VERIFIED` and `LISTENING`, carry no `stream` and belong to no chain.
 
 ## The evidence stream
@@ -61,12 +61,16 @@ file), or `null` for a line written outside any request. Parameters, targets, bo
 `agent-safe.security/1` carries what happened to the process rather than to an intent: posture
 verified, waived, drifted and restored; a secret rotated or a reload refused; the credential
 clients rebuilt; a redaction (`LEAK_SUSPECTED`); a refusal at the door (`AUTH_FAILED` with the
-method, `bearer`, `jwt`, `mtls`, `tenant_key` (a gateway's tenant key) or `none`, and the code); a principal locked after repeated proven
+method, `bearer`, `jwt`, `mtls`, `tenant_key` (a gateway's tenant key) or `none`, and the code;
+a gateway writes ten a minute, then one `AUTH_FAILED_SUPPRESSED` count per code); a principal locked after repeated proven
 failures (`PRINCIPAL_LOCKED`); the principals loaded at start, or the legacy caller mode
 (`PRINCIPALS_LOADED`, `LEGACY_PRINCIPAL_MODE`, `BEARER_PRINCIPAL_CONFIGURED`); the JWKS refreshed
 or not (`JWKS_REFRESHED`, `JWKS_REFRESH_FAILED`); an operator's action (`OPERATOR_ACTION` with the
 principal and the action); an outbound request the egress policy refused (`EGRESS_REFUSED` with
-the origin and the code); the listener's TLS context replaced; the executor stopped or started
+the origin and the code); a gateway's upstream that refused its handshake (`UPSTREAM_TLS_REFUSED`,
+apart from `EGRESS_REFUSED`, since the upstream's TLS is its owner's to fix); a hosted upstream's
+proof gone, its tenant's traffic stopped for want of it, and the proof served again
+(`UPSTREAM_PROOF_MISSING`, `UPSTREAM_UNVERIFIED`, `UPSTREAM_PROOF_RESTORED`, each with the origin); the listener's TLS context replaced; the executor stopped or started
 taking work (`HALTED`, `RESUMED`, each with the trigger and the reason); a ceiling that refused a
 proposal (`HARD_LIMIT_REFUSED`); a clock too far from the authority's (`CLOCK_SKEW_EXCEEDED`); a
 journal record that could not be written (`JOURNAL_WRITE_FAILED`); an attempt the last process
@@ -116,6 +120,13 @@ under `<dir>/chain/` every `EXECUTOR_AUDIT_CHECKPOINT_LINES` lines (one hundred 
 once more on a clean shutdown, and the next process continues the sequence from that head,
 recording `CHAIN_RESUMED` with it. Without a journal directory, or when the head is not usable,
 the stream starts again from genesis and the verifier counts a start.
+
+`agentsafe host` keeps one set of chains per tenant for as long as the process runs: a gateway a
+registry reload builds takes up the chains of the one it replaces, recording `CHAIN_RESUMED` for
+each, so a reload is not a start. Each replica of a host runs its own chains, and nothing in a
+line names the replica, so an export that merges replicas must keep each replica's lines apart
+and in the order that process wrote them before it is verified
+([Evidence across reloads, restarts and replicas](./gateway/configuration.md#evidence-across-reloads-restarts-and-replicas)).
 
 A process that dies between two checkpoints resumes from the older head, and the verifier reports
 the overlap as `CHAIN_SEQ_GAP` at the point of the crash. That is deliberate: a crash leaves a

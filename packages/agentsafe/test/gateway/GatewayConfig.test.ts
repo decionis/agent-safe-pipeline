@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import {
   DEFAULT_AUTHORITY_ENDPOINT,
+  GATEWAY_ENVIRONMENT,
   GatewayConfigError,
   GatewayConfigLoader,
   LOCAL_TENANT_ID,
@@ -277,6 +278,19 @@ describe("the gateway configuration", () => {
       file: { version: 1, interception: { maxBodyBytes: 1024, maxEmbeddedBodyBytes: 4096 } },
     });
     expect(inverted.setting).toBe("interception.maxEmbeddedBodyBytes");
+    // Zero is digest-only: no body is ever embedded. Below zero is refused by name.
+    expect(
+      load({
+        flags: { upstream: "http://localhost:1" },
+        file: { version: 1, interception: { maxEmbeddedBodyBytes: 0 } },
+      }).interception.maxEmbeddedBodyBytes,
+    ).toBe(0);
+    expect(
+      refusal({
+        flags: { upstream: "http://localhost:1" },
+        file: { version: 1, interception: { maxEmbeddedBodyBytes: -1 } },
+      }).setting,
+    ).toBe("interception.maxEmbeddedBodyBytes");
     expect(
       load({
         flags: { upstream: "http://localhost:1" },
@@ -631,6 +645,42 @@ describe("the gateway configuration", () => {
         env: { AGENTSAFE_HOSTED_TENANT: "acme" },
       }).setting,
     ).toBe("AGENTSAFE_HOSTED_TENANT");
+  });
+
+  it("requires the upstream's proof only on a hosted gateway with its tenant and a Decionis organization", () => {
+    const hosted = {
+      flags: { upstream: "https://shop.tenant.example", mode: "shadow" },
+      env: {
+        AGENTSAFE_HOSTED_GATEWAY: "true",
+        AGENTSAFE_HOSTED_TENANT: "acme",
+        AGENTSAFE_TENANT_KEY_DIGESTS: TENANT_KEY_DIGEST,
+        DECIONIS_API_KEY: "k",
+        DECIONIS_TENANT_ID: TENANT_ID,
+      },
+    };
+    const required = {
+      ...hosted,
+      env: { ...hosted.env, AGENTSAFE_UPSTREAM_PROOF_REQUIRED: "true" },
+    };
+    expect(load(hosted).upstream.proofRequired).toBe(false);
+    expect(load(hosted).sources["upstream.proofRequired"]).toBe("default");
+    expect(load(required).upstream.proofRequired).toBe(true);
+    expect(load(required).sources["upstream.proofRequired"]).toBe("environment");
+    expect(
+      load({ ...hosted, env: { ...hosted.env, AGENTSAFE_UPSTREAM_PROOF_REQUIRED: "no" } }).upstream
+        .proofRequired,
+    ).toBe(false);
+    const without = (name: string): Record<string, string> =>
+      Object.fromEntries(Object.entries(required.env).filter(([key]) => key !== name));
+    for (const env of [
+      { ...required.env, AGENTSAFE_UPSTREAM_PROOF_REQUIRED: "maybe" },
+      { ...required.env, AGENTSAFE_HOSTED_GATEWAY: "false", AGENTSAFE_HOSTED_TENANT: "" },
+      without("AGENTSAFE_HOSTED_TENANT"),
+      without("DECIONIS_API_KEY"),
+    ]) {
+      expect(refusal({ ...required, env }).setting).toBe("AGENTSAFE_UPSTREAM_PROOF_REQUIRED");
+    }
+    expect(GATEWAY_ENVIRONMENT).toContain("AGENTSAFE_UPSTREAM_PROOF_REQUIRED");
   });
 
   it("reads the authority's connection settings and the loopback allowance", () => {

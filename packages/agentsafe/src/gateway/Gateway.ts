@@ -1,4 +1,5 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { Resolver } from "node:dns/promises";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -31,7 +32,11 @@ import { EVIDENCE_STREAM, HashChainedAuditSink } from "../audit/HashChainedAudit
 import type { LineWriter } from "../audit/LineAuditSink.js";
 import { EgressPolicy } from "../egress/EgressPolicy.js";
 import { EgressError } from "../egress/EgressError.js";
-import { GuardedFetch, type AddressResolver } from "../egress/GuardedFetch.js";
+import {
+  CLIENT_CERTIFICATE_REFUSED,
+  GuardedFetch,
+  type AddressResolver,
+} from "../egress/GuardedFetch.js";
 import type { FetchLike } from "../handlers/HandlerRegistration.js";
 import { RequestContext } from "../http/RequestContext.js";
 import { SECURITY_STREAM, SecurityEvents } from "../incident/SecurityEvents.js";
@@ -48,7 +53,7 @@ import {
   RequestHolder,
   type ForwardOutcome,
 } from "./ForwardHandler.js";
-import type { GatewayConfig } from "./GatewayConfig.js";
+import { GatewayConfigLoader, type GatewayConfig } from "./GatewayConfig.js";
 import { gatewayMetrics, type GatewayMetrics } from "./GatewayMetrics.js";
 import { processSurface, type InstallSurface } from "./InstallSurface.js";
 import {
@@ -61,8 +66,19 @@ import {
 } from "./GatewayReport.js";
 import { normalizeRequest, type InterceptedRequest } from "./InterceptedRequest.js";
 import { TokenBucket, type RateDecision } from "./RateLimit.js";
+import { RefusalSampler } from "./RefusalSampler.js";
 import { RouteTable, type RoutePlan } from "./RouteTable.js";
 import { enforcementSwitch, ShadowLedger, type ShadowSummary } from "./ShadowLedger.js";
+import {
+  PROOF_PENDING_RETRY_MS,
+  sameBinding,
+  UpstreamProofCheck,
+  UpstreamProofMonitor,
+  type ProofAdmission,
+  type ProofBinding,
+  type ProofSnapshot,
+  type TxtResolver,
+} from "./UpstreamProof.js";
 
 /**
  * When a shadow gateway prints its report unasked: as the count of settled
@@ -85,6 +101,42 @@ export const GATEWAY_RESPONSE_VERSION = "agent-safe.gateway/1";
 /** The most escalations held at once; beyond it a new hold is refused rather than an old one dropped. */
 const MAX_HELD = 1_000;
 const RETRY_AFTER_SECONDS = 5;
+/**
+ * The transport codes of a send that ended before a connection to the
+ * upstream existed: the name did not resolve, or the connection was refused
+ * or never made. Nothing of the request left this process.
+ */
+const BEFORE_CONNECTION: ReadonlySet<string> = new Set([
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "EAI_FAIL",
+  "ECONNREFUSED",
+  "UND_ERR_CONNECT_TIMEOUT",
+]);
+/**
+ * A transport's codes for a handshake the upstream refused: its own
+ * certificate did not verify here, or it refused the gateway's, which the
+ * gateway never presents (`CLIENT_CERTIFICATE_REFUSED`: TLS 1.3's
+ * `certificate_required` and the alerts other servers send for it). Either
+ * way the handshake never finished and nothing of the request was accepted.
+ * The guarded egress says the same with its own codes.
+ */
+const CERTIFICATE_UNVERIFIED = /^(?:UNABLE_TO_|SELF_SIGNED|DEPTH_ZERO|CERT_|ERR_TLS_CERT_ALTNAME)/;
+
+/** A forward that failed: its code, and whether it can have reached the upstream. */
+interface UpstreamFailure {
+  readonly code: string;
+  readonly execution: "NOT_FORWARDED" | "INDETERMINATE";
+}
+
+/** A hosted gateway's upstream proof: whom it binds, the check, and the state kept from it. */
+interface UpstreamProof {
+  readonly binding: ProofBinding;
+  readonly check: UpstreamProofCheck;
+  readonly monitor: UpstreamProofMonitor;
+  /** Built to replace another gateway: its first look waits for the swap (`takeOver`). */
+  readonly takesOver: boolean;
+}
 
 export interface GatewayResponse {
   readonly status: number;
@@ -105,8 +157,10 @@ export interface GatewayDependencies {
   readonly authorityFetch?: FetchLike;
   /** The transport to the upstream; the global fetch when absent, or the guarded egress when public-only. */
   readonly upstreamFetch?: FetchLike;
-  /** Name resolution for a public-only upstream; the system resolver when absent. */
+  /** Name resolution for a public-only upstream and its proof; the system resolver when absent. */
   readonly upstreamResolve?: AddressResolver;
+  /** TXT lookup for the upstream's proof; the system resolver's when absent. */
+  readonly upstreamResolveTxt?: TxtResolver;
   readonly secrets?: SecretStore;
   readonly demoAuthority?: () => Promise<DemoAuthorityHandle>;
   readonly clock?: () => number;
@@ -125,6 +179,34 @@ export interface GatewayDependencies {
    * record tells a test run from a gateway in service.
    */
   readonly clientExample?: string;
+  /**
+   * What the gateway this one replaces hands on: its chains are continued,
+   * neither restored from the journal nor started again from genesis, and
+   * its funnel's milestones are not reported twice. The upstream's proof is
+   * not part of it: that is taken over at the swap (`takeOver`), as it
+   * stands then.
+   */
+  readonly continues?: GatewayContinuation;
+}
+
+/**
+ * A gateway's chains and adoption funnel, handed to the gateway built to
+ * replace it. Linking is synchronous, so the replaced gateway, finishing
+ * what it has in flight, and its replacement write one sequence per stream.
+ */
+export interface GatewayContinuation {
+  readonly evidence: HashChain;
+  readonly gateway: HashChain;
+  readonly security: HashChain;
+  readonly activation: ActivationFunnel;
+}
+
+/** Where a hosted gateway's configuration came from, when a host built it from a tenant registry. */
+export interface RegistrySource {
+  /** The registry the host last loaded, as a short digest of its text. */
+  readonly revision: string;
+  /** The tenant's entry this gateway was built from, as a short digest of its fingerprint. */
+  readonly entry: string;
 }
 
 /** What `/_agentsafe/status` reports: identifiers and counts, never a value. */
@@ -145,6 +227,24 @@ export interface GatewayStatus {
   readonly surface: InstallSurface | null;
   /** In shadow, what the authority would have decided so far, by verdict and action; null in enforcement. */
   readonly shadow: ShadowSummary | null;
+  /**
+   * A hosted gateway's tenant, the tenant keys it admits now, each as a
+   * short prefix of its digest and never the digest, and the registry it was
+   * built from when a host built it; null for a gateway that is not hosted,
+   * whose status may answer without the operator's token.
+   */
+  readonly hosted: {
+    readonly tenant: string | null;
+    readonly tenant_keys: readonly string[];
+    readonly registry: RegistrySource | null;
+    /** Where the upstream's proof stands, when the gateway requires one; never its text. */
+    readonly upstream_proof: ProofSnapshot | null;
+  } | null;
+}
+
+/** How much of a `sha256:` digest a readback shows: enough to tell two apart, never the digest. */
+export function shortDigest(digest: string): string {
+  return digest.slice(0, "sha256:".length + 12);
 }
 
 interface HeldEscalation {
@@ -160,6 +260,9 @@ interface HeldEscalation {
 
 /** Why a caller cannot see or resume a hold: nothing is held, or the token is not the holder's. */
 type HoldRefusal = "ESCALATION_NOT_HELD" | "RESUME_TOKEN_INVALID";
+
+/** Why a tenant key refuses a request: none was presented, or not one of the tenant's. */
+export type TenantKeyRefusal = "TENANT_KEY_MISSING" | "TENANT_KEY_INVALID";
 
 /**
  * The header a resume token travels in. Never the path or the query: those
@@ -183,12 +286,17 @@ export class Gateway {
   private readonly executor: SafeExecutor;
   private readonly shadow: ShadowPipeline | null;
   private readonly resolver: EscalationResolver | null;
-  private readonly stopFollowing: readonly (() => void)[];
+  private readonly stopFollowing: (() => void)[];
   private readonly counts: Record<string, number> = {};
   private readonly activation: ActivationFunnel;
   private readonly ledger = new ShadowLedger();
   private readonly bucket: TokenBucket | null;
+  /** The tenant key's refusals on the security stream, bounded per window. */
+  private readonly refusals: RefusalSampler<TenantKeyRefusal>;
   private lastShadowReportAt: number;
+  /** The tenant keys admitted now: the configuration's, until a host replaces them in place. */
+  private admitted: readonly string[];
+  private registry: RegistrySource | null = null;
 
   private constructor(
     public readonly config: GatewayConfig,
@@ -211,14 +319,26 @@ export class Gateway {
     private readonly surface: InstallSurface | null,
     public readonly boundary: EnforcementBoundary,
     public readonly workload: WorkloadSignal | null,
+    activation: ActivationFunnel | null,
+    private readonly proof: UpstreamProof | null,
   ) {
     this.lastShadowReportAt = clock();
+    this.admitted = config.tenantKeys;
     this.capture = new IntentCapture({ audit, ttlSeconds: config.intentTtlSeconds });
     this.bucket = config.rateLimit === null ? null : new TokenBucket(config.rateLimit, clock);
-    this.activation = new ActivationFunnel(
-      (milestone, at) => this.report({ event: "ACTIVATION", milestone, at }),
-      clock,
+    this.refusals = new RefusalSampler(
+      (code) => security.emit({ event: "AUTH_FAILED", method: "tenant_key", code }),
+      (code, count) =>
+        security.emit({ event: "AUTH_FAILED_SUPPRESSED", method: "tenant_key", code, count }),
     );
+    // A funnel handed on keeps reporting through the gateway that made it:
+    // the same tenant's output, so a milestone is still reported once.
+    this.activation =
+      activation ??
+      new ActivationFunnel(
+        (milestone, at) => this.report({ event: "ACTIVATION", milestone, at }),
+        clock,
+      );
     const registry = registerHttpActions(
       new ActionRegistry(),
       routes.actions(),
@@ -251,8 +371,8 @@ export class Gateway {
   /**
    * Assembles the gateway: the secrets it needs opened, the demo authority
    * started when chosen, the guarded egress sealed to the authority, the
-   * pipeline objects built over it, the evidence chains restored. Nothing
-   * listens; the listener is the caller's.
+   * pipeline objects built over it, the evidence chains restored or
+   * continued. Nothing listens; the listener is the caller's.
    */
   public static async create(
     config: GatewayConfig,
@@ -285,13 +405,15 @@ export class Gateway {
       mkdirSync(config.evidence.journalDir, { recursive: true });
       journal = new ChainJournal(config.evidence.journalDir, { checkpointLines: 100 });
     }
+    // Each chain goes on from the gateway this one replaces, else from the
+    // head the journal last persisted, else from genesis.
+    const continues = dependencies.continues ?? null;
+    const takeUp = (stream: string, handed: HashChain | undefined): HashChain =>
+      handed ?? new HashChain(stream, journal?.restore(stream) ?? null, config.hostedTenant);
     const security = new SecurityEvents(emitter.security, {
-      chain: new HashChain(
-        SECURITY_STREAM,
-        journal?.restore(SECURITY_STREAM) ?? null,
-        config.hostedTenant,
-      ),
+      chain: takeUp(SECURITY_STREAM, continues?.security),
     });
+    const securityHead = security.chain.head.seq;
     emitter.reportRedactions((patterns) =>
       security.emit({ event: "LEAK_SUSPECTED", patterns: [...patterns] }),
     );
@@ -377,6 +499,9 @@ export class Gateway {
           maxResponseBytes: config.upstream.maxResponseBytes + 1,
           timeoutMs: config.upstream.timeoutMs + 1_000,
           publicOnly: true,
+          // A tenant's TLS is the tenant's to fix: the gateway reports a
+          // refused handshake as its own event, which pages no one.
+          reportTls: false,
           ...(dependencies.upstreamFetch === undefined
             ? {}
             : { transport: dependencies.upstreamFetch }),
@@ -399,16 +524,8 @@ export class Gateway {
       config.interception.unmatched,
       config.interception.http,
     );
-    const evidence = new HashChain(
-      EVIDENCE_STREAM,
-      journal?.restore(EVIDENCE_STREAM) ?? null,
-      config.hostedTenant,
-    );
-    const chain = new HashChain(
-      GATEWAY_STREAM,
-      journal?.restore(GATEWAY_STREAM) ?? null,
-      config.hostedTenant,
-    );
+    const evidence = takeUp(EVIDENCE_STREAM, continues?.evidence);
+    const chain = takeUp(GATEWAY_STREAM, continues?.gateway);
     const audit = new AuditRecorder({
       sink: new HashChainedAuditSink(emitLine, evidence),
       failurePolicy: config.evidence.enabled ? "REQUIRE_BEFORE_EXECUTION" : "BEST_EFFORT",
@@ -430,6 +547,16 @@ export class Gateway {
       new NoneProvenanceProvider(),
     ];
     const workload = resolveWorkload(dependencies.provenance ?? providers, { env });
+    const proof = Gateway.upstreamProof(config, dependencies, security, clock, continues !== null);
+    // A chain that does not start at genesis says where it was taken up, once
+    // nothing is left that can refuse the gateway.
+    for (const [stream, head] of [
+      [SECURITY_STREAM, securityHead],
+      [EVIDENCE_STREAM, evidence.head.seq],
+      [GATEWAY_STREAM, chain.head.seq],
+    ] as const) {
+      if (head > 0) security.emit({ event: "CHAIN_RESUMED", chain: stream, head });
+    }
     const gateway = new Gateway(
       config,
       upstream,
@@ -451,8 +578,56 @@ export class Gateway {
       surface,
       boundary,
       workload,
+      continues?.activation ?? null,
+      proof,
     );
+    // The first look at the proof starts once nothing can refuse the gateway;
+    // a gateway built to replace another takes the proof over at the swap.
+    if (proof !== null && !proof.takesOver) proof.monitor.start();
     return gateway;
+  }
+
+  /**
+   * The upstream's proof, when the configuration requires one: a check of its
+   * own and a monitor, pending until it looks or takes over from the gateway
+   * this one replaces (`takeOver`).
+   */
+  private static upstreamProof(
+    config: GatewayConfig,
+    dependencies: GatewayDependencies,
+    security: SecurityEvents,
+    clock: () => number,
+    takesOver: boolean,
+  ): UpstreamProof | null {
+    if (!config.upstream.proofRequired || config.hostedTenant === null) return null;
+    const binding: ProofBinding = {
+      tenant: config.hostedTenant,
+      org: config.authority.tenantId,
+      origin: new URL(config.upstream.url).origin,
+    };
+    const check = new UpstreamProofCheck(binding, {
+      resolveTxt: dependencies.upstreamResolveTxt ?? Gateway.systemTxt(),
+      ...(dependencies.upstreamFetch === undefined
+        ? {}
+        : { transport: dependencies.upstreamFetch }),
+      ...(dependencies.upstreamResolve === undefined
+        ? {}
+        : { resolve: dependencies.upstreamResolve }),
+    });
+    const monitor = new UpstreamProofMonitor({
+      origin: binding.origin,
+      check: () => check.check(),
+      report: (event) => security.emit(event),
+      clock,
+      random: Math.random,
+    });
+    return { binding, check, monitor, takesOver };
+  }
+
+  /** TXT through the system's resolver, bounded, so a check never waits on DNS for long. */
+  private static systemTxt(): TxtResolver {
+    const resolver = new Resolver({ timeout: 2_000, tries: 2 });
+    return (name) => resolver.resolveTxt(name);
   }
 
   public get authorityLabel(): string {
@@ -582,7 +757,123 @@ export class Gateway {
       activation: this.activation.snapshot(),
       surface: this.surface,
       shadow: this.shadow === null ? null : this.ledger.summary(),
+      hosted: this.config.hosted
+        ? {
+            tenant: this.config.hostedTenant,
+            tenant_keys: this.admitted.map(shortDigest),
+            registry: this.registry,
+            upstream_proof: this.proof?.monitor.snapshot() ?? null,
+          }
+        : null,
     };
+  }
+
+  /** The tenant keys the gateway admits now, as digests. */
+  public get tenantKeys(): readonly string[] {
+    return this.admitted;
+  }
+
+  /**
+   * Replaces the tenant keys the gateway admits, at once and without a
+   * rebuild, so a rotation or a revocation changes nothing else: not the
+   * chains, the rate, the counts or what is in flight. The digests are held
+   * to the configuration's rule; digests that break it are refused whole,
+   * and the keys admitted stay as they were.
+   */
+  public admitKeys(digests: readonly string[]): void {
+    this.admitted = GatewayConfigLoader.admittedKeys(digests, this.config.hosted);
+  }
+
+  /** The registry a host last loaded, and the entry this gateway was built from, for the status. */
+  public builtFrom(source: RegistrySource): void {
+    this.registry = source;
+  }
+
+  /** What the gateway built to replace this one takes up: its chains and its funnel. */
+  public continuation(): GatewayContinuation {
+    return {
+      evidence: this.evidence,
+      gateway: this.chain,
+      security: this.security.chain,
+      activation: this.activation,
+    };
+  }
+
+  /**
+   * The swap: this gateway, built to replace `from` with its continuation,
+   * takes over what `from` still did itself. `from` stops persisting the
+   * chains' heads and looking at the upstream's proof, a look in flight
+   * included, and only finishes what it has in flight. The proof is taken as
+   * it stands now, not as it stood when this one was built: a look that ended
+   * while the registry was loading counts, and is reported once, by `from`;
+   * the last look and the next stay when they were. When `from` was bound to
+   * another tenant, organization or origin, this one looks from the start.
+   */
+  public takeOver(from: Gateway): void {
+    from.handedOn();
+    const proof = this.proof;
+    if (proof === null || !proof.takesOver) return;
+    const kept = from.proof;
+    if (kept !== null && sameBinding(kept.binding, proof.binding)) {
+      proof.monitor.resume(kept.monitor.standing());
+    } else {
+      proof.monitor.start();
+    }
+  }
+
+  /**
+   * Hands on what the gateway that continues this one now does itself:
+   * persisting the chains' heads, and looking at the upstream's proof. This
+   * one goes on finishing what it has in flight. Called again, it does nothing.
+   */
+  public handedOn(): void {
+    this.releaseJournal();
+    this.proof?.monitor.stop();
+  }
+
+  /**
+   * What the upstream's proof lets a tenant's request do now: forwarded,
+   * forwarded and marked missing, or refused. Always forwarded when the
+   * gateway requires no proof.
+   */
+  public upstreamProof(): ProofAdmission {
+    return this.proof?.monitor.admits() ?? "FORWARD";
+  }
+
+  /** Whether the first look at the upstream's proof has ended, or there is none to take. */
+  public get upstreamProofSettled(): boolean {
+    return this.proof?.monitor.settled ?? true;
+  }
+
+  /**
+   * The answer to an admitted request while the upstream's proof is not
+   * established: nothing forwarded, and the upstream named, since the gateway
+   * only observes and calling it directly loses nothing but the observation.
+   */
+  public unverified(): GatewayResponse {
+    this.metrics.requests.inc({ kind: "upstream_unverified" });
+    this.count("upstream_unverified");
+    return this.own(
+      503,
+      {
+        state: "ERROR",
+        verdict: null,
+        reason_codes: ["UPSTREAM_UNVERIFIED"],
+        execution: "NOT_FORWARDED",
+        fallback: this.config.upstream.url,
+      },
+      { "retry-after": String(PROOF_PENDING_RETRY_MS / 1_000) },
+    );
+  }
+
+  /**
+   * Stops persisting the chains' heads, once the gateway that continues them
+   * persists them itself. A replaced gateway still finishing its requests
+   * links on the same chains, so its last checkpoint, at the end of its
+   * drain, would otherwise land after the live one's.
+   */
+  public releaseJournal(): void {
+    for (const stop of this.stopFollowing.splice(0)) stop();
   }
 
   /** The switch the shadow report ends with, for whoever renders the status elsewhere. */
@@ -594,25 +885,13 @@ export class Gateway {
     return this.metrics.registry.render();
   }
 
-  /** A request that is not consequential: forwarded unchanged, counted, not evaluated. */
+  /**
+   * A request that is not consequential: forwarded unchanged, counted, not
+   * evaluated, and relayed as `PASSTHROUGH`, so a caller can tell an answer
+   * that came through the gateway from one that never reached it.
+   */
   public async passthrough(request: InterceptedRequest): Promise<GatewayResponse> {
-    this.metrics.requests.inc({ kind: "passthrough" });
-    this.count("passthrough");
-    const startedAt = this.clock();
-    try {
-      const result = await this.upstream.send(
-        request.method.toUpperCase(),
-        request.path,
-        request.search,
-        this.upstream.headersFor(request),
-        request.body,
-        this.upstream.signal(),
-      );
-      this.metrics.observeForwardLatency(this.clock() - startedAt);
-      return { status: result.status, headers: result.headers, body: result.body };
-    } catch (error) {
-      return this.upstreamFailure(error);
-    }
+    return await this.forwardUnchanged(request, { "agentsafe-execution": "PASSTHROUGH" });
   }
 
   /** A consequential request, through the whole lifecycle. */
@@ -642,32 +921,30 @@ export class Gateway {
   }
 
   /**
-   * Whether a request's tenant key admits it: always, when the gateway has no
-   * keys; otherwise only a key that hashes to one of them. Every configured
-   * digest is compared, in constant time, whether or not an earlier one
-   * matched. A refusal is counted and put on the security stream with its
-   * reason, never with the value presented.
+   * Why a request's tenant key refuses it, or null when it admits it: always
+   * admitted when the gateway has no keys; otherwise only a key that hashes
+   * to one of them. Every configured digest is compared, in constant time,
+   * whether or not an earlier one matched. A refusal is counted and put on
+   * the security stream with its reason, never with the value presented:
+   * one line each up to a bound per window, and a count of the rest, so a
+   * flood without the key cannot grow the chained stream with its rate.
    */
-  public admits(presented: string | undefined): boolean {
-    if (this.config.tenantKeys.length === 0) return true;
+  public keyRefusal(presented: string | undefined): TenantKeyRefusal | null {
+    if (this.admitted.length === 0) return null;
     const candidate =
       presented === undefined || presented === ""
         ? null
         : createHash("sha256").update(presented, "utf8").digest();
     let admitted = false;
-    for (const digest of this.config.tenantKeys) {
+    for (const digest of this.admitted) {
       const expected = Buffer.from(digest.slice("sha256:".length), "hex");
       if (candidate !== null && timingSafeEqual(candidate, expected)) admitted = true;
     }
-    if (!admitted) {
-      this.metrics.requests.inc({ kind: "tenant_key_refused" });
-      this.security.emit({
-        event: "AUTH_FAILED",
-        method: "tenant_key",
-        code: candidate === null ? "TENANT_KEY_MISSING" : "TENANT_KEY_INVALID",
-      });
-    }
-    return admitted;
+    if (admitted) return null;
+    const refusal = candidate === null ? "TENANT_KEY_MISSING" : "TENANT_KEY_INVALID";
+    this.metrics.requests.inc({ kind: "tenant_key_refused" });
+    this.refusals.refuse(refusal);
+    return refusal;
   }
 
   /**
@@ -763,7 +1040,9 @@ export class Gateway {
   }
 
   public async close(): Promise<void> {
-    for (const stop of this.stopFollowing) stop();
+    this.refusals.flush();
+    this.handedOn();
+    this.proof?.check.close();
     this.held.clear();
     if (this.demo !== null) await this.demo.stop();
     this.secrets?.close();
@@ -824,7 +1103,19 @@ export class Gateway {
     );
     this.metrics.observeForwardLatency(this.clock() - forwardStarted);
     const production = run.production;
-    const upstreamStatus = production.status === "COMPLETED" ? production.result.status : null;
+    let upstreamStatus: number | null = null;
+    let failure: UpstreamFailure | null = null;
+    let answer: GatewayResponse;
+    if (production.status === "COMPLETED") {
+      upstreamStatus = production.result.status;
+      answer = this.relay(production.result, {
+        "agentsafe-mode": "SHADOW",
+        "agentsafe-execution": "PASSTHROUGH",
+      });
+    } else {
+      failure = this.failureOf(production.error);
+      answer = this.failed(failure);
+    }
     // The observation settles on its own bound and is reported when it does;
     // the client's response never waits for the authority.
     void run.observation.then((observation: ShadowObservation) => {
@@ -840,11 +1131,14 @@ export class Gateway {
         ...this.interception(request, captured, startedAt),
         state: "SHADOW",
         verdict: observation.verdict,
-        reason_codes:
-          observation.status === "OBSERVED"
-            ? observation.reasonCodes
-            : [observation.status, ...observation.reasonCodes],
-        execution: "PASSTHROUGH",
+        // A forward that failed says so after the authority's codes, and
+        // whether it can have reached the upstream.
+        reason_codes: [
+          ...(observation.status === "OBSERVED" ? [] : [observation.status]),
+          ...observation.reasonCodes,
+          ...(failure === null ? [] : [failure.code]),
+        ],
+        execution: failure?.execution ?? "PASSTHROUGH",
         decision_id: observation.decisionId,
         dossier_id: observation.dossierId,
         upstream_status: upstreamStatus,
@@ -853,11 +1147,7 @@ export class Gateway {
       });
       this.shadowReportOnCadence();
     });
-    if (production.status === "FAILED") return this.upstreamFailure(production.error);
-    return this.relay(production.result, {
-      "agentsafe-mode": "SHADOW",
-      "agentsafe-execution": "PASSTHROUGH",
-    });
+    return answer;
   }
 
   private async enforce(
@@ -992,7 +1282,10 @@ export class Gateway {
         reason_codes: [...decision.reasonCodes],
         failure_policy: "FAIL_OPEN",
       });
-      const forwarded = await this.passthrough(request);
+      const forwarded = await this.forwardUnchanged(request, {
+        "agentsafe-state": "AUTHORITY_UNAVAILABLE",
+        "agentsafe-execution": "FORWARDED_UNGOVERNED",
+      });
       this.report({
         ...this.interception(request, captured, startedAt),
         state: "AUTHORITY_UNAVAILABLE",
@@ -1005,14 +1298,7 @@ export class Gateway {
         finalization: null,
         authority_ms: authorityMs,
       });
-      return {
-        ...forwarded,
-        headers: [
-          ...forwarded.headers,
-          ["agentsafe-state", "AUTHORITY_UNAVAILABLE"],
-          ["agentsafe-execution", "FORWARDED_UNGOVERNED"],
-        ],
-      };
+      return forwarded;
     }
     this.report({
       ...this.interception(request, captured, startedAt),
@@ -1256,6 +1542,34 @@ export class Gateway {
     };
   }
 
+  /**
+   * Forwards a request as it came, counted as a passthrough, and relays the
+   * answer with the gateway's own headers; a failure is the gateway's own
+   * response, which carries its own.
+   */
+  private async forwardUnchanged(
+    request: InterceptedRequest,
+    extra: Readonly<Record<string, string>>,
+  ): Promise<GatewayResponse> {
+    this.metrics.requests.inc({ kind: "passthrough" });
+    this.count("passthrough");
+    const startedAt = this.clock();
+    try {
+      const result = await this.upstream.send(
+        request.method.toUpperCase(),
+        request.path,
+        request.search,
+        this.upstream.headersFor(request),
+        request.body,
+        this.upstream.signal(),
+      );
+      this.metrics.observeForwardLatency(this.clock() - startedAt);
+      return this.relay(result, extra);
+    } catch (error) {
+      return this.failed(this.failureOf(error));
+    }
+  }
+
   private relay(result: UpstreamResult, extra: Readonly<Record<string, string>>): GatewayResponse {
     return {
       status: result.status,
@@ -1264,27 +1578,71 @@ export class Gateway {
     };
   }
 
-  private upstreamFailure(error: unknown): GatewayResponse {
-    // A public-only upstream that resolved inward was never connected to.
+  /**
+   * What a failed forward is. It is `NOT_FORWARDED` only when nothing of the
+   * request can have been accepted: a public-only upstream resolved inward,
+   * the upstream refused the handshake or its certificate did not verify,
+   * or no connection was ever made. Anything else may have come after the
+   * request was written, and the upstream may have acted on it, so it is
+   * never a refusal a caller may retry. A timeout is one wherever the send
+   * was when it ran out: the send cannot say whether it had written the
+   * request. Too large is the relay's own bound or the guarded egress's just
+   * outside it, whichever reader saw it first. A refused handshake is the
+   * tenant's configuration, reported once as `UPSTREAM_TLS_REFUSED`.
+   */
+  private failureOf(error: unknown): UpstreamFailure {
     if (error instanceof EgressError && error.code === "EGRESS_ADDRESS_REFUSED") {
-      return this.own(502, {
-        state: "ERROR",
-        verdict: null,
-        reason_codes: ["UPSTREAM_ADDRESS_REFUSED"],
-        execution: "NOT_FORWARDED",
-      });
+      return { code: "UPSTREAM_ADDRESS_REFUSED", execution: "NOT_FORWARDED" };
     }
-    // Too large whichever reader saw it first: the relay's own bound, or the
-    // guarded egress's just outside it.
+    const transport = Gateway.transportCode(error);
+    const tls =
+      transport === "EGRESS_TLS_CLIENT_CERT_REFUSED" || CLIENT_CERTIFICATE_REFUSED.test(transport)
+        ? "UPSTREAM_CLIENT_CERT_REFUSED"
+        : transport === "EGRESS_TLS_REJECTED" || CERTIFICATE_UNVERIFIED.test(transport)
+          ? "UPSTREAM_TLS_REJECTED"
+          : null;
+    if (tls !== null) {
+      this.security.emit({
+        event: "UPSTREAM_TLS_REFUSED",
+        origin: new URL(this.config.upstream.url).origin,
+        code: tls,
+      });
+      return { code: tls, execution: "NOT_FORWARDED" };
+    }
+    if (BEFORE_CONNECTION.has(transport)) {
+      return { code: "UPSTREAM_UNREACHABLE", execution: "NOT_FORWARDED" };
+    }
     const tooLarge =
       (error instanceof Error && error.name === "UpstreamResponseTooLarge") ||
-      (error instanceof EgressError && error.code === "EGRESS_BODY_TOO_LARGE");
+      transport === "EGRESS_BODY_TOO_LARGE";
+    const timedOut =
+      (error instanceof Error && error.name === "TimeoutError") || transport === "EGRESS_TIMEOUT";
+    return {
+      code: tooLarge
+        ? "UPSTREAM_RESPONSE_TOO_LARGE"
+        : timedOut
+          ? "UPSTREAM_TIMEOUT"
+          : "UPSTREAM_TRANSPORT_FAILED",
+      execution: "INDETERMINATE",
+    };
+  }
+
+  /** The gateway's own answer to a forward that failed. */
+  private failed(failure: UpstreamFailure): GatewayResponse {
     return this.own(502, {
       state: "ERROR",
       verdict: null,
-      reason_codes: [tooLarge ? "UPSTREAM_RESPONSE_TOO_LARGE" : "UPSTREAM_UNREACHABLE"],
-      execution: tooLarge ? "INDETERMINATE" : "NOT_FORWARDED",
+      reason_codes: [failure.code],
+      execution: failure.execution,
     });
+  }
+
+  /** A failed send's transport code: its own, as `node:http` raises it, or its cause's, as `fetch` wraps it. */
+  private static transportCode(error: unknown): string {
+    const own = (error as { code?: unknown } | null)?.code;
+    if (typeof own === "string") return own;
+    const cause = (error as { cause?: { code?: unknown } | null } | null)?.cause?.code;
+    return typeof cause === "string" ? cause : "";
   }
 
   /** A response the gateway itself makes: JSON, protective headers, the wire version. */
