@@ -10,7 +10,12 @@ import {
 import type { Server as HttpsServer } from "node:https";
 import type { AddressInfo } from "node:net";
 import type { Duplex } from "node:stream";
-import { GATEWAY_PREFIX, type Gateway, type GatewayResponse } from "../gateway/Gateway.js";
+import {
+  GATEWAY_PREFIX,
+  RESUME_TOKEN_HEADER,
+  type Gateway,
+  type GatewayResponse,
+} from "../gateway/Gateway.js";
 import { TENANT_KEY_HEADER } from "../gateway/GatewayConfig.js";
 import type { InterceptedRequest } from "../gateway/InterceptedRequest.js";
 import { METRICS_CONTENT_TYPE, RESPONSE_HEADERS } from "./Routes.js";
@@ -209,15 +214,17 @@ export class GatewayHttpServer {
       const rest = url.pathname.slice(ESCALATIONS.length).split("/");
       const intentId = rest[0] ?? "";
       if (!INTENT_ID.test(intentId)) throw new GuardError(404, "NOT_FOUND");
+      const resumeToken = GatewayHttpServer.resumeTokenOf(request);
       if (rest.length === 1 && method === "GET") {
-        const held = gateway.escalation(intentId);
-        if (held === null) throw new GuardError(404, "ESCALATION_NOT_HELD");
+        const held = gateway.escalation(intentId, resumeToken);
+        if (held === "ESCALATION_NOT_HELD") throw new GuardError(404, held);
+        if (held === "RESUME_TOKEN_INVALID") throw new GuardError(403, held);
         return GatewayHttpServer.reply(response, 200, held);
       }
       if (rest.length === 2 && rest[1] === "resume" && method === "POST") {
         // The body, if any, is read and discarded: the gateway holds the intent.
         await GatewayHttpServer.readBody(request, 1024);
-        return GatewayHttpServer.write(response, await gateway.resume(intentId));
+        return GatewayHttpServer.write(response, await gateway.resume(intentId, resumeToken));
       }
       throw new GuardError(
         rest.length === 1 || rest[1] === "resume" ? 405 : 404,
@@ -309,6 +316,12 @@ export class GatewayHttpServer {
   private static bearerIs(request: IncomingMessage, token: string): boolean {
     const digest = (value: string): Buffer => createHash("sha256").update(value, "utf8").digest();
     return timingSafeEqual(digest(request.headers.authorization ?? ""), digest(`Bearer ${token}`));
+  }
+
+  /** The resume token the caller presents, from its header only; null when absent or repeated. */
+  private static resumeTokenOf(request: IncomingMessage): string | null {
+    const value = request.headers[RESUME_TOKEN_HEADER];
+    return typeof value === "string" && value !== "" ? value : null;
   }
 
   /** The whole body under a bound; declared or streamed, the bound is the bound. */

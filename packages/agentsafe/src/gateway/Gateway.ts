@@ -1,4 +1,4 @@
-import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -154,7 +154,18 @@ interface HeldEscalation {
   readonly handoff: EscalationHandoff | null;
   readonly heldAt: string;
   readonly expiresAt: number;
+  /** SHA-256 of the resume token handed to the caller whose request was held; the token itself is not kept. */
+  readonly resumeDigest: Buffer;
 }
+
+/** Why a caller cannot see or resume a hold: nothing is held, or the token is not the holder's. */
+type HoldRefusal = "ESCALATION_NOT_HELD" | "RESUME_TOKEN_INVALID";
+
+/**
+ * The header a resume token travels in. Never the path or the query: those
+ * are what proxies, access logs and this gateway's own report write down.
+ */
+export const RESUME_TOKEN_HEADER = "agentsafe-resume-token";
 
 /**
  * The HTTP-interception ingress over the unchanged lifecycle. A request the
@@ -671,11 +682,17 @@ export class Gateway {
     return decision;
   }
 
-  /** What a held escalation looks like from outside; null when nothing is held under the id. */
-  public escalation(intentId: string): Record<string, unknown> | null {
-    const entry = this.held.get(intentId);
-    if (entry === undefined) return null;
-    return this.holdBody(entry);
+  /**
+   * What a held escalation looks like from outside, to the caller holding its
+   * resume token; otherwise why not. The intent id is a correlation id, written
+   * to stdout and to evidence, so it is never enough on its own.
+   */
+  public escalation(
+    intentId: string,
+    resumeToken: string | null,
+  ): Record<string, unknown> | HoldRefusal {
+    const entry = this.heldFor(intentId, resumeToken);
+    return typeof entry === "string" ? entry : this.holdBody(entry);
   }
 
   /**
@@ -683,14 +700,15 @@ export class Gateway {
    * a grant executes, once; anything else is still held or refused. The
    * gateway never turns the hold into permission on its own.
    */
-  public async resume(intentId: string): Promise<GatewayResponse> {
+  public async resume(intentId: string, resumeToken: string | null): Promise<GatewayResponse> {
     this.metrics.requests.inc({ kind: "control" });
-    const entry = this.held.get(intentId);
-    if (entry === undefined) {
-      return this.own(404, {
+    const entry = this.heldFor(intentId, resumeToken);
+    if (typeof entry === "string") {
+      // A wrong token leaves the hold where it is: its owner can still resume.
+      return this.own(entry === "ESCALATION_NOT_HELD" ? 404 : 403, {
         state: "ERROR",
         verdict: null,
-        reason_codes: ["ESCALATION_NOT_HELD"],
+        reason_codes: [entry],
         execution: "NOT_FORWARDED",
       });
     }
@@ -901,6 +919,9 @@ export class Gateway {
         ? ["ESCALATION_HANDOFF_UNAVAILABLE"]
         : []),
     ];
+    // The capability to see and resume this hold: handed to the caller whose
+    // request it is, once, in this response, and written nowhere else.
+    const resumeToken = randomBytes(32).toString("base64url");
     const entry: HeldEscalation = {
       captured,
       request,
@@ -908,6 +929,7 @@ export class Gateway {
       handoff: handoff === null ? null : { ...handoff, intent: captured.intent },
       heldAt: new Date(this.clock()).toISOString(),
       expiresAt: Date.parse(captured.intent.expiresAt),
+      resumeDigest: Gateway.resumeDigest(resumeToken),
     };
     const heldOk = this.hold(captured.intent.intentId, entry);
     this.link({
@@ -942,6 +964,7 @@ export class Gateway {
       dossier_id: decision.dossierId,
       escalation: entry.handoff === null ? null : this.handoffBody(entry.handoff),
       resume: heldOk ? `${GATEWAY_PREFIX}/v1/escalations/${captured.intent.intentId}` : null,
+      resume_token: heldOk ? resumeToken : null,
       expires_at: captured.intent.expiresAt,
     });
   }
@@ -1133,6 +1156,33 @@ export class Gateway {
     return true;
   }
 
+  /**
+   * The hold under an id, for the caller presenting its token. A refusal is
+   * linked to the evidence stream, because a wrong token for a live hold is
+   * someone who read an intent id and is not its caller.
+   */
+  private heldFor(intentId: string, resumeToken: string | null): HeldEscalation | HoldRefusal {
+    this.expireHeld();
+    const entry = this.held.get(intentId);
+    if (entry === undefined) return "ESCALATION_NOT_HELD";
+    if (
+      resumeToken === null ||
+      !timingSafeEqual(Gateway.resumeDigest(resumeToken), entry.resumeDigest)
+    ) {
+      this.link({
+        event: "ESCALATION_RESUME_REFUSED",
+        intent_id: intentId,
+        reason_codes: ["RESUME_TOKEN_INVALID"],
+      });
+      return "RESUME_TOKEN_INVALID";
+    }
+    return entry;
+  }
+
+  private static resumeDigest(resumeToken: string): Buffer {
+    return createHash("sha256").update(resumeToken, "utf8").digest();
+  }
+
   private release(intentId: string): void {
     this.held.delete(intentId);
     this.metrics.held.set(this.held.size);
@@ -1249,6 +1299,8 @@ export class Gateway {
         ["content-type", "application/json; charset=utf-8"],
         ["cache-control", "no-store"],
         ["x-content-type-options", "nosniff"],
+        ["content-security-policy", "default-src 'none'; frame-ancestors 'none'"],
+        ["x-frame-options", "DENY"],
         ["agentsafe-state", body.state],
         ["agentsafe-execution", body.execution],
         ...Object.entries(headers),
