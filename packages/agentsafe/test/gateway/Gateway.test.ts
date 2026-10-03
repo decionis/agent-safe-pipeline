@@ -890,7 +890,8 @@ describe("the forwarded bytes are the bytes the intent bound", () => {
     expect(json(answer.body)).toMatchObject({
       state: "EXECUTION_FAILED",
       execution: "NOT_FORWARDED",
-      reason_codes: ["HANDLER_FAILED_BEFORE_DISPATCH"],
+      // The category, then why: the held bytes no longer match the bound digest.
+      reason_codes: ["HANDLER_FAILED_BEFORE_DISPATCH", "PAYLOAD_BINDING_MISMATCH"],
     });
     expect(upstream.seen).toHaveLength(0);
     expect(createHash("sha256").update('{"amount":10}').digest("hex")).not.toBe(

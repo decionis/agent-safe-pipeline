@@ -109,6 +109,24 @@ describe("the MCP execution boundary", () => {
     expect(invoke).not.toHaveBeenCalled();
   });
 
+  it("names the refusal when the arguments drift between authorization and dispatch", async () => {
+    const { invoke, guard } = setup();
+    // Simulate drift the only way it can happen: the digest recorded at
+    // binding no longer matches the arguments about to be dispatched.
+    const held = (guard as unknown as { held: Map<string, { digest: string }> }).held;
+    const set = held.set.bind(held);
+    held.set = (key, value) => set(key, { ...value, digest: `sha256:${"0".repeat(64)}` });
+
+    const outcome = await guard.guard({
+      tool: "delete_customer",
+      arguments: { customerId: "synthetic-42" },
+    });
+
+    // Not the generic HANDLER_FAILED_BEFORE_DISPATCH: the caller learns why.
+    expect(outcome).toMatchObject({ executed: false, reason: "MCP_ARGUMENTS_MISMATCH" });
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
   it("gives the tool the arguments the intent bound, digest for digest", async () => {
     const { pair } = setup();
     let seen: JsonObject | null = null;

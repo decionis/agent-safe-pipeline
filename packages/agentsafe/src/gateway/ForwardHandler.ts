@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   JsonValueSchema,
+  PreDispatchRefusal,
   ProviderRefusal,
   type ActionHandler,
   type ActionRegistry,
@@ -102,7 +103,7 @@ export function httpForwardHandler(
         context["body_bytes"] !== request.body.length ||
         context["body_sha256"] !== bodyDigest(request.body)
       ) {
-        throw new Error("PAYLOAD_BINDING_MISMATCH");
+        throw new PreDispatchRefusal("PAYLOAD_BINDING_MISMATCH");
       }
       const headers = upstream.headersFor(request, {
         ...held.extraHeaders,

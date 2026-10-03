@@ -57,7 +57,11 @@ interface RegisteredAction {
 
 export type ActionExecutionAttempt =
   | { readonly status: "COMPLETED"; readonly result: unknown; readonly receipt: string | null }
-  | { readonly status: "FAILED_BEFORE_DISPATCH" }
+  | {
+      readonly status: "FAILED_BEFORE_DISPATCH";
+      /** The handler's own code, when it refused with a `PreDispatchRefusal`. */
+      readonly code?: string;
+    }
   | {
       readonly status: "REFUSED_AFTER_DISPATCH";
       readonly reason: string;
@@ -91,6 +95,37 @@ export class ProviderRefusal extends Error {
   ) {
     super(reason);
     this.name = "ProviderRefusal";
+  }
+}
+
+/** A pre-dispatch refusal code: upper snake case, as every reason code here is. */
+const PRE_DISPATCH_CODE = /^[A-Z][A-Z0-9_]{2,63}$/;
+
+/**
+ * What a handler throws when it refuses before anything was sent: the request
+ * cannot be built, a credential cannot be resolved, or the payload no longer
+ * matches what the authority bound.
+ *
+ * Any error thrown before the dispatch already counts as a failure before
+ * dispatch. This one says why: its code reaches the execution result and the
+ * audit trail instead of collapsing into HANDLER_FAILED_BEFORE_DISPATCH, so a
+ * payload that changed after the decision reads as PAYLOAD_BINDING_MISMATCH
+ * (BEAP-L3-ADP-05: what can fail before the dispatch boundary fails before
+ * it, and says so). A code that is not upper snake case is replaced with
+ * HANDLER_FAILED_BEFORE_DISPATCH, so a handler cannot write free text into the
+ * audit trail.
+ *
+ * Thrown inside the dispatch it means nothing more than any other error: the
+ * request left, so the outcome is unknown.
+ */
+export class PreDispatchRefusal extends Error {
+  public readonly code: string;
+
+  public constructor(code: string) {
+    const safe = PRE_DISPATCH_CODE.test(code) ? code : "HANDLER_FAILED_BEFORE_DISPATCH";
+    super(safe);
+    this.name = "PreDispatchRefusal";
+    this.code = safe;
   }
 }
 
@@ -184,8 +219,9 @@ export class ActionRegistry {
       if (dispatched && error instanceof ProviderRefusal) {
         return { status: "REFUSED_AFTER_DISPATCH", reason: error.reason, receipt };
       }
-      return dispatched
-        ? { status: "UNKNOWN_AFTER_DISPATCH", receipt }
+      if (dispatched) return { status: "UNKNOWN_AFTER_DISPATCH", receipt };
+      return error instanceof PreDispatchRefusal
+        ? { status: "FAILED_BEFORE_DISPATCH", code: error.code }
         : { status: "FAILED_BEFORE_DISPATCH" };
     }
   }

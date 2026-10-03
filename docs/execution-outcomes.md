@@ -42,6 +42,27 @@ The reference `forward_request` handler reads HTTP statuses this way:
 The gateway applies the same table, and a provider's receipt rides on the attempt whichever way it
 ended.
 
+## A refusal before dispatch
+
+Any error a handler throws before `dispatch.run` is a failure before dispatch: the grant was spent
+and nothing was sent. When the handler knows why, it throws `PreDispatchRefusal` with a code, and
+the code survives:
+
+```ts
+if (heldDigest !== boundDigest) throw new PreDispatchRefusal("PAYLOAD_BINDING_MISMATCH");
+```
+
+The result keeps `reason: "HANDLER_FAILED_BEFORE_DISPATCH"` as the category and adds
+`code: "PAYLOAD_BINDING_MISMATCH"`. The audit record carries both. The gateway, the trusted
+executor and the MCP guard answer with the code as well as the category. The gateway refuses with
+`PAYLOAD_BINDING_MISMATCH` when the held request no longer matches the bound digest, and the MCP
+guard refuses with `MCP_ARGUMENTS_MISMATCH` when the arguments drifted after authorization.
+
+A code must be upper snake case. Anything else becomes `HANDLER_FAILED_BEFORE_DISPATCH`, so a
+handler cannot write free text into the audit trail. Thrown inside `dispatch.run`, a
+`PreDispatchRefusal` means what any other error there means: the request left, and the outcome is
+unknown.
+
 ## Finalization
 
 Every outcome that consumed a grant also reports `finalization`. After the attempt, `SafeExecutor`
