@@ -113,6 +113,7 @@ export interface GatewayConfig {
     readonly routes: readonly RouteConfig[];
     readonly unmatched: UnmatchedPolicy;
     readonly maxBodyBytes: number;
+    /** The largest JSON body embedded in the intent for policy to read; 0 embeds none. */
     readonly maxEmbeddedBodyBytes: number;
     /** A request header whose value names the calling principal; carried, never verified. */
     readonly principalHeader: string | null;
@@ -208,7 +209,8 @@ export const GatewayFileSchema = z.strictObject({
       routes: z.array(RouteSchema).max(200).optional(),
       unmatched: lowerEnum(["govern", "passthrough"]).optional(),
       maxBodyBytes: positiveInt.max(MAX_BODY_BYTES).optional(),
-      maxEmbeddedBodyBytes: positiveInt.max(MAX_BODY_BYTES).optional(),
+      // 0 embeds no body at all: the authority sees its digest, size and type only.
+      maxEmbeddedBodyBytes: z.number().int().min(0).max(MAX_BODY_BYTES).optional(),
       principalHeader: z
         .string()
         .trim()

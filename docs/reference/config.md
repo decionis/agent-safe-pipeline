@@ -34,7 +34,7 @@ interception:
   http: true # false passes everything through
   unmatched: govern # govern | passthrough
   maxBodyBytes: 1048576 # a governed body above this is refused with 413; at most 16 MiB
-  maxEmbeddedBodyBytes: 65536 # a JSON body up to this is visible to policy; larger is digest-only
+  maxEmbeddedBodyBytes: 65536 # JSON up to this is visible to policy; larger is digest-only; 0 embeds none
   principalHeader: null # a request header whose value is carried as claimed_principal
   routes:
     - path: /payments/**
@@ -89,7 +89,7 @@ gateway.upstream)`, `CONFIG_INVALID: authority.mode (shadow or enforcement)`,
 - the demo authority, `allowInsecureLoopback` and a key in the environment are refused in
   production;
 - `presence.managed` needs the Decionis authority, enforcement mode and an `approverId`;
-- `maxEmbeddedBodyBytes` cannot exceed `maxBodyBytes`;
+- `maxEmbeddedBodyBytes` is 0 or more and cannot exceed `maxBodyBytes`;
 - an `authority.endpoint` other than `local` must be `https://`, or loopback with the allowance.
 
 ## The stored login

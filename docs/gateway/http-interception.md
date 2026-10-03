@@ -46,7 +46,9 @@ captures an intent in the `agent-safe.intent/1` contract:
 | `actor`, `tenantId`, `downstreamTarget` | from the configuration: the gateway's actor, the tenant, the upstream as system, the action as operation      |
 
 Request headers are not part of the intent. An `Authorization` or `Cookie` header is the client's
-credential to the upstream and never reaches the authority or the evidence chain.
+credential to the upstream and never reaches the authority or the evidence chain. With
+`interception.maxEmbeddedBodyBytes: 0` no body is embedded either: the authority sees the method,
+the path, the query and the body's digest, size and type, and policy cannot read its fields.
 
 The intent is canonicalized (RFC 8785) and hashed by `CanonicalIntentHasher`, and sent to the
 authority as the `ExecutionAuthorityRequest` the [execution intent](../execution-intent.md) page

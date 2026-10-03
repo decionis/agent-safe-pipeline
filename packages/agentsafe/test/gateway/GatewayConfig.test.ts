@@ -277,6 +277,19 @@ describe("the gateway configuration", () => {
       file: { version: 1, interception: { maxBodyBytes: 1024, maxEmbeddedBodyBytes: 4096 } },
     });
     expect(inverted.setting).toBe("interception.maxEmbeddedBodyBytes");
+    // Zero is digest-only: no body is ever embedded. Below zero is refused by name.
+    expect(
+      load({
+        flags: { upstream: "http://localhost:1" },
+        file: { version: 1, interception: { maxEmbeddedBodyBytes: 0 } },
+      }).interception.maxEmbeddedBodyBytes,
+    ).toBe(0);
+    expect(
+      refusal({
+        flags: { upstream: "http://localhost:1" },
+        file: { version: 1, interception: { maxEmbeddedBodyBytes: -1 } },
+      }).setting,
+    ).toBe("interception.maxEmbeddedBodyBytes");
     expect(
       load({
         flags: { upstream: "http://localhost:1" },
