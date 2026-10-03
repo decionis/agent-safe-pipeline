@@ -55,7 +55,8 @@ export interface GatewayHttpServerOptions {
   /**
    * Terminate TLS here, with the executor's listener (TLS 1.3, or 1.2 with
    * AEAD ciphers only): the hosted fleet's edge is a layer-4 load balancer
-   * and nothing else. Every response then carries HSTS.
+   * and nothing else. Every response then carries HSTS, this listener's
+   * once, and a relayed upstream's own is dropped.
    */
   readonly tls?: TlsListener | null;
   /**
@@ -184,7 +185,7 @@ export class GatewayHttpServer {
         plan.kind === "GOVERN"
           ? await gateway.govern(intercepted, plan.action)
           : await gateway.passthrough(intercepted);
-      GatewayHttpServer.write(response, answer);
+      this.write(response, answer);
     } catch (error) {
       if (error instanceof GuardError) {
         GatewayHttpServer.reply(response, error.status, { code: error.code });
@@ -224,7 +225,7 @@ export class GatewayHttpServer {
       if (rest.length === 2 && rest[1] === "resume" && method === "POST") {
         // The body, if any, is read and discarded: the gateway holds the intent.
         await GatewayHttpServer.readBody(request, 1024);
-        return GatewayHttpServer.write(response, await gateway.resume(intentId, resumeToken));
+        return this.write(response, await gateway.resume(intentId, resumeToken));
       }
       throw new GuardError(
         rest.length === 1 || rest[1] === "resume" ? 405 : 404,
@@ -351,10 +352,15 @@ export class GatewayHttpServer {
     return headers;
   }
 
-  private static write(response: ServerResponse, answer: GatewayResponse): void {
+  private write(response: ServerResponse, answer: GatewayResponse): void {
     // Stryker disable next-line ConditionalExpression: a reply is written once per request; the guard is defensive.
     if (response.headersSent) return;
-    for (const [name, value] of answer.headers) response.appendHeader(name, value);
+    for (const [name, value] of answer.headers) {
+      // A listener that terminates TLS has set its host's HSTS already: the
+      // transport policy of this host is the operator's, never an upstream's.
+      if (this.options.tls && name === "strict-transport-security") continue;
+      response.appendHeader(name, value);
+    }
     response.setHeader("content-length", String(answer.body.length));
     response.writeHead(answer.status);
     response.end(answer.body);

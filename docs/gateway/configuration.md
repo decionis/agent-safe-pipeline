@@ -144,8 +144,9 @@ the whole edge. The key is watched like any mounted secret: when a certificate m
 certificate and key in a Kubernetes Secret, new connections get the new pair and open ones keep
 theirs (`TLS_CONTEXT_ROTATED`); a renewal that does not make a valid pair keeps the one in use
 (`TLS_ROTATION_REFUSED`). Every response then carries
-`Strict-Transport-Security: max-age=31536000; includeSubDomains`. `--redirect-listen` adds a
-plain-HTTP listener that answers only redirects to the same host over HTTPS (`301`, or `308` for a
+`Strict-Transport-Security: max-age=31536000; includeSubDomains`, once: the transport policy of
+the host is the operator's, so an upstream's own is not relayed beside it. `--redirect-listen` adds
+a plain-HTTP listener that answers only redirects to the same host over HTTPS (`301`, or `308` for a
 method other than `GET` and `HEAD`, never acting on the request), for the registry's domain and the
 hosts under it; any other host is `421`. `--apex-page` is the HTML the domain itself answers at `/`,
 with a policy that allows inline style and nothing else.

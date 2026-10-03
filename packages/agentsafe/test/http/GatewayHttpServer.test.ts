@@ -1,7 +1,11 @@
-import { request as httpRequest } from "node:http";
+import { request as httpRequest, type IncomingMessage } from "node:http";
+import { request as httpsRequest } from "node:https";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Gateway } from "../../src/gateway/Gateway.js";
-import { GatewayHttpServer } from "../../src/http/GatewayHttpServer.js";
+import { GatewayHttpServer, HSTS } from "../../src/http/GatewayHttpServer.js";
+import { TlsListener } from "../../src/http/TlsListener.js";
+import { SecretHandle } from "../../src/secrets/SecretHandle.js";
+import { collectedEvents } from "../support/Environment.js";
 import {
   collectedIo,
   testConfig,
@@ -10,6 +14,7 @@ import {
   TENANT_KEY,
   TENANT_KEY_DIGEST,
 } from "../support/GatewayHarness.js";
+import { TestCertificateAuthority } from "../support/TestCertificateAuthority.js";
 
 describe("the gateway listener", () => {
   const upstream = new UpstreamDouble();
@@ -419,5 +424,58 @@ describe("a gateway's rate", () => {
     expect(metrics).toContain('agentsafe_requests_total{kind="rate_limited"} 1');
     await server.close(100);
     await gateway.close();
+  });
+});
+
+describe("a listener that terminates TLS", () => {
+  const ca = new TestCertificateAuthority("Synthetic Gateway CA");
+  const issued = ca.issueServer(["gateway.example"]);
+  const upstreamPolicy = "max-age=60; preload";
+
+  /** Every HSTS field on a relayed answer whose upstream sent its own, with TLS here or not. */
+  async function policies(tls: boolean): Promise<string[]> {
+    const gateway = await Gateway.create(testConfig("https://shop.tenant.example"), {
+      env: {},
+      io: collectedIo(),
+      upstreamFetch: async () =>
+        new Response("ok", {
+          status: 200,
+          headers: { "strict-transport-security": upstreamPolicy },
+        }),
+    });
+    const listener = new TlsListener({
+      minVersion: "TLSv1.3",
+      material: () => ({
+        cert: issued.cert,
+        key: SecretHandle.fromString("EXECUTOR_TLS_KEY", issued.key),
+        clientCa: null,
+      }),
+      events: collectedEvents(),
+    });
+    const server = new GatewayHttpServer(gateway, tls ? { tls: listener } : {});
+    const port = (await server.listen(0, "127.0.0.1")).port;
+    const raw = await new Promise<string[]>((resolve, reject) => {
+      const options = { host: "127.0.0.1", port, path: "/orders", agent: false as const };
+      const done = (response: IncomingMessage): void => {
+        response.resume();
+        response.on("end", () => resolve(response.rawHeaders));
+      };
+      const request = tls
+        ? httpsRequest({ ...options, ca: ca.certificate, servername: "gateway.example" }, done)
+        : httpRequest(options, done);
+      request.on("error", reject);
+      request.end();
+    });
+    await server.close(100);
+    await gateway.close();
+    return raw.filter(
+      (_value, index) =>
+        index % 2 === 1 && raw[index - 1]?.toLowerCase() === "strict-transport-security",
+    );
+  }
+
+  it("sends its own HSTS once and drops the upstream's, which a plain listener relays unchanged", async () => {
+    expect(await policies(true)).toEqual([HSTS]);
+    expect(await policies(false)).toEqual([upstreamPolicy]);
   });
 });
