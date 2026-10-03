@@ -1071,9 +1071,19 @@ describe("an upstream that fails", () => {
     ]) {
       expect([code, await failure(fetchFailed(coded(code)))]).toEqual([code, rejected]);
     }
-    expect(await failure(fetchFailed(coded("ERR_SSL_TLSV13_ALERT_CERTIFICATE_REQUIRED")))).toEqual(
-      certificate,
-    );
+    // The alerts a server refusing the gateway's certificate sends: TLS 1.3's own, and what
+    // servers that do not send it send instead. None names the server's certificate, which
+    // the gateway had verified already.
+    for (const code of [
+      "ERR_SSL_TLSV13_ALERT_CERTIFICATE_REQUIRED",
+      "ERR_SSL_SSLV3_ALERT_BAD_CERTIFICATE",
+      "ERR_SSL_SSLV3_ALERT_CERTIFICATE_UNKNOWN",
+      "ERR_SSL_TLSV1_ALERT_UNKNOWN_CA",
+      "ERR_SSL_TLSV1_ALERT_ACCESS_DENIED",
+    ]) {
+      expect([code, await failure(fetchFailed(coded(code)))]).toEqual([code, certificate]);
+      expect([code, await failure(coded(code))]).toEqual([code, certificate]);
+    }
     // A TLS failure that says no more may have come after the request was written.
     expect(await failure(coded("ERR_SSL_DECRYPTION_FAILED_OR_BAD_RECORD_MAC"))).toEqual(lost);
     expect(await failure(fetchFailed(coded("ERR_SSL_SSL/TLS_ALERT_HANDSHAKE_FAILURE")))).toEqual(

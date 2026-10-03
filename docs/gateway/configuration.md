@@ -76,12 +76,16 @@ are allowed, because that is where an operator's own services live.
 
 An upstream whose certificate does not verify, or that refuses the handshake, is sent nothing
 either: the answer is `502` with `UPSTREAM_TLS_REJECTED`, or `UPSTREAM_CLIENT_CERT_REFUSED` when
-the upstream said it wants a client certificate (TLS 1.3's `certificate_required`), which a gateway
-never presents; both are `NOT_FORWARDED`. Under TLS 1.2 that refusal is a bare handshake failure,
-reported as `UPSTREAM_TLS_REJECTED`. The security stream carries `UPSTREAM_TLS_REFUSED` with the
-origin and the code, apart from `EGRESS_REFUSED`: an upstream's TLS is its owner's to fix, not an
-attack on the gateway. A TLS failure after a verified handshake broke a connection that may have
-carried the request, and is `UPSTREAM_TRANSPORT_FAILED` and `INDETERMINATE`. An API that requires
+the upstream refused the client certificate a gateway never presents, with TLS 1.3's
+`certificate_required` or with the `bad_certificate`, `certificate_unknown`, `unknown_ca` or
+`access_denied` that some servers send instead; both are `NOT_FORWARDED`. Under TLS 1.2 that
+refusal is usually a bare handshake failure, reported as `UPSTREAM_TLS_REJECTED`. The security
+stream carries `UPSTREAM_TLS_REFUSED` with the origin and the code, apart from `EGRESS_REFUSED`: an
+upstream's TLS is its owner's to fix, not an attack on the gateway. Any other TLS failure after a
+verified handshake broke a connection that may have carried the request, and is
+`UPSTREAM_TRANSPORT_FAILED` and `INDETERMINATE`, with no security event. The same failure on a
+connection to a destination the operator names, such as the gateway's authority, is
+`EGRESS_REFUSED` with `EGRESS_TLS_BROKEN`. An API that requires
 mutual TLS cannot be fronted by a gateway at all; [shadow mode](../shadow-mode.md#when-the-gateway-cannot-front-your-api-mutual-tls-third-party-saas)
 says what to run instead.
 

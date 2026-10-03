@@ -34,11 +34,12 @@ export interface GuardedFetchOptions {
   /** Refuse every private and shared address too (EgressPolicy.addressRefused). */
   readonly publicOnly?: boolean;
   /**
-   * Whether a refused handshake is this process's own `EGRESS_REFUSED`, as
-   * it is unless this says otherwise: a destination the operator named whose
-   * handshake fails is an attack until shown otherwise. False is for a
-   * destination someone else chose, whose TLS is theirs to fix: the refusal
-   * is thrown with its code and the caller reports it as it sees fit.
+   * Whether a TLS failure is this process's own `EGRESS_REFUSED`, as it is
+   * unless this says otherwise: a destination the operator named whose
+   * handshake fails, or whose verified session breaks, is an attack until
+   * shown otherwise. False is for a destination someone else chose, whose TLS
+   * is theirs to fix: a refused handshake is thrown with its code, a broken
+   * session with its own error, and the caller reports either as it sees fit.
    */
   readonly reportTls?: boolean;
 }
@@ -49,13 +50,18 @@ const NULL_BODY: ReadonlySet<number> = new Set([204, 205, 304]);
 const TLS_FAILURE =
   /^(?:ERR_TLS_|ERR_SSL_|ERR_OSSL_|EPROTO$|UNABLE_TO_|SELF_SIGNED|DEPTH_ZERO|CERT_)/;
 /**
- * The peer's `certificate_required` alert (TLS 1.3): it wants a client
- * certificate this process does not present. It arrives after this side's
- * half of the handshake, but the peer's never completed, so nothing was
- * accepted. Under TLS 1.2 the same refusal is a bare handshake failure,
- * which says no more than that.
+ * A peer's alert refusing this side's certificate, which this process never
+ * presents: `certificate_required` (TLS 1.3), `bad_certificate`,
+ * `certificate_unknown`, `unknown_ca` or `access_denied`, as servers that do
+ * not send the first send instead. Any of them says the peer refused the
+ * handshake on its side, about a certificate that can only be this side's,
+ * since this side had already verified the peer's: under TLS 1.3 it arrives
+ * after this side's half of the handshake, but the peer's never completed,
+ * so nothing was accepted. Under TLS 1.2 the usual refusal is a bare
+ * handshake failure, which says no more than that.
  */
-const CERTIFICATE_REQUIRED = /ALERT_CERTIFICATE_REQUIRED$/;
+export const CLIENT_CERTIFICATE_REFUSED =
+  /ALERT_(?:CERTIFICATE_REQUIRED|BAD_CERTIFICATE|CERTIFICATE_UNKNOWN|UNKNOWN_CA|ACCESS_DENIED)$/;
 
 async function systemResolver(hostname: string): Promise<readonly ResolvedAddress[]> {
   const addresses = await lookup(hostname, { all: true });
@@ -246,10 +252,14 @@ export class GuardedFetch {
    * A failure of the executor's own making is reported; the caller's abort
    * and the network's failures pass through. A handshake that failed is a
    * refusal, and nothing was sent: the peer's certificate did not verify,
-   * or the peer refused this side, by asking for a client certificate
+   * or the peer refused this side, by refusing its certificate
    * (`EGRESS_TLS_CLIENT_CERT_REFUSED`) or otherwise. A TLS failure once the
    * peer was verified broke a connection that may have carried the request,
-   * and passes through like any other.
+   * so it is not a refusal and its own error passes through; it is still
+   * reported, as `EGRESS_TLS_BROKEN`, unless the caller reports TLS itself
+   * (`reportTls: false`): records that break a verified session are an
+   * attack until shown otherwise, and count toward the halt switch and the
+   * refusal alerts as they did when they were called a rejected handshake.
    */
   private classify(origin: string, error: unknown, verified: boolean): unknown {
     if (error instanceof EgressError) {
@@ -258,10 +268,14 @@ export class GuardedFetch {
     }
     const code = (error as { code?: unknown } | null)?.code;
     if (typeof code !== "string" || !TLS_FAILURE.test(code)) return error;
-    if (CERTIFICATE_REQUIRED.test(code)) {
+    if (CLIENT_CERTIFICATE_REFUSED.test(code)) {
       return this.refuseTls(origin, "EGRESS_TLS_CLIENT_CERT_REFUSED");
     }
-    return verified ? error : this.refuseTls(origin, "EGRESS_TLS_REJECTED");
+    if (!verified) return this.refuseTls(origin, "EGRESS_TLS_REJECTED");
+    if (this.options.reportTls !== false) {
+      this.options.events.emit({ event: "EGRESS_REFUSED", origin, code: "EGRESS_TLS_BROKEN" });
+    }
+    return error;
   }
 
   /** A refused handshake: on the security stream, unless the caller reports it itself. */

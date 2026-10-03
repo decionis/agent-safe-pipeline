@@ -32,7 +32,11 @@ import { EVIDENCE_STREAM, HashChainedAuditSink } from "../audit/HashChainedAudit
 import type { LineWriter } from "../audit/LineAuditSink.js";
 import { EgressPolicy } from "../egress/EgressPolicy.js";
 import { EgressError } from "../egress/EgressError.js";
-import { GuardedFetch, type AddressResolver } from "../egress/GuardedFetch.js";
+import {
+  CLIENT_CERTIFICATE_REFUSED,
+  GuardedFetch,
+  type AddressResolver,
+} from "../egress/GuardedFetch.js";
 import type { FetchLike } from "../handlers/HandlerRegistration.js";
 import { RequestContext } from "../http/RequestContext.js";
 import { SECURITY_STREAM, SecurityEvents } from "../incident/SecurityEvents.js";
@@ -111,13 +115,13 @@ const BEFORE_CONNECTION: ReadonlySet<string> = new Set([
   "UND_ERR_CONNECT_TIMEOUT",
 ]);
 /**
- * A transport's codes for a handshake the upstream refused: it asked for a
- * client certificate (TLS 1.3's `certificate_required`), or its own
- * certificate did not verify here. Either way the handshake never finished
- * and nothing of the request was accepted. The guarded egress says the same
- * with its own codes.
+ * A transport's codes for a handshake the upstream refused: its own
+ * certificate did not verify here, or it refused the gateway's, which the
+ * gateway never presents (`CLIENT_CERTIFICATE_REFUSED`: TLS 1.3's
+ * `certificate_required` and the alerts other servers send for it). Either
+ * way the handshake never finished and nothing of the request was accepted.
+ * The guarded egress says the same with its own codes.
  */
-const CLIENT_CERT_REQUIRED = /ALERT_CERTIFICATE_REQUIRED$/;
 const CERTIFICATE_UNVERIFIED = /^(?:UNABLE_TO_|SELF_SIGNED|DEPTH_ZERO|CERT_|ERR_TLS_CERT_ALTNAME)/;
 
 /** A forward that failed: its code, and whether it can have reached the upstream. */
@@ -1586,7 +1590,7 @@ export class Gateway {
     }
     const transport = Gateway.transportCode(error);
     const tls =
-      transport === "EGRESS_TLS_CLIENT_CERT_REFUSED" || CLIENT_CERT_REQUIRED.test(transport)
+      transport === "EGRESS_TLS_CLIENT_CERT_REFUSED" || CLIENT_CERTIFICATE_REFUSED.test(transport)
         ? "UPSTREAM_CLIENT_CERT_REFUSED"
         : transport === "EGRESS_TLS_REJECTED" || CERTIFICATE_UNVERIFIED.test(transport)
           ? "UPSTREAM_TLS_REJECTED"
