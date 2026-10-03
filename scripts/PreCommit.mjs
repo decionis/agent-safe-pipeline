@@ -18,4 +18,4 @@ const run = (arguments_) => {
 run(["exec", "prettier", "--check", "--ignore-unknown", ...files]);
 
 const markdownFiles = files.filter((path) => /\.md$/i.test(path));
-if (markdownFiles.length > 0) run(["exec", "markdownlint-cli2", ...markdownFiles]);
+if (markdownFiles.length > 0) run(["exec", "node", "scripts/LintMarkdown.mjs", ...markdownFiles]);
