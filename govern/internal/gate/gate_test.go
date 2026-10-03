@@ -3,7 +3,10 @@ package gate
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +15,7 @@ import (
 	"github.com/decionis/agent-safe-pipeline/govern/v2/internal/authority/authoritytest"
 	"github.com/decionis/agent-safe-pipeline/govern/v2/internal/command"
 	"github.com/decionis/agent-safe-pipeline/govern/v2/internal/host"
+	"github.com/decionis/agent-safe-pipeline/govern/v2/internal/policy"
 )
 
 // fakeHost records every surface the gate writes.
@@ -299,6 +303,55 @@ func TestPolicyFileTravelsInTheIntent(t *testing.T) {
 	described := ctx["decionis_policy"].(map[string]any)
 	if described["sha256"] != result.Report.Policy.SHA256 || described["content"] != "# Policy\n" {
 		t.Fatalf("%+v", described)
+	}
+}
+
+// What reaches Decionis under `decionis_policy` is a record of the file and
+// nothing else: the six fields the policy package describes, never `enforce`,
+// which would ask Decionis to publish the file as the workspace's enforced
+// policy (a policy write, refused to govern's narrow key with
+// `x-decionis-warning: POLICY_ENFORCE_SCOPE_MISSING`). Checked on the wire,
+// after capture, in both modes and for an inline and a referenced file, so a
+// change that sets the key anywhere between the description and the request
+// fails here.
+func TestTheIntentRecordsThePolicyFileAndNeverAsksToPublishIt(t *testing.T) {
+	small := "# Policy\n"
+	large := strings.Repeat("x", policy.InlineLimit+1)
+	for _, mode := range []authority.Mode{authority.Shadow, authority.Enforcement} {
+		for _, content := range []string{small, large} {
+			double, client := setup(t)
+			dir := t.TempDir()
+			writeFile(t, dir+"/DECIONIS_POLICY.md", content)
+			cfg := config(mode, 100, "")
+			cfg.PolicyPath, cfg.Workspace, cfg.FailOn = "DECIONIS_POLICY.md", dir, FailOnNever
+			Run(context.Background(), cfg, Dependencies{Authority: client, Host: newFakeHost(), Version: "test"})
+			if len(double.Requests) == 0 || double.Requests[0].Path != "/v1/authority/enforce-and-bind" {
+				t.Fatalf("%s: no intent was sent: %+v", mode, double.Requests)
+			}
+			described, ok := double.Requests[0].Body["context"].(map[string]any)["decionis_policy"].(map[string]any)
+			if !ok {
+				t.Fatalf("%s: the intent carries no policy description", mode)
+			}
+			inline := len(content) <= policy.InlineLimit
+			fields := []string{"type", "path", "sha256", "bytes", "truncated"}
+			if inline {
+				fields = append(fields, "content")
+			}
+			for key := range described {
+				if !slices.Contains(fields, key) {
+					t.Fatalf("%s: the description sent %q: %+v", mode, key, described)
+				}
+			}
+			sum := sha256.Sum256([]byte(content))
+			if len(described) != len(fields) ||
+				described["type"] != "decionis_policy_file" ||
+				described["sha256"] != hex.EncodeToString(sum[:]) ||
+				described["bytes"] != json.Number(itoa(len(content))) ||
+				described["truncated"] != !inline ||
+				(inline && described["content"] != content) {
+				t.Fatalf("%s: %+v", mode, described)
+			}
+		}
 	}
 }
 

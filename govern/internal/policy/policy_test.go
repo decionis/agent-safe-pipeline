@@ -44,6 +44,30 @@ func TestLoadTriesTheYamlSiblingsAndNeverFails(t *testing.T) {
 	}
 }
 
+// The description is a record, never a request to publish the file as the
+// workspace's enforced policy: Decionis does that for `enforce: true` and
+// only for a key holding policy:write, answering any other key with
+// `x-decionis-warning: POLICY_ENFORCE_SCOPE_MISSING`, which govern does not
+// read. A change that sends `enforce` takes on that scope and that header.
+func TestTheDescriptionNeverAsksToPublishThePolicy(t *testing.T) {
+	for _, source := range []*Source{
+		Describe(DefaultPath, []byte("# Policy\n")),
+		Describe(DefaultPath, []byte(strings.Repeat("x", InlineLimit+1))),
+	} {
+		context := source.Context()
+		if _, asks := context["enforce"]; asks {
+			t.Fatalf("the description carries enforce: %+v", context)
+		}
+		for key := range context {
+			switch key {
+			case "type", "path", "sha256", "bytes", "truncated", "content":
+			default:
+				t.Fatalf("the description gained %q; check it against Decionis' decionis_policy semantics", key)
+			}
+		}
+	}
+}
+
 func TestLargeFilesAreReferencedByHashOnly(t *testing.T) {
 	source := Describe("big.md", []byte(strings.Repeat("x", InlineLimit+1)))
 	if !source.Truncated || source.Content != "" {

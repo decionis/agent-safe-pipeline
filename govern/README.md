@@ -226,6 +226,16 @@ not evaluate the file — the rules Decionis enforces are the workspace's, versi
 verdict names the policy version that applied. [`examples/DECIONIS_POLICY.md`](./examples/DECIONIS_POLICY.md)
 is a starting point.
 
+Govern never publishes the file as the workspace's enforced policy, so the key it runs with needs
+no policy scope. Publishing is what v1's `policy-enforce: true` asked of evaluate-decision, and it
+is a policy write: Decionis does it only for a key that holds `policy:write` (or `policy:*` or
+`org:*`), the scope its policy-bundle API requires. A request that asks with any other key, such
+as a `decision:run` key, still gets its decision, nothing is published, and the answer carries the
+header `x-decionis-warning: POLICY_ENFORCE_SCOPE_MISSING`. A workflow moving from v1 that kept
+`policy-enforce` gets GitHub's warning about an input v2 does not have; to make the file's rules
+the enforced policy, publish them from a step or a person holding a `policy:write` key, and keep
+govern's key narrow.
+
 ## Building and testing
 
 ```sh
