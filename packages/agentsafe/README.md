@@ -263,8 +263,11 @@ When a provider took the request and the response was lost, the answer is `UNKNO
 with `executed: null` and a `recovery` object: the exact intent and the recovery reference. Present
 that object back, unchanged, and the executor asks the provider what it did with the idempotency
 key, never sending the request again. The intent is re-hashed on the way in, so a changed intent no
-longer matches its reference and is refused with `RECOVERY_BINDING_MISMATCH`. The process keeps no
-state between the two calls.
+longer matches its reference and is refused with `RECOVERY_BINDING_MISMATCH`. The reference's
+decision, dossier, grant and expiry are the caller's claim, so they are held against the attempt the
+journal recorded before dispatch: a binding the journal does not hold is refused with
+`RECOVERY_BINDING_MISMATCH`, and an intent it never recorded with `RECOVERY_ATTEMPT_UNKNOWN`, before
+the provider is asked. A refused reconciliation leaves the attempt open for the next start.
 
 ### `POST /v1/escalations`
 

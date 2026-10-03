@@ -10,9 +10,10 @@ export default {
   // shape. The registry decides which credential is whose, and the
   // authenticator decides in which order a request is turned away. The egress
   // policy is the wall: what this process may reach at all. The hash chain is
-  // the evidence's integrity. The journal's fold decides what a restart must
-  // resolve, the ceilings decide what this host will never run whatever
-  // policy says, and the halt decides whether anything runs. The canonical
+  // the evidence's integrity. The journal's folds decide what a restart must
+  // resolve and which grant a caller's reconciliation may be credited to, the
+  // ceilings decide what this host will never run whatever policy says, and
+  // the halt decides whether anything runs. The canonical
   // digest decides what two implementations agree a value is, and the
   // comparison decides whether an observed effect is the authorised one.
   // Money is arithmetic that must not round. The banking binder is the gate

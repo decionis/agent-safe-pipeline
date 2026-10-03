@@ -13,7 +13,9 @@ import { join } from "node:path";
 import {
   JournalError,
   JournalRecordSchema,
+  authorizationsFrom,
   openAttemptsFrom,
+  type DispatchedAuthorization,
   type ExecutionJournal,
   type JournalRecord,
   type OpenAttempt,
@@ -77,6 +79,10 @@ export class FileExecutionJournal implements ExecutionJournal {
 
   public async openAttempts(): Promise<readonly OpenAttempt[]> {
     return await Promise.resolve(openAttemptsFrom(this.records()));
+  }
+
+  public async authorizationsOf(intentId: string): Promise<readonly DispatchedAuthorization[]> {
+    return await Promise.resolve(authorizationsFrom(this.records(), intentId));
   }
 
   public close(): void {

@@ -3,6 +3,7 @@ import {
   JOURNAL_VERSION,
   JournalError,
   JournalRecordSchema,
+  authorizationsFrom,
   openAttemptsFrom,
   type JournalRecord,
 } from "../../src/journal/ExecutionJournal.js";
@@ -12,6 +13,7 @@ import { TENANT_ID } from "../support/Environment.js";
 const HASH = `sha256:${"a".repeat(64)}`;
 const OTHER = `sha256:${"b".repeat(64)}`;
 const AT = "2026-09-15T10:00:00.000Z";
+const LATER = "2026-09-15T10:05:00.000Z";
 
 const intent = (): Record<string, unknown> => ({
   intentId: "intent-1",
@@ -277,6 +279,65 @@ describe("the journal's record contract", () => {
   });
 });
 
+describe("the authorizations an intent was dispatched under", () => {
+  const binding = {
+    decisionId: "decision-1",
+    dossierId: "dossier-1",
+    grantId: "grant-1",
+    intentHash: HASH,
+    expiresAt: AT,
+  };
+
+  it("is each claimed attempt's decision and grant, however the attempt ended", () => {
+    expect(authorizationsFrom([], "intent-1")).toEqual([]);
+    expect(authorizationsFrom([opened(), claimed()], "intent-1")).toEqual([binding]);
+    expect(authorizationsFrom([opened(), claimed(), closed()], "intent-1")).toEqual([binding]);
+    expect(
+      authorizationsFrom(
+        [
+          opened(),
+          claimed(),
+          {
+            record: "RECONCILED",
+            at: AT,
+            intent_id: "intent-1",
+            intent_hash: HASH,
+            status: "COMPLETED",
+            source: "CALLER",
+          },
+        ],
+        "intent-1",
+      ),
+    ).toEqual([binding]);
+  });
+
+  it("has nothing for an attempt that claimed no grant, or a claim no attempt opened", () => {
+    expect(authorizationsFrom([opened()], "intent-1")).toEqual([]);
+    expect(authorizationsFrom([claimed()], "intent-1")).toEqual([]);
+  });
+
+  it("reads only the named intent, and keeps every attempt at it in order", () => {
+    expect(authorizationsFrom([opened("intent-2"), claimed("intent-2")], "intent-1")).toEqual([]);
+    const second = { ...opened(), decision_id: "decision-2", dossier_id: "dossier-2" };
+    const reclaimed = { ...claimed(), grant_id: "grant-2", intent_hash: OTHER, expires_at: LATER };
+    expect(
+      authorizationsFrom(
+        [opened(), claimed(), opened("intent-2"), claimed("intent-2"), second, reclaimed],
+        "intent-1",
+      ),
+    ).toEqual([
+      binding,
+      {
+        decisionId: "decision-2",
+        dossierId: "dossier-2",
+        grantId: "grant-2",
+        intentHash: OTHER,
+        expiresAt: LATER,
+      },
+    ]);
+  });
+});
+
 describe("InMemoryExecutionJournal", () => {
   it("keeps records for this process only, and can be made to fail once", async () => {
     const journal = new InMemoryExecutionJournal();
@@ -284,6 +345,9 @@ describe("InMemoryExecutionJournal", () => {
     await journal.append(claimed());
     expect(journal.all).toHaveLength(2);
     expect((await journal.openAttempts()).map((attempt) => attempt.state)).toEqual(["CLAIMED"]);
+    expect((await journal.authorizationsOf("intent-1")).map((each) => each.grantId)).toEqual([
+      "grant-1",
+    ]);
     journal.failNextAppend();
     await expect(journal.append(closed())).rejects.toThrow("JOURNAL_WRITE_FAILED");
     await journal.append(closed());

@@ -14,7 +14,11 @@ import type {
   AuthorizationVerifier,
   VerifiedAuthorization,
 } from "../../src/execution/AuthorizationVerifier.js";
-import { SafeExecutor } from "../../src/execution/SafeExecutor.js";
+import {
+  SafeExecutor,
+  type DispatchedAttempts,
+  type ExecutionRecoveryReference,
+} from "../../src/execution/SafeExecutor.js";
 import type {
   EnforcementBoundarySignal,
   WorkloadSignal,
@@ -1041,6 +1045,150 @@ describe("SafeExecutor", () => {
         reason: "RECOVERY_BINDING_MISMATCH",
       });
     }
+  });
+
+  /**
+   * An executor whose provider lost the answer, so every attempt stays
+   * unknown until reconciled, with the lookup and the audit stream exposed.
+   */
+  function lostAnswer(attempts?: DispatchedAttempts) {
+    const reconcile = vi.fn(async () => ({
+      status: "COMPLETED" as const,
+      result: { refundId: "provider-123" },
+    }));
+    const registry = new ActionRegistry()
+      .register("refund_order", {
+        parametersSchema: z.object({ amount: z.number(), currency: z.string() }),
+        execute: async ({ dispatch }) =>
+          await dispatch.run(async () => {
+            throw new Error("response lost");
+          }),
+        reconcile,
+      })
+      .seal();
+    const pair = createFixtureAuthorityPair(() => "ALLOW", {
+      unsafeAllowDevelopmentFixture: true,
+    });
+    const events: AuditEventV1[] = [];
+    const audit = new AuditRecorder({
+      sink: {
+        write: (event) => {
+          events.push(event);
+        },
+      },
+    });
+    const executor = new SafeExecutor(registry, pair.verifier, audit, {
+      ...(attempts === undefined ? {} : { attempts }),
+    });
+    return { reconcile, pair, events, executor };
+  }
+
+  async function unknownAttempt(parts: ReturnType<typeof lostAnswer>) {
+    const intent = captured();
+    const attempt = await parts.executor.run(intent, await parts.pair.authority.evaluate(intent));
+    if (attempt.outcome !== "UNKNOWN_AFTER_DISPATCH") throw new Error("TEST_EXPECTED_UNKNOWN");
+    return { intent, attempt };
+  }
+
+  function bindingOf(recovery: ExecutionRecoveryReference): VerifiedAuthorization {
+    return {
+      decisionId: recovery.decisionId,
+      dossierId: recovery.dossierId,
+      grantId: recovery.grantId,
+      intentHash: recovery.intentHash,
+      expiresAt: recovery.expiresAt,
+    };
+  }
+
+  function reconciliationEvents(events: readonly AuditEventV1[]) {
+    return events.filter((event) => event.eventType.startsWith("RECONCILIATION_"));
+  }
+
+  it("records a reconciliation it cannot hold against its own record as non-authoritative", async () => {
+    const parts = lostAnswer();
+    const { intent, attempt } = await unknownAttempt(parts);
+
+    await expect(parts.executor.reconcile(intent, attempt.recovery)).resolves.toMatchObject({
+      outcome: "COMPLETED",
+    });
+
+    expect(reconciliationEvents(parts.events)).toEqual([
+      expect.objectContaining({
+        eventType: "RECONCILIATION_COMPLETED",
+        authority: "NON_AUTHORITATIVE",
+      }),
+    ]);
+  });
+
+  it("records a reconciliation under a journaled binding as authoritative", async () => {
+    let journaled: VerifiedAuthorization[] = [];
+    const parts = lostAnswer({ authorizationsOf: async () => await Promise.resolve(journaled) });
+    const { intent, attempt } = await unknownAttempt(parts);
+    const binding = bindingOf(attempt.recovery);
+    // An earlier attempt at the same intent, under another grant, is not the
+    // one being reconciled; the matching record is.
+    journaled = [{ ...binding, grantId: "grant-earlier" }, binding];
+
+    await expect(parts.executor.reconcile(intent, attempt.recovery)).resolves.toMatchObject({
+      outcome: "COMPLETED",
+      authorization: binding,
+    });
+
+    expect(reconciliationEvents(parts.events)).toEqual([
+      expect.objectContaining({
+        eventType: "RECONCILIATION_COMPLETED",
+        authority: "AUTHORITATIVE",
+        correlation: expect.objectContaining({ grantId: binding.grantId }) as unknown,
+      }),
+    ]);
+  });
+
+  it("refuses a presented grant its own record does not hold, before the provider is asked", async () => {
+    let journaled: VerifiedAuthorization[] = [];
+    const parts = lostAnswer({ authorizationsOf: async () => await Promise.resolve(journaled) });
+    const { intent, attempt } = await unknownAttempt(parts);
+    const binding = bindingOf(attempt.recovery);
+    const differences: Partial<VerifiedAuthorization>[] = [
+      { decisionId: "decision-other" },
+      { dossierId: "dossier-other" },
+      { grantId: "grant-other" },
+      { intentHash: `sha256:${"0".repeat(64)}` },
+      { expiresAt: new Date(Date.parse(binding.expiresAt) + 1_000).toISOString() },
+    ];
+
+    for (const difference of differences) {
+      journaled = [{ ...binding, ...difference }];
+      await expect(parts.executor.reconcile(intent, attempt.recovery)).resolves.toMatchObject({
+        outcome: "BLOCKED",
+        reason: "RECOVERY_BINDING_MISMATCH",
+        authorization: null,
+      });
+    }
+    // The compromised-principal case: a valid intent and idempotency key, and
+    // a grant the executor never dispatched under.
+    journaled = [binding];
+    await expect(
+      parts.executor.reconcile(intent, { ...attempt.recovery, grantId: "grant-forged" }),
+    ).resolves.toMatchObject({ outcome: "BLOCKED", reason: "RECOVERY_BINDING_MISMATCH" });
+
+    expect(parts.reconcile).not.toHaveBeenCalled();
+    expect(reconciliationEvents(parts.events)).toEqual([]);
+  });
+
+  it("refuses to reconcile an intent it never dispatched", async () => {
+    const parts = lostAnswer({ authorizationsOf: async () => await Promise.resolve([]) });
+    const { intent, attempt } = await unknownAttempt(parts);
+
+    await expect(parts.executor.reconcile(intent, attempt.recovery)).resolves.toMatchObject({
+      outcome: "BLOCKED",
+      reason: "RECOVERY_ATTEMPT_UNKNOWN",
+      authorization: null,
+    });
+    expect(parts.reconcile).not.toHaveBeenCalled();
+    expect(parts.events.at(-1)).toMatchObject({
+      eventType: "EXECUTION_BLOCKED",
+      reasonCodes: ["RECOVERY_ATTEMPT_UNKNOWN"],
+    });
   });
 
   it("emits the ordered, redacted authorization and execution lifecycle", async () => {

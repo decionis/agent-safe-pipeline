@@ -185,6 +185,66 @@ describe("the attempt journal around an execution", () => {
     service.close();
   });
 
+  it("holds a caller's reconciliation against the grant it journaled, and a refusal closes nothing", async () => {
+    const { service, journal, lines } = build();
+    provider.loseNext();
+    const lost = await service.propose(proposal(28_50).body);
+    expect(lost.outcome).toBe("UNKNOWN_AFTER_DISPATCH");
+    const recovery = lost.recovery;
+    if (recovery === null) throw new Error("TEST_EXPECTED_RECOVERY");
+    const dispatches = provider.dispatches;
+    const recorded = journal.all.length;
+
+    // The compromised principal: its own intent and idempotency key, which
+    // hash and match, and a grant this executor never dispatched under.
+    const forged = await service.reconcile({
+      ...recovery,
+      reference: { ...recovery.reference, grantId: "grant-forged" },
+    });
+    expect(forged).toMatchObject({
+      outcome: "BLOCKED",
+      reason_codes: ["RECOVERY_BINDING_MISMATCH"],
+      authorization: null,
+    });
+    expect(provider.dispatches).toBe(dispatches);
+    // Nothing was resolved, so the genuine attempt is still the next start's to resolve.
+    expect(journal.all).toHaveLength(recorded);
+    expect((await journal.openAttempts()).map((attempt) => attempt.state)).toEqual(["CLAIMED"]);
+
+    const reconciled = await service.reconcile(recovery);
+    expect(reconciled).toMatchObject({
+      outcome: "COMPLETED",
+      authorization: { grant_id: recovery.reference.grantId },
+    });
+    expect(events(lines).filter((line) => line["event"] === "RECONCILIATION_COMPLETED")).toEqual([
+      expect.objectContaining({
+        authority: "AUTHORITATIVE",
+        grant_id: recovery.reference.grantId,
+      }),
+    ]);
+    expect(await journal.openAttempts()).toEqual([]);
+    // What the attempt was dispatched under outlives its closing, so asking
+    // again after it closed is still answered.
+    await expect(service.reconcile(recovery)).resolves.toMatchObject({ outcome: "COMPLETED" });
+    service.close();
+  });
+
+  it("refuses to reconcile an attempt its journal never recorded", async () => {
+    const { service, journal } = build();
+    provider.loseNext();
+    const lost = await service.propose(proposal(28_60).body);
+    expect(lost.outcome).toBe("UNKNOWN_AFTER_DISPATCH");
+    journal.clear();
+    const dispatches = provider.dispatches;
+    await expect(service.reconcile(lost.recovery)).resolves.toMatchObject({
+      outcome: "BLOCKED",
+      reason_codes: ["RECOVERY_ATTEMPT_UNKNOWN"],
+    });
+    expect(provider.dispatches).toBe(dispatches);
+    expect(journal.all).toEqual([]);
+    service.close();
+  });
+
   it("writes to the file journal a second process can read back, and recovers from it read-only", async () => {
     const directory = join(root, "shared");
     const writing = new FileExecutionJournal(directory);
