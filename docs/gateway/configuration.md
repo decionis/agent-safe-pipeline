@@ -139,6 +139,15 @@ finishes the requests in flight for 30 seconds before it is closed. Each load is
 (`sha256:` and the first 12 hex digits of the SHA-256 of its text, as read) and what was built,
 kept, rekeyed, retired and failed.
 
+The schema is strict, so a host refuses a field it does not know. A tenant's `upstreamTimeoutMs`,
+and an `interception.maxEmbeddedBodyBytes` of `0`, came after the first builds of `agentsafe host`.
+A host built before them refuses the whole registry over the first (`REGISTRY_INVALID`): on a
+reload no later change applies, a key revocation included, and at start the process exits, so a
+replica restarted on that host never comes up. It refuses that tenant's gateway over the second
+(`CONFIG_INVALID`). Write either only once every replica runs a host that accepts it, and take it
+out of the registry before rolling back to a host that does not. Between releases every build
+reports the same version, so check the image the replicas run, not the version.
+
 A change to a tenant's `tenantKeyDigests` alone rebuilds nothing: the tenant's gateway admits the
 new set at once and goes on as it was, its chains, rate and counts included, and the tenant is
 `rekeyed`. A revocation never waits on a build. Digests are read the same way in place as at a
