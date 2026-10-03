@@ -399,9 +399,16 @@ describe("the gateway in shadow", () => {
       reason_codes: ["POLICY_HARD_LIMIT_EXCEEDED"],
     });
     expect(gateway.metricsText()).toContain('agentsafe_shadow_decisions_total{verdict="BLOCK"} 1');
+    // The request was written and the upstream never answered: it may have
+    // acted, so the timeout is never reported as a request not forwarded.
     const failed = await gateway.govern(request("POST", "/hang", { amount: 1 }), "http.post");
     expect(failed.status).toBe(502);
-    expect(json(failed.body)["reason_codes"]).toEqual(["UPSTREAM_UNREACHABLE"]);
+    expect(json(failed.body)).toMatchObject({
+      reason_codes: ["UPSTREAM_TIMEOUT"],
+      execution: "INDETERMINATE",
+    });
+    expect(Object.fromEntries(failed.headers)["agentsafe-execution"]).toBe("INDETERMINATE");
+    expect(upstream.seen.at(-1)?.url).toBe("/hang");
     // The ledger counts every settled observation by verdict and action (the
     // upstream that hung was still observed: the authority would have allowed
     // it), and the status carries it; in enforcement there is no ledger.
@@ -994,6 +1001,75 @@ describe("a public-only upstream, as a hosted gateway runs one", () => {
       execution: "INDETERMINATE",
     });
     await refused.close();
+  });
+});
+
+describe("an upstream that fails", () => {
+  /** What a passthrough answers when the upstream's transport fails this way. */
+  async function failure(error: unknown): Promise<Record<string, unknown>> {
+    const gateway = await Gateway.create(testConfig("https://shop.tenant.example"), {
+      env: {},
+      io: collectedIo(),
+      upstreamFetch: async () => {
+        throw error;
+      },
+    });
+    const answer = await gateway.passthrough(request("GET", "/orders"));
+    await gateway.close();
+    expect(answer.status).toBe(502);
+    const body = json(answer.body);
+    expect(Object.fromEntries(answer.headers)["agentsafe-execution"]).toBe(body["execution"]);
+    return { reason_codes: body["reason_codes"], execution: body["execution"] };
+  }
+  const coded = (code: string, message = code): Error =>
+    Object.assign(new Error(message), { code });
+  const fetchFailed = (cause: Error): Error => new TypeError("fetch failed", { cause });
+  const notForwarded = { reason_codes: ["UPSTREAM_UNREACHABLE"], execution: "NOT_FORWARDED" };
+  const timedOut = { reason_codes: ["UPSTREAM_TIMEOUT"], execution: "INDETERMINATE" };
+
+  it("is not forwarded only when no connection was ever made", async () => {
+    // As `node:http` raises them through the guarded egress, and as `fetch` wraps them.
+    for (const code of ["ENOTFOUND", "EAI_AGAIN", "EAI_FAIL", "ECONNREFUSED"]) {
+      expect([code, await failure(coded(code))]).toEqual([code, notForwarded]);
+      expect([code, await failure(fetchFailed(coded(code)))]).toEqual([code, notForwarded]);
+    }
+    expect(await failure(fetchFailed(coded("UND_ERR_CONNECT_TIMEOUT")))).toEqual(notForwarded);
+  });
+
+  it("is indeterminate once a connection may have carried the request, and a timeout says so", async () => {
+    expect(await failure(new DOMException("aborted due to timeout", "TimeoutError"))).toEqual(
+      timedOut,
+    );
+    expect(await failure(new EgressError("EGRESS_TIMEOUT", "https://shop.tenant.example"))).toEqual(
+      timedOut,
+    );
+    const lost = { reason_codes: ["UPSTREAM_TRANSPORT_FAILED"], execution: "INDETERMINATE" };
+    expect(await failure(coded("ECONNRESET", "socket hang up"))).toEqual(lost);
+    expect(await failure(fetchFailed(coded("UND_ERR_SOCKET", "other side closed")))).toEqual(lost);
+    expect(await failure(new EgressError("EGRESS_TLS_REJECTED"))).toEqual(lost);
+    expect(await failure(new Error("no code at all"))).toEqual(lost);
+    expect(await failure(null)).toEqual(lost);
+  });
+
+  it("tells a refused connection from a request the upstream never answered, on real sockets", async () => {
+    const closed = await Gateway.create(testConfig(`${LOOPBACK_ORIGIN}:${await closedPort()}`), {
+      env: {},
+      io: collectedIo(),
+    });
+    expect(json((await closed.passthrough(request("GET", "/orders"))).body)).toMatchObject(
+      notForwarded,
+    );
+    await closed.close();
+    const upstream = new UpstreamDouble();
+    await upstream.start();
+    const hanging = await Gateway.create(
+      testConfig(upstream.baseUrl, { file: { version: 1, gateway: { upstreamTimeoutMs: 200 } } }),
+      { env: {}, io: collectedIo() },
+    );
+    expect(json((await hanging.passthrough(request("GET", "/hang"))).body)).toMatchObject(timedOut);
+    expect(upstream.seen.map((seen) => seen.url)).toEqual(["/hang"]);
+    await hanging.close();
+    await upstream.stop();
   });
 });
 

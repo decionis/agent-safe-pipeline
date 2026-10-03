@@ -85,6 +85,18 @@ export const GATEWAY_RESPONSE_VERSION = "agent-safe.gateway/1";
 /** The most escalations held at once; beyond it a new hold is refused rather than an old one dropped. */
 const MAX_HELD = 1_000;
 const RETRY_AFTER_SECONDS = 5;
+/**
+ * The transport codes of a send that ended before a connection to the
+ * upstream existed: the name did not resolve, or the connection was refused
+ * or never made. Nothing of the request left this process.
+ */
+const BEFORE_CONNECTION: ReadonlySet<string> = new Set([
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "EAI_FAIL",
+  "ECONNREFUSED",
+  "UND_ERR_CONNECT_TIMEOUT",
+]);
 
 export interface GatewayResponse {
   readonly status: number;
@@ -1285,17 +1297,47 @@ export class Gateway {
         execution: "NOT_FORWARDED",
       });
     }
-    // Too large whichever reader saw it first: the relay's own bound, or the
-    // guarded egress's just outside it.
+    // Nor was one that did not resolve or would not take a connection.
+    if (BEFORE_CONNECTION.has(Gateway.transportCode(error))) {
+      return this.own(502, {
+        state: "ERROR",
+        verdict: null,
+        reason_codes: ["UPSTREAM_UNREACHABLE"],
+        execution: "NOT_FORWARDED",
+      });
+    }
+    // Anything else may have come after the request was written, and the
+    // upstream may have acted on it, so it is never a refusal a caller may
+    // retry. A timeout is one wherever the send was when it ran out: the
+    // send cannot say whether it had written the request. Too large is the
+    // relay's own bound or the guarded egress's just outside it, whichever
+    // reader saw it first.
     const tooLarge =
       (error instanceof Error && error.name === "UpstreamResponseTooLarge") ||
       (error instanceof EgressError && error.code === "EGRESS_BODY_TOO_LARGE");
+    const timedOut =
+      (error instanceof Error && error.name === "TimeoutError") ||
+      (error instanceof EgressError && error.code === "EGRESS_TIMEOUT");
     return this.own(502, {
       state: "ERROR",
       verdict: null,
-      reason_codes: [tooLarge ? "UPSTREAM_RESPONSE_TOO_LARGE" : "UPSTREAM_UNREACHABLE"],
-      execution: tooLarge ? "INDETERMINATE" : "NOT_FORWARDED",
+      reason_codes: [
+        tooLarge
+          ? "UPSTREAM_RESPONSE_TOO_LARGE"
+          : timedOut
+            ? "UPSTREAM_TIMEOUT"
+            : "UPSTREAM_TRANSPORT_FAILED",
+      ],
+      execution: "INDETERMINATE",
     });
+  }
+
+  /** A failed send's transport code: its own, as `node:http` raises it, or its cause's, as `fetch` wraps it. */
+  private static transportCode(error: unknown): string {
+    const own = (error as { code?: unknown } | null)?.code;
+    if (typeof own === "string") return own;
+    const cause = (error as { cause?: { code?: unknown } | null } | null)?.cause?.code;
+    return typeof cause === "string" ? cause : "";
   }
 
   /** A response the gateway itself makes: JSON, protective headers, the wire version. */

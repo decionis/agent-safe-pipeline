@@ -104,6 +104,16 @@ identifiers, with the same `agentsafe-state` and `agentsafe-execution` headers:
 | `EXECUTION_INDETERMINATE` | 502     | `INDETERMINATE` | the request was sent and no answer came back                 |
 | `ERROR`                   | 400–503 | `NOT_FORWARDED` | the intent could not be bound, or the grant not claimed      |
 
+A request forwarded unchanged (a passthrough, a request observed in shadow, a fail-open forward)
+that gets no answer is `502` with state `ERROR`. It is `NOT_FORWARDED` only when no connection was
+ever made: `UPSTREAM_UNREACHABLE` when the name did not resolve or the connection was refused or
+never established, `UPSTREAM_ADDRESS_REFUSED` when a public-only upstream resolved inward. Anything
+later is `INDETERMINATE`, since the upstream may have acted on the request: `UPSTREAM_TIMEOUT` when
+`gateway.upstreamTimeoutMs` (10 seconds by default) ran out, `UPSTREAM_RESPONSE_TOO_LARGE`, or
+`UPSTREAM_TRANSPORT_FAILED`. A timeout is indeterminate wherever the send was when it ran out,
+because the gateway cannot tell whether the request had been written, so a caller never reads one
+as safe to retry.
+
 The listener refuses some requests before the gateway sees them: a missing or wrong tenant key
 (`401 TENANT_KEY_MISSING` or `TENANT_KEY_INVALID`, with `WWW-Authenticate: AgentSafe-Tenant-Key`),
 the gateway's rate (`429 RATE_LIMITED`), a body over the bound (`413 BODY_TOO_LARGE`) and a host it
@@ -135,8 +145,8 @@ In `shadow` mode a consequential request is forwarded unchanged inside `ShadowPi
 while the authority is asked what it would have decided. The response carries `agentsafe-mode:
 SHADOW` and `agentsafe-execution: PASSTHROUGH`; a request passed through without being evaluated
 carries the second alone, so `agentsafe-mode` marks the requests the authority was asked about. The
-observation is reported when it settles and is never a grant. Shadow measures policy impact; it protects nothing, and the output says so. See
-[shadow mode](../shadow-mode.md).
+observation is reported when it settles and is never a grant. Shadow measures policy impact; it
+protects nothing, and the output says so. See [shadow mode](../shadow-mode.md).
 
 ## Not yet
 

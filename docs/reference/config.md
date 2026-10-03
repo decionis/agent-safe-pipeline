@@ -18,7 +18,7 @@ gateway:
   rateLimit: # optional; a hosted gateway gets 50/s, burst 100
     requestsPerSecond: 5 # above 0, at most 10000
     burst: 20 # 1 to 100000
-  upstreamTimeoutMs: 10000 # at most 120000
+  upstreamTimeoutMs: 10000 # one forward's budget, at most 120000; running out is INDETERMINATE
   system: "localhost:3000" # downstream_target.system in the intent; the upstream host by default
   environment: "local" # downstream_target.environment; "production" under NODE_ENV=production
 
