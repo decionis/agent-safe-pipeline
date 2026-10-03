@@ -537,10 +537,12 @@ export {
   GATEWAY_PREFIX,
   GATEWAY_RESPONSE_VERSION,
   GATEWAY_STREAM,
+  type GatewayContinuation,
   type GatewayDependencies,
   type GatewayIo,
   type GatewayResponse,
   type GatewayStatus,
+  type RegistrySource,
 } from "./gateway/Gateway.js";
 export {
   ACTION_NAME,

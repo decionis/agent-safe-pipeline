@@ -47,9 +47,10 @@ the exit status is `0`. A refusal to start names the setting and never its value
 Many tenants' hosted gateways in one process, each at `{id}.{domain}`, from the
 [tenant registry](../gateway/configuration.md#many-tenants-in-one-process) the operator mounts. A
 request is routed by its `Host` alone; a host no tenant has is `421`, except `healthz` and `readyz`,
-which answer for the process so a platform can probe it by address. The registry is read again when
-its text changes and on `SIGHUP`; `SIGTERM` and `SIGINT` stop it. Every line it prints is JSON, and
-every line a tenant's gateway prints begins with that tenant's id.
+which answer for the process so a platform can probe it by address; `readyz` is `503` until one
+load has served every tenant the registry names. The registry is read again when its text changes
+and on `SIGHUP`; `SIGTERM` and `SIGINT` stop it. Every line it prints is JSON, and every line a
+tenant's gateway prints begins with that tenant's id.
 
 | Option                    | Meaning                                                                 |
 | ------------------------- | ----------------------------------------------------------------------- |

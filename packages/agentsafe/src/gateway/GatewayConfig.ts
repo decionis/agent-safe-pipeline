@@ -831,14 +831,7 @@ export class GatewayConfigLoader {
         "a lower-case DNS label, on a hosted gateway",
       );
     }
-    // Hosted, the tenant is the only caller the gateway admits, from day one.
-    if (hosted && tenantKeys.length === 0) {
-      throw new GatewayConfigError(
-        "CONFIG_MISSING",
-        "tenantKeyDigests",
-        `${ENVIRONMENT.tenantKeyDigests} or gateway.tenantKeyDigests: a hosted gateway admits only its tenant`,
-      );
-    }
+    GatewayConfigLoader.requireTenantKey(tenantKeys, hosted);
 
     const rateLimit =
       resolve<RateLimit | null>(
@@ -1061,6 +1054,28 @@ export class GatewayConfigLoader {
       );
     }
     return { requestsPerSecond: rate, burst: Number(burst) };
+  }
+
+  /**
+   * The tenant keys a running gateway may be given in place of its own: held
+   * to the same rule as the configuration's, one or two distinct digests,
+   * and at least one when it is hosted.
+   */
+  public static admittedKeys(digests: readonly string[], hosted: boolean): readonly string[] {
+    const keys = GatewayConfigLoader.tenantKeys(digests);
+    GatewayConfigLoader.requireTenantKey(keys, hosted);
+    return keys;
+  }
+
+  /** Hosted, the tenant is the only caller the gateway admits, from day one. */
+  private static requireTenantKey(keys: readonly string[], hosted: boolean): void {
+    if (hosted && keys.length === 0) {
+      throw new GatewayConfigError(
+        "CONFIG_MISSING",
+        "tenantKeyDigests",
+        `${ENVIRONMENT.tenantKeyDigests} or gateway.tenantKeyDigests: a hosted gateway admits only its tenant`,
+      );
+    }
   }
 
   /** One or two distinct `sha256:` digests, lower-case hex; anything else is refused by name. */

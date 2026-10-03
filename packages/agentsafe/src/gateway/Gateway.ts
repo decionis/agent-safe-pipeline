@@ -48,7 +48,7 @@ import {
   RequestHolder,
   type ForwardOutcome,
 } from "./ForwardHandler.js";
-import type { GatewayConfig } from "./GatewayConfig.js";
+import { GatewayConfigLoader, type GatewayConfig } from "./GatewayConfig.js";
 import { gatewayMetrics, type GatewayMetrics } from "./GatewayMetrics.js";
 import { processSurface, type InstallSurface } from "./InstallSurface.js";
 import {
@@ -138,6 +138,32 @@ export interface GatewayDependencies {
    * record tells a test run from a gateway in service.
    */
   readonly clientExample?: string;
+  /**
+   * What the gateway this one replaces hands on: its chains are continued,
+   * neither restored from the journal nor started again from genesis, and
+   * its funnel's milestones are not reported twice.
+   */
+  readonly continues?: GatewayContinuation;
+}
+
+/**
+ * A gateway's chains and adoption funnel, handed to the gateway built to
+ * replace it. Linking is synchronous, so the replaced gateway, finishing
+ * what it has in flight, and its replacement write one sequence per stream.
+ */
+export interface GatewayContinuation {
+  readonly evidence: HashChain;
+  readonly gateway: HashChain;
+  readonly security: HashChain;
+  readonly activation: ActivationFunnel;
+}
+
+/** Where a hosted gateway's configuration came from, when a host built it from a tenant registry. */
+export interface RegistrySource {
+  /** The registry the host last loaded, as a short digest of its text. */
+  readonly revision: string;
+  /** The tenant's entry this gateway was built from, as a short digest of its fingerprint. */
+  readonly entry: string;
 }
 
 /** What `/_agentsafe/status` reports: identifiers and counts, never a value. */
@@ -158,6 +184,22 @@ export interface GatewayStatus {
   readonly surface: InstallSurface | null;
   /** In shadow, what the authority would have decided so far, by verdict and action; null in enforcement. */
   readonly shadow: ShadowSummary | null;
+  /**
+   * A hosted gateway's tenant, the tenant keys it admits now, each as a
+   * short prefix of its digest and never the digest, and the registry it was
+   * built from when a host built it; null for a gateway that is not hosted,
+   * whose status may answer without the operator's token.
+   */
+  readonly hosted: {
+    readonly tenant: string | null;
+    readonly tenant_keys: readonly string[];
+    readonly registry: RegistrySource | null;
+  } | null;
+}
+
+/** How much of a `sha256:` digest a readback shows: enough to tell two apart, never the digest. */
+export function shortDigest(digest: string): string {
+  return digest.slice(0, "sha256:".length + 12);
 }
 
 interface HeldEscalation {
@@ -199,7 +241,7 @@ export class Gateway {
   private readonly executor: SafeExecutor;
   private readonly shadow: ShadowPipeline | null;
   private readonly resolver: EscalationResolver | null;
-  private readonly stopFollowing: readonly (() => void)[];
+  private readonly stopFollowing: (() => void)[];
   private readonly counts: Record<string, number> = {};
   private readonly activation: ActivationFunnel;
   private readonly ledger = new ShadowLedger();
@@ -207,6 +249,9 @@ export class Gateway {
   /** The tenant key's refusals on the security stream, bounded per window. */
   private readonly refusals: RefusalSampler<TenantKeyRefusal>;
   private lastShadowReportAt: number;
+  /** The tenant keys admitted now: the configuration's, until a host replaces them in place. */
+  private admitted: readonly string[];
+  private registry: RegistrySource | null = null;
 
   private constructor(
     public readonly config: GatewayConfig,
@@ -218,7 +263,7 @@ export class Gateway {
     private readonly metrics: GatewayMetrics,
     private readonly emitLine: LineWriter,
     private readonly io: GatewayIo,
-    security: SecurityEvents,
+    private readonly security: SecurityEvents,
     private readonly secrets: SecretStore | null,
     private readonly demo: DemoAuthorityHandle | null,
     journal: ChainJournal | null,
@@ -229,8 +274,10 @@ export class Gateway {
     private readonly surface: InstallSurface | null,
     public readonly boundary: EnforcementBoundary,
     public readonly workload: WorkloadSignal | null,
+    activation: ActivationFunnel | null,
   ) {
     this.lastShadowReportAt = clock();
+    this.admitted = config.tenantKeys;
     this.capture = new IntentCapture({ audit, ttlSeconds: config.intentTtlSeconds });
     this.bucket = config.rateLimit === null ? null : new TokenBucket(config.rateLimit, clock);
     this.refusals = new RefusalSampler(
@@ -238,10 +285,14 @@ export class Gateway {
       (code, count) =>
         security.emit({ event: "AUTH_FAILED_SUPPRESSED", method: "tenant_key", code, count }),
     );
-    this.activation = new ActivationFunnel(
-      (milestone, at) => this.report({ event: "ACTIVATION", milestone, at }),
-      clock,
-    );
+    // A funnel handed on keeps reporting through the gateway that made it:
+    // the same tenant's output, so a milestone is still reported once.
+    this.activation =
+      activation ??
+      new ActivationFunnel(
+        (milestone, at) => this.report({ event: "ACTIVATION", milestone, at }),
+        clock,
+      );
     const registry = registerHttpActions(
       new ActionRegistry(),
       routes.actions(),
@@ -274,8 +325,8 @@ export class Gateway {
   /**
    * Assembles the gateway: the secrets it needs opened, the demo authority
    * started when chosen, the guarded egress sealed to the authority, the
-   * pipeline objects built over it, the evidence chains restored. Nothing
-   * listens; the listener is the caller's.
+   * pipeline objects built over it, the evidence chains restored or
+   * continued. Nothing listens; the listener is the caller's.
    */
   public static async create(
     config: GatewayConfig,
@@ -308,13 +359,15 @@ export class Gateway {
       mkdirSync(config.evidence.journalDir, { recursive: true });
       journal = new ChainJournal(config.evidence.journalDir, { checkpointLines: 100 });
     }
+    // Each chain goes on from the gateway this one replaces, else from the
+    // head the journal last persisted, else from genesis.
+    const continues = dependencies.continues ?? null;
+    const takeUp = (stream: string, handed: HashChain | undefined): HashChain =>
+      handed ?? new HashChain(stream, journal?.restore(stream) ?? null, config.hostedTenant);
     const security = new SecurityEvents(emitter.security, {
-      chain: new HashChain(
-        SECURITY_STREAM,
-        journal?.restore(SECURITY_STREAM) ?? null,
-        config.hostedTenant,
-      ),
+      chain: takeUp(SECURITY_STREAM, continues?.security),
     });
+    const securityHead = security.chain.head.seq;
     emitter.reportRedactions((patterns) =>
       security.emit({ event: "LEAK_SUSPECTED", patterns: [...patterns] }),
     );
@@ -422,16 +475,8 @@ export class Gateway {
       config.interception.unmatched,
       config.interception.http,
     );
-    const evidence = new HashChain(
-      EVIDENCE_STREAM,
-      journal?.restore(EVIDENCE_STREAM) ?? null,
-      config.hostedTenant,
-    );
-    const chain = new HashChain(
-      GATEWAY_STREAM,
-      journal?.restore(GATEWAY_STREAM) ?? null,
-      config.hostedTenant,
-    );
+    const evidence = takeUp(EVIDENCE_STREAM, continues?.evidence);
+    const chain = takeUp(GATEWAY_STREAM, continues?.gateway);
     const audit = new AuditRecorder({
       sink: new HashChainedAuditSink(emitLine, evidence),
       failurePolicy: config.evidence.enabled ? "REQUIRE_BEFORE_EXECUTION" : "BEST_EFFORT",
@@ -453,6 +498,15 @@ export class Gateway {
       new NoneProvenanceProvider(),
     ];
     const workload = resolveWorkload(dependencies.provenance ?? providers, { env });
+    // A chain that does not start at genesis says where it was taken up, once
+    // nothing is left that can refuse the gateway.
+    for (const [stream, head] of [
+      [SECURITY_STREAM, securityHead],
+      [EVIDENCE_STREAM, evidence.head.seq],
+      [GATEWAY_STREAM, chain.head.seq],
+    ] as const) {
+      if (head > 0) security.emit({ event: "CHAIN_RESUMED", chain: stream, head });
+    }
     const gateway = new Gateway(
       config,
       upstream,
@@ -474,6 +528,7 @@ export class Gateway {
       surface,
       boundary,
       workload,
+      continues?.activation ?? null,
     );
     return gateway;
   }
@@ -605,7 +660,55 @@ export class Gateway {
       activation: this.activation.snapshot(),
       surface: this.surface,
       shadow: this.shadow === null ? null : this.ledger.summary(),
+      hosted: this.config.hosted
+        ? {
+            tenant: this.config.hostedTenant,
+            tenant_keys: this.admitted.map(shortDigest),
+            registry: this.registry,
+          }
+        : null,
     };
+  }
+
+  /** The tenant keys the gateway admits now, as digests. */
+  public get tenantKeys(): readonly string[] {
+    return this.admitted;
+  }
+
+  /**
+   * Replaces the tenant keys the gateway admits, at once and without a
+   * rebuild, so a rotation or a revocation changes nothing else: not the
+   * chains, the rate, the counts or what is in flight. The digests are held
+   * to the configuration's rule; digests that break it are refused whole,
+   * and the keys admitted stay as they were.
+   */
+  public admitKeys(digests: readonly string[]): void {
+    this.admitted = GatewayConfigLoader.admittedKeys(digests, this.config.hosted);
+  }
+
+  /** The registry a host last loaded, and the entry this gateway was built from, for the status. */
+  public builtFrom(source: RegistrySource): void {
+    this.registry = source;
+  }
+
+  /** What the gateway built to replace this one takes up: its chains and its funnel. */
+  public continuation(): GatewayContinuation {
+    return {
+      evidence: this.evidence,
+      gateway: this.chain,
+      security: this.security.chain,
+      activation: this.activation,
+    };
+  }
+
+  /**
+   * Stops persisting the chains' heads, once the gateway that continues them
+   * persists them itself. A replaced gateway still finishing its requests
+   * links on the same chains, so its last checkpoint, at the end of its
+   * drain, would otherwise land after the live one's.
+   */
+  public releaseJournal(): void {
+    for (const stop of this.stopFollowing.splice(0)) stop();
   }
 
   /** The switch the shadow report ends with, for whoever renders the status elsewhere. */
@@ -662,13 +765,13 @@ export class Gateway {
    * flood without the key cannot grow the chained stream with its rate.
    */
   public keyRefusal(presented: string | undefined): TenantKeyRefusal | null {
-    if (this.config.tenantKeys.length === 0) return null;
+    if (this.admitted.length === 0) return null;
     const candidate =
       presented === undefined || presented === ""
         ? null
         : createHash("sha256").update(presented, "utf8").digest();
     let admitted = false;
-    for (const digest of this.config.tenantKeys) {
+    for (const digest of this.admitted) {
       const expected = Buffer.from(digest.slice("sha256:".length), "hex");
       if (candidate !== null && timingSafeEqual(candidate, expected)) admitted = true;
     }
@@ -773,7 +876,7 @@ export class Gateway {
 
   public async close(): Promise<void> {
     this.refusals.flush();
-    for (const stop of this.stopFollowing) stop();
+    this.releaseJournal();
     this.held.clear();
     if (this.demo !== null) await this.demo.stop();
     this.secrets?.close();

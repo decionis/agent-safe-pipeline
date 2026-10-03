@@ -47,8 +47,18 @@ const registry = (ids: readonly string[]): string =>
   });
 
 const settle = (ms = 30): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+/** The host's own lines; every line a tenant's gateway prints names its tenant. */
+const own = (out: readonly string[]): Record<string, unknown>[] =>
+  out
+    .map((line) => JSON.parse(line) as Record<string, unknown>)
+    .filter((line) => !("tenant" in line));
 const events = (out: readonly string[]): string[] =>
-  out.map((line) => String((JSON.parse(line) as { event?: unknown }).event ?? ""));
+  own(out).map((line) => String(line["event"] ?? ""));
+/** What one tenant's gateway reported, by event, in order. */
+const reported = (out: readonly string[], tenant: string): Record<string, unknown>[] =>
+  out
+    .map((line) => JSON.parse(line) as Record<string, unknown>)
+    .filter((line) => line["tenant"] === tenant && !("stream" in line));
 
 function get(
   port: number,
@@ -107,10 +117,15 @@ describe("agentsafe host", () => {
     );
     expect(io.exits).toEqual([]);
     expect(events(io.out)).toEqual(["TENANT_REGISTRY_LOADED", "TENANT_HOST_STARTED"]);
-    expect(JSON.parse(io.out[1] ?? "{}")).toMatchObject({
+    expect(own(io.out)[1]).toMatchObject({
       listen: `127.0.0.1:${port}`,
       tenants: 1,
     });
+    // Each tenant's gateway starts once the listener is bound, at its own host.
+    expect(
+      reported(io.out, "acme").find((line) => line["event"] === "GATEWAY_STARTED"),
+    ).toMatchObject({ gateway: "http://acme.decionisedge.example", mode: "SHADOW" });
+    expect(await get(port, "10.0.0.8:8080", "/_agentsafe/readyz")).toBe(200);
     expect(
       await get(port, "acme.decionisedge.example", "/orders", {
         "agentsafe-tenant-key": TENANT_KEY,
@@ -131,7 +146,7 @@ describe("agentsafe host", () => {
     // And SIGHUP reads it again on demand.
     io.signals.get("SIGHUP")?.();
     for (let attempt = 0; attempt < 40 && events(io.out).length < 4; attempt += 1) await settle();
-    expect(JSON.parse(io.out[3] ?? "{}")).toMatchObject({
+    expect(own(io.out)[3]).toMatchObject({
       event: "TENANT_REGISTRY_LOADED",
       kept: 2,
       built: [],
@@ -142,6 +157,13 @@ describe("agentsafe host", () => {
     for (let attempt = 0; attempt < 40 && io.exits.length === 0; attempt += 1) await settle();
     expect(io.exits).toEqual([0]);
     expect(events(io.out).at(-1)).toBe("TENANT_HOST_STOPPED");
+    // Every tenant's gateway stops with the signal, and its shadow tally.
+    for (const tenant of ["acme", "globex"]) {
+      expect(reported(io.out, tenant).slice(-2)).toEqual([
+        expect.objectContaining({ event: "SHADOW_REPORT" }),
+        expect.objectContaining({ event: "GATEWAY_STOPPED", signal: "SIGTERM" }),
+      ]);
+    }
     expect(io.out.join("")).not.toContain(TENANT_KEY);
   });
 
@@ -176,15 +198,18 @@ describe("agentsafe host", () => {
       20,
       60,
     );
-    expect(JSON.parse(io.out[0] ?? "{}")).toMatchObject({
+    expect(own(io.out)[0]).toMatchObject({
       event: "TENANT_REGISTRY_LOADED",
       served: 0,
       failed: [{ tenant: "acme" }],
     });
+    // A process that cannot serve every tenant yet is not ready for traffic.
+    expect(await get(port, "10.0.0.8:8080", "/_agentsafe/readyz")).toBe(503);
     writeFileSync(late, LOCAL_AUTHORITY_API_KEY, { mode: 0o600 });
     const built = (): boolean => io.out.some((line) => line.includes('"built":["acme"]'));
     for (let attempt = 0; attempt < 100 && !built(); attempt += 1) await settle(20);
     expect(built()).toBe(true);
+    expect(await get(port, "10.0.0.8:8080", "/_agentsafe/readyz")).toBe(200);
     expect(
       await get(port, "acme.decionisedge.example", "/orders", {
         "agentsafe-tenant-key": TENANT_KEY,
@@ -243,11 +268,14 @@ describe("agentsafe host", () => {
       20,
     );
     expect(io.exits).toEqual([]);
-    expect(JSON.parse(io.out[1] ?? "{}")).toMatchObject({
+    expect(own(io.out)[1]).toMatchObject({
       event: "TENANT_HOST_STARTED",
       tls: true,
       redirect: `127.0.0.1:${redirectPort}`,
     });
+    expect(
+      reported(io.out, "acme").find((line) => line["event"] === "GATEWAY_STARTED"),
+    ).toMatchObject({ gateway: "https://acme.decionisedge.example" });
 
     const tenant = await secure(port, ca.certificate, "acme.decionisedge.example", "/orders", {
       "agentsafe-tenant-key": TENANT_KEY,

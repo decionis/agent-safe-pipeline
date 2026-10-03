@@ -26,7 +26,8 @@ export const TENANT_RETRY_MS = 60_000;
  * registry the operator mounts (`--registry` or `AGENTSAFE_TENANT_REGISTRY`).
  * Every tenant is a hosted gateway at `{id}.{domain}`; a request is routed by
  * its host alone, and a host no tenant has is refused with 421, except the
- * platform's `healthz` and `readyz`. The registry is read again on `SIGHUP`
+ * platform's `healthz` and `readyz`; `readyz` is 503 until one load has
+ * served every tenant the registry names. The registry is read again on `SIGHUP`
  * and whenever its text changes; `SIGTERM` and `SIGINT` stop the listener
  * with a grace period, close every gateway and exit 0. Everything this
  * process prints is JSON, one line each, and every tenant's line carries its
@@ -150,7 +151,9 @@ export async function runHost(
   const apexPage = (): string | null => (apexPath === null ? null : io.files.read(apexPath));
   const server = new GatewayHttpServer(host.select, {
     metricsToken: io.env["AGENTSAFE_METRICS_TOKEN"] ?? null,
-    probe: { ready: () => true },
+    // Not ready until every tenant the registry names has been served once,
+    // so a rollout or a restart that cannot serve one takes no traffic.
+    probe: { ready: () => host.ready() },
     tls,
     apex: { hostname: () => host.domain(), page: apexPage },
   });
@@ -189,6 +192,7 @@ export async function runHost(
       tenants: host.hostnames().length,
     }),
   );
+  host.listening(tls === null ? "http" : "https");
 
   // A change to the registry's text is a reload; so is SIGHUP. Either way the
   // host reads the file itself, so a half-written file is refused, not served.
@@ -226,7 +230,7 @@ export async function runHost(
       .then(() => {
         stopRotation?.();
         keys?.close();
-        return host.close();
+        return host.close(signal);
       })
       .then(() => io.exit(0));
   };

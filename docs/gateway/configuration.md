@@ -98,7 +98,7 @@ as its own hosted gateway at `{id}.{domain}`:
 ```yaml
 version: 1
 domain: decionisedge.com
-evidenceDir: /var/lib/agentsafe/tenants # optional: one directory per tenant
+evidenceDir: /var/lib/agent-safe/tenants # optional: one directory per tenant, on a volume (below)
 tenants:
   - id: acme # a DNS label; www, api, status, admin and console are the operator's
     upstream: https://api.acme.example
@@ -106,7 +106,7 @@ tenants:
     rateLimit: { requestsPerSecond: 5, burst: 20 } # optional; else the registry's, else 50/100
     workspace:
       tenantId: 7c0e… # the Decionis workspace the tenant's evaluations run in
-      apiKeyFile: /run/secrets/tenants/acme/decionis-api-key
+      apiKeyFile: /var/run/agent-safe/tenants/acme/decionis-api-key
     interception: # optional: the tenant's routes, as in agentsafe.yaml
       routes:
         - { path: /payments/**, action: payment.create, methods: [POST] }
@@ -133,8 +133,55 @@ so a key rotated in a mounted Secret takes effect without a rebuild or a restart
 `SECRET_ROTATED` on the tenant's security chain. A
 reload rebuilds only the tenants whose entry changed; a replaced or removed tenant's gateway
 finishes the requests in flight for 30 seconds before it is closed. Each load is one
-`TENANT_REGISTRY_LOADED` or `TENANT_REGISTRY_REFUSED` line naming what was built, kept, retired and
-failed.
+`TENANT_REGISTRY_LOADED` or `TENANT_REGISTRY_REFUSED` line naming the registry's `revision`
+(`sha256:` and the first 12 hex digits of the SHA-256 of its text, as read) and what was built,
+kept, rekeyed, retired and failed.
+
+A change to a tenant's `tenantKeyDigests` alone rebuilds nothing: the tenant's gateway admits the
+new set at once and goes on as it was, its chains, rate and counts included, and the tenant is
+`rekeyed`. A revocation never waits on a build. When the rest of an entry cannot be applied, the
+tenant keeps the gateway it had, but that gateway admits only the keys the entry still lists; if
+the entry's digests are themselves malformed, it keeps only those it already admits that the entry
+still names, and a tenant left with none is not served (`421`) until its entry is fixed. Each
+replica reads the registry on its own, so a change reaches replicas at different moments: a
+tenant's `/_agentsafe/status`, which answers the operator's token only, carries `hosted`, with the
+registry `revision` that replica last loaded, the `entry` (a short digest) its gateway was built
+from, and a `sha256:` prefix of 12 hex digits for each tenant key it admits, never the digest.
+
+Once the listener is bound, each tenant's gateway prints its banner (`GATEWAY_STARTED`, at
+`https://{id}.{domain}` when the host terminates TLS) and links `GATEWAY_STARTED` on its own
+gateway-events chain, and so does each gateway a reload builds. A replaced or removed gateway, once
+it has drained, prints its `SHADOW_REPORT`, counting what settled while it drained, and
+`GATEWAY_STOPPED` with `signal: RELOAD`; on `SIGTERM` or `SIGINT` every gateway does the same with
+the signal. `readyz` answers `503` until one load has served every tenant the registry names, and
+`200` from then on: a new process, in a rollout or after a restart, takes no traffic while it would
+answer a tenant `421`, and a tenant that fails later is reported without taking every other tenant
+out of service.
+
+### Evidence across reloads, restarts and replicas
+
+A tenant's chains belong to the process. A gateway a reload builds takes up the chains of the one
+it replaces, so the tenant's evidence goes on in one sequence, with `CHAIN_RESUMED` on its security
+chain naming each stream's head at the rebuild; the drained gateway finishes on the same chains.
+Without `evidenceDir`, a process start begins each tenant's chains from genesis, which
+`agentsafe verify-chain` counts as a start. With it, each tenant's chain heads are kept under
+`<evidenceDir>/<id>/chain/`, beside its `evidence.jsonl`, and the next process goes on from them
+(`CHAIN_RESUMED`).
+
+The published image runs Node under its permission model: it reads only `/app`, `/etc/agentsafe`
+and `/var/run/agent-safe`, and writes only under `/var/lib/agent-safe`. With a read-only root
+filesystem, mount a writable volume at `/var/lib/agent-safe` first, and only then set `evidenceDir`
+beneath it: a directory the process cannot create fails every tenant's build
+(`TENANT_BUILD_FAILED`), so tenants already served keep the gateways they had and a new process
+serves none and never becomes ready. The volume must be one replica's own (an `emptyDir` keeps
+the heads across a container restart, a volume claim per replica across a reschedule); two
+processes writing one tenant's heads fork its chains.
+
+Each replica runs its own chains for every tenant, from its own start, and nothing in a chained
+line names the replica. A log pipeline that merges replicas' output must keep each replica's lines
+apart (by pod) and in the order that process wrote them; each part then verifies on its own, with
+one start for each process start. Ordered by `seq` alone, or interleaved across replicas, the lines
+do not verify.
 
 ### TLS at the host
 

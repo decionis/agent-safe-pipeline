@@ -1168,6 +1168,54 @@ describe("the tenant key check", () => {
     await gateway.close();
   });
 
+  it("takes new keys in place, held to the configuration's rule, and keeps its own when they break it", async () => {
+    const gateway = await Gateway.create(
+      testConfig("https://shop.tenant.example", {
+        flags: { mode: "shadow" },
+        env: { AGENTSAFE_HOSTED_GATEWAY: "true", AGENTSAFE_TENANT_KEY_DIGESTS: TENANT_KEY_DIGEST },
+      }),
+      { env: {}, io: collectedIo() },
+    );
+    gateway.admitKeys([TENANT_KEY_DIGEST, secondDigest]);
+    expect([gateway.keyRefusal(TENANT_KEY), gateway.keyRefusal(second)]).toEqual([null, null]);
+    gateway.admitKeys([secondDigest]);
+    expect([gateway.keyRefusal(TENANT_KEY), gateway.keyRefusal(second)]).toEqual([
+      "TENANT_KEY_INVALID",
+      null,
+    ]);
+    const refusal = (digests: readonly string[]): string => {
+      try {
+        gateway.admitKeys(digests);
+      } catch (error) {
+        return (error as Error).message.split(" (")[0] ?? "";
+      }
+      return "admitted";
+    };
+    expect(refusal(["sha256:not-a-digest"])).toBe("CONFIG_INVALID: tenantKeyDigests");
+    expect(refusal([secondDigest, secondDigest])).toBe("CONFIG_INVALID: tenantKeyDigests");
+    expect(refusal([])).toBe("CONFIG_MISSING: tenantKeyDigests");
+    expect(gateway.tenantKeys).toEqual([secondDigest]);
+    // The operator reads back a prefix of each digest, never the digest.
+    expect(gateway.status().hosted).toEqual({
+      tenant: null,
+      tenant_keys: [secondDigest.slice(0, "sha256:".length + 12)],
+      registry: null,
+    });
+    expect(JSON.stringify(gateway.status())).not.toContain(secondDigest);
+    await gateway.close();
+
+    // A gateway its owner runs says nothing of keys in a status anyone may read.
+    const owned = await Gateway.create(
+      testConfig("https://shop.tenant.example", {
+        flags: { mode: "shadow" },
+        env: { AGENTSAFE_TENANT_KEY_DIGESTS: TENANT_KEY_DIGEST },
+      }),
+      { env: {}, io: collectedIo() },
+    );
+    expect(owned.status().hosted).toBeNull();
+    await owned.close();
+  });
+
   it("bounds what a flood without the key writes to the security stream, and counts the rest", async () => {
     const io = collectedIo();
     const gateway = await Gateway.create(

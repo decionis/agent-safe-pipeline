@@ -1,5 +1,10 @@
 import { join } from "node:path";
-import { Gateway, type GatewayDependencies, type GatewayIo } from "../gateway/Gateway.js";
+import {
+  Gateway,
+  shortDigest,
+  type GatewayDependencies,
+  type GatewayIo,
+} from "../gateway/Gateway.js";
 import {
   GatewayConfigError,
   GatewayConfigLoader,
@@ -9,6 +14,7 @@ import type { GatewaySelector } from "../http/GatewayHttpServer.js";
 import { SecretError } from "../secrets/SecretStore.js";
 import {
   parseTenantRegistry,
+  registryRevision,
   tenantFingerprint,
   tenantHostname,
   TenantRegistryError,
@@ -58,11 +64,19 @@ export interface TenantLoadReport {
   readonly event: "TENANT_REGISTRY_LOADED" | "TENANT_REGISTRY_REFUSED";
   /** The code when the registry itself was refused; the tenants served are then unchanged. */
   readonly code: string | null;
+  /** The registry's text, as read, as a short digest; null when there was none to read. */
+  readonly revision: string | null;
   readonly served: number;
   readonly built: readonly string[];
   readonly kept: number;
+  /** Tenants whose gateway took new keys in place, without a rebuild. */
+  readonly rekeyed: readonly string[];
   readonly retired: number;
-  /** Tenants whose gateway could not be built, with the reason; each keeps its previous gateway, if it had one. */
+  /**
+   * Tenants whose entry could not be applied, with the reason. Each keeps the
+   * gateway it had, if it had one, admitting only keys its entry still lists;
+   * when that is none, it is not served.
+   */
   readonly failed: readonly { readonly tenant: string; readonly code: string }[];
 }
 
@@ -81,9 +95,10 @@ interface Served {
  * another, because each request is routed to one gateway by its host alone.
  *
  * A reload rebuilds only the tenants whose entry changed, swaps the set at
- * once, and lets a replaced gateway drain before it is closed. A registry
- * that cannot be read or is not valid changes nothing: the tenants served
- * stay served.
+ * once, and lets a replaced gateway drain before it is closed; the gateway
+ * built in its place continues its chains. A change to a tenant's keys alone
+ * rebuilds nothing: its gateway takes them in place. A registry that cannot
+ * be read or is not valid changes nothing: the tenants served stay served.
  */
 export class TenantHost {
   private served = new Map<string, Served>();
@@ -94,6 +109,9 @@ export class TenantHost {
   private refusal: TenantRegistryError | null = null;
   private failing: readonly string[] = [];
   private currentDomain: string | null = null;
+  /** How the tenants' hosts are reached, once the listener is bound; null before. */
+  private scheme: "http" | "https" | null = null;
+  private everyTenantServed = false;
 
   /** The gateway for a request's host, or null (the listener answers 421). */
   public readonly select: GatewaySelector = (hostname) =>
@@ -113,12 +131,23 @@ export class TenantHost {
   }
 
   /**
-   * The tenants whose gateway the last load could not build: a reload with an
-   * unchanged registry builds exactly these again, since every other tenant
+   * The tenants whose entry the last load could not apply: a reload with an
+   * unchanged registry tries exactly these again, since every other tenant
    * is kept. A tenant whose key file had not arrived yet is one of them.
    */
   public failures(): readonly string[] {
     return this.failing;
+  }
+
+  /**
+   * Whether the process is ready for traffic: from the first load that served
+   * every tenant its registry names, and from then on. A new process, in a
+   * rollout or after a restart, gets no traffic while a tenant it should
+   * serve would be answered 421; once ready, a tenant that cannot be built
+   * later is reported, and never takes every other tenant out of service.
+   */
+  public ready(): boolean {
+    return this.everyTenantServed;
   }
 
   /** The domain of the registry last loaded: the apex, and the parent of every tenant's host. */
@@ -131,6 +160,17 @@ export class TenantHost {
     return [...this.served.keys()].sort();
   }
 
+  /**
+   * The listener is bound: every tenant's gateway starts, with its banner and
+   * its chained start line, and so does each gateway built from now on as it
+   * is swapped in. A started gateway reports its stop, and its shadow tally,
+   * when it is replaced or the host stops.
+   */
+  public listening(scheme: "http" | "https"): void {
+    this.scheme = scheme;
+    for (const [hostname, entry] of this.served) entry.gateway.started(`${scheme}://${hostname}`);
+  }
+
   /** Reads the registry again; reloads never overlap, and each is reported as one line. */
   public reload(): Promise<TenantLoadReport> {
     const next = this.queue.then(() => this.load());
@@ -138,22 +178,33 @@ export class TenantHost {
     return next;
   }
 
-  /** Closes every gateway, the draining ones included, at once. */
-  public async close(): Promise<void> {
+  /**
+   * Stops every gateway, the draining ones included, and closes them: the
+   * draining ones first, so the head a journal persists last is the one the
+   * live gateway links on.
+   */
+  public async close(signal = "SHUTDOWN"): Promise<void> {
     this.closed = true;
     for (const timer of this.timers) clearTimeout(timer);
     this.timers.clear();
-    const gateways = [...[...this.served.values()].map((entry) => entry.gateway), ...this.draining];
+    const draining = [...this.draining];
+    const served = [...this.served.values()].map((entry) => entry.gateway);
     this.served = new Map();
     this.draining.clear();
-    await Promise.all(gateways.map((gateway) => gateway.close()));
+    if (this.scheme !== null) {
+      for (const gateway of [...draining, ...served]) gateway.stopped(signal);
+    }
+    await Promise.all(draining.map((gateway) => gateway.close()));
+    await Promise.all(served.map((gateway) => gateway.close()));
   }
 
   private async load(): Promise<TenantLoadReport> {
     let registry: TenantRegistry;
+    let revision: string | null = null;
     try {
       const text = this.options.readFile(this.options.registryPath);
       if (text === null) throw new TenantRegistryError("REGISTRY_UNREADABLE");
+      revision = shortDigest(registryRevision(text));
       registry = parseTenantRegistry(text);
     } catch (error) {
       this.refusal =
@@ -163,9 +214,11 @@ export class TenantHost {
       return this.report({
         event: "TENANT_REGISTRY_REFUSED",
         code: this.refusal.message,
+        revision,
         served: this.served.size,
         built: [],
         kept: this.served.size,
+        rekeyed: [],
         retired: 0,
         failed: [],
       });
@@ -174,26 +227,44 @@ export class TenantHost {
     this.currentDomain = registry.domain;
     const next = new Map<string, Served>();
     const built: string[] = [];
+    const fresh: [string, Gateway][] = [];
+    const replaced: Gateway[] = [];
+    const rekeyed: string[] = [];
     const failed: { tenant: string; code: string }[] = [];
     let kept = 0;
     for (const tenant of registry.tenants) {
       const hostname = tenantHostname(registry, tenant);
       const fingerprint = tenantFingerprint(registry, tenant);
       const current = this.served.get(hostname);
-      if (current !== undefined && current.fingerprint === fingerprint) {
-        next.set(hostname, current);
-        kept += 1;
-        continue;
+      const unchanged = current?.fingerprint === fingerprint;
+      let failure: unknown = null;
+      if (!unchanged) {
+        try {
+          // A rebuilt tenant's gateway takes up the chains its old one links
+          // on, so its evidence goes on in one sequence, never from genesis.
+          const gateway = await this.build(registry, tenant, current?.gateway);
+          next.set(hostname, { id: tenant.id, fingerprint, gateway });
+          built.push(tenant.id);
+          fresh.push([hostname, gateway]);
+          if (current !== undefined) replaced.push(current.gateway);
+          continue;
+        } catch (error) {
+          failure = error;
+        }
       }
-      try {
-        const gateway = await this.build(registry, tenant);
-        next.set(hostname, { id: tenant.id, fingerprint, gateway });
-        built.push(tenant.id);
-      } catch (error) {
-        failed.push({ tenant: tenant.id, code: TenantHost.codeOf(error) });
-        // A tenant whose new entry cannot be built keeps the gateway it had.
-        if (current !== undefined) next.set(hostname, current);
+      if (current !== undefined) {
+        // The gateway it had: unchanged but for its keys, or kept because its
+        // new entry cannot be built. Either way it admits, from now on, only
+        // keys the entry lists.
+        const keys = TenantHost.rekey(current.gateway, tenant.tenantKeyDigests);
+        failure ??= keys.error;
+        if (keys.changed) rekeyed.push(tenant.id);
+        if (keys.served) {
+          next.set(hostname, current);
+          if (unchanged) kept += 1;
+        }
       }
+      if (failure !== null) failed.push({ tenant: tenant.id, code: TenantHost.codeOf(failure) });
     }
     this.failing = failed.map((entry) => entry.tenant);
     const live = new Set([...next.values()].map((entry) => entry.gateway));
@@ -204,21 +275,68 @@ export class TenantHost {
       await Promise.all([...next.values()].map((entry) => entry.gateway.close()));
     } else {
       this.served = next;
+      if (next.size === registry.tenants.length) this.everyTenantServed = true;
+      // The replacement persists the chains' heads from now on, not the
+      // gateway it replaced, which links on them only until it has drained.
+      for (const gateway of replaced) gateway.releaseJournal();
       for (const gateway of retired) this.drain(gateway);
+      for (const entry of next.values()) {
+        entry.gateway.builtFrom({ revision, entry: shortDigest(`sha256:${entry.fingerprint}`) });
+      }
     }
-    return this.report({
+    const report = this.report({
       event: "TENANT_REGISTRY_LOADED",
       code: null,
+      revision,
       served: next.size,
       built,
       kept,
+      rekeyed,
       retired: retired.length,
       failed,
     });
+    const scheme = this.scheme;
+    if (scheme !== null && !this.closed) {
+      for (const [hostname, gateway] of fresh) gateway.started(`${scheme}://${hostname}`);
+    }
+    return report;
   }
 
-  /** One tenant's hosted gateway, from its entry, the shared environment and its own key file. */
-  private async build(registry: TenantRegistry, tenant: TenantEntry): Promise<Gateway> {
+  /**
+   * Makes a kept gateway admit exactly the keys its tenant's entry lists now,
+   * in place and at once. Digests it refuses (malformed, repeated) leave it
+   * only the keys it already admits that the entry still lists, and none of
+   * those means it is not served: a key the registry dropped is never left
+   * admitted because the rest of an entry could not be applied.
+   */
+  private static rekey(
+    gateway: Gateway,
+    digests: readonly string[],
+  ): { readonly changed: boolean; readonly served: boolean; readonly error: unknown } {
+    const before = gateway.tenantKeys;
+    if (before.length === digests.length && before.every((digest) => digests.includes(digest))) {
+      return { changed: false, served: true, error: null };
+    }
+    try {
+      gateway.admitKeys(digests);
+      return { changed: true, served: true, error: null };
+    } catch (error) {
+      const still = before.filter((digest) => digests.includes(digest));
+      if (still.length === 0) return { changed: false, served: false, error };
+      gateway.admitKeys(still);
+      return { changed: still.length !== before.length, served: true, error };
+    }
+  }
+
+  /**
+   * One tenant's hosted gateway, from its entry, the shared environment and
+   * its own key file; continuing the gateway it replaces, when there is one.
+   */
+  private async build(
+    registry: TenantRegistry,
+    tenant: TenantEntry,
+    replacing: Gateway | undefined,
+  ): Promise<Gateway> {
     const env = TenantHost.tenantEnvironment(this.options.env, tenant);
     const rateLimit = tenant.rateLimit ?? registry.rateLimit;
     const config = GatewayConfigLoader.load({
@@ -241,6 +359,7 @@ export class TenantHost {
       env,
       io: TenantHost.taggedIo(this.options.io, tenant.id),
       ...(this.options.version === undefined ? {} : { version: this.options.version }),
+      ...(replacing === undefined ? {} : { continues: replacing.continuation() }),
     });
   }
 
@@ -304,11 +423,16 @@ export class TenantHost {
     return "TENANT_BUILD_FAILED";
   }
 
+  /**
+   * Lets a replaced or removed gateway finish what it has in flight, then
+   * stops it, so its shadow report counts what settled while it drained.
+   */
   private drain(gateway: Gateway): void {
     this.draining.add(gateway);
     const timer = setTimeout(() => {
       this.timers.delete(timer);
       this.draining.delete(gateway);
+      if (this.scheme !== null) gateway.stopped("RELOAD");
       void gateway.close();
     }, this.options.drainMs ?? DEFAULT_DRAIN_MS);
     timer.unref();

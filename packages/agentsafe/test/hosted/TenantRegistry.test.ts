@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   parseTenantRegistry,
+  registryRevision,
   tenantFingerprint,
   tenantHostname,
   TenantRegistryError,
@@ -151,12 +152,13 @@ describe("the tenant registry", () => {
     expect(tenantFingerprint(same, same.tenants[1]!)).not.toBe(
       tenantFingerprint(base, base.tenants[1]!),
     );
+    // The keys are not part of it: a gateway takes new ones in place, without a rebuild.
     const rotated = parseTenantRegistry(
       registry([
         tenant("acme", { tenantKeyDigests: [TENANT_KEY_DIGEST, `sha256:${"b".repeat(64)}`] }),
       ]),
     );
-    expect(tenantFingerprint(rotated, rotated.tenants[0]!)).not.toBe(tenantFingerprint(base, acme));
+    expect(tenantFingerprint(rotated, rotated.tenants[0]!)).toBe(tenantFingerprint(base, acme));
     const moved = parseTenantRegistry(registry([tenant("acme")], { domain: "edge.example" }));
     expect(tenantFingerprint(moved, moved.tenants[0]!)).not.toBe(tenantFingerprint(base, acme));
     const limited = parseTenantRegistry(
@@ -170,5 +172,12 @@ describe("the tenant registry", () => {
     const kept = parseTenantRegistry(registry([tenant("acme")], { evidenceDir: "/var/lib/t" }));
     expect(tenantFingerprint(kept, kept.tenants[0]!)).not.toBe(tenantFingerprint(base, acme));
     expect(tenantFingerprint(base, acme)).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("names a registry's revision by the digest of its text as read", () => {
+    const text = registry([tenant("acme")]);
+    expect(registryRevision(text)).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(registryRevision(text)).toBe(registryRevision(registry([tenant("acme")])));
+    expect(registryRevision(`${text}\n`)).not.toBe(registryRevision(text));
   });
 });

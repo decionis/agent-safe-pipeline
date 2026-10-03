@@ -22,8 +22,8 @@ Canonical JSON is the same form the intent hash uses: object keys sorted, recurs
 ECMAScript number and string serialisation and no whitespace. The envelope wins over a field of
 the same name, so nothing a line says can move it in its chain. A hosted gateway's chains carry
 their tenant in the envelope, so the tenant is covered by every hash: a line moved to another
-tenant breaks its chain, and the output of `agentsafe host`, which holds many tenants' chains of
-the same stream, verifies whole. Lines the process writes about
+tenant breaks its chain, and the output of one `agentsafe host` process, which holds many tenants'
+chains of the same stream, verifies whole. Lines the process writes about
 itself at start, `POSTURE_VERIFIED` and `LISTENING`, carry no `stream` and belong to no chain.
 
 ## The evidence stream
@@ -117,6 +117,13 @@ under `<dir>/chain/` every `EXECUTOR_AUDIT_CHECKPOINT_LINES` lines (one hundred 
 once more on a clean shutdown, and the next process continues the sequence from that head,
 recording `CHAIN_RESUMED` with it. Without a journal directory, or when the head is not usable,
 the stream starts again from genesis and the verifier counts a start.
+
+`agentsafe host` keeps one set of chains per tenant for as long as the process runs: a gateway a
+registry reload builds takes up the chains of the one it replaces, recording `CHAIN_RESUMED` for
+each, so a reload is not a start. Each replica of a host runs its own chains, and nothing in a
+line names the replica, so an export that merges replicas must keep each replica's lines apart
+and in the order that process wrote them before it is verified
+([Evidence across reloads, restarts and replicas](./gateway/configuration.md#evidence-across-reloads-restarts-and-replicas)).
 
 A process that dies between two checkpoints resumes from the older head, and the verifier reports
 the overlap as `CHAIN_SEQ_GAP` at the point of the crash. That is deliberate: a crash leaves a
