@@ -43,8 +43,9 @@ For a tenant, that means:
   for an evaluated body over 1 MiB; and `502` when the API does not answer, which is
   `UPSTREAM_TIMEOUT` after 10 seconds unless the operator set another, and never claims the request
   was not sent once it may have been ([responses the gateway makes itself](../gateway/http-interception.md#responses-the-gateway-makes-itself)).
-  Each carries `agentsafe-execution`, `NOT_FORWARDED` for a refusal, so an answer without it came
-  from the API.
+  Each carries `agentsafe-execution`: `NOT_FORWARDED` when the request did not reach the API,
+  `INDETERMINATE` once it may have. The API's own answer, relayed, carries `PASSTHROUGH` (above),
+  so an answer without `agentsafe-execution` did not come through the gateway.
 - **Bodies are read whole.** A response is read in full, up to 16 MiB, before it is relayed; there
   is no streaming and no WebSocket upgrade.
 
