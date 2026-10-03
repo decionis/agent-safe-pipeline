@@ -46,9 +46,9 @@ export const TOOL_NAMES = Object.freeze([
   "commercegate_describe_capabilities",
   "commercegate_validate_erp_transaction",
   "commercegate_evaluate_action",
-  "commercegate_evaluate_marketplace_offer_submission",
   "commercegate_get_dossier",
   "commercegate_get_proof_packet",
   "commercegate_list_shadow_reports",
   "commercegate_summarize_shadow_reports",
+  "commercegate_evaluate_marketplace_offer_submission",
 ]);

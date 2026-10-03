@@ -209,7 +209,7 @@ async function verifyMetadata() {
     "Vendored runtime metadata license drifted.",
   );
   assert.ok(
-    readme.startsWith(`# Decionis CommerceGate for Claude Desktop\n\n${manifest.description}\n`),
+    readme.startsWith(`# Decionis Commerce Gate for Claude Desktop\n\n${manifest.description}\n`),
     "README short description drifted from the canonical copy.",
   );
   const directoryCopy = readme
@@ -323,7 +323,7 @@ async function verifyMcpb() {
     assert.deepEqual(
       responses.get(2)?.result?.tools?.map((tool) => tool.name),
       TOOL_NAMES,
-      "Unpacked MCPB tool catalog drifted from the seven public tools.",
+      "Unpacked MCPB tool catalog drifted from the eight public tools.",
     );
     const guarantees = responses.get(3)?.result?.structuredContent?.guarantees;
     assert.equal(guarantees?.marketplace_writes, false, "No-marketplace-write guarantee drifted.");
@@ -335,7 +335,7 @@ async function verifyMcpb() {
     }
     const sha256 = createHash("sha256").update(bundle).digest("hex");
     process.stdout.write(
-      `Verified CommerceGate Claude MCPB: deterministic mixed-license bundle ${sha256} and seven-tool JSON-RPC smoke passed${outputPath ? `; wrote ${outputPath}` : ""}.\n`,
+      `Verified Commerce Gate Claude MCPB: deterministic mixed-license bundle ${sha256} and eight-tool JSON-RPC smoke passed${outputPath ? `; wrote ${outputPath}` : ""}.\n`,
     );
   } finally {
     await rm(temporaryDirectory, { recursive: true, force: true });
