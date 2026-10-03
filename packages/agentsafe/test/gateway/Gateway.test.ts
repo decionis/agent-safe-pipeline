@@ -217,11 +217,16 @@ describe("the gateway in enforcement with the demo authority", () => {
     expect(gateway.status().counts["indeterminate"]).toBe(1);
   });
 
-  it("passes a safe method through unchanged and counts it", async () => {
+  it("passes a safe method through unchanged, says so, and counts it", async () => {
     const answer = await gateway.passthrough(request("GET", "/health", undefined, {}, "?x=1&x=2"));
     expect(answer.status).toBe(200);
     expect(upstream.seen.at(-1)?.url).toBe("/health?x=1&x=2");
     expect(Object.fromEntries(answer.headers)["agentsafe-decision"]).toBeUndefined();
+    // Relayed through the gateway, and not observed: the mode header is the
+    // mark of a request the authority was asked about in shadow.
+    expect(answer.headers.filter(([name]) => name.startsWith("agentsafe-"))).toEqual([
+      ["agentsafe-execution", "PASSTHROUGH"],
+    ]);
     expect(gateway.metricsText()).toContain('agentsafe_requests_total{kind="passthrough"} 1');
   });
 
@@ -487,6 +492,7 @@ describe("the gateway when the authority cannot be reached", () => {
 
   async function unreachable(
     failurePolicy: string,
+    upstreamUrl: string = upstream.baseUrl,
   ): Promise<{ gateway: Gateway; io: CollectedIo }> {
     const port = await closedPort();
     const env = {
@@ -498,7 +504,7 @@ describe("the gateway when the authority cannot be reached", () => {
     };
     const io = collectedIo();
     const gateway = await Gateway.create(
-      testConfig(upstream.baseUrl, { env, flags: { mode: "enforcement", failurePolicy } }),
+      testConfig(upstreamUrl, { env, flags: { mode: "enforcement", failurePolicy } }),
       { env, io },
     );
     return { gateway, io };
@@ -530,10 +536,10 @@ describe("the gateway when the authority cannot be reached", () => {
     const { gateway, io } = await unreachable("failOpen");
     const answer = await gateway.govern(request("POST", "/payments", { amount: 1 }), "http.post");
     expect(answer.status).toBe(201);
-    expect(Object.fromEntries(answer.headers)).toMatchObject({
-      "agentsafe-state": "AUTHORITY_UNAVAILABLE",
-      "agentsafe-execution": "FORWARDED_UNGOVERNED",
-    });
+    expect(answer.headers.filter(([name]) => name.startsWith("agentsafe-"))).toEqual([
+      ["agentsafe-state", "AUTHORITY_UNAVAILABLE"],
+      ["agentsafe-execution", "FORWARDED_UNGOVERNED"],
+    ]);
     expect(reports(io).at(-1)).toMatchObject({
       state: "AUTHORITY_UNAVAILABLE",
       execution: "FORWARDED_UNGOVERNED",
@@ -541,6 +547,17 @@ describe("the gateway when the authority cannot be reached", () => {
     });
     expect(io.out.some((line) => line.includes('"event":"EXECUTION_UNGOVERNED"'))).toBe(true);
     expect(gateway.metricsText()).toContain("agentsafe_ungoverned_forwards_total 1");
+    await gateway.close();
+  });
+
+  it("answers a fail-open forward that failed with the gateway's own response alone", async () => {
+    const { gateway } = await unreachable("failOpen", `${LOOPBACK_ORIGIN}:${await closedPort()}`);
+    const answer = await gateway.govern(request("POST", "/payments", { amount: 1 }), "http.post");
+    expect(answer.status).toBe(502);
+    expect(answer.headers.filter(([name]) => name.startsWith("agentsafe-"))).toEqual([
+      ["agentsafe-state", "ERROR"],
+      ["agentsafe-execution", "NOT_FORWARDED"],
+    ]);
     await gateway.close();
   });
 });
@@ -1060,11 +1077,11 @@ describe("the tenant key check", () => {
       }),
       { env: {}, io },
     );
-    expect(gateway.admits(TENANT_KEY)).toBe(true);
-    expect(gateway.admits(second)).toBe(true);
-    expect(gateway.admits(undefined)).toBe(false);
-    expect(gateway.admits("")).toBe(false);
-    expect(gateway.admits("synthetic-guess")).toBe(false);
+    expect(gateway.keyRefusal(TENANT_KEY)).toBeNull();
+    expect(gateway.keyRefusal(second)).toBeNull();
+    expect(gateway.keyRefusal(undefined)).toBe("TENANT_KEY_MISSING");
+    expect(gateway.keyRefusal("")).toBe("TENANT_KEY_MISSING");
+    expect(gateway.keyRefusal("synthetic-guess")).toBe("TENANT_KEY_INVALID");
     const refusals = [...io.out, ...io.err]
       .filter((line) => line.includes('"tenant_key"'))
       .map((line) => (JSON.parse(line) as { code: string }).code);
@@ -1080,8 +1097,8 @@ describe("the tenant key check", () => {
       testConfig("https://shop.tenant.example", { flags: { mode: "shadow" } }),
       { env: {}, io },
     );
-    expect(gateway.admits(undefined)).toBe(true);
-    expect(gateway.admits("anything")).toBe(true);
+    expect(gateway.keyRefusal(undefined)).toBeNull();
+    expect(gateway.keyRefusal("anything")).toBeNull();
     expect([...io.out, ...io.err].some((line) => line.includes('"tenant_key"'))).toBe(false);
     await gateway.close();
   });

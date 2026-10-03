@@ -14,7 +14,8 @@ and governs the destinations an operator names in that same hop.
 ## What is consequential
 
 A request is consequential when its method is `POST`, `PUT`, `PATCH` or `DELETE`. `GET`, `HEAD`
-and `OPTIONS` are never evaluated; they pass through with their query and headers, and are counted.
+and `OPTIONS` are never evaluated; they pass through with their query and headers, and are counted,
+and the answer is relayed with `agentsafe-execution: PASSTHROUGH`.
 
 A consequential request is named by the [route table](./routes.md). One that no route names is
 governed under a derived name, `http.post`, `http.put`, `http.patch` or `http.delete`, unless the
@@ -103,6 +104,15 @@ identifiers, with the same `agentsafe-state` and `agentsafe-execution` headers:
 | `EXECUTION_INDETERMINATE` | 502     | `INDETERMINATE` | the request was sent and no answer came back                 |
 | `ERROR`                   | 400–503 | `NOT_FORWARDED` | the intent could not be bound, or the grant not claimed      |
 
+The listener refuses some requests before the gateway sees them: a missing or wrong tenant key
+(`401 TENANT_KEY_MISSING` or `TENANT_KEY_INVALID`, with `WWW-Authenticate: AgentSafe-Tenant-Key`),
+the gateway's rate (`429 RATE_LIMITED`), a body over the bound (`413 BODY_TOO_LARGE`) and a host it
+does not serve (`421 HOST_NOT_SERVED`). Each is a `code` and nothing else, with
+`agentsafe-execution: NOT_FORWARDED`; a failure of the listener's own is `500 INTERNAL_ERROR` with
+`agentsafe-execution: INDETERMINATE`, since it cannot say whether anything was sent. Every answer to
+a request that is not the gateway's own route carries `agentsafe-execution`, and an upstream's
+`agentsafe-*` headers are never relayed, so an answer without one did not come from the gateway.
+
 ### Holds and resume
 
 An `ESCALATE` is held in memory until the intent expires (`intentTtlSeconds`, 120 by default,
@@ -123,8 +133,9 @@ which was produced with the held request's own `Authorization` and `Cookie`.
 
 In `shadow` mode a consequential request is forwarded unchanged inside `ShadowPipeline.observe`
 while the authority is asked what it would have decided. The response carries `agentsafe-mode:
-SHADOW` and `agentsafe-execution: PASSTHROUGH`; the observation is reported when it settles and is
-never a grant. Shadow measures policy impact; it protects nothing, and the output says so. See
+SHADOW` and `agentsafe-execution: PASSTHROUGH`; a request passed through without being evaluated
+carries the second alone, so `agentsafe-mode` marks the requests the authority was asked about. The
+observation is reported when it settles and is never a grant. Shadow measures policy impact; it protects nothing, and the output says so. See
 [shadow mode](../shadow-mode.md).
 
 ## Not yet

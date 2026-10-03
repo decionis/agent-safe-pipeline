@@ -29,10 +29,17 @@ const OWN_ROUTES = ["healthz", "readyz", "status", "metrics"] as const;
 const ESCALATIONS = `${GATEWAY_PREFIX}/v1/escalations/`;
 const INTENT_ID = /^[0-9a-f-]{36}$/;
 
+/**
+ * The challenge a missing or wrong tenant key is answered with: the scheme
+ * names the header the key travels in, so a 401 says what it wants.
+ */
+export const TENANT_KEY_CHALLENGE = "AgentSafe-Tenant-Key";
+
 class GuardError extends Error {
   public constructor(
     public readonly status: number,
     public readonly code: string,
+    public readonly headers: Readonly<Record<string, string>> = {},
   ) {
     super(code);
     this.name = "GuardError";
@@ -88,7 +95,7 @@ export type GatewaySelector = (hostname: string | null) => Gateway | null;
  * read in full under the configured bound and handed to the gateway with the
  * method, path, query and headers, and what comes back is written as it is.
  * A refusal the listener makes itself is a status and a code, never a
- * message from the request.
+ * message from the request, with `agentsafe-execution: NOT_FORWARDED`.
  */
 export class GatewayHttpServer {
   private readonly server: Server;
@@ -151,19 +158,15 @@ export class GatewayHttpServer {
       // The tenant's traffic, and only it, needs the tenant's key; the gateway's
       // own routes answer platform probes and the operator.
       const presented = request.headers[TENANT_KEY_HEADER];
-      if (!gateway.admits(typeof presented === "string" ? presented : undefined)) {
-        throw new GuardError(401, "TENANT_KEY_INVALID");
+      const refusal = gateway.keyRefusal(typeof presented === "string" ? presented : undefined);
+      if (refusal !== null) {
+        throw new GuardError(401, refusal, { "www-authenticate": TENANT_KEY_CHALLENGE });
       }
       const rate = gateway.rate();
       if (!rate.admitted) {
-        // Stryker disable next-line ConditionalExpression: a reply is written once per request; the guard is defensive.
-        if (response.headersSent) return;
-        response.writeHead(429, {
-          ...RESPONSE_HEADERS,
+        throw new GuardError(429, "RATE_LIMITED", {
           "retry-after": String(rate.retryAfterSeconds),
         });
-        response.end(JSON.stringify({ code: "RATE_LIMITED" }));
-        return;
       }
       const plan = gateway.plan(method, url.pathname);
       const body = await GatewayHttpServer.readBody(
@@ -187,10 +190,22 @@ export class GatewayHttpServer {
           : await gateway.passthrough(intercepted);
       this.write(response, answer);
     } catch (error) {
+      // A refusal is the listener's own, made before anything was forwarded;
+      // any other failure may come after a forward, so it claims neither way.
       if (error instanceof GuardError) {
-        GatewayHttpServer.reply(response, error.status, { code: error.code });
+        GatewayHttpServer.reply(
+          response,
+          error.status,
+          { code: error.code },
+          { ...error.headers, "agentsafe-execution": "NOT_FORWARDED" },
+        );
       } else {
-        GatewayHttpServer.reply(response, 500, { code: "INTERNAL_ERROR" });
+        GatewayHttpServer.reply(
+          response,
+          500,
+          { code: "INTERNAL_ERROR" },
+          { "agentsafe-execution": "INDETERMINATE" },
+        );
       }
     }
   }
@@ -366,10 +381,15 @@ export class GatewayHttpServer {
     response.end(answer.body);
   }
 
-  private static reply(response: ServerResponse, status: number, body: unknown): void {
+  private static reply(
+    response: ServerResponse,
+    status: number,
+    body: unknown,
+    headers: Readonly<Record<string, string>> = {},
+  ): void {
     // Stryker disable next-line ConditionalExpression: a reply is written once per request; the guard is defensive.
     if (response.headersSent) return;
-    response.writeHead(status, RESPONSE_HEADERS);
+    response.writeHead(status, { ...RESPONSE_HEADERS, ...headers });
     response.end(JSON.stringify(body));
   }
 }

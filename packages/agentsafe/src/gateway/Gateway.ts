@@ -161,6 +161,9 @@ interface HeldEscalation {
 /** Why a caller cannot see or resume a hold: nothing is held, or the token is not the holder's. */
 type HoldRefusal = "ESCALATION_NOT_HELD" | "RESUME_TOKEN_INVALID";
 
+/** Why a tenant key refuses a request: none was presented, or not one of the tenant's. */
+export type TenantKeyRefusal = "TENANT_KEY_MISSING" | "TENANT_KEY_INVALID";
+
 /**
  * The header a resume token travels in. Never the path or the query: those
  * are what proxies, access logs and this gateway's own report write down.
@@ -594,25 +597,13 @@ export class Gateway {
     return this.metrics.registry.render();
   }
 
-  /** A request that is not consequential: forwarded unchanged, counted, not evaluated. */
+  /**
+   * A request that is not consequential: forwarded unchanged, counted, not
+   * evaluated, and relayed as `PASSTHROUGH`, so a caller can tell an answer
+   * that came through the gateway from one that never reached it.
+   */
   public async passthrough(request: InterceptedRequest): Promise<GatewayResponse> {
-    this.metrics.requests.inc({ kind: "passthrough" });
-    this.count("passthrough");
-    const startedAt = this.clock();
-    try {
-      const result = await this.upstream.send(
-        request.method.toUpperCase(),
-        request.path,
-        request.search,
-        this.upstream.headersFor(request),
-        request.body,
-        this.upstream.signal(),
-      );
-      this.metrics.observeForwardLatency(this.clock() - startedAt);
-      return { status: result.status, headers: result.headers, body: result.body };
-    } catch (error) {
-      return this.upstreamFailure(error);
-    }
+    return await this.forwardUnchanged(request, { "agentsafe-execution": "PASSTHROUGH" });
   }
 
   /** A consequential request, through the whole lifecycle. */
@@ -642,14 +633,14 @@ export class Gateway {
   }
 
   /**
-   * Whether a request's tenant key admits it: always, when the gateway has no
-   * keys; otherwise only a key that hashes to one of them. Every configured
-   * digest is compared, in constant time, whether or not an earlier one
-   * matched. A refusal is counted and put on the security stream with its
-   * reason, never with the value presented.
+   * Why a request's tenant key refuses it, or null when it admits it: always
+   * admitted when the gateway has no keys; otherwise only a key that hashes
+   * to one of them. Every configured digest is compared, in constant time,
+   * whether or not an earlier one matched. A refusal is counted and put on
+   * the security stream with its reason, never with the value presented.
    */
-  public admits(presented: string | undefined): boolean {
-    if (this.config.tenantKeys.length === 0) return true;
+  public keyRefusal(presented: string | undefined): TenantKeyRefusal | null {
+    if (this.config.tenantKeys.length === 0) return null;
     const candidate =
       presented === undefined || presented === ""
         ? null
@@ -659,15 +650,11 @@ export class Gateway {
       const expected = Buffer.from(digest.slice("sha256:".length), "hex");
       if (candidate !== null && timingSafeEqual(candidate, expected)) admitted = true;
     }
-    if (!admitted) {
-      this.metrics.requests.inc({ kind: "tenant_key_refused" });
-      this.security.emit({
-        event: "AUTH_FAILED",
-        method: "tenant_key",
-        code: candidate === null ? "TENANT_KEY_MISSING" : "TENANT_KEY_INVALID",
-      });
-    }
-    return admitted;
+    if (admitted) return null;
+    const refusal = candidate === null ? "TENANT_KEY_MISSING" : "TENANT_KEY_INVALID";
+    this.metrics.requests.inc({ kind: "tenant_key_refused" });
+    this.security.emit({ event: "AUTH_FAILED", method: "tenant_key", code: refusal });
+    return refusal;
   }
 
   /**
@@ -992,7 +979,10 @@ export class Gateway {
         reason_codes: [...decision.reasonCodes],
         failure_policy: "FAIL_OPEN",
       });
-      const forwarded = await this.passthrough(request);
+      const forwarded = await this.forwardUnchanged(request, {
+        "agentsafe-state": "AUTHORITY_UNAVAILABLE",
+        "agentsafe-execution": "FORWARDED_UNGOVERNED",
+      });
       this.report({
         ...this.interception(request, captured, startedAt),
         state: "AUTHORITY_UNAVAILABLE",
@@ -1005,14 +995,7 @@ export class Gateway {
         finalization: null,
         authority_ms: authorityMs,
       });
-      return {
-        ...forwarded,
-        headers: [
-          ...forwarded.headers,
-          ["agentsafe-state", "AUTHORITY_UNAVAILABLE"],
-          ["agentsafe-execution", "FORWARDED_UNGOVERNED"],
-        ],
-      };
+      return forwarded;
     }
     this.report({
       ...this.interception(request, captured, startedAt),
@@ -1254,6 +1237,34 @@ export class Gateway {
       intent_hash: captured.intentHash,
       latency_ms: Math.max(this.clock() - startedAt, 0),
     };
+  }
+
+  /**
+   * Forwards a request as it came, counted as a passthrough, and relays the
+   * answer with the gateway's own headers; a failure is the gateway's own
+   * response, which carries its own.
+   */
+  private async forwardUnchanged(
+    request: InterceptedRequest,
+    extra: Readonly<Record<string, string>>,
+  ): Promise<GatewayResponse> {
+    this.metrics.requests.inc({ kind: "passthrough" });
+    this.count("passthrough");
+    const startedAt = this.clock();
+    try {
+      const result = await this.upstream.send(
+        request.method.toUpperCase(),
+        request.path,
+        request.search,
+        this.upstream.headersFor(request),
+        request.body,
+        this.upstream.signal(),
+      );
+      this.metrics.observeForwardLatency(this.clock() - startedAt);
+      return this.relay(result, extra);
+    } catch (error) {
+      return this.upstreamFailure(error);
+    }
   }
 
   private relay(result: UpstreamResult, extra: Readonly<Record<string, string>>): GatewayResponse {

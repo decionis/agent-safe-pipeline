@@ -173,7 +173,9 @@ configuration: the operator issues it to the tenant and keeps only its digest.
 
 When digests are set, every request that is not the gateway's own must carry a key in the
 `AgentSafe-Tenant-Key` header that hashes to one of them, compared in constant time against each.
-Anything else is `401 TENANT_KEY_INVALID`, nothing is forwarded, the refusal is counted as
+A request without one is `401 TENANT_KEY_MISSING` and one with any other key is
+`401 TENANT_KEY_INVALID`, each with `WWW-Authenticate: AgentSafe-Tenant-Key` and
+`agentsafe-execution: NOT_FORWARDED`. Nothing is forwarded, the refusal is counted as
 `agentsafe_requests_total{kind="tenant_key_refused"}`, and `AUTH_FAILED` with method
 `tenant_key` and code `TENANT_KEY_MISSING` or `TENANT_KEY_INVALID` is on the security stream,
 never with the value presented. The header is removed before any request is forwarded, whether or
