@@ -1801,7 +1801,7 @@ jobs:
             echo
             echo '```sh'
             echo "curl -fsSL https://raw.githubusercontent.com/$GH_REPO/$RELEASE_TAG/packaging/install.sh | sh"
-            echo "brew tap decionis/agent-safe https://github.com/$GH_REPO && brew install agentsafe"
+            echo "brew tap decionis/agent-safe https://github.com/$GH_REPO && brew trust decionis/agent-safe && brew install agentsafe"
             echo '```'
             echo
             echo "The \`agentsafe-<version>-<os>-<arch>.tar.gz\` archives, the \`.deb\` and \`.rpm\` packages, the npm tarball of \`@decionis/agentsafe\` and the Helm chart \`agentsafe-<chart version>.tgz\` (also at \`oci://ghcr.io/decionis/charts/agentsafe\`) are attached, listed in \`SHA256SUMS\`, and attested by this workflow; \`agentsafe-<version>.cdx.json\` is the runtime's CycloneDX SBOM. The Homebrew formula for this release is opened as a pull request from the \`homebrew/agentsafe-<version>\` branch."
@@ -1810,7 +1810,7 @@ jobs:
             echo
             echo '```sh'
             echo "curl -fsSL https://raw.githubusercontent.com/$GH_REPO/$RELEASE_TAG/govern/install.sh | sh"
-            echo "brew tap decionis/agent-safe https://github.com/$GH_REPO && brew install govern"
+            echo "brew tap decionis/agent-safe https://github.com/$GH_REPO && brew trust decionis/agent-safe && brew install govern"
             echo "go install github.com/$GH_REPO/govern/v2/cmd/govern@v$GOVERN_VERSION"
             echo '```'
             echo
