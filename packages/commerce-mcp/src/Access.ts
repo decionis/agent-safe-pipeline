@@ -2,6 +2,7 @@ import { constants, type Stats } from "node:fs";
 import { link, lstat, mkdir, open, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import type { HttpRequest } from "@smithy/types";
 
 import {
   CommerceGateConfiguration,
@@ -19,6 +20,7 @@ const AWS_GATEWAY = "https://commerce.decionis.com/aws";
 export interface AccessDependencies {
   fetch?: typeof fetch;
   loadSecret?: (arn: string) => Promise<string>;
+  presignSts?: (region: string) => Promise<string>;
   home?: string;
   lockWaitMs?: number;
   platform?: typeof process.platform;
@@ -137,6 +139,45 @@ async function loadAwsSecret(arn: string): Promise<string> {
   }
 }
 
+/** Returns an STS-signed proof the Commerce service can relay only to AWS. */
+async function presignSts(region: string): Promise<string> {
+  if (!/^[a-z]{2}(?:-[a-z]+)+-\d$/.test(region)) throw failure();
+  try {
+    // Keep the standard MCP package independently runnable. These AWS modules are
+    // needed only inside an AgentCore execution role, after bootstrap is selected.
+    const [{ defaultProvider }, { Hash }, { SignatureV4 }] = await Promise.all([
+      import("@aws-sdk/credential-provider-node"),
+      import("@smithy/core/serde"),
+      import("@smithy/signature-v4"),
+    ]);
+    const hostname = `sts.${region}.amazonaws.com`;
+    const request: HttpRequest = {
+      method: "GET",
+      protocol: "https:",
+      hostname,
+      path: "/",
+      headers: { host: hostname },
+      query: { Action: "GetCallerIdentity", Version: "2011-06-15" },
+    };
+    const signed = await new SignatureV4({
+      credentials: defaultProvider(),
+      region,
+      service: "sts",
+      sha256: Hash.bind(null, "sha256"),
+    }).presign(request, { expiresIn: 60 });
+    const query = new URLSearchParams();
+    for (const [name, value] of Object.entries(signed.query ?? {})) {
+      if (Array.isArray(value)) value.forEach((entry) => query.append(name, entry));
+      else if (typeof value === "string") query.set(name, value);
+    }
+    return `https://${hostname}/?${query.toString()}`;
+  } catch {
+    throw failure(
+      "AgentOps could not prove its AgentCore runtime identity. No replacement workspace or credential was created.",
+    );
+  }
+}
+
 function managedAccess(
   arn: string,
   environment: Record<string, string | undefined>,
@@ -167,6 +208,42 @@ function managedAccess(
         } catch {
           throw failure(
             "AgentOps could not resolve its configured access secret. No anonymous workspace or replacement credential was created.",
+          );
+        }
+      })()),
+  };
+}
+
+/** AgentCore only: no Marketplace secret is enumerated or mounted into the container. */
+function runtimeBootstrapAccess(
+  environment: Record<string, string | undefined>,
+  dependencies: AccessDependencies,
+): AccessOptions {
+  let pending: Promise<ResolvedAccess> | undefined;
+  return {
+    source: "aws_runtime",
+    resolve: () =>
+      (pending ??= (async () => {
+        try {
+          const base = normalizeApiBase(environment.DECIONIS_API_BASE ?? AWS_GATEWAY);
+          if (base.issue || !base.value.endsWith("/aws")) throw failure();
+          const region =
+            environment.AWS_REGION?.trim() || environment.AWS_DEFAULT_REGION?.trim() || "";
+          const stsPresignedUrl = await (dependencies.presignSts ?? presignSts)(region);
+          const session = await accessJson(
+            `${base.value}/agentops/bootstrap`,
+            {
+              method: "POST",
+              headers: { "content-type": "application/json", accept: "application/json" },
+              body: JSON.stringify({ sts_presigned_url: stsPresignedUrl }),
+            },
+            dependencies.fetch ?? fetch,
+          );
+          if (!record(session) || session.api_base_url !== base.value) throw failure();
+          return checkedAccess(session, false);
+        } catch {
+          throw failure(
+            "AgentOps could not establish its AgentSaaS runtime access. No anonymous workspace or replacement credential was created.",
           );
         }
       })()),
@@ -345,6 +422,8 @@ export function runtimeAccess(
   if (environment.DECIONIS_API_KEY?.trim() || environment.DECIONIS_ORG_ID?.trim()) return undefined;
   const secretArn = environment.AGENTOPS_ACCESS_SECRET_ARN?.trim();
   if (secretArn) return managedAccess(secretArn, environment, dependencies);
+  if (transport === "http" && environment.AGENTOPS_AWS_BOOTSTRAP === "1")
+    return runtimeBootstrapAccess(environment, dependencies);
   const base = normalizeApiBase(environment.DECIONIS_API_BASE);
   if (
     transport !== "stdio" ||

@@ -484,6 +484,46 @@ describe("durable managed access", () => {
     expect(discovery).toHaveBeenCalledOnce();
   });
 
+  it("exchanges an AgentCore STS proof for in-memory AgentSaaS access without a secret ARN", async () => {
+    const stsPresignedUrl = "https://sts.us-east-1.amazonaws.com/?signed-fixture";
+    const presignSts = vi.fn(async () => stsPresignedUrl);
+    const bootstrap = vi.fn<typeof fetch>(async (url, init) => {
+      expect(String(url)).toBe(`${AWS_BASE}/agentops/bootstrap`);
+      expect(init).toMatchObject({
+        method: "POST",
+        redirect: "error",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify({ sts_presigned_url: stsPresignedUrl }),
+      });
+      return json({ api_key: KEY, org_id: ORG, api_base_url: AWS_BASE });
+    });
+    const environment = { AGENTOPS_AWS_BOOTSTRAP: "1", AWS_REGION: "us-east-1" };
+    const access = runtimeAccess(environment, "http", { fetch: bootstrap, presignSts })!;
+    await expect(access.resolve("read")).resolves.toEqual({
+      apiKey: KEY,
+      orgId: ORG,
+      apiBaseUrl: AWS_BASE,
+      provisional: false,
+    });
+    await access.resolve("shadow");
+    expect(presignSts).toHaveBeenCalledOnce();
+    expect(presignSts).toHaveBeenCalledWith("us-east-1");
+    expect(bootstrap).toHaveBeenCalledOnce();
+    expect(
+      JSON.stringify(new CommerceGateConfiguration(environment, access).describe()),
+    ).not.toContain(stsPresignedUrl);
+  });
+
+  it("does not enable AWS runtime bootstrap outside AgentCore HTTP or alongside explicit access", () => {
+    expect(runtimeAccess({ AGENTOPS_AWS_BOOTSTRAP: "1" }, "stdio")?.source).toBe("local_trial");
+    expect(
+      runtimeAccess(
+        { AGENTOPS_AWS_BOOTSTRAP: "1", DECIONIS_API_KEY: KEY, DECIONIS_ORG_ID: ORG },
+        "http",
+      ),
+    ).toBeUndefined();
+  });
+
   it.each([
     "https://untrusted.invalid/aws",
     `${AWS_BASE}/other`,

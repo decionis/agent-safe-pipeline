@@ -151,14 +151,15 @@ The ERP guard uses a separate binary vocabulary: `ALLOW` maps to `PROCEED` for t
 
 ## Configuration
 
-| Environment variable         | Required                          | Secret | Meaning                                                                                                 |
-| ---------------------------- | --------------------------------- | ------ | ------------------------------------------------------------------------------------------------------- |
-| `DECIONIS_API_KEY`           | Existing workspace option         | Yes    | Sent as bearer for Protocol or X-Decionis-API-Key for ERP guard                                         |
-| `DECIONIS_ORG_ID`            | With an explicit key for Protocol | No     | UUID that scopes Protocol evaluation and evidence                                                       |
-| `DECIONIS_API_BASE`          | No                                | No     | HTTPS API origin or exact `/aws` prefix; raw AWS secret defaults to `https://commerce.decionis.com/aws` |
-| `AGENTOPS_ACCESS_SECRET_ARN` | Managed access option             | No     | AWS Secrets Manager secret read through the execution role                                              |
-| `AGENTOPS_HOME`              | No                                | No     | Private local trial directory; separate from AgentSafe                                                  |
-| `AGENTOPS_AUTO_PROVISION`    | No                                | No     | Set `0` to disable new local trial creation                                                             |
+| Environment variable         | Required                          | Secret | Meaning                                                                                                     |
+| ---------------------------- | --------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------- |
+| `DECIONIS_API_KEY`           | Existing workspace option         | Yes    | Sent as bearer for Protocol or X-Decionis-API-Key for ERP guard                                             |
+| `DECIONIS_ORG_ID`            | With an explicit key for Protocol | No     | UUID that scopes Protocol evaluation and evidence                                                           |
+| `DECIONIS_API_BASE`          | No                                | No     | HTTPS API origin or exact `/aws` prefix; raw AWS secret defaults to `https://commerce.decionis.com/aws`     |
+| `AGENTOPS_ACCESS_SECRET_ARN` | Managed access option             | No     | AWS Secrets Manager secret read through the execution role                                                  |
+| `AGENTOPS_AWS_BOOTSTRAP`     | AgentCore Marketplace option      | No     | Set to `1` by the AgentOps image; proves the runtime's AWS identity and receives in-memory AgentSaaS access |
+| `AGENTOPS_HOME`              | No                                | No     | Private local trial directory; separate from AgentSafe                                                      |
+| `AGENTOPS_AUTO_PROVISION`    | No                                | No     | Set `0` to disable new local trial creation                                                                 |
 
 The API base must use HTTPS. HTTP is accepted only for loopback development.
 
@@ -190,7 +191,9 @@ curl -X POST http://127.0.0.1:8000/mcp -H 'content-type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
 
-For managed AgentCore, configure `AGENTOPS_ACCESS_SECRET_ARN` with a durable Secrets Manager secret and grant the execution role `secretsmanager:GetSecretValue` on that secret (and `kms:Decrypt` if it uses a customer-managed KMS key). The AWS SDK uses its default execution-role credential chain; the image contains no AWS access key. The secret may contain JSON with `api_key`, `org_id`, and `api_base_url`, or the raw `dcn_aws_` Marketplace key. For a raw key, the server discovers its tenant through authenticated `GET https://commerce.decionis.com/aws/commerce/session`. An explicit `DECIONIS_API_BASE` may select another trusted deployment's exact `/aws` gateway. Redirects and any returned change to the configured origin or prefix are rejected.
+For the Marketplace AgentOps image, `AGENTOPS_AWS_BOOTSTRAP=1` is set by default. The runtime uses its AgentCore execution role to pre-sign a one-minute STS `GetCallerIdentity` request. Commerce relays that proof only to AWS, checks the resulting account against an active AgentSaaS grant, and returns a one-hour key held in process memory. The image never receives an API key, organization ID, API-base value, Marketplace secret ARN, or AWS static credential through its environment.
+
+For a self-managed AgentCore deployment, configure `AGENTOPS_ACCESS_SECRET_ARN` with a durable Secrets Manager secret and grant the execution role `secretsmanager:GetSecretValue` on that secret (and `kms:Decrypt` if it uses a customer-managed KMS key). The AWS SDK uses its default execution-role credential chain; the image contains no AWS access key. The secret may contain JSON with `api_key`, `org_id`, and `api_base_url`, or the raw `dcn_aws_` Marketplace key. For a raw key, the server discovers its tenant through authenticated `GET https://commerce.decionis.com/aws/commerce/session`. An explicit `DECIONIS_API_BASE` may select another trusted deployment's exact `/aws` gateway. Redirects and any returned change to the configured origin or prefix are rejected.
 
 The secret is loaded once on the first authenticated tool call and retained in memory for that process; errors never trigger key rotation or anonymous fallback. New AgentCore instances load the same durable secret, so ephemeral restarts retain the tenant. A deliberate credential rotation requires restarting the runtime. Existing `DECIONIS_API_KEY` and `DECIONIS_ORG_ID` launch variables remain supported and take precedence. HTTP requires configured access and never creates a trial. Capability discovery works without access. This client does not itself subscribe a buyer, create the durable secret, or grant its execution role; the deployment must supply those bindings. Requests are limited to 1 MiB,
 with eight in flight including uploads still being read; further requests
@@ -278,7 +281,7 @@ pnpm --silent --filter @decionis/commerce mcp
 
 ## Privacy Policy
 
-CommerceGate MCP talks to the configured Decionis API. Managed deployments using `AGENTOPS_ACCESS_SECRET_ARN` also contact AWS Secrets Manager through the AWS SDK credential chain. It has no telemetry, analytics, or crash reporting. The full Decionis privacy policy is at <https://decionis.com/privacy>; this section describes what this server specifically does.
+CommerceGate MCP talks to the configured Decionis API. The AgentOps Marketplace image also contacts AWS STS to generate an identity proof; managed deployments using `AGENTOPS_ACCESS_SECRET_ARN` contact AWS Secrets Manager through the AWS SDK credential chain. It has no telemetry, analytics, or crash reporting. The full Decionis privacy policy is at <https://decionis.com/privacy>; this section describes what this server specifically does.
 
 **What it collects.** The first valid unconfigured local Shadow call sends the fixed agent name "AgentOps MCP Shadow" to obtain a provisional workspace. Other application data comes from tool inputs: the commerce facts being checked (SKU, current and new price or quantity, landed cost, order amounts, discount, refund amount and reason, promotion facts, actor type and a non-secret actor identifier, platform, idempotency key), a dossier UUID for evidence reads, and a report window for Shadow reports. The additional managed HTTP history tools send only a selected synthetic source or connected-store UUID, idempotency key, or assessment UUID; they do not accept uploaded customer transactions. The service reads authorized connected-store history separately. The server reads only its configured credentials and local access files; it does not read browser data, the clipboard, or unrelated machine data.
 

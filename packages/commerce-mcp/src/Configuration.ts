@@ -17,7 +17,7 @@ export interface ResolvedAccess extends TenantConnection {
   provisional: boolean;
 }
 export interface AccessOptions {
-  source: "local_trial" | "aws_secret";
+  source: "local_trial" | "aws_secret" | "aws_runtime";
   canProvision?: boolean;
   configurationIssue?: string;
   resolve(purpose: AccessPurpose): Promise<ResolvedAccess | null>;
@@ -33,7 +33,7 @@ export interface PublicConfiguration {
   org_id_configured: boolean;
   configuration_issues: string[];
   access?: {
-    source: "local_trial" | "aws_secret";
+    source: "local_trial" | "aws_secret" | "aws_runtime";
     provisional: boolean | null;
     first_shadow_call_can_provision: boolean;
     claim_instructions: string | null;

@@ -1236,11 +1236,12 @@ export class CommerceGateTools {
                 optional: [
                   "DECIONIS_API_BASE",
                   "AGENTOPS_ACCESS_SECRET_ARN",
+                  "AGENTOPS_AWS_BOOTSTRAP",
                   "AGENTOPS_HOME",
                   "AGENTOPS_AUTO_PROVISION",
                 ],
                 alternative_access:
-                  "Unconfigured local STDIO can provision provisional Shadow access on the first valid evaluation. Managed HTTP requires configured credentials or a durable AWS secret; reads and ERP never mint access.",
+                  "Unconfigured local STDIO can provision provisional Shadow access on the first valid evaluation. AgentCore HTTP can prove its AWS runtime identity to obtain in-memory AgentSaaS access; other managed HTTP deployments require configured credentials or a durable AWS secret. Reads and ERP never mint access.",
               },
             };
           }),
