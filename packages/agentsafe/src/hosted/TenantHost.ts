@@ -96,13 +96,14 @@ interface Served {
  *
  * A reload rebuilds only the tenants whose entry changed, swaps the set at
  * once, and lets a replaced gateway drain before it is closed; the gateway
- * built in its place continues its chains. A change to a tenant's keys alone
- * rebuilds nothing: its gateway takes them in place. A registry that cannot
- * be read or is not valid changes nothing: the tenants served stay served.
+ * built in its place continues its chains, found by the tenant's id and not
+ * its host. A change to a tenant's keys alone rebuilds nothing: its gateway
+ * takes them in place. A registry that cannot be read or is not valid
+ * changes nothing: the tenants served stay served.
  */
 export class TenantHost {
   private served = new Map<string, Served>();
-  private readonly draining = new Set<Gateway>();
+  private readonly draining = new Set<Served>();
   private readonly timers = new Set<ReturnType<typeof setTimeout>>();
   private queue: Promise<unknown> = Promise.resolve();
   private closed = false;
@@ -187,7 +188,7 @@ export class TenantHost {
     this.closed = true;
     for (const timer of this.timers) clearTimeout(timer);
     this.timers.clear();
-    const draining = [...this.draining];
+    const draining = [...this.draining].map((entry) => entry.gateway);
     const served = [...this.served.values()].map((entry) => entry.gateway);
     this.served = new Map();
     this.draining.clear();
@@ -231,6 +232,7 @@ export class TenantHost {
     const replaced: Gateway[] = [];
     const rekeyed: string[] = [];
     const failed: { tenant: string; code: string }[] = [];
+    const byId = new Map([...this.served.values()].map((entry) => [entry.id, entry.gateway]));
     let kept = 0;
     for (const tenant of registry.tenants) {
       const hostname = tenantHostname(registry, tenant);
@@ -242,11 +244,15 @@ export class TenantHost {
         try {
           // A rebuilt tenant's gateway takes up the chains its old one links
           // on, so its evidence goes on in one sequence, never from genesis.
-          const gateway = await this.build(registry, tenant, current?.gateway);
+          // The old one is the tenant's, whatever its host: at another when
+          // the domain changed, or still draining when the tenant was
+          // removed and added back.
+          const predecessor = byId.get(tenant.id) ?? this.drainingFor(tenant.id);
+          const gateway = await this.build(registry, tenant, predecessor);
           next.set(hostname, { id: tenant.id, fingerprint, gateway });
           built.push(tenant.id);
           fresh.push([hostname, gateway]);
-          if (current !== undefined) replaced.push(current.gateway);
+          if (predecessor !== undefined) replaced.push(predecessor);
           continue;
         } catch (error) {
           failure = error;
@@ -268,9 +274,7 @@ export class TenantHost {
     }
     this.failing = failed.map((entry) => entry.tenant);
     const live = new Set([...next.values()].map((entry) => entry.gateway));
-    const retired = [...this.served.values()]
-      .map((entry) => entry.gateway)
-      .filter((gateway) => !live.has(gateway));
+    const retired = [...this.served.values()].filter((entry) => !live.has(entry.gateway));
     if (this.closed) {
       await Promise.all([...next.values()].map((entry) => entry.gateway.close()));
     } else {
@@ -279,7 +283,7 @@ export class TenantHost {
       // The replacement persists the chains' heads from now on, not the
       // gateway it replaced, which links on them only until it has drained.
       for (const gateway of replaced) gateway.releaseJournal();
-      for (const gateway of retired) this.drain(gateway);
+      for (const entry of retired) this.drain(entry);
       for (const entry of next.values()) {
         entry.gateway.builtFrom({ revision, entry: shortDigest(`sha256:${entry.fingerprint}`) });
       }
@@ -326,6 +330,13 @@ export class TenantHost {
       gateway.admitKeys(still);
       return { changed: still.length !== before.length, served: true, error };
     }
+  }
+
+  /** The newest of a tenant's gateways still draining: the only one that may still persist its heads. */
+  private drainingFor(id: string): Gateway | undefined {
+    let last: Gateway | undefined;
+    for (const entry of this.draining) if (entry.id === id) last = entry.gateway;
+    return last;
   }
 
   /**
@@ -445,13 +456,13 @@ export class TenantHost {
    * Lets a replaced or removed gateway finish what it has in flight, then
    * stops it, so its shadow report counts what settled while it drained.
    */
-  private drain(gateway: Gateway): void {
-    this.draining.add(gateway);
+  private drain(entry: Served): void {
+    this.draining.add(entry);
     const timer = setTimeout(() => {
       this.timers.delete(timer);
-      this.draining.delete(gateway);
-      if (this.scheme !== null) gateway.stopped("RELOAD");
-      void gateway.close();
+      this.draining.delete(entry);
+      if (this.scheme !== null) entry.gateway.stopped("RELOAD");
+      void entry.gateway.close();
     }, this.options.drainMs ?? DEFAULT_DRAIN_MS);
     timer.unref();
     this.timers.add(timer);

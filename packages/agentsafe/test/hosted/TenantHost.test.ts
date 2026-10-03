@@ -702,6 +702,66 @@ describe("the tenant host", () => {
     rmSync(evidenceDir, { recursive: true, force: true });
   });
 
+  it("continues a tenant's chains by its id: across a new domain, and when it is added back while it drains", async () => {
+    const evidenceDir = mkdtempSync(join(tmpdir(), "agentsafe-tenant-evidence-"));
+    const { host, io, files } = await start([tenant("acme", TENANT_KEY_DIGEST)], 60_000, {
+      evidenceDir,
+    });
+    host.listening("https");
+    const { port, server } = await serve(host);
+    const key = { "agentsafe-tenant-key": TENANT_KEY };
+    const intercepted = (): number =>
+      reportedBy(io, "acme").filter((line) => line["event"] === "INTERCEPTED").length;
+    const checkpoints = (): number =>
+      chained(io, "acme", SECURITY_STREAM).filter((line) => line["event"] === "CHAIN_CHECKPOINT")
+        .length;
+    const moved = { evidenceDir, domain: "tenants.example" };
+    const MOVED = "acme.tenants.example";
+    expect((await send(port, "POST", ACME, "/orders", key)).status).toBe(200);
+    await until(() => intercepted() === 1);
+
+    // A new domain moves every tenant to a new host; its gateway still takes up the chains.
+    files.set(REGISTRY_PATH, registry([tenant("acme", TENANT_KEY_DIGEST)], moved));
+    expect(await host.reload()).toMatchObject({ built: ["acme"], retired: 1 });
+    expect(host.select(ACME)).toBeNull();
+    expect(host.select(MOVED)).not.toBeNull();
+    // From the swap the new gateway persists the heads; the old one, draining, no longer does.
+    expect(checkpoints()).toBe(3);
+    expect((await send(port, "POST", MOVED, "/orders", key)).status).toBe(200);
+    await until(() => intercepted() === 2);
+
+    // Removed, then added back before its old gateway has drained.
+    files.set(REGISTRY_PATH, registry([], moved));
+    expect(await host.reload()).toMatchObject({ served: 0, retired: 1 });
+    files.set(REGISTRY_PATH, registry([tenant("acme", TENANT_KEY_DIGEST)], moved));
+    expect(await host.reload()).toMatchObject({ built: ["acme"], retired: 0 });
+    expect(checkpoints()).toBe(6);
+    expect((await send(port, "POST", MOVED, "/orders", key)).status).toBe(200);
+    await until(() => intercepted() === 3);
+    await server.close(100);
+    await host.close("SIGTERM");
+
+    const verified = verifyAuditChain([...io.out, ...io.err]);
+    expect(verified.findings).toEqual([]);
+    for (const stream of [SECURITY_STREAM, EVIDENCE_STREAM, GATEWAY_STREAM]) {
+      expect(verified.streams[`acme/${stream}`]).toMatchObject({ starts: 1 });
+    }
+    expect(chained(io, "acme", GATEWAY_STREAM).map((line) => [line["seq"], line["event"]])).toEqual(
+      [
+        [1, "GATEWAY_STARTED"],
+        [2, "GATEWAY_STARTED"],
+        [3, "GATEWAY_STARTED"],
+      ],
+    );
+    // The heads persisted last are the live chains', not a drained gateway's.
+    const journal = new ChainJournal(join(evidenceDir, "acme"), { checkpointLines: 100 });
+    for (const stream of [SECURITY_STREAM, EVIDENCE_STREAM, GATEWAY_STREAM]) {
+      const last = chained(io, "acme", stream).at(-1);
+      expect(journal.restore(stream)).toEqual({ seq: last?.["seq"], hash: last?.["hash"] });
+    }
+    rmSync(evidenceDir, { recursive: true, force: true });
+  });
+
   it("is ready once one load has served every tenant the registry names, and stays ready", async () => {
     const late = join(secrets, "ready-late-key");
     const { host, files } = await start([

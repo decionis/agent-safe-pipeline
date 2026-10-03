@@ -167,6 +167,9 @@ out of service.
 A tenant's chains belong to the process. A gateway a reload builds takes up the chains of the one
 it replaces, so the tenant's evidence goes on in one sequence, with `CHAIN_RESUMED` on its security
 chain naming each stream's head at the rebuild; the drained gateway finishes on the same chains.
+The one it replaces is found by the tenant's id, not its host, so the chains also go on when a
+change to the registry's `domain` moves every tenant to a new host, and when a tenant is removed
+and added back while its old gateway still drains.
 Without `evidenceDir`, a process start begins each tenant's chains from genesis, which
 `agentsafe verify-chain` counts as a start. With it, each tenant's chain heads are kept under
 `<evidenceDir>/<id>/chain/`, beside its `evidence.jsonl`, and the next process goes on from them
