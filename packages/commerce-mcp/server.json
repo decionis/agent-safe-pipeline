@@ -4,12 +4,12 @@
   "title": "Decionis Commerce Gate MCP",
   "description": "Commerce preflights, Walmart mappings, D365 authorization, and offer checks; no external writes.",
   "websiteUrl": "https://commerce.decionis.com",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@decionis/commerce",
-      "version": "0.1.5",
+      "version": "0.1.6",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"
