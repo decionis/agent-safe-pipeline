@@ -1,7 +1,7 @@
 {
   "name": "@decionis/commerce",
   "version": "0.1.5",
-  "description": "MCP server that lets an AI agent check a price change, inventory update, order, fulfillment step, promotion, refund or return against your margin, stock and refund policy before it acts, authorize Dynamics 365 transactions within an agent budget, and read signed Decision Dossiers. Shadow Mode preflights; never writes to a marketplace or ERP.",
+  "description": "Commerce Gate MCP with seven commerce-action preflights, a D365 guard, and a marketplace SaaS offer-submission preflight. It records policy evidence and never writes to a marketplace or ERP.",
   "author": "Decionis",
   "license": "Apache-2.0",
   "type": "module",
@@ -30,6 +30,9 @@
     "promotion-change",
     "refund-request",
     "return-authorization",
+    "marketplace-offer-submission",
+    "partner-center",
+    "aws-marketplace",
     "shadow-mode",
     "decision-dossier",
     "proof-packet",

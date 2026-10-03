@@ -5,6 +5,7 @@ import type {
   ErpGuardResponse,
   ErpType,
   EvaluateActionInput,
+  MarketplaceOfferSubmissionPreflightInput,
   ShadowReportQuery,
   ValidateErpTransactionInput,
 } from "./CommerceGateClient.js";
@@ -45,6 +46,7 @@ export const COMMERCEGATE_TOOL_NAMES = [
   "commercegate_get_proof_packet",
   "commercegate_list_shadow_reports",
   "commercegate_summarize_shadow_reports",
+  "commercegate_evaluate_marketplace_offer_submission",
 ] as const;
 
 export const COMMERCEGATE_OUTCOME_MAP = {
@@ -63,6 +65,22 @@ export const COMMERCEGATE_ACTION_SUPPORT = {
     "REFUND_REQUEST",
     "RETURN_AUTHORIZATION",
   ],
+  marketplace_offer_submission_preflight: {
+    tool: "commercegate_evaluate_marketplace_offer_submission",
+    platforms: ["microsoft-partner-center", "aws-marketplace"],
+    supported_offer_types: ["SAAS"],
+    evaluation_mode: "SHADOW",
+    marketplace_writes: false,
+    required_evidence: [
+      "publisher_and_offer_identity",
+      "plan_and_market_configuration",
+      "public_listing_and_technical_urls",
+      "marketplace_identity",
+      "marketplace_draft_readiness",
+      "preview_or_test_evidence",
+      "digest_bound_release_evidence",
+    ],
+  },
   connector_execution: {
     exposed_by_this_mcp: false,
     connected_status_alone_is_sufficient: false,
@@ -84,6 +102,10 @@ const RFC_3339_PATTERN =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-](\d{2}):(\d{2}))$/;
 const BOUNDED_KEY_PATTERN = /^[a-z0-9][\w.:/-]{0,179}$/i;
 const POLICY_VERSION_PATTERN = /^[a-z0-9][\w.:/-]{0,119}$/i;
+const SHA256_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/;
+const MARKET_CODE_PATTERN = /^[A-Z]{2}$/;
+const AWS_ACCOUNT_ID_PATTERN = /^\d{12}$/;
+const AWS_IAM_ROLE_ARN_PATTERN = /^arn:aws(?:-[a-z-]+)?:iam::\d{12}:role\/[A-Za-z0-9+=,.@_/-]{1,450}$/;
 
 const annotations = (readOnlyHint: boolean, openWorldHint: boolean) => ({
   readOnlyHint,
@@ -525,6 +547,152 @@ const evaluateActionSchema = {
   additionalProperties: false,
 } as const;
 
+const marketplaceOfferSubmissionPreflightSchema = {
+  type: "object",
+  required: ["submission"],
+  properties: {
+    submission: {
+      title: "Marketplace SaaS offer submission preflight",
+      description:
+        "A bounded, digest-backed packet for manual Microsoft Partner Center or AWS Marketplace SaaS offer submission. This checks policy in Shadow Mode and never sends a marketplace write.",
+      type: "object",
+      required: [
+        "actor",
+        "marketplace",
+        "publisher_id",
+        "offer_id",
+        "offer_name",
+        "offer_type",
+        "idempotency_key",
+        "plans",
+        "landing_page_url",
+        "connection_webhook_url",
+        "support_url",
+        "privacy_policy_url",
+        "terms_of_use_url",
+        "marketplace_identity",
+        "release_evidence",
+      ],
+      properties: {
+        actor: actorSchema,
+        marketplace: { type: "string", enum: ["MICROSOFT_PARTNER_CENTER", "AWS_MARKETPLACE"] },
+        publisher_id: boundedIdentifierSchema,
+        offer_id: boundedIdentifierSchema,
+        offer_name: { type: "string", minLength: 1, maxLength: 200 },
+        offer_type: { type: "string", const: "SAAS" },
+        idempotency_key: {
+          type: "string",
+          minLength: 1,
+          maxLength: 180,
+          pattern: BOUNDED_KEY_PATTERN.source,
+        },
+        plans: {
+          type: "array",
+          minItems: 1,
+          maxItems: 100,
+          items: {
+            type: "object",
+            required: ["plan_id", "display_name", "billing_term", "markets"],
+            properties: {
+              plan_id: boundedIdentifierSchema,
+              display_name: { type: "string", minLength: 1, maxLength: 200 },
+              billing_term: { type: "string", enum: ["MONTHLY", "ANNUAL", "ONE_TIME"] },
+              markets: {
+                type: "array",
+                minItems: 1,
+                maxItems: 150,
+                items: { type: "string", pattern: MARKET_CODE_PATTERN.source },
+              },
+            },
+            additionalProperties: false,
+          },
+        },
+        landing_page_url: { type: "string", format: "uri", maxLength: 2048 },
+        connection_webhook_url: { type: "string", format: "uri", maxLength: 2048 },
+        support_url: { type: "string", format: "uri", maxLength: 2048 },
+        privacy_policy_url: { type: "string", format: "uri", maxLength: 2048 },
+        terms_of_use_url: { type: "string", format: "uri", maxLength: 2048 },
+        marketplace_identity: {
+          oneOf: [
+            {
+              type: "object",
+              required: ["provider", "tenant_id", "application_id"],
+              properties: {
+                provider: { type: "string", const: "MICROSOFT_ENTRA" },
+                tenant_id: { type: "string", format: "uuid" },
+                application_id: { type: "string", format: "uuid" },
+              },
+              additionalProperties: false,
+            },
+            {
+              type: "object",
+              required: [
+                "provider",
+                "subject",
+                "aws_account_id",
+                "aws_iam_role_arn",
+                "seller_offer_access_verified",
+              ],
+              properties: {
+                provider: { type: "string", const: "LOGIN_WITH_AMAZON" },
+                subject: { type: "string", minLength: 1, maxLength: 200 },
+                aws_account_id: { type: "string", pattern: "^[0-9]{12}$" },
+                aws_iam_role_arn: {
+                  type: "string",
+                  pattern: "^arn:aws(?:-[a-z-]+)?:iam::[0-9]{12}:role/.+",
+                  maxLength: 512,
+                },
+                seller_offer_access_verified: { type: "boolean", const: true },
+              },
+              additionalProperties: false,
+            },
+          ],
+        },
+        business_central_extension: {
+          type: "object",
+          required: ["app_id", "version"],
+          properties: {
+            app_id: { type: "string", format: "uuid" },
+            version: { type: "string", minLength: 1, maxLength: 120 },
+          },
+          additionalProperties: false,
+        },
+        release_evidence: {
+          type: "object",
+          required: [
+            "marketplace_draft_status",
+            "offer_listing_verified",
+            "technical_configuration_verified",
+            "preview_or_test_verified",
+            "marketplace_identity_verified",
+            "submission_payload_sha256",
+            "release_evidence_sha256",
+          ],
+          properties: {
+            marketplace_draft_status: { type: "string", const: "READY_TO_PUBLISH" },
+            offer_listing_verified: { type: "boolean", const: true },
+            technical_configuration_verified: { type: "boolean", const: true },
+            preview_or_test_verified: { type: "boolean", const: true },
+            marketplace_identity_verified: { type: "boolean", const: true },
+            submission_payload_sha256: { type: "string", pattern: SHA256_DIGEST_PATTERN.source },
+            release_evidence_sha256: { type: "string", pattern: SHA256_DIGEST_PATTERN.source },
+          },
+          additionalProperties: false,
+        },
+      },
+      additionalProperties: false,
+    },
+    policy_version: {
+      type: "string",
+      minLength: 1,
+      maxLength: 120,
+      pattern: POLICY_VERSION_PATTERN.source,
+      description: "Optional exact Decionis policy version. Omit to use the tenant default.",
+    },
+  },
+  additionalProperties: false,
+} as const;
+
 const dossierSchema = {
   type: "object",
   required: ["dossier_id"],
@@ -747,6 +915,45 @@ function rfc3339Timestamp(value: unknown): string {
       "INVALID_INPUT",
       "request.timestamp must be a valid RFC 3339 date-time.",
     );
+  }
+  return result;
+}
+
+function uuid(value: unknown, label: string): string {
+  const result = boundedText(value, label, 36);
+  if (!UUID_PATTERN.test(result)) {
+    throw new CommerceGateError("INVALID_INPUT", `${label} must be a UUID.`);
+  }
+  return result;
+}
+
+function httpsUrl(value: unknown, label: string): string {
+  const result = boundedText(value, label, 2_048);
+  try {
+    const parsed = new URL(result);
+    if (
+      parsed.protocol !== "https:" ||
+      !parsed.hostname ||
+      parsed.username ||
+      parsed.password ||
+      parsed.search ||
+      parsed.hash
+    ) {
+      throw new Error("invalid URL");
+    }
+  } catch {
+    throw new CommerceGateError(
+      "INVALID_INPUT",
+      `${label} must be an HTTPS URL without credentials, query parameters, or fragments.`,
+    );
+  }
+  return result;
+}
+
+function sha256Digest(value: unknown, label: string): string {
+  const result = boundedText(value, label, 71);
+  if (!SHA256_DIGEST_PATTERN.test(result)) {
+    throw new CommerceGateError("INVALID_INPUT", `${label} must be a sha256:<64 lowercase hex> digest.`);
   }
   return result;
 }
@@ -1058,6 +1265,288 @@ function parseEvaluationInput(args: Record<string, unknown>): EvaluateActionInpu
   };
 }
 
+function parseMarketplaceOfferSubmissionInput(
+  args: Record<string, unknown>,
+): MarketplaceOfferSubmissionPreflightInput {
+  assertAllowedKeys(
+    args,
+    ["submission", "policy_version"],
+    "commercegate_evaluate_marketplace_offer_submission input",
+  );
+  const policyVersion =
+    args.policy_version === undefined
+      ? undefined
+      : boundedText(args.policy_version, "policy_version", 120);
+  if (policyVersion && !POLICY_VERSION_PATTERN.test(policyVersion)) {
+    throw new CommerceGateError(
+      "INVALID_INPUT",
+      "policy_version may contain only letters, digits, dot, underscore, colon, slash, and hyphen.",
+    );
+  }
+  const submission = record(args.submission, "submission");
+  assertAllowedKeys(
+    submission,
+    [
+      "actor",
+      "marketplace",
+      "publisher_id",
+      "offer_id",
+      "offer_name",
+      "offer_type",
+      "idempotency_key",
+      "plans",
+      "landing_page_url",
+      "connection_webhook_url",
+      "support_url",
+      "privacy_policy_url",
+      "terms_of_use_url",
+      "marketplace_identity",
+      "business_central_extension",
+      "release_evidence",
+    ],
+    "submission",
+  );
+  const marketplace = submission.marketplace;
+  if (marketplace !== "MICROSOFT_PARTNER_CENTER" && marketplace !== "AWS_MARKETPLACE") {
+    throw new CommerceGateError(
+      "INVALID_INPUT",
+      "submission.marketplace must be MICROSOFT_PARTNER_CENTER or AWS_MARKETPLACE.",
+    );
+  }
+  if (submission.offer_type !== "SAAS") {
+    throw new CommerceGateError("INVALID_INPUT", "submission.offer_type must be SAAS.");
+  }
+  const idempotencyKey = boundedText(submission.idempotency_key, "submission.idempotency_key", 180);
+  if (!BOUNDED_KEY_PATTERN.test(idempotencyKey)) {
+    throw new CommerceGateError(
+      "INVALID_INPUT",
+      "submission.idempotency_key may contain only letters, digits, dot, underscore, colon, slash, and hyphen.",
+    );
+  }
+  if (!Array.isArray(submission.plans) || submission.plans.length < 1 || submission.plans.length > 100) {
+    throw new CommerceGateError("INVALID_INPUT", "submission.plans must contain from 1 through 100 plans.");
+  }
+  const planIds = new Set<string>();
+  const plans = submission.plans.map((value, index) => {
+    const plan = record(value, `submission.plans[${index}]`);
+    assertAllowedKeys(plan, ["plan_id", "display_name", "billing_term", "markets"], `submission.plans[${index}]`);
+    const planId = boundedText(plan.plan_id, `submission.plans[${index}].plan_id`, 200);
+    if (planIds.has(planId)) {
+      throw new CommerceGateError("INVALID_INPUT", "submission.plans must not repeat plan_id values.");
+    }
+    planIds.add(planId);
+    const billingTerms = ["MONTHLY", "ANNUAL", "ONE_TIME"] as const;
+    if (
+      typeof plan.billing_term !== "string" ||
+      !billingTerms.includes(plan.billing_term as (typeof billingTerms)[number])
+    ) {
+      throw new CommerceGateError(
+        "INVALID_INPUT",
+        `submission.plans[${index}].billing_term must be one of ${billingTerms.join(", ")}.`,
+      );
+    }
+    if (!Array.isArray(plan.markets) || plan.markets.length < 1 || plan.markets.length > 150) {
+      throw new CommerceGateError(
+        "INVALID_INPUT",
+        `submission.plans[${index}].markets must contain from 1 through 150 markets.`,
+      );
+    }
+    const markets = plan.markets.map((market, marketIndex) => {
+      const value = boundedText(market, `submission.plans[${index}].markets[${marketIndex}]`, 2);
+      if (!MARKET_CODE_PATTERN.test(value)) {
+        throw new CommerceGateError(
+          "INVALID_INPUT",
+          `submission.plans[${index}].markets[${marketIndex}] must be an uppercase two-letter market code.`,
+        );
+      }
+      return value;
+    });
+  if (new Set(markets).size !== markets.length) {
+      throw new CommerceGateError(
+        "INVALID_INPUT",
+        `submission.plans[${index}].markets must not repeat market codes.`,
+      );
+    }
+    return {
+      plan_id: planId,
+      display_name: boundedText(plan.display_name, `submission.plans[${index}].display_name`, 200),
+      billing_term: plan.billing_term as (typeof billingTerms)[number],
+      markets,
+    };
+  });
+  const marketplaceIdentity = record(submission.marketplace_identity, "submission.marketplace_identity");
+  const parsedMarketplaceIdentity =
+    marketplace === "MICROSOFT_PARTNER_CENTER"
+      ? (() => {
+          assertAllowedKeys(
+            marketplaceIdentity,
+            ["provider", "tenant_id", "application_id"],
+            "submission.marketplace_identity",
+          );
+          if (marketplaceIdentity.provider !== "MICROSOFT_ENTRA") {
+            throw new CommerceGateError(
+              "INVALID_INPUT",
+              "Microsoft Partner Center submissions require a MICROSOFT_ENTRA marketplace identity.",
+            );
+          }
+          return {
+            provider: "MICROSOFT_ENTRA" as const,
+            tenant_id: uuid(marketplaceIdentity.tenant_id, "submission.marketplace_identity.tenant_id"),
+            application_id: uuid(
+              marketplaceIdentity.application_id,
+              "submission.marketplace_identity.application_id",
+            ),
+          };
+        })()
+      : (() => {
+          assertAllowedKeys(
+            marketplaceIdentity,
+            [
+              "provider",
+              "subject",
+              "aws_account_id",
+              "aws_iam_role_arn",
+              "seller_offer_access_verified",
+            ],
+            "submission.marketplace_identity",
+          );
+          if (marketplaceIdentity.provider !== "LOGIN_WITH_AMAZON") {
+            throw new CommerceGateError(
+              "INVALID_INPUT",
+              "AWS Marketplace submissions require a LOGIN_WITH_AMAZON marketplace identity.",
+            );
+          }
+          if (marketplaceIdentity.seller_offer_access_verified !== true) {
+            throw new CommerceGateError(
+              "INVALID_INPUT",
+              "submission.marketplace_identity.seller_offer_access_verified must be true.",
+            );
+          }
+          const awsAccountId = boundedText(
+            marketplaceIdentity.aws_account_id,
+            "submission.marketplace_identity.aws_account_id",
+            12,
+          );
+          if (!AWS_ACCOUNT_ID_PATTERN.test(awsAccountId)) {
+            throw new CommerceGateError(
+              "INVALID_INPUT",
+              "submission.marketplace_identity.aws_account_id must be a 12-digit AWS account ID.",
+            );
+          }
+          const awsIamRoleArn = boundedText(
+            marketplaceIdentity.aws_iam_role_arn,
+            "submission.marketplace_identity.aws_iam_role_arn",
+            512,
+          );
+          if (
+            !AWS_IAM_ROLE_ARN_PATTERN.test(awsIamRoleArn) ||
+            !awsIamRoleArn.includes(`::${awsAccountId}:`)
+          ) {
+            throw new CommerceGateError(
+              "INVALID_INPUT",
+              "submission.marketplace_identity.aws_iam_role_arn must be an IAM role ARN for aws_account_id.",
+            );
+          }
+          return {
+            provider: "LOGIN_WITH_AMAZON" as const,
+            subject: boundedText(
+              marketplaceIdentity.subject,
+              "submission.marketplace_identity.subject",
+              200,
+            ),
+            aws_account_id: awsAccountId,
+            aws_iam_role_arn: awsIamRoleArn,
+            seller_offer_access_verified: true as const,
+          };
+        })();
+  const releaseEvidence = record(submission.release_evidence, "submission.release_evidence");
+  assertAllowedKeys(
+    releaseEvidence,
+    [
+      "marketplace_draft_status",
+      "offer_listing_verified",
+      "technical_configuration_verified",
+      "preview_or_test_verified",
+      "marketplace_identity_verified",
+      "submission_payload_sha256",
+      "release_evidence_sha256",
+    ],
+    "submission.release_evidence",
+  );
+  if (releaseEvidence.marketplace_draft_status !== "READY_TO_PUBLISH") {
+    throw new CommerceGateError(
+      "INVALID_INPUT",
+      "submission.release_evidence.marketplace_draft_status must be READY_TO_PUBLISH.",
+    );
+  }
+  for (const name of [
+    "offer_listing_verified",
+    "technical_configuration_verified",
+    "preview_or_test_verified",
+    "marketplace_identity_verified",
+  ] as const) {
+    if (releaseEvidence[name] !== true) {
+      throw new CommerceGateError("INVALID_INPUT", `submission.release_evidence.${name} must be true.`);
+    }
+  }
+  const extension =
+    submission.business_central_extension === undefined
+      ? undefined
+      : record(submission.business_central_extension, "submission.business_central_extension");
+  if (extension) {
+    assertAllowedKeys(extension, ["app_id", "version"], "submission.business_central_extension");
+  }
+  return {
+    submission: {
+      actor: actor(submission.actor),
+      marketplace,
+      publisher_id: boundedText(submission.publisher_id, "submission.publisher_id", 200),
+      offer_id: boundedText(submission.offer_id, "submission.offer_id", 200),
+      offer_name: boundedText(submission.offer_name, "submission.offer_name", 200),
+      offer_type: "SAAS",
+      idempotency_key: idempotencyKey,
+      plans,
+      landing_page_url: httpsUrl(submission.landing_page_url, "submission.landing_page_url"),
+      connection_webhook_url: httpsUrl(
+        submission.connection_webhook_url,
+        "submission.connection_webhook_url",
+      ),
+      support_url: httpsUrl(submission.support_url, "submission.support_url"),
+      privacy_policy_url: httpsUrl(submission.privacy_policy_url, "submission.privacy_policy_url"),
+      terms_of_use_url: httpsUrl(submission.terms_of_use_url, "submission.terms_of_use_url"),
+      marketplace_identity: parsedMarketplaceIdentity,
+      ...(extension
+        ? {
+            business_central_extension: {
+              app_id: uuid(extension.app_id, "submission.business_central_extension.app_id"),
+              version: boundedText(
+                extension.version,
+                "submission.business_central_extension.version",
+                120,
+              ),
+            },
+          }
+        : {}),
+      release_evidence: {
+        marketplace_draft_status: "READY_TO_PUBLISH",
+        offer_listing_verified: true,
+        technical_configuration_verified: true,
+        preview_or_test_verified: true,
+        marketplace_identity_verified: true,
+        submission_payload_sha256: sha256Digest(
+          releaseEvidence.submission_payload_sha256,
+          "submission.release_evidence.submission_payload_sha256",
+        ),
+        release_evidence_sha256: sha256Digest(
+          releaseEvidence.release_evidence_sha256,
+          "submission.release_evidence.release_evidence_sha256",
+        ),
+      },
+    },
+    ...(policyVersion ? { policy_version: policyVersion } : {}),
+  };
+}
+
 function parseDossierId(args: Record<string, unknown>): string {
   assertAllowedKeys(args, ["dossier_id"], "dossier input");
   const id = boundedText(args.dossier_id, "dossier_id", 36);
@@ -1197,7 +1686,7 @@ export class CommerceGateTools {
         name: COMMERCEGATE_TOOL_NAMES[0],
         title: "Describe CommerceGate Capabilities",
         description:
-          "Use this first, or when someone asks 'can you check prices, orders or refunds against our policy?'. It lists the seven kinds of commerce action CommerceGate can check in Shadow Mode: price changes, inventory updates, order acceptance, fulfillment steps, promotion changes, refund requests, and return authorizations. It also explains PROCEED, HOLD, and BLOCK, tenant connection state, and available evidence tools. This local diagnostic never calls the Decionis API, reveals credentials, or claims that a platform connector can execute an action.",
+          "Use this first, or when someone asks 'can you check prices, orders, refunds, or a marketplace offer against our policy?'. It lists the seven commerce-action preflights, the separate Dynamics 365 guard, and the Microsoft Partner Center and AWS Marketplace SaaS offer-submission preflight. It also explains PROCEED, HOLD, and BLOCK, tenant connection state, and available evidence tools. This local diagnostic never calls the Decionis API, reveals credentials, or claims that a platform connector can execute an action.",
         inputSchema: { type: "object", properties: {}, additionalProperties: false },
         annotations: annotations(true, false),
         handler: async (args) =>
@@ -1206,7 +1695,7 @@ export class CommerceGateTools {
             const connection = this.configuration.describe();
             return {
               ok: true,
-              server: "CommerceGate MCP",
+              server: "Commerce Gate MCP",
               identity: "com.decionis/commerce-gate",
               connection,
               supported_action_types: SUPPORTED_ACTION_TYPES,
@@ -1217,6 +1706,13 @@ export class CommerceGateTools {
                 agent_budget_authorization_after_policy_approval: true,
                 configuration_ready: connection.erp_guard_ready,
                 erp_writes: false,
+              },
+              marketplace_offer_submission_preflight: {
+                platforms: ["microsoft-partner-center", "aws-marketplace"],
+                offer_type: "SAAS",
+                mode: "SHADOW",
+                marketplace_writes: false,
+                configuration_ready: connection.protocol_tools_ready,
               },
               outcome_mapping: COMMERCEGATE_OUTCOME_MAP,
               action_support: COMMERCEGATE_ACTION_SUPPORT,
@@ -1360,6 +1856,35 @@ export class CommerceGateTools {
             };
           }),
       },
+      {
+        name: COMMERCEGATE_TOOL_NAMES[7],
+        title: "Preflight a Marketplace SaaS Offer Submission",
+        description:
+          "Use this before manually submitting a Commerce Gate SaaS offer in Microsoft Partner Center or AWS Marketplace. It requires a bounded offer, plan and market packet, public HTTPS listing and technical URLs, platform identity, preview or test confirmation, and digest-bound release evidence. Microsoft packets require Microsoft Entra tenant and application IDs; AWS packets require a Login with Amazon subject bound to the seller AWS account and IAM role. It sends only a SHADOW evaluation to Decionis: it never calls either marketplace, uploads an artifact, creates or changes an offer, or submits the offer for review. PROCEED is policy evidence, not authority or consent to submit.",
+        inputSchema: marketplaceOfferSubmissionPreflightSchema,
+        annotations: annotations(false, true),
+        handler: async (args) =>
+          safeCall(async () => {
+            const input = parseMarketplaceOfferSubmissionInput(args);
+            const evaluation = await this.api.evaluateMarketplaceOfferSubmission(input);
+            return {
+              ok: true,
+              mode: "SHADOW",
+              action_type: "MARKETPLACE_OFFER_SUBMISSION",
+              marketplace: input.submission.marketplace,
+              offer_id: input.submission.offer_id,
+              idempotency_key: input.submission.idempotency_key,
+              no_marketplace_write_executed: true,
+              approve_is_not_submission_consent: true,
+              commercegate_disposition: commerceGateDisposition(evaluation),
+              agent_guidance: outcomeGuidance(evaluation),
+              evaluation,
+              ...(this.configuration.describe().access
+                ? { access: this.configuration.describe().access }
+                : {}),
+            };
+          }),
+      },
     ];
   }
 }
@@ -1369,5 +1894,6 @@ export const CommerceGateToolParsing = {
   parseDossierId,
   parseErpGuardInput,
   parseEvaluationInput,
+  parseMarketplaceOfferSubmissionInput,
   parseReportQuery,
 };

@@ -153,6 +153,62 @@ export interface EvaluateActionInput {
   policy_version?: string;
 }
 
+/**
+ * Bounded preflight packet for a manual Commerce Gate SaaS marketplace offer
+ * submission. This is deliberately separate from the seven commerce-action
+ * contracts: it records evidence in Shadow Mode and never sends a marketplace
+ * API request.
+ */
+export interface MarketplaceOfferSubmissionPreflightInput {
+  submission: {
+    actor: CommerceActor;
+    marketplace: "MICROSOFT_PARTNER_CENTER" | "AWS_MARKETPLACE";
+    publisher_id: string;
+    offer_id: string;
+    offer_name: string;
+    offer_type: "SAAS";
+    idempotency_key: string;
+    plans: Array<{
+      plan_id: string;
+      display_name: string;
+      billing_term: "MONTHLY" | "ANNUAL" | "ONE_TIME";
+      markets: string[];
+    }>;
+    landing_page_url: string;
+    connection_webhook_url: string;
+    support_url: string;
+    privacy_policy_url: string;
+    terms_of_use_url: string;
+    marketplace_identity:
+      | {
+          provider: "MICROSOFT_ENTRA";
+          tenant_id: string;
+          application_id: string;
+        }
+      | {
+          provider: "LOGIN_WITH_AMAZON";
+          subject: string;
+          aws_account_id: string;
+          aws_iam_role_arn: string;
+          seller_offer_access_verified: true;
+        };
+    business_central_extension?: {
+      app_id: string;
+      version: string;
+    };
+    release_evidence: {
+      marketplace_draft_status: "READY_TO_PUBLISH";
+      offer_listing_verified: true;
+      technical_configuration_verified: true;
+      preview_or_test_verified: true;
+      marketplace_identity_verified: true;
+      submission_payload_sha256: string;
+      release_evidence_sha256: string;
+    };
+  };
+  policy_version?: string;
+}
+
 export interface ErpGuardLine {
   line_id: number;
   sku: string;
@@ -192,6 +248,9 @@ export interface ShadowReportQuery {
 export interface CommerceGateApi {
   validateErpTransaction(input: ValidateErpTransactionInput): Promise<ErpGuardResponse>;
   evaluateAction(input: EvaluateActionInput): Promise<unknown>;
+  evaluateMarketplaceOfferSubmission(
+    input: MarketplaceOfferSubmissionPreflightInput,
+  ): Promise<unknown>;
   getDossier(dossierId: string): Promise<unknown>;
   getProofPacket(dossierId: string): Promise<unknown>;
   listShadowReports(query: ShadowReportQuery): Promise<unknown>;
@@ -539,6 +598,78 @@ function buildEvaluationRequest(input: EvaluateActionInput): Record<string, unkn
   };
 }
 
+function buildMarketplaceOfferSubmissionRequest(
+  input: MarketplaceOfferSubmissionPreflightInput,
+): Record<string, unknown> {
+  const { submission } = input;
+  const releaseEvidence = submission.release_evidence;
+  return {
+    org_id: null,
+    decision_type: "MARKETPLACE_OFFER_SUBMISSION",
+    transaction_type: "marketplace_offer_submission",
+    workflow_key: "commerce_marketplace_offer_submission",
+    channel: "mcp",
+    source: "commercegate-mcp",
+    mode: "SHADOW",
+    idempotency_key: submission.idempotency_key,
+    ...(input.policy_version
+      ? { policy_version: input.policy_version, require_exact_policy_version: true }
+      : {}),
+    context: {
+      action_type: "MARKETPLACE_OFFER_SUBMISSION",
+      actor_type: submission.actor.type,
+      actor_id: submission.actor.id,
+      actor: submission.actor,
+      platform:
+        submission.marketplace === "MICROSOFT_PARTNER_CENTER"
+          ? "microsoft-partner-center"
+          : "aws-marketplace",
+      submission,
+      marketplace: submission.marketplace,
+      publisher_id: submission.publisher_id,
+      offer_id: submission.offer_id,
+      offer_type: submission.offer_type,
+      plans: submission.plans,
+      landing_page_url: submission.landing_page_url,
+      connection_webhook_url: submission.connection_webhook_url,
+      support_url: submission.support_url,
+      privacy_policy_url: submission.privacy_policy_url,
+      terms_of_use_url: submission.terms_of_use_url,
+      marketplace_identity: submission.marketplace_identity,
+      ...(submission.business_central_extension
+        ? { business_central_extension: submission.business_central_extension }
+        : {}),
+      release_evidence: releaseEvidence,
+      signals: {
+        action_type: "MARKETPLACE_OFFER_SUBMISSION",
+        actor_type: submission.actor.type,
+        actor_id: submission.actor.id,
+        marketplace: submission.marketplace,
+        marketplace_identity_provider: submission.marketplace_identity.provider,
+        marketplace_draft_ready:
+          releaseEvidence.marketplace_draft_status === "READY_TO_PUBLISH",
+        offer_listing_verified: releaseEvidence.offer_listing_verified,
+        technical_configuration_verified: releaseEvidence.technical_configuration_verified,
+        preview_or_test_verified: releaseEvidence.preview_or_test_verified,
+        release_evidence_complete: true,
+        marketplace_identity_complete: true,
+        marketplace_identity_verified: releaseEvidence.marketplace_identity_verified,
+        plan_count: submission.plans.length,
+        market_count: submission.plans.reduce((total, plan) => total + plan.markets.length, 0),
+        ...(submission.marketplace_identity.provider === "LOGIN_WITH_AMAZON"
+          ? {
+              aws_seller_offer_access_verified:
+                submission.marketplace_identity.seller_offer_access_verified,
+            }
+          : {}),
+        ...(submission.business_central_extension
+          ? { business_central_extension_verified: true }
+          : {}),
+      },
+    },
+  };
+}
+
 function upstreamError(status: number): CommerceGateError {
   if (status === 401) {
     return new CommerceGateError(
@@ -695,6 +826,19 @@ export class CommerceGateClient implements CommerceGateApi {
     return validateEvaluationResponse(response, input.policy_version);
   }
 
+  async evaluateMarketplaceOfferSubmission(
+    input: MarketplaceOfferSubmissionPreflightInput,
+  ): Promise<unknown> {
+    const request = buildMarketplaceOfferSubmissionRequest(input);
+    const response = await this.request(EVALUATE_OPERATION.path, {
+      method: "POST",
+      body: request,
+      idempotencyKey: input.submission.idempotency_key,
+      allowProvision: true,
+    });
+    return validateEvaluationResponse(response, input.policy_version);
+  }
+
   async validateErpTransaction(input: ValidateErpTransactionInput): Promise<ErpGuardResponse> {
     const response = await this.request(ERP_GUARD_OPERATION.path, {
       method: "POST",
@@ -739,4 +883,9 @@ export class CommerceGateClient implements CommerceGateApi {
   }
 }
 
-export const CommerceGateRequestMapping = { buildEvaluationRequest, evaluationFacts, marginSignal };
+export const CommerceGateRequestMapping = {
+  buildEvaluationRequest,
+  buildMarketplaceOfferSubmissionRequest,
+  evaluationFacts,
+  marginSignal,
+};
