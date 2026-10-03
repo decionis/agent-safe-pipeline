@@ -184,6 +184,16 @@ not digests are set, so an upstream never sees it, and it cannot be the
 answer platform probes, and `status` and `metrics` answer the operator's token. A hosted gateway
 refuses to start without a digest.
 
+Anyone who knows a gateway's host can send requests without the key, so what a refusal writes to the
+chained security stream is bounded per gateway, whatever the rate and however many addresses it
+comes from. In each 60-second window, opened by the first refusal, the first 10 refusals are each an
+`AUTH_FAILED` line; the rest are counted by code, and each count is one `AUTH_FAILED_SUPPRESSED`
+line with `method`, `code` and `count` when the window closes, or when the gateway closes first. A
+gateway therefore writes at most 12 such lines a minute. Every request is still refused and counted
+in `agentsafe_requests_total{kind="tenant_key_refused"}`, and the tenant's own key is admitted as
+before: the bound is on the evidence a flood costs, not on the tenant's traffic, which a refusal
+never spends.
+
 ## Presence
 
 ```yaml

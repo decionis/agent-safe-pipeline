@@ -13,6 +13,7 @@ const currency = z.string().regex(/^[A-Z]{3}$/);
 const period = z.string().regex(/^2\d{3}-(?:0[1-9]|1[0-2])$/);
 /** An operator's words or a trigger's own description; never anything from a request. */
 const reason = z.string().min(1).max(200);
+const authMethod = z.enum(["bearer", "jwt", "mtls", "tenant_key", "none"]);
 
 /**
  * What the security stream may say. Every field is an identifier, a code, an
@@ -36,10 +37,14 @@ export const SecurityEventSchema = z.discriminatedUnion("event", [
     patterns: z.array(z.string().max(32)).max(8),
   }),
   z.strictObject({ event: z.literal("EGRESS_REFUSED"), origin: origin.nullable(), code }),
+  z.strictObject({ event: z.literal("AUTH_FAILED"), method: authMethod, code }),
   z.strictObject({
-    event: z.literal("AUTH_FAILED"),
-    method: z.enum(["bearer", "jwt", "mtls", "tenant_key", "none"]),
+    // Refusals a window did not write one line each, counted: a flood is a
+    // line per window, not a line per request (gateway/RefusalSampler.ts).
+    event: z.literal("AUTH_FAILED_SUPPRESSED"),
+    method: authMethod,
     code,
+    count,
   }),
   z.strictObject({ event: z.literal("PRINCIPAL_LOCKED"), principal }),
   z.strictObject({

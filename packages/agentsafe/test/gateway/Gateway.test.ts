@@ -17,6 +17,7 @@ import {
   SHADOW_REPORT_MILESTONES,
 } from "../../src/gateway/Gateway.js";
 import type { InterceptedRequest } from "../../src/gateway/InterceptedRequest.js";
+import { REFUSAL_LINES_PER_WINDOW } from "../../src/gateway/RefusalSampler.js";
 import { verifyAuditChain } from "../../src/verify/VerifyAuditChain.js";
 import { closedPort } from "../support/Environment.js";
 import {
@@ -1165,6 +1166,47 @@ describe("the tenant key check", () => {
     expect([...io.out, ...io.err].some((line) => line.includes("synthetic-guess"))).toBe(false);
     expect([...io.out, ...io.err].some((line) => line.includes(TENANT_KEY))).toBe(false);
     await gateway.close();
+  });
+
+  it("bounds what a flood without the key writes to the security stream, and counts the rest", async () => {
+    const io = collectedIo();
+    const gateway = await Gateway.create(
+      testConfig("https://shop.tenant.example", {
+        flags: { mode: "shadow" },
+        env: { AGENTSAFE_HOSTED_GATEWAY: "true", AGENTSAFE_TENANT_KEY_DIGESTS: TENANT_KEY_DIGEST },
+      }),
+      { env: {}, io },
+    );
+    for (let index = 0; index < 1_000; index += 1) gateway.keyRefusal(undefined);
+    for (let index = 0; index < 5; index += 1) gateway.keyRefusal("synthetic-guess");
+    const security = (): Record<string, unknown>[] =>
+      io.err
+        .map((line) => JSON.parse(line) as Record<string, unknown>)
+        .filter((line) => String(line["event"]).startsWith("AUTH_FAILED"));
+    expect(security()).toHaveLength(REFUSAL_LINES_PER_WINDOW);
+    expect(security().every((line) => line["code"] === "TENANT_KEY_MISSING")).toBe(true);
+    // Every refusal is still counted, and the tenant's own key still admits.
+    expect(gateway.metricsText()).toContain(
+      'agentsafe_requests_total{kind="tenant_key_refused"} 1005',
+    );
+    expect(gateway.keyRefusal(TENANT_KEY)).toBeNull();
+    // The window's counts are written when it closes, or when the gateway does.
+    await gateway.close();
+    expect(security().slice(REFUSAL_LINES_PER_WINDOW)).toEqual([
+      expect.objectContaining({
+        event: "AUTH_FAILED_SUPPRESSED",
+        method: "tenant_key",
+        code: "TENANT_KEY_MISSING",
+        count: 1_000 - REFUSAL_LINES_PER_WINDOW,
+      }),
+      expect.objectContaining({
+        event: "AUTH_FAILED_SUPPRESSED",
+        method: "tenant_key",
+        code: "TENANT_KEY_INVALID",
+        count: 5,
+      }),
+    ]);
+    expect(verifyAuditChain(io.err).ok).toBe(true);
   });
 
   it("admits everything when the gateway has no keys, and says nothing", async () => {

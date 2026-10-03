@@ -61,6 +61,7 @@ import {
 } from "./GatewayReport.js";
 import { normalizeRequest, type InterceptedRequest } from "./InterceptedRequest.js";
 import { TokenBucket, type RateDecision } from "./RateLimit.js";
+import { RefusalSampler } from "./RefusalSampler.js";
 import { RouteTable, type RoutePlan } from "./RouteTable.js";
 import { enforcementSwitch, ShadowLedger, type ShadowSummary } from "./ShadowLedger.js";
 
@@ -203,6 +204,8 @@ export class Gateway {
   private readonly activation: ActivationFunnel;
   private readonly ledger = new ShadowLedger();
   private readonly bucket: TokenBucket | null;
+  /** The tenant key's refusals on the security stream, bounded per window. */
+  private readonly refusals: RefusalSampler<TenantKeyRefusal>;
   private lastShadowReportAt: number;
 
   private constructor(
@@ -215,7 +218,7 @@ export class Gateway {
     private readonly metrics: GatewayMetrics,
     private readonly emitLine: LineWriter,
     private readonly io: GatewayIo,
-    private readonly security: SecurityEvents,
+    security: SecurityEvents,
     private readonly secrets: SecretStore | null,
     private readonly demo: DemoAuthorityHandle | null,
     journal: ChainJournal | null,
@@ -230,6 +233,11 @@ export class Gateway {
     this.lastShadowReportAt = clock();
     this.capture = new IntentCapture({ audit, ttlSeconds: config.intentTtlSeconds });
     this.bucket = config.rateLimit === null ? null : new TokenBucket(config.rateLimit, clock);
+    this.refusals = new RefusalSampler(
+      (code) => security.emit({ event: "AUTH_FAILED", method: "tenant_key", code }),
+      (code, count) =>
+        security.emit({ event: "AUTH_FAILED_SUPPRESSED", method: "tenant_key", code, count }),
+    );
     this.activation = new ActivationFunnel(
       (milestone, at) => this.report({ event: "ACTIVATION", milestone, at }),
       clock,
@@ -649,7 +657,9 @@ export class Gateway {
    * admitted when the gateway has no keys; otherwise only a key that hashes
    * to one of them. Every configured digest is compared, in constant time,
    * whether or not an earlier one matched. A refusal is counted and put on
-   * the security stream with its reason, never with the value presented.
+   * the security stream with its reason, never with the value presented:
+   * one line each up to a bound per window, and a count of the rest, so a
+   * flood without the key cannot grow the chained stream with its rate.
    */
   public keyRefusal(presented: string | undefined): TenantKeyRefusal | null {
     if (this.config.tenantKeys.length === 0) return null;
@@ -665,7 +675,7 @@ export class Gateway {
     if (admitted) return null;
     const refusal = candidate === null ? "TENANT_KEY_MISSING" : "TENANT_KEY_INVALID";
     this.metrics.requests.inc({ kind: "tenant_key_refused" });
-    this.security.emit({ event: "AUTH_FAILED", method: "tenant_key", code: refusal });
+    this.refusals.refuse(refusal);
     return refusal;
   }
 
@@ -762,6 +772,7 @@ export class Gateway {
   }
 
   public async close(): Promise<void> {
+    this.refusals.flush();
     for (const stop of this.stopFollowing) stop();
     this.held.clear();
     if (this.demo !== null) await this.demo.stop();

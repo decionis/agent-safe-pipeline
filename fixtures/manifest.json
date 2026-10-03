@@ -885,6 +885,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/gateway/RefusalSampler.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/gateway/RouteTable.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
