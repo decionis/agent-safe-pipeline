@@ -361,8 +361,13 @@ export class DecionisGrantVerifier implements AuthorizationVerifier {
           intent_hash: captured.intentHash,
           intent: CanonicalIntentHasher.bindingOf(captured.intent),
           // A Presence-bound decision is re-verified by the authority at claim
-          // time, so the same evidence must accompany the claim.
-          ...(decision.evidence === undefined ? {} : { evidence: decision.evidence }),
+          // time, so the same evidence must accompany the claim. A presence
+          // attestation is verified once, at evaluation, where the authority
+          // records it with the grant; the claim contract carries Presence
+          // evidence only, so an attestation is not sent again here.
+          ...(decision.evidence?.humanApproval?.provider === "presence"
+            ? { evidence: decision.evidence }
+            : {}),
           consumed_by: captured.intent.actor.id,
           commit_correlation_id: commitCorrelationId,
         }),

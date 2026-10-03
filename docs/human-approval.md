@@ -44,6 +44,21 @@ and finalization path:
 The existing direct coordinator remains appropriate when an application owns delivery and Presence
 coordination. Managed mode is orchestration convenience, not weaker authorization.
 
+## Presence attestations
+
+A presence provider other than Presence can prove a person was there, such as a cardholder tapping
+the physical card on their own phone in the issuer's app. Its proof is a compact Ed25519 JWS over
+the intent (`typ: decionis-presence-attestation+jwt`), and it reaches Decionis as
+`evidence.humanApproval: { provider: "attestation", attestation }` on a fresh `enforce-and-bind`
+of the same intent. `DecionisGate` checks only the shape (a compact JWS of at most 20,000
+characters, nothing else in the object) and fails closed with `HUMAN_APPROVAL_EVIDENCE_INVALID`
+before asking anything otherwise. Decionis verifies the signature under the key the organisation
+registered for that provider, the audience, the expiry and the intent binding, and writes the
+approval facts into the evaluation context; an `ESCALATE` becomes `ALLOW` only where policy has a
+rule that matches them. The attestation is evaluated once: unlike a Presence receipt it is not
+presented again at the claim. This package never verifies, logs, or records it. The trusted
+executor accepts one on `/v1/escalations` as `{ mode: "ATTESTATION", intent, attestation }`.
+
 ## Ceremony requirements and delivery
 
 `PresenceApprovalCoordinator` accepts `requirements`, the docs/22 verification requirements Presence

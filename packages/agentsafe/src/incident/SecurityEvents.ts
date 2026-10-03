@@ -108,6 +108,21 @@ export const SecurityEventSchema = z.discriminatedUnion("event", [
     outcome: code,
   }),
   z.strictObject({ event: z.literal("SEPARATION_OF_DUTIES_VIOLATED"), principal }),
+  // The cards family: a grant held for the issuer, an authorization matched
+  // to one or not, and what the issuer said it did. Identifiers and codes
+  // only: never a card reference, an amount, or a merchant.
+  z.strictObject({ event: z.literal("CARD_GRANT_HELD"), intent_id: identifier }),
+  z.strictObject({ event: z.literal("CARD_AUTHORIZATION_MATCHED"), intent_id: identifier }),
+  z.strictObject({
+    event: z.literal("CARD_AUTHORIZATION_NO_MATCH"),
+    intent_id: identifier.nullable(),
+    code,
+  }),
+  z.strictObject({
+    event: z.literal("CARD_AUTHORIZATION_SETTLED"),
+    intent_id: identifier,
+    outcome: code,
+  }),
   z.strictObject({
     // The edge evaluator verified and loaded a signed policy bundle.
     event: z.literal("EDGE_BUNDLE_LOADED"),

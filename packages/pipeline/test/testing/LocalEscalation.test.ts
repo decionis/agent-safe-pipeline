@@ -160,7 +160,7 @@ describe("local escalation doubles", () => {
 
     expect(decision.verdict).toBe("ALLOW");
     expect(decision.reasonCodes).toEqual(["PRESENCE_RECEIPT_VERIFIED"]);
-    expect(decision.evidence?.humanApproval?.requestId).toBe(requestId);
+    expect(decision.evidence?.humanApproval).toMatchObject({ provider: "presence", requestId });
     const { calls, executor: run } = executor();
     const result = await run.run(captured, decision);
     expect(result.outcome).toBe("COMPLETED");
@@ -179,7 +179,7 @@ describe("local escalation doubles", () => {
     const decision = await approval.resolveAndReauthorize(approved, handoff);
     expect(decision.verdict).toBe("ALLOW");
     const evidence = decision.evidence?.humanApproval;
-    if (evidence === undefined) throw new Error("TEST_EXPECTED_EVIDENCE");
+    if (evidence?.provider !== "presence") throw new Error("TEST_EXPECTED_EVIDENCE");
 
     const other = capture();
     expect(await authorityGate.evaluate(other, decision.evidence)).toMatchObject({
@@ -399,5 +399,61 @@ describe("local escalation doubles", () => {
       if (previous === undefined) delete process.env.NODE_ENV;
       else process.env.NODE_ENV = previous;
     }
+  });
+});
+
+describe("LocalAuthority presence attestations", () => {
+  const TAPPED = "eyJhbGciOiJFZERTQSJ9.dGFwcGVk.c2lnbmF0dXJl";
+  const seen: { attestation: string; intentHash: string }[] = [];
+  const attesting = new LocalAuthority({
+    verifyAttestation: (attestation, binding) => {
+      seen.push({ attestation, intentHash: binding.intentHash });
+      return attestation === TAPPED;
+    },
+  });
+
+  beforeAll(async () => {
+    await attesting.start();
+  });
+
+  afterAll(async () => {
+    await attesting.stop();
+  });
+
+  const attestingGate = () =>
+    new DecionisGate({
+      baseUrl: attesting.baseUrl,
+      apiKey: LOCAL_AUTHORITY_API_KEY,
+      allowInsecureLoopback: true,
+    });
+
+  it("turns an escalation into a claimable grant on a verified attestation, claimed without it", async () => {
+    const intent = capture();
+    expect((await attestingGate().evaluate(intent)).verdict).toBe("ESCALATE");
+    const decision = await attestingGate().evaluate(intent, {
+      humanApproval: { provider: "attestation", attestation: TAPPED },
+    });
+    expect(decision).toMatchObject({
+      verdict: "ALLOW",
+      reasonCodes: ["PRESENCE_ATTESTATION_VERIFIED"],
+    });
+    expect(seen.at(-1)).toEqual({ attestation: TAPPED, intentHash: intent.intentHash });
+    const verifier = new DecionisGrantVerifier({
+      baseUrl: attesting.baseUrl,
+      apiKey: LOCAL_AUTHORITY_API_KEY,
+      allowInsecureLoopback: true,
+    });
+    expect(await verifier.verifyAndConsume(intent, decision)).not.toBeNull();
+    const claim = attesting.requests.filter((request) => request.path.includes("claim")).at(-1);
+    expect(JSON.stringify(claim?.body)).not.toContain(TAPPED);
+  });
+
+  it("refuses an attestation it cannot verify, and the gate fails closed", async () => {
+    const intent = capture();
+    const decision = await attestingGate().evaluate(intent, {
+      humanApproval: { provider: "attestation", attestation: "eyJhbGciOiJFZERTQSJ9.b3RoZXI.c2ln" },
+    });
+    expect(decision).toMatchObject({ verdict: "BLOCK", failClosed: true, authorization: null });
+    expect(attesting.requests.at(-1)?.response?.status).toBe(409);
   });
 });

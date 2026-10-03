@@ -245,6 +245,33 @@ const WAITING_STATUS_RANK: Readonly<Record<ManagedEscalationPendingStatus, numbe
     REAUTHORIZING: 4,
   },
 );
+/**
+ * The two shapes `evidence.humanApproval` takes on `enforce-and-bind`: a
+ * Presence receipt reference, or a presence provider's signed attestation.
+ * Both are mirrored strictly, and the parsed copy is what is sent, so a
+ * caller object with a field the contract does not name cannot put it on an
+ * authenticated request. The attestation is shaped and bounded here and
+ * nothing more: verifying it is the authority's work, against the key the
+ * organisation registered for its provider.
+ */
+const DecisionEvidenceSchema = z.strictObject({
+  humanApproval: z
+    .discriminatedUnion("provider", [
+      z.strictObject({
+        provider: z.literal("presence"),
+        requestId: z.string().min(1).max(200),
+        receiptDossierId: z.string().min(1).max(200),
+      }),
+      z.strictObject({
+        provider: z.literal("attestation"),
+        attestation: z
+          .string()
+          .max(20_000)
+          .regex(/^[\w-]+\.[\w-]+\.[\w-]+$/),
+      }),
+    ])
+    .optional(),
+});
 const MAX_RESPONSE_BYTES = 100 * 1024;
 const DEFAULT_MANAGED_INITIAL_DELAY_MS = 500;
 const DEFAULT_MANAGED_MAX_DELAY_MS = 5_000;
@@ -328,6 +355,15 @@ export class DecionisGate implements DecisionAuthority {
         "MANAGED_ESCALATION_EVIDENCE_FORBIDDEN",
       );
     }
+    let sent: DecisionEvidence | undefined;
+    if (evidence !== undefined) {
+      const presented = DecisionEvidenceSchema.safeParse(evidence);
+      if (!presented.success) {
+        return FailClosedDecision.create(captured.intentHash, "HUMAN_APPROVAL_EVIDENCE_INVALID");
+      }
+      const approval = presented.data.humanApproval;
+      sent = approval === undefined ? {} : { humanApproval: approval };
+    }
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
@@ -345,7 +381,7 @@ export class DecionisGate implements DecisionAuthority {
         body: JSON.stringify({
           ...DecionisGate.binding(captured),
           mode: this.evaluationMode,
-          ...(evidence === undefined ? {} : { evidence }),
+          ...(sent === undefined ? {} : { evidence: sent }),
           ...(escalation === undefined ? {} : { escalation }),
         }),
         signal: controller.signal,
@@ -362,7 +398,7 @@ export class DecionisGate implements DecisionAuthority {
       if (managed.reasonCode !== undefined) {
         return FailClosedDecision.create(captured.intentHash, managed.reasonCode);
       }
-      return this.decisionFromResponse(captured, parsed, evidence, managed.state);
+      return this.decisionFromResponse(captured, parsed, sent, managed.state);
     } catch {
       return FailClosedDecision.create(captured.intentHash, "AUTHORITY_UNAVAILABLE");
     } finally {

@@ -66,8 +66,23 @@ export interface HumanApprovalEvidence {
   readonly receiptDossierId: string;
 }
 
+/**
+ * A presence provider's signed attestation (a compact Ed25519 JWS, at most
+ * 20,000 characters) that a person was present for this exact intent, such
+ * as a cardholder tapping their own card. It is evidence for a fresh
+ * evaluation and never authority: the authority verifies the signature
+ * against the key the organisation registered, binds it to the intent hash,
+ * and an `ESCALATE` becomes `ALLOW` only when policy has a rule matching the
+ * approval facts. This package carries the token bounded and shaped, never
+ * reads it, and never writes it to a record.
+ */
+export interface AttestedHumanApprovalEvidence {
+  readonly provider: "attestation";
+  readonly attestation: string;
+}
+
 export interface DecisionEvidence {
-  readonly humanApproval?: HumanApprovalEvidence;
+  readonly humanApproval?: HumanApprovalEvidence | AttestedHumanApprovalEvidence;
 }
 
 /**

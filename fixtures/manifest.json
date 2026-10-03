@@ -507,6 +507,42 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/adapters/cards/CardAuthorizationMatcher.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/adapters/cards/CardEffect.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/adapters/cards/CardHandlers.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/adapters/cards/CardPurchase.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/adapters/cards/HeldCardGrants.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/adapters/cards/Pan.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/adapters/mcp/McpConformance.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
@@ -1114,6 +1150,12 @@
     },
     {
       "path": "packages/agentsafe/test/service/BankingFlow.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/service/CardFlow.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false

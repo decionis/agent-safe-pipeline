@@ -62,6 +62,12 @@ INTENT_CAPTURED
      | RECONCILIATION_UNKNOWN
 ```
 
+A grant held for a later claim (`SafeExecutor.hold`, which the card family uses so an issuer's
+authorization can claim it in milliseconds) records `GRANT_HELD` in place of the claim, after the
+same admission checks and with nothing consumed. `claimHeld` later records `GRANT_CONSUMED ->
+EXECUTION_STARTED`, and `settleHeld` the terminal event for the outcome it is given:
+`EXECUTION_COMPLETED`, `EXECUTION_REFUSED_AFTER_DISPATCH` or `EXECUTION_OUTCOME_UNKNOWN`.
+
 `PresenceApprovalCoordinator` emits `PRESENCE_ESCALATED` and `PRESENCE_RESOLVED` with
 `NON_AUTHORITATIVE` classification. `ShadowPipeline` emits one `SHADOW_EVALUATED` event per
 observation whose reason codes begin with `SHADOW_<status>`; see [shadow mode](./shadow-mode.md). `IntentCapture.captureAndAudit` is available when capture must be

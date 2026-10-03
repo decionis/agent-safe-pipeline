@@ -130,7 +130,7 @@ class PresenceDouble implements PresenceApprovalClient {
   /** What the authority checks before evidence counts: receipt, request, and exact intent hash. */
   public verify(evidence: DecisionEvidence | undefined, intentHash: string): boolean {
     const approval = evidence?.humanApproval;
-    if (approval === undefined) return false;
+    if (approval?.provider !== "presence") return false;
     const receipt = this.receipts.get(approval.receiptDossierId);
     return (
       receipt !== undefined &&
@@ -371,7 +371,7 @@ const first = await pair.authority.evaluate(sendA);
 out(`    Authority: ${first.verdict}; grant ${first.authorization === null ? "none" : "present"}`);
 const decisionA = await approveThroughPresence(sendA);
 out(
-  `    Authority after receipt: ${decisionA.verdict}; grant ${decisionA.authorization === null ? "none" : "present"}; evidence ${short(decisionA.evidence?.humanApproval?.receiptDossierId)}`,
+  `    Authority after receipt: ${decisionA.verdict}; grant ${decisionA.authorization === null ? "none" : "present"}; evidence ${short(decisionA.evidence?.humanApproval?.provider === "presence" ? decisionA.evidence.humanApproval.receiptDossierId : undefined)}`,
 );
 const golden = await executor.run(sendA, decisionA);
 const goldenLedger =

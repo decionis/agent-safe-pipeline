@@ -214,6 +214,26 @@ describe("DecionisGrantVerifier", () => {
     expect("evidence" in plainBody).toBe(false);
   });
 
+  it("presents a presence attestation at evaluation only, never again at the claim", async () => {
+    const { captured, decision, claimResponse } = setup();
+    for (const evidence of [
+      { humanApproval: { provider: "attestation" as const, attestation: RECEIPT } },
+      {},
+    ]) {
+      const fetchMock = vi.fn<typeof fetch>(async () => json(claimResponse));
+      const authorization = await verifierWith(fetchMock).verifyAndConsume(captured, {
+        ...decision,
+        evidence,
+      });
+      expect(authorization).not.toBeNull();
+      const body = JSON.parse(
+        (fetchMock.mock.calls[0]?.[1] as RequestInit).body as string,
+      ) as Record<string, unknown>;
+      expect(body).not.toHaveProperty("evidence");
+      expect(JSON.stringify(body)).not.toContain(RECEIPT);
+    }
+  });
+
   it("omits the lease when the authority named none, and takes it verbatim when it did", async () => {
     const { captured, decision, claimResponse } = setup();
     // A deployment whose issuer predates the field returns no lease, and a

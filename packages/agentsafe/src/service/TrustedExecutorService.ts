@@ -6,9 +6,11 @@ import {
   type ActionRegistry,
   type CapturedIntent,
   type EdgeModule,
+  type ExecutionBlockedResult,
   type GateDecision,
   type JsonObject,
   type SafeExecutionResult,
+  type SafeExecutor,
   type TrustedIntentContext,
 } from "@decionis/agent-safe-pipeline";
 import { readFileSync } from "node:fs";
@@ -17,6 +19,28 @@ import { effectBlock } from "../adapters/AdapterActionHandler.js";
 import { bindBankingAction, BindingError } from "../adapters/banking/BankingIntentBinder.js";
 import { BankingAdapter, BankingActionError } from "../adapters/banking/BankingAdapter.js";
 import { isBankingActionName, type BankingAction } from "../adapters/banking/BankingAction.js";
+import { matchCardAuthorization } from "../adapters/cards/CardAuthorizationMatcher.js";
+import {
+  cardExecutionResult,
+  cardResultRecord,
+  prepareCardPurchase,
+} from "../adapters/cards/CardEffect.js";
+import {
+  bindCardPurchase,
+  CardActionError,
+  cardAuthorizationOf,
+  cardAuthorizationResultOf,
+  cardPurchaseOf,
+  isCardActionName,
+  isCardReference,
+  type CardAuthorizationRequest,
+} from "../adapters/cards/CardPurchase.js";
+import {
+  HeldCardGrants,
+  type CardApproval,
+  type HeldCardGrant,
+} from "../adapters/cards/HeldCardGrants.js";
+import { jcsDigest } from "../adapters/JcsDigest.js";
 import { HashChain } from "../audit/HashChain.js";
 import { EVIDENCE_STREAM, HashChainedAuditSink } from "../audit/HashChainedAuditSink.js";
 import type { LineWriter } from "../audit/LineAuditSink.js";
@@ -26,7 +50,11 @@ import { InMemoryExecutionJournal } from "../journal/InMemoryExecutionJournal.js
 import type { ExecutionJournal } from "../journal/ExecutionJournal.js";
 import { StartupReconciler, type RecoveryReport } from "../journal/StartupReconciler.js";
 import { HardLimits } from "../limits/HardLimits.js";
-import { callerPrincipal, JournaledRegistry } from "../handlers/JournaledActionHandler.js";
+import {
+  callerPrincipal,
+  JournaledRegistry,
+  requestDigest,
+} from "../handlers/JournaledActionHandler.js";
 import type { OperatorScope } from "../identity/PrincipalsFile.js";
 import { clockSkewGuard } from "../time/ClockSkewGuard.js";
 import type { DownstreamCredential } from "../credential/DownstreamCredential.js";
@@ -54,7 +82,8 @@ import type { ReloadReport, SecretName, SecretStore } from "../secrets/SecretSto
 import { AuthorityClients } from "./AuthorityClients.js";
 import { packageVersion } from "../Version.js";
 import {
-  EscalationHandoffSchema,
+  EscalationResumeSchema,
+  type AttestationHandoff,
   type EscalationDependencies,
   type EscalationHandoff,
   type EscalationState,
@@ -64,6 +93,8 @@ import {
   ReconciliationRequestSchema,
   type ActionResponse,
   type AuthorizationBinding,
+  type CardAuthorizationAnswer,
+  type CardResultResponse,
   type ProposalRequest,
   type ReconciliationResponse,
 } from "./Requests.js";
@@ -242,6 +273,10 @@ export class TrustedExecutorService {
     public readonly haltSwitch: HaltSwitch,
     private readonly limits: HardLimits | null,
     private readonly unsubscribeMetrics: () => void,
+    /** The effect observations the verifier finalizes with; the cards family registers into it. */
+    private readonly effects: EffectEvidenceRegister,
+    /** Card grants held for the issuer's authorization, and the authorizations that claimed one. */
+    private readonly cards: HeldCardGrants,
     /** The edge evaluator, when the configuration asks for it. */
     private readonly edge: EdgeRuntime | null = null,
   ) {}
@@ -455,6 +490,8 @@ export class TrustedExecutorService {
         for (const stop of unsubscribeRotations) stop();
         unsubscribeEvents();
       },
+      effects,
+      new HeldCardGrants(),
       edge,
     );
   }
@@ -733,6 +770,7 @@ export class TrustedExecutorService {
       try {
         this.assertNotHalted(captured);
         this.assertWithinLimits(captured, "CHECK");
+        this.assertCardSpendable(captured);
       } catch (error) {
         if (error instanceof ServiceError) await this.recordRefusal(captured, error.code);
         throw error;
@@ -784,6 +822,26 @@ export class TrustedExecutorService {
       captured,
       reasonCodes: [reason],
     });
+  }
+
+  /**
+   * One spendable hold per card: a purchase on a card that already has one
+   * waits until it is authorised or expires, refused before the authority is
+   * asked so the refusal costs no dossier and no grant.
+   */
+  private assertCardSpendable(captured: CapturedIntent): void {
+    if (!isCardActionName(captured.intent.action)) return;
+    // An intent presented back is re-read here, so a card number written into
+    // one after capture is refused like one in a proposal.
+    let cardTokenRef: string;
+    try {
+      cardTokenRef = cardPurchaseOf(captured.intent.parameters).cardTokenRef;
+    } catch (error) {
+      throw new ServiceError(422, (error as CardActionError).code);
+    }
+    if (this.cards.spendable(cardTokenRef)) {
+      throw new ServiceError(409, "CARD_GRANT_ALREADY_HELD");
+    }
   }
 
   /** The host's own ceilings, before the authority is asked and again before the run. */
@@ -855,12 +913,16 @@ export class TrustedExecutorService {
    */
   public async resume(input: unknown, caller?: Principal): Promise<ActionResponse> {
     const proposer = this.proposer(caller);
-    const parsed = EscalationHandoffSchema.safeParse(input);
+    const parsed = EscalationResumeSchema.safeParse(input);
     if (!parsed.success) throw new ServiceError(400, "REQUEST_INVALID");
-    if (this.config.mode === "SHADOW" || this.config.escalation.mode === "NONE") {
+    const resume = parsed.data;
+    // An attestation needs no escalation shape: it is evidence for a fresh
+    // evaluation, which any enforcing executor can ask for.
+    const attested = resume.mode === "ATTESTATION";
+    if (this.config.mode === "SHADOW" || (!attested && this.config.escalation.mode === "NONE")) {
       throw new ServiceError(409, "ESCALATION_NOT_CONFIGURED");
     }
-    const captured = this.presented(parsed.data.intent);
+    const captured = this.presented(resume.intent);
     this.assertOwn(captured, proposer);
     if (Date.parse(captured.intent.expiresAt) <= Date.now()) {
       throw new ServiceError(409, "INTENT_EXPIRED");
@@ -872,21 +934,19 @@ export class TrustedExecutorService {
     return await RequestContext.run({ principal: proposer.id }, async () => {
       try {
         this.assertNotHalted(captured);
+        this.assertCardSpendable(captured);
       } catch (error) {
         if (error instanceof ServiceError) await this.recordRefusal(captured, error.code);
         throw error;
       }
       const { escalation, executor } = this.clients.current();
-      const resolution = await escalation.resume(captured, parsed.data);
+      if (resume.mode === "ATTESTATION") {
+        const decision = await escalation.attest(captured, resume.attestation);
+        return await this.decide(captured, decision, executor);
+      }
+      const resolution = await escalation.resume(captured, resume);
       if (resolution.kind === "DECISION") {
-        if (resolution.decision.verdict === "ALLOW" && !resolution.decision.failClosed) {
-          this.assertWithinLimits(captured, "COMMIT");
-          await this.openAttempt(captured, resolution.decision);
-        }
-        const outcome = await executor.run(captured, resolution.decision);
-        await this.closeAttempt(captured, resolution.decision, outcome);
-        this.metrics.executions.inc({ outcome: outcome.outcome });
-        return this.response(captured, resolution.decision, outcome, null);
+        return await this.decide(captured, resolution.decision, executor);
       }
       if (resolution.kind === "PENDING") {
         return this.held(captured, "ESCALATE", resolution.reasonCodes, false, {
@@ -896,6 +956,30 @@ export class TrustedExecutorService {
       }
       return this.held(captured, "BLOCK", resolution.reasonCodes, resolution.failClosed, null);
     });
+  }
+
+  /**
+   * A fresh decision on a resumed escalation: a card purchase's grant is held
+   * for the issuer, anything else runs once on an `ALLOW`.
+   */
+  private async decide(
+    captured: CapturedIntent,
+    decision: GateDecision,
+    executor: SafeExecutor,
+  ): Promise<ActionResponse> {
+    if (isCardActionName(captured.intent.action)) {
+      const held = await this.holdCard(captured, decision, executor);
+      if ("mode" in held) return held;
+      return this.response(captured, decision, held, null);
+    }
+    if (decision.verdict === "ALLOW" && !decision.failClosed) {
+      this.assertWithinLimits(captured, "COMMIT");
+      await this.openAttempt(captured, decision);
+    }
+    const outcome = await executor.run(captured, decision);
+    await this.closeAttempt(captured, decision, outcome);
+    this.metrics.executions.inc({ outcome: outcome.outcome });
+    return this.response(captured, decision, outcome, null);
   }
 
   /**
@@ -1013,6 +1097,7 @@ export class TrustedExecutorService {
     const bound = isBankingActionName(request.proposal.action)
       ? this.bindBanking(request, proposer)
       : null;
+    const card = isCardActionName(request.proposal.action) ? this.bindCard(request) : null;
     const trusted: TrustedIntentContext = {
       tenantId: proposer.tenantId,
       actor: proposer.actor,
@@ -1025,6 +1110,7 @@ export class TrustedExecutorService {
       idempotencyKey: request.idempotency_key,
       ...(request.correlation_id === undefined ? {} : { correlationId: request.correlation_id }),
       ...(bound === null ? {} : { expectedEffectDigest: bound.expectedEffectDigest }),
+      ...(card === null ? {} : { expectedEffectDigest: card }),
     };
     const parameters: JsonObject = request.proposal.parameters ?? {};
     try {
@@ -1063,6 +1149,23 @@ export class TrustedExecutorService {
       if (error instanceof BindingError) throw new ServiceError(422, error.code);
       if (error instanceof BankingActionError) throw new ServiceError(422, error.code);
       throw new ServiceError(422, "BANKING_ACTION_INVALID");
+    }
+  }
+
+  /**
+   * The cards binder: the purchase is read and refused here, a card number
+   * above all, and the target is derived from the card. What comes back is
+   * the expected-effect digest the authority binds its grant to.
+   */
+  private bindCard(request: ProposalRequest): string {
+    try {
+      const purchase = bindCardPurchase({
+        target: request.proposal.target,
+        parameters: request.proposal.parameters ?? {},
+      });
+      return prepareCardPurchase(purchase).expectedEffectDigest;
+    } catch (error) {
+      throw new ServiceError(422, (error as CardActionError).code);
     }
   }
 
@@ -1205,20 +1308,35 @@ export class TrustedExecutorService {
   private async enforce(captured: CapturedIntent): Promise<ActionResponse> {
     const { escalation, executor } = this.clients.current();
     const decision = await escalation.evaluate(captured);
-    // Every decision goes through the executor, an ESCALATE or BLOCK included,
-    // so the audit stream carries the refusal as well as the execution.
-    if (decision.verdict === "ALLOW" && !decision.failClosed) {
-      this.assertWithinLimits(captured, "COMMIT");
-      await this.openAttempt(captured, decision);
+    const card = isCardActionName(captured.intent.action);
+    let outcome: SafeExecutionResult;
+    if (card) {
+      // A card purchase is answered before the issuer ever asks: on an ALLOW
+      // the grant is held, not claimed, and the response says so.
+      const held = await this.holdCard(captured, decision, executor);
+      if ("mode" in held) return held;
+      outcome = held;
+    } else {
+      // Every decision goes through the executor, an ESCALATE or BLOCK
+      // included, so the audit stream carries the refusal as well as the
+      // execution.
+      if (decision.verdict === "ALLOW" && !decision.failClosed) {
+        this.assertWithinLimits(captured, "COMMIT");
+        await this.openAttempt(captured, decision);
+      }
+      outcome = await executor.run(captured, decision);
+      await this.closeAttempt(captured, decision, outcome);
+      this.metrics.executions.inc({ outcome: outcome.outcome });
     }
-    const outcome = await executor.run(captured, decision);
-    await this.closeAttempt(captured, decision, outcome);
-    this.metrics.executions.inc({ outcome: outcome.outcome });
-    let handoff: EscalationHandoff | null = null;
+    let handoff: EscalationHandoff | AttestationHandoff | null = null;
     let unavailable = false;
     if (decision.verdict === "ESCALATE" && !decision.failClosed) {
       const state: EscalationState | null = await escalation.handoff(captured, decision);
       if (state !== null) handoff = { ...state, intent: captured.intent };
+      // A cardholder's tap needs no Presence ceremony: whatever shape this
+      // executor escalates in, a card purchase can be resumed with an
+      // attestation over the intent it is handed here.
+      else if (card) handoff = { mode: "ATTESTATION", intent: captured.intent };
       else if (this.config.escalation.mode !== "NONE") unavailable = true;
     }
     return this.response(
@@ -1230,11 +1348,299 @@ export class TrustedExecutorService {
     );
   }
 
+  /**
+   * Admits a card purchase's decision exactly as a run would and holds its
+   * grant for the issuer's authorization, keyed by the card. Nothing is
+   * claimed and nothing runs; the hard ceilings are committed now, because
+   * this is the last moment this process decides anything about the amount.
+   * A refusal comes back as the executor's own blocked result.
+   */
+  private async holdCard(
+    captured: CapturedIntent,
+    decision: GateDecision,
+    executor: SafeExecutor,
+  ): Promise<ActionResponse | ExecutionBlockedResult> {
+    if (decision.verdict === "ALLOW" && !decision.failClosed) {
+      this.assertWithinLimits(captured, "COMMIT");
+    }
+    const outcome = await executor.hold(captured, decision);
+    if (outcome.outcome !== "HELD") {
+      this.metrics.executions.inc({ outcome: outcome.outcome });
+      return outcome;
+    }
+    const purchase = cardPurchaseOf(captured.intent.parameters);
+    const stored = this.cards.hold({
+      cardTokenRef: purchase.cardTokenRef,
+      amountMinor: purchase.amountMinor,
+      currency: purchase.currency,
+      merchantId: purchase.merchantId,
+      mcc: purchase.mcc ?? null,
+      expiresAtMs: Date.parse(outcome.held.expiresAt),
+      used: false,
+      purchase,
+      prepared: prepareCardPurchase(purchase),
+      held: outcome.held,
+      executor,
+    });
+    // A card that gained a spendable hold while this one was being decided,
+    // or a full store: the grant is left unclaimed and expires with no effect.
+    const status = stored ? "HELD_FOR_AUTHORIZATION" : "BLOCKED";
+    this.metrics.executions.inc({ outcome: status });
+    if (stored) this.events.emit({ event: "CARD_GRANT_HELD", intent_id: captured.intent.intentId });
+    return {
+      mode: "ENFORCEMENT",
+      intent_id: captured.intent.intentId,
+      intent_hash: captured.intentHash,
+      verdict: decision.verdict,
+      decision_id: decision.decisionId,
+      dossier_id: decision.dossierId,
+      reason_codes: stored
+        ? [...decision.reasonCodes]
+        : [...decision.reasonCodes, "CARD_HOLD_UNAVAILABLE"],
+      fail_closed: false,
+      outcome: status,
+      executed: false,
+      authorization: null,
+      finalization: null,
+      result: stored
+        ? { status: "HELD_FOR_AUTHORIZATION", expires_at: outcome.held.expiresAt }
+        : null,
+      effect: null,
+      recovery: null,
+      escalation: null,
+    };
+  }
+
+  /**
+   * The issuer's real-time authorization hook. The answer has to come back in
+   * milliseconds, so the only network call is the claim itself: the match is
+   * pure, against a grant decided before the card was presented. A match
+   * claims the grant once, and a second authorization for it is a
+   * `NO_MATCH`; an issuer retrying the same authorization is given the same
+   * answer, with no second claim. What `NO_MATCH` means for the purchase is
+   * the issuer's policy, not this process's.
+   */
+  public async authorizeCard(input: unknown, caller?: Principal): Promise<CardAuthorizationAnswer> {
+    this.operator(caller, "cards.authorize");
+    const request = TrustedExecutorService.cardRequest(() => cardAuthorizationOf(input));
+    const previous = this.cards.claimed(request.authorization_id);
+    if (previous !== undefined) {
+      if (jcsDigest(previous.request as JsonObject) === jcsDigest(request as JsonObject)) {
+        return previous.answer;
+      }
+      return this.noMatch(null, "AUTHORIZATION_ID_REUSED");
+    }
+    if (this.haltSwitch.current.halted) return this.noMatch(null, "EXECUTOR_HALTED");
+    if (this.posture.degraded) return this.noMatch(null, "POSTURE_DEGRADED");
+    const grant = this.cards.grant(request.card_token_ref);
+    const match = matchCardAuthorization(
+      grant,
+      TrustedExecutorService.cardView(request),
+      Date.now(),
+    );
+    if (match.decision === "NO_MATCH") {
+      return this.noMatch(grant?.held.captured.intent.intentId ?? null, match.code);
+    }
+    // A match is only ever against a grant.
+    const matched = grant as HeldCardGrant;
+    // Spent before anything is awaited, so a concurrent authorization for the
+    // same grant finds it used rather than racing this one to the claim.
+    matched.used = true;
+    const { captured, decision } = matched.held;
+    const intentId = captured.intent.intentId;
+    try {
+      await this.openAttempt(captured, decision);
+    } catch {
+      return this.noMatch(intentId, "JOURNAL_UNAVAILABLE");
+    }
+    const claim = await matched.executor.claimHeld(matched.held);
+    if (claim.outcome !== "CLAIMED") {
+      await this.closeAttempt(captured, decision, claim);
+      this.metrics.executions.inc({ outcome: claim.outcome });
+      return this.noMatch(intentId, "GRANT_CLAIM_REFUSED");
+    }
+    const authorization = claim.authorization;
+    // The claim is made durable before the issuer is told to approve: there is
+    // no effect without a record a restart can find, exactly as for a run.
+    try {
+      await this.journal.append({
+        record: "GRANT_CLAIMED",
+        at: new Date().toISOString(),
+        intent_id: intentId,
+        intent_hash: captured.intentHash,
+        idempotency_key: captured.intent.idempotencyKey,
+        grant_id: authorization.grantId,
+        expires_at: authorization.expiresAt,
+        request_digest: requestDigest(captured.intent.parameters),
+      });
+    } catch {
+      this.events.emit({ event: "JOURNAL_WRITE_FAILED", record: "GRANT_CLAIMED" });
+      if (this.config.evidence.journalRequired) {
+        const finalization = await matched.executor.settleHeld(matched.held, "FAILED");
+        await this.closeCardAttempt(captured, "DEFINITELY_NOT_EXECUTED", false, finalization);
+        return this.noMatch(intentId, "JOURNAL_UNAVAILABLE");
+      }
+    }
+    const lease = authorization.leaseExpiresAt ?? authorization.expiresAt;
+    const answer: CardApproval = {
+      decision: "APPROVE",
+      authorization_id: request.authorization_id,
+      intent_id: intentId,
+      intent_hash: captured.intentHash,
+      decision_id: authorization.decisionId,
+      dossier_id: authorization.dossierId,
+      grant_id: authorization.grantId,
+      lease_expires_at: lease,
+    };
+    this.cards.recordClaim(request.authorization_id, {
+      grant: matched,
+      request,
+      authorization,
+      leaseExpiresAtMs: Date.parse(lease),
+      answer,
+    });
+    this.metrics.executions.inc({ outcome: "CARD_AUTHORIZATION_MATCHED" });
+    this.events.emit({ event: "CARD_AUTHORIZATION_MATCHED", intent_id: intentId });
+    return answer;
+  }
+
+  /**
+   * What the issuer did with an authorization it was told to approve. An
+   * approval is the effect, compared with what the grant authorised; a
+   * decline is a refusal; and a result after the claim's lease is recorded
+   * as indeterminate, because the authority no longer accepts a commit for
+   * it. Recorded once.
+   */
+  public async settleCard(
+    authorizationId: string,
+    input: unknown,
+    caller?: Principal,
+  ): Promise<CardResultResponse> {
+    this.operator(caller, "cards.authorize");
+    if (!isCardReference(authorizationId)) throw new ServiceError(400, "REQUEST_INVALID");
+    const result = TrustedExecutorService.cardRequest(() => cardAuthorizationResultOf(input));
+    const claim = this.cards.claimed(authorizationId);
+    if (claim === undefined) throw new ServiceError(404, "CARD_AUTHORIZATION_UNKNOWN");
+    if (claim.settled) throw new ServiceError(409, "CARD_RESULT_ALREADY_RECORDED");
+    claim.settled = true;
+    const { grant, authorization } = claim;
+    const { captured } = grant.held;
+    const leaseExpired = Date.now() > claim.leaseExpiresAtMs;
+    const record = cardResultRecord({
+      purchase: grant.purchase,
+      prepared: grant.prepared,
+      authorization: claim.request,
+      result,
+      leaseExpired,
+      observer: { id: this.config.banking.adapterId, version: this.config.banking.adapterVersion },
+      correlationId: captured.intent.intentId,
+      idempotencyKey: captured.intent.idempotencyKey,
+      observedAt: new Date().toISOString(),
+    });
+    // The verifier finalizes with exactly this observation, by the
+    // authorization it belongs to.
+    this.effects.attach(authorization, record);
+    const finalization = await grant.executor.settleHeld(grant.held, record.outcome);
+    const executed =
+      record.outcome === "COMMITTED" ? true : record.outcome === "FAILED" ? false : null;
+    await this.closeCardAttempt(
+      captured,
+      record.outcome === "COMMITTED"
+        ? "COMPLETED"
+        : record.outcome === "FAILED"
+          ? "DEFINITELY_NOT_EXECUTED"
+          : "INDETERMINATE_AFTER_LEASE",
+      executed,
+      finalization,
+    );
+    this.metrics.executions.inc({ outcome: `CARD_${record.outcome}` });
+    if (finalization === "PENDING") {
+      this.events.emit({
+        event: "FINALIZATION_PENDING",
+        intent_id: captured.intent.intentId,
+        outcome: record.outcome,
+      });
+    }
+    this.metrics.finalizations.inc({ status: finalization });
+    this.events.emit({
+      event: "CARD_AUTHORIZATION_SETTLED",
+      intent_id: captured.intent.intentId,
+      outcome: record.outcome,
+    });
+    const effect = this.effect(captured, cardExecutionResult(record));
+    return {
+      authorization_id: authorizationId,
+      intent_id: captured.intent.intentId,
+      intent_hash: captured.intentHash,
+      outcome: record.outcome,
+      executed,
+      finalization,
+      reason_codes: [
+        ...(leaseExpired ? ["CLAIM_LEASE_EXPIRED"] : []),
+        ...TrustedExecutorService.effectReasons(effect),
+      ],
+      effect,
+    };
+  }
+
+  /** A card attempt's end, in the journal, so a restart does not ask about it again. */
+  private async closeCardAttempt(
+    captured: CapturedIntent,
+    outcome: string,
+    executed: boolean | null,
+    finalization: "RECORDED" | "PENDING" | "UNSUPPORTED",
+  ): Promise<void> {
+    try {
+      await this.journal.append({
+        record: "ATTEMPT_CLOSED",
+        at: new Date().toISOString(),
+        intent_id: captured.intent.intentId,
+        intent_hash: captured.intentHash,
+        outcome,
+        executed,
+        finalization,
+      });
+    } catch {
+      this.events.emit({ event: "JOURNAL_WRITE_FAILED", record: "ATTEMPT_CLOSED" });
+    }
+  }
+
+  private noMatch(intentId: string | null, code: string): CardAuthorizationAnswer {
+    this.events.emit({ event: "CARD_AUTHORIZATION_NO_MATCH", intent_id: intentId, code });
+    return { decision: "NO_MATCH", code };
+  }
+
+  /** A card request read, or the refusal that names why; a card number is its own refusal. */
+  private static cardRequest<T>(read: () => T): T {
+    try {
+      return read();
+    } catch (error) {
+      const code = error instanceof CardActionError ? error.code : "REQUEST_INVALID";
+      throw new ServiceError(code === "CARD_PAN_REFUSED" ? 422 : 400, code);
+    }
+  }
+
+  private static cardView(request: CardAuthorizationRequest): {
+    readonly cardTokenRef: string;
+    readonly amountMinor: number;
+    readonly currency: string;
+    readonly merchantId: string;
+    readonly mcc: string | null;
+  } {
+    return {
+      cardTokenRef: request.card_token_ref,
+      amountMinor: request.amount_minor,
+      currency: request.currency,
+      merchantId: request.merchant_id,
+      mcc: request.mcc ?? null,
+    };
+  }
+
   private response(
     captured: CapturedIntent,
     decision: GateDecision,
     outcome: SafeExecutionResult,
-    handoff: EscalationHandoff | null,
+    handoff: EscalationHandoff | AttestationHandoff | null,
     extraReasonCodes: readonly string[] = [],
   ): ActionResponse {
     const effect = this.effect(captured, outcome.result);

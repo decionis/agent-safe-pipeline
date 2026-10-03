@@ -427,3 +427,78 @@ describe("DecionisGate", () => {
     ).toThrow("DECIONIS_URL_MUST_NOT_CONTAIN_QUERY_OR_FRAGMENT");
   });
 });
+
+describe("DecionisGate human-approval evidence", () => {
+  const JWS = `eyJhbGciOiJFZERTQSJ9.${"e".repeat(40)}.${"s".repeat(86)}`;
+
+  const sentBody = (fetchMock: ReturnType<typeof vi.fn<typeof fetch>>) =>
+    JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as Record<string, unknown>;
+
+  it("sends a presence attestation exactly as the contract shapes it, and keeps it on the decision", async () => {
+    const intent = captured();
+    const fetchMock = vi.fn<typeof fetch>(async () => json(decisionBody(intent)));
+    const evidence = { humanApproval: { provider: "attestation" as const, attestation: JWS } };
+    const decision = await gateWith(fetchMock).evaluate(intent, evidence);
+    expect(decision.verdict).toBe("ALLOW");
+    expect(sentBody(fetchMock)["evidence"]).toEqual(evidence);
+    expect(decision.evidence).toEqual(evidence);
+    expect(Object.isFrozen(decision.evidence?.humanApproval)).toBe(true);
+  });
+
+  it("sends Presence evidence and an empty evidence object as parsed copies", async () => {
+    const intent = captured();
+    const presence = {
+      humanApproval: {
+        provider: "presence" as const,
+        requestId: "synthetic-request-1",
+        receiptDossierId: "synthetic-receipt-1",
+      },
+    };
+    const first = vi.fn<typeof fetch>(async () => json(decisionBody(intent)));
+    await gateWith(first).evaluate(intent, presence);
+    expect(sentBody(first)["evidence"]).toEqual(presence);
+    const second = vi.fn<typeof fetch>(async () => json(decisionBody(intent)));
+    await gateWith(second).evaluate(intent, {});
+    expect(sentBody(second)["evidence"]).toEqual({});
+    const third = vi.fn<typeof fetch>(async () => json(decisionBody(intent)));
+    await gateWith(third).evaluate(intent);
+    expect(sentBody(third)).not.toHaveProperty("evidence");
+  });
+
+  it.each([
+    ["an attestation that is not a compact JWS", { provider: "attestation", attestation: "a.b" }],
+    [
+      "an attestation longer than the contract allows",
+      { provider: "attestation", attestation: `a.b.${"c".repeat(20_000)}` },
+    ],
+    [
+      "an attestation with a field the contract does not name",
+      { provider: "attestation", attestation: JWS, kid: "k" },
+    ],
+    ["an unknown provider", { provider: "koard", attestation: JWS }],
+    ["Presence evidence missing its receipt", { provider: "presence", requestId: "r" }],
+  ])("fails closed before asking the authority for %s", async (_name, humanApproval) => {
+    const intent = captured();
+    const fetchMock = vi.fn<typeof fetch>(async () => json(decisionBody(intent)));
+    const decision = await gateWith(fetchMock).evaluate(intent, { humanApproval } as never);
+    expect(decision).toMatchObject({
+      verdict: "BLOCK",
+      failClosed: true,
+      reasonCodes: ["HUMAN_APPROVAL_EVIDENCE_INVALID"],
+      authorization: null,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("accepts an attestation at exactly the contract's length bound", async () => {
+    const intent = captured();
+    const attestation = `a.b.${"c".repeat(20_000 - 4)}`;
+    const fetchMock = vi.fn<typeof fetch>(async () => json(decisionBody(intent)));
+    await gateWith(fetchMock).evaluate(intent, {
+      humanApproval: { provider: "attestation", attestation },
+    });
+    expect(sentBody(fetchMock)["evidence"]).toEqual({
+      humanApproval: { provider: "attestation", attestation },
+    });
+  });
+});

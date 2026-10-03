@@ -22,7 +22,7 @@ const gate = await createHostedGate({
   local: createFixtureAuthorityPair(
     (_intent, evidence) => {
       if (amount > 100_000) return "BLOCK";
-      if (amount <= 10_000 || evidence?.humanApproval?.receiptDossierId !== undefined) {
+      if (amount <= 10_000 || evidence?.humanApproval?.provider === "presence") {
         return "ALLOW";
       }
       return "ESCALATE";

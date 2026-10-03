@@ -141,7 +141,7 @@ class PresenceDouble implements PresenceApprovalClient {
   /** What the authority checks before evidence counts: receipt, request, and exact intent hash. */
   public verify(evidence: DecisionEvidence | undefined, intentHash: string): boolean {
     const approval = evidence?.humanApproval;
-    if (approval === undefined) return false;
+    if (approval?.provider !== "presence") return false;
     const receipt = this.receipts.get(approval.receiptDossierId);
     return (
       receipt !== undefined &&

@@ -18,6 +18,7 @@ import { ServiceError } from "../service/ServiceError.js";
 import type { TrustedExecutorService } from "../service/TrustedExecutorService.js";
 import { RequestContext } from "./RequestContext.js";
 import {
+  CARD_AUTHORIZATION_RESULT_PATH,
   MAX_BODY_BYTES,
   METRICS_CONTENT_TYPE,
   RESPONSE_HEADERS,
@@ -29,6 +30,10 @@ import type { TlsListener } from "./TlsListener.js";
 const REQUEST_TIMEOUT_MS = 15_000;
 const HEADERS_TIMEOUT_MS = 5_000;
 const KEEP_ALIVE_TIMEOUT_MS = 5_000;
+/** The one templated route: one non-empty segment, which the service holds to its own rule. */
+const CARD_AUTHORIZATION_RESULT = /^\/v1\/card-authorizations\/([^/]+)\/result$/;
+
+type Route = (typeof ROUTES)[number];
 
 export interface ExecutorHttpServerOptions {
   /** The TLS listener; plaintext when null, which the configuration allows outside production only. */
@@ -95,8 +100,9 @@ export class ExecutorHttpServer {
     try {
       // Stryker disable next-line all: Node sets `url` on every request it hands out; the fallback satisfies the type.
       const pathname = new URL(request.url ?? "/", "http://executor.invalid").pathname;
-      const route = ROUTES.find((candidate) => candidate.path === pathname);
-      if (route === undefined) throw new GuardError(404, "NOT_FOUND");
+      const matched = ExecutorHttpServer.route(pathname);
+      if (matched === null) throw new GuardError(404, "NOT_FOUND");
+      const { route, parameter } = matched;
       if (route.method !== request.method) throw new GuardError(405, "METHOD_NOT_ALLOWED");
       // Liveness stays 200 while halted: a halt is a decision to stop taking
       // work, not a reason for the orchestrator to restart the process and
@@ -113,7 +119,7 @@ export class ExecutorHttpServer {
         route,
       });
       await RequestContext.run({ principal: caller.principal.id }, () =>
-        this.dispatch(route.path, request, response, caller),
+        this.dispatch(route.path, request, response, caller, parameter),
       );
     } catch (error) {
       if (
@@ -142,6 +148,7 @@ export class ExecutorHttpServer {
     request: IncomingMessage,
     response: ServerResponse,
     caller: AuthenticatedPrincipal,
+    parameter: string | null,
   ): Promise<void> {
     switch (path) {
       case "/v1/actions":
@@ -202,7 +209,45 @@ export class ExecutorHttpServer {
         );
       case "/metrics":
         return ExecutorHttpServer.replyText(response, this.service.metricsText(caller.principal));
+      case "/v1/card-authorizations":
+        return ExecutorHttpServer.reply(
+          response,
+          200,
+          await this.service.authorizeCard(
+            await ExecutorHttpServer.readJson(request),
+            caller.principal,
+          ),
+        );
+      case CARD_AUTHORIZATION_RESULT_PATH:
+        return ExecutorHttpServer.reply(
+          response,
+          200,
+          await this.service.settleCard(
+            parameter as string,
+            await ExecutorHttpServer.readJson(request),
+            caller.principal,
+          ),
+        );
     }
+  }
+
+  /**
+   * The route a path names: an exact path, or the result route with the
+   * authorization id its segment carries. The id is passed on as written,
+   * percent-encoding and all, and refused by the service unless it is a
+   * plain reference.
+   */
+  private static route(
+    pathname: string,
+  ): { readonly route: Route; readonly parameter: string | null } | null {
+    const exact = ROUTES.find((candidate) => candidate.path === pathname);
+    if (exact !== undefined) return { route: exact, parameter: null };
+    const result = CARD_AUTHORIZATION_RESULT.exec(pathname);
+    if (result === null) return null;
+    return {
+      route: ROUTES.find((candidate) => candidate.path === CARD_AUTHORIZATION_RESULT_PATH) as Route,
+      parameter: result[1] as string,
+    };
   }
 
   private static async readJson(request: IncomingMessage): Promise<unknown> {

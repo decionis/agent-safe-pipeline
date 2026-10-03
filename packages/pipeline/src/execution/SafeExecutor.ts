@@ -146,11 +146,51 @@ export type ExecutionReconciliationResult<TResult = unknown> =
   | ExecutionBlockedResult
   | ProviderOutcomeUnknownResult;
 
+/**
+ * A grant admitted for a later claim. Every check `run` makes before it
+ * consumes a grant has passed, and nothing has been consumed: the grant is
+ * still the authority's to hand out once. Only `hold` issues one, only the
+ * executor that issued it can claim it, and it is claimed at most once.
+ *
+ * This is for an effect that another system performs at a moment this
+ * process does not choose, such as a card authorization the issuer asks
+ * about in milliseconds: the decision is made before, the grant waits here,
+ * and the claim happens when that system asks for it.
+ */
+export interface HeldExecution {
+  readonly captured: CapturedIntent;
+  readonly decision: GateDecision;
+  /** The grant's own expiry: after it there is nothing left to claim. */
+  readonly expiresAt: string;
+}
+
+export interface ExecutionHeldResult {
+  readonly outcome: "HELD";
+  readonly executed: false;
+  readonly result: null;
+  readonly authorization: null;
+  readonly held: HeldExecution;
+}
+
+export type HeldClaimResult =
+  | { readonly outcome: "CLAIMED"; readonly authorization: VerifiedAuthorization }
+  | ExecutionBlockedResult
+  | Extract<SafeExecutionResult<never>, { outcome: "FAILED_BEFORE_DISPATCH" }>;
+
+/** A decision that passed every check before consumption, so its grant is present. */
+type AdmittedDecision = GateDecision & {
+  readonly authorization: NonNullable<GateDecision["authorization"]>;
+};
+
 export class SafeExecutor {
   private readonly hasher = new CanonicalIntentHasher();
 
   private readonly boundaryId: string | null;
   private readonly workloadDigest: string | null;
+  /** The holds this executor issued and nobody has claimed, keyed by the frozen handle. */
+  private readonly holds = new WeakMap<HeldExecution, AdmittedDecision>();
+  /** The holds claimed and not yet settled, with the authorization each one consumed. */
+  private readonly claims = new WeakMap<HeldExecution, VerifiedAuthorization>();
 
   public constructor(
     private readonly registry: ActionRegistry,
@@ -167,108 +207,11 @@ export class SafeExecutor {
     decision: GateDecision,
   ): Promise<SafeExecutionResult<TResult>> {
     const startedAt = Date.now();
-    // Stryker disable next-line all: Audit payload mapping is covered by lifecycle event assertions.
-    const intentRecorded = await this.record({ eventType: "INTENT_CAPTURED", captured });
-    // An observational artifact (shadow observation, serialized audit event) is
-    // rejected before it is recorded or inspected as if it were a decision.
-    if (!SafeExecutor.isAuthoritativeDecision(decision)) {
-      return await this.block(captured, undefined, "DECISION_NOT_AUTHORITATIVE", startedAt);
-    }
-    // Stryker disable all: Audit payload mapping is covered by lifecycle event assertions.
-    const decisionRecorded = await this.record({
-      eventType: decision.failClosed ? "AUTHORITY_FAILED_CLOSED" : "AUTHORITY_DECISION",
-      captured,
-      decision,
-    });
-    // Stryker restore all
-    if (
-      this.audit?.requiresDeliveryBeforeExecution === true &&
-      (!intentRecorded || !decisionRecorded)
-    ) {
-      return await this.block(captured, decision, "AUDIT_UNAVAILABLE", startedAt);
-    }
-    if (decision.verdict !== "ALLOW" || decision.failClosed) {
-      return await this.block(captured, decision, "DECISION_NOT_ALLOW", startedAt);
-    }
-    if (decision.intentHash !== captured.intentHash) {
-      return await this.block(captured, decision, "INTENT_BINDING_MISMATCH", startedAt);
-    }
-    if (decision.authorization === null || typeof decision.authorization !== "object") {
-      return await this.block(captured, decision, "AUTHORIZATION_MISSING", startedAt);
-    }
-    if (!this.intentConforms(captured)) {
-      return await this.block(captured, decision, "INTENT_CONFORMANCE_FAILED", startedAt);
-    }
-    // Before the grant is consumed, not after: a boundary that refuses an
-    // intent must leave the authority intact for the boundary that owns it.
-    if (!this.boundaryMatches(captured)) {
-      return await this.block(captured, decision, "BOUNDARY_MISMATCH", startedAt);
-    }
-    if (!this.workloadMatches(captured)) {
-      return await this.block(captured, decision, "WORKLOAD_MISMATCH", startedAt);
-    }
-    this.registry.validate(captured);
-    let authorization: VerifiedAuthorization | null;
-    try {
-      authorization = await this.verifier.verifyAndConsume(captured, decision);
-    } catch {
-      return await this.block(captured, decision, "AUTHORIZATION_INVALID", startedAt);
-    }
-    if (authorization === null) {
-      return await this.block(captured, decision, "AUTHORIZATION_INVALID", startedAt);
-    }
-    const authorizationExpiry = Date.parse(authorization.expiresAt);
-    if (
-      authorization.decisionId !== decision.decisionId ||
-      authorization.dossierId !== decision.dossierId ||
-      authorization.grantId.length === 0 ||
-      authorization.intentHash !== captured.intentHash ||
-      Math.floor(authorizationExpiry / 1_000) !==
-        Math.floor(Date.parse(decision.authorization.expiresAt) / 1_000) ||
-      authorizationExpiry <= Date.now() ||
-      authorizationExpiry > Date.parse(captured.intent.expiresAt)
-    ) {
-      return await this.block(captured, decision, "AUTHORIZATION_INVALID", startedAt);
-    }
-    if (!this.intentConforms(captured)) {
-      return await this.block(captured, decision, "INTENT_CONFORMANCE_FAILED", startedAt);
-    }
-    // Stryker disable all: Audit payload mapping is covered by lifecycle event assertions.
-    const grantRecorded = await this.record({
-      eventType: "GRANT_CONSUMED",
-      captured,
-      decision,
-      authorization,
-      durationMs: Date.now() - startedAt,
-    });
-    // Stryker restore all
-    if (this.audit?.requiresDeliveryBeforeExecution === true && !grantRecorded) {
-      return await this.failedBeforeDispatch(
-        captured,
-        decision,
-        authorization,
-        "AUDIT_UNAVAILABLE",
-        startedAt,
-      );
-    }
-    // Stryker disable all: Audit payload mapping is covered by lifecycle event assertions.
-    const executionRecorded = await this.record({
-      eventType: "EXECUTION_STARTED",
-      captured,
-      decision,
-      authorization,
-      durationMs: Date.now() - startedAt,
-    });
-    // Stryker restore all
-    if (this.audit?.requiresDeliveryBeforeExecution === true && !executionRecorded) {
-      return await this.failedBeforeDispatch(
-        captured,
-        decision,
-        authorization,
-        "AUDIT_UNAVAILABLE",
-        startedAt,
-      );
-    }
+    const refused = await this.admit(captured, decision, startedAt);
+    if (refused !== null) return refused;
+    const claim = await this.consume(captured, decision as AdmittedDecision, startedAt);
+    if (claim.outcome !== "CLAIMED") return claim;
+    const authorization = claim.authorization;
     const attempt = await this.registry.executeTracked(captured, authorization);
     if (attempt.status === "FAILED_BEFORE_DISPATCH") {
       return await this.failedBeforeDispatch(
@@ -367,6 +310,228 @@ export class SafeExecutor {
     });
     // Stryker restore all
     return result;
+  }
+
+  /**
+   * Every check made before a grant may be consumed, with the evidence that
+   * the intent was captured and decided. A refusal is recorded and returned;
+   * null means the decision passed, and so carries a grant.
+   */
+  private async admit(
+    captured: CapturedIntent,
+    decision: GateDecision,
+    startedAt: number,
+  ): Promise<ExecutionBlockedResult | null> {
+    // Stryker disable next-line all: Audit payload mapping is covered by lifecycle event assertions.
+    const intentRecorded = await this.record({ eventType: "INTENT_CAPTURED", captured });
+    // An observational artifact (shadow observation, serialized audit event) is
+    // rejected before it is recorded or inspected as if it were a decision.
+    if (!SafeExecutor.isAuthoritativeDecision(decision)) {
+      return await this.block(captured, undefined, "DECISION_NOT_AUTHORITATIVE", startedAt);
+    }
+    // Stryker disable all: Audit payload mapping is covered by lifecycle event assertions.
+    const decisionRecorded = await this.record({
+      eventType: decision.failClosed ? "AUTHORITY_FAILED_CLOSED" : "AUTHORITY_DECISION",
+      captured,
+      decision,
+    });
+    // Stryker restore all
+    if (
+      this.audit?.requiresDeliveryBeforeExecution === true &&
+      (!intentRecorded || !decisionRecorded)
+    ) {
+      return await this.block(captured, decision, "AUDIT_UNAVAILABLE", startedAt);
+    }
+    if (decision.verdict !== "ALLOW" || decision.failClosed) {
+      return await this.block(captured, decision, "DECISION_NOT_ALLOW", startedAt);
+    }
+    if (decision.intentHash !== captured.intentHash) {
+      return await this.block(captured, decision, "INTENT_BINDING_MISMATCH", startedAt);
+    }
+    if (decision.authorization === null || typeof decision.authorization !== "object") {
+      return await this.block(captured, decision, "AUTHORIZATION_MISSING", startedAt);
+    }
+    if (!this.intentConforms(captured)) {
+      return await this.block(captured, decision, "INTENT_CONFORMANCE_FAILED", startedAt);
+    }
+    // Before the grant is consumed, not after: a boundary that refuses an
+    // intent must leave the authority intact for the boundary that owns it.
+    if (!this.boundaryMatches(captured)) {
+      return await this.block(captured, decision, "BOUNDARY_MISMATCH", startedAt);
+    }
+    if (!this.workloadMatches(captured)) {
+      return await this.block(captured, decision, "WORKLOAD_MISMATCH", startedAt);
+    }
+    this.registry.validate(captured);
+    return null;
+  }
+
+  /**
+   * Consumes the grant through the verifier, checks what came back against
+   * the decision and the intent, and records the consumption and the start
+   * of execution. Nothing here dispatches.
+   */
+  private async consume(
+    captured: CapturedIntent,
+    decision: AdmittedDecision,
+    startedAt: number,
+  ): Promise<HeldClaimResult> {
+    let authorization: VerifiedAuthorization | null;
+    try {
+      authorization = await this.verifier.verifyAndConsume(captured, decision);
+    } catch {
+      return await this.block(captured, decision, "AUTHORIZATION_INVALID", startedAt);
+    }
+    if (authorization === null) {
+      return await this.block(captured, decision, "AUTHORIZATION_INVALID", startedAt);
+    }
+    const authorizationExpiry = Date.parse(authorization.expiresAt);
+    if (
+      authorization.decisionId !== decision.decisionId ||
+      authorization.dossierId !== decision.dossierId ||
+      authorization.grantId.length === 0 ||
+      authorization.intentHash !== captured.intentHash ||
+      Math.floor(authorizationExpiry / 1_000) !==
+        Math.floor(Date.parse(decision.authorization.expiresAt) / 1_000) ||
+      authorizationExpiry <= Date.now() ||
+      authorizationExpiry > Date.parse(captured.intent.expiresAt)
+    ) {
+      return await this.block(captured, decision, "AUTHORIZATION_INVALID", startedAt);
+    }
+    if (!this.intentConforms(captured)) {
+      return await this.block(captured, decision, "INTENT_CONFORMANCE_FAILED", startedAt);
+    }
+    // Stryker disable all: Audit payload mapping is covered by lifecycle event assertions.
+    const grantRecorded = await this.record({
+      eventType: "GRANT_CONSUMED",
+      captured,
+      decision,
+      authorization,
+      durationMs: Date.now() - startedAt,
+    });
+    // Stryker restore all
+    if (this.audit?.requiresDeliveryBeforeExecution === true && !grantRecorded) {
+      return await this.failedBeforeDispatch(
+        captured,
+        decision,
+        authorization,
+        "AUDIT_UNAVAILABLE",
+        startedAt,
+      );
+    }
+    // Stryker disable all: Audit payload mapping is covered by lifecycle event assertions.
+    const executionRecorded = await this.record({
+      eventType: "EXECUTION_STARTED",
+      captured,
+      decision,
+      authorization,
+      durationMs: Date.now() - startedAt,
+    });
+    // Stryker restore all
+    if (this.audit?.requiresDeliveryBeforeExecution === true && !executionRecorded) {
+      return await this.failedBeforeDispatch(
+        captured,
+        decision,
+        authorization,
+        "AUDIT_UNAVAILABLE",
+        startedAt,
+      );
+    }
+    return { outcome: "CLAIMED", authorization };
+  }
+
+  /**
+   * Admits a decision exactly as `run` would and holds its grant instead of
+   * consuming it. The intent, the decision and the hold are recorded; the
+   * grant stays unclaimed until `claimHeld` is called with the handle, and an
+   * unclaimed hold simply expires with its grant.
+   */
+  public async hold(
+    captured: CapturedIntent,
+    decision: GateDecision,
+  ): Promise<ExecutionHeldResult | ExecutionBlockedResult> {
+    const startedAt = Date.now();
+    const refused = await this.admit(captured, decision, startedAt);
+    if (refused !== null) return refused;
+    const admitted = decision as AdmittedDecision;
+    // Stryker disable all: Audit payload mapping is covered by lifecycle event assertions.
+    const heldRecorded = await this.record({
+      eventType: "GRANT_HELD",
+      captured,
+      decision,
+      durationMs: Date.now() - startedAt,
+    });
+    // Stryker restore all
+    if (this.audit?.requiresDeliveryBeforeExecution === true && !heldRecorded) {
+      return await this.block(captured, decision, "AUDIT_UNAVAILABLE", startedAt);
+    }
+    const held: HeldExecution = Object.freeze({
+      captured,
+      decision,
+      expiresAt: admitted.authorization.expiresAt,
+    });
+    this.holds.set(held, admitted);
+    return { outcome: "HELD", executed: false, result: null, authorization: null, held };
+  }
+
+  /**
+   * Claims a held grant, once. The handle is forgotten before the verifier
+   * is asked, so a second claim of the same hold, concurrent or later, is
+   * refused here without reaching the authority; a handle this executor did
+   * not issue is refused the same way. What the claim returns is checked
+   * exactly as `run` checks it.
+   */
+  public async claimHeld(held: HeldExecution): Promise<HeldClaimResult> {
+    const startedAt = Date.now();
+    const decision = this.holds.get(held);
+    if (decision === undefined) {
+      return await this.block(held.captured, held.decision, "AUTHORIZATION_INVALID", startedAt);
+    }
+    this.holds.delete(held);
+    const claim = await this.consume(held.captured, decision, startedAt);
+    if (claim.outcome === "CLAIMED") this.claims.set(held, claim.authorization);
+    return claim;
+  }
+
+  /**
+   * Reports how a claimed hold ended, once: `COMMITTED` when the effect
+   * happened, `FAILED` when it definitively did not, `INDETERMINATE` when
+   * nobody can say. The terminal record names the outcome, as `run`'s do.
+   */
+  public async settleHeld(
+    held: HeldExecution,
+    outcome: ExecutionCommitOutcome,
+    receipt: string | null = null,
+  ): Promise<ExecutionFinalization> {
+    const startedAt = Date.now();
+    const authorization = this.claims.get(held);
+    if (authorization === undefined) throw new Error("HELD_EXECUTION_NOT_CLAIMED");
+    this.claims.delete(held);
+    const finalization = await this.finalize(
+      held.captured,
+      held.decision,
+      authorization,
+      outcome,
+      receipt,
+    );
+    const eventType = SafeExecutor.settledEvent(outcome);
+    // Stryker disable all: Audit payload mapping is covered by lifecycle event assertions.
+    await this.record({
+      eventType,
+      captured: held.captured,
+      decision: held.decision,
+      authorization,
+      reasonCodes: [SafeExecutor.finalizationCode(finalization)],
+      durationMs: Date.now() - startedAt,
+    });
+    // Stryker restore all
+    return finalization;
+  }
+
+  private static settledEvent(outcome: ExecutionCommitOutcome): AuditEventType {
+    if (outcome === "COMMITTED") return "EXECUTION_COMPLETED";
+    if (outcome === "FAILED") return "EXECUTION_REFUSED_AFTER_DISPATCH";
+    return "EXECUTION_OUTCOME_UNKNOWN";
   }
 
   /**

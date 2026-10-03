@@ -58,6 +58,36 @@ export const EscalationHandoffSchema = z.discriminatedUnion("mode", [
 
 export type EscalationHandoff = z.infer<typeof EscalationHandoffSchema>;
 
+/**
+ * A presence provider's attestation presented for an open escalation: the
+ * exact intent, and the compact JWS the provider signed over it (a
+ * cardholder's tap, for instance). It is evidence for a fresh evaluation,
+ * never authority; this process shapes and bounds it, sends it to the
+ * authority, which verifies it, and keeps nothing of it.
+ */
+export const AttestationResumeSchema = z.strictObject({
+  mode: z.literal("ATTESTATION"),
+  intent: z.record(z.string(), z.unknown()),
+  attestation: z
+    .string()
+    .max(20_000)
+    .regex(/^[\w-]+\.[\w-]+\.[\w-]+$/),
+});
+
+/** What `/v1/escalations` accepts: a handoff it was given, or an attestation for the intent. */
+export const EscalationResumeSchema = z.union([EscalationHandoffSchema, AttestationResumeSchema]);
+
+export type EscalationResume = z.infer<typeof EscalationResumeSchema>;
+
+/**
+ * What the caller is handed when an escalation can be resumed with an
+ * attestation and nothing else: the exact intent, to present back with it.
+ */
+export interface AttestationHandoff {
+  readonly mode: "ATTESTATION";
+  readonly intent: Record<string, unknown>;
+}
+
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
 /** The handoff without the intent: what a mode knows, and what is echoed while pending. */
@@ -182,6 +212,18 @@ export class EscalationResolver {
       approval_url: result.approval_url ?? null,
       expires_at: result.expires_at ?? null,
     };
+  }
+
+  /**
+   * A fresh evaluation of the same intent with a presence attestation as the
+   * approval evidence. Whatever the escalation shape, this asks for no
+   * orchestration: the authority verifies the attestation against the
+   * intent hash and decides, and a refusal is a fail-closed `BLOCK`.
+   */
+  public async attest(captured: CapturedIntent, attestation: string): Promise<GateDecision> {
+    return await this.gate.evaluate(captured, {
+      humanApproval: { provider: "attestation", attestation },
+    });
   }
 
   /** One bounded lookup, then either a fresh decision or the state to report. */

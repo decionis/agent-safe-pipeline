@@ -169,12 +169,33 @@ const ManagedEscalationRequestSchema = z.strictObject({
     .optional(),
 });
 
+/**
+ * `enforce-and-bind` evidence: a Presence receipt reference, or a presence
+ * provider's signed attestation (`AttestedHumanApprovalEvidence`). The claim
+ * route keeps the Presence shape only, as the contract does.
+ */
+const AuthorityEvidenceSchema = z.strictObject({
+  humanApproval: z
+    .discriminatedUnion("provider", [
+      z.strictObject({
+        provider: z.literal("presence"),
+        requestId: boundedId,
+        receiptDossierId: boundedId,
+      }),
+      z.strictObject({
+        provider: z.literal("attestation"),
+        attestation: z.string().max(20_000).regex(COMPACT_JWS),
+      }),
+    ])
+    .optional(),
+});
+
 /** `ExecutionAuthorityRequest`: the binding plus hash, mode, evidence, and managed constraints. */
 const AuthorityRequestSchema = z.strictObject({
   ...IntentBindingSchema.shape,
   intent_hash: sha256Digest,
   mode: z.enum(["SHADOW", "ENFORCEMENT"]),
-  evidence: EvidenceSchema.optional(),
+  evidence: AuthorityEvidenceSchema.optional(),
   escalation: ManagedEscalationRequestSchema.optional(),
 });
 
@@ -354,6 +375,16 @@ export interface LocalAuthorityOptions {
     intentHash: string,
   ) => boolean;
   readonly policy?: LocalAuthorityPolicy;
+  /**
+   * Stands in for the authority's verification of a presence attestation
+   * (signature under the provider's registered key, audience, expiry, intent
+   * binding). Absent, every attestation is refused as the hosted route
+   * refuses one it cannot verify, with `PRESENCE_ATTESTATION_SIGNATURE_INVALID`.
+   */
+  readonly verifyAttestation?: (
+    attestation: string,
+    binding: { readonly intentId: string; readonly intentHash: string; readonly tenantId: string },
+  ) => boolean;
   /** Subject routed to for a managed escalation without an approver principal. */
   readonly managedApproverId?: string;
   /**
@@ -455,6 +486,7 @@ export class LocalAuthority {
   private readonly apiKey: string;
   private readonly presence: LocalPresence | undefined;
   private readonly legacyVerifyReceipt: LocalAuthorityOptions["verifyReceipt"];
+  private readonly verifyAttestation: LocalAuthorityOptions["verifyAttestation"];
   private readonly policy: LocalAuthorityPolicy;
   private readonly managedApproverId: string;
   private readonly trustedEffectObserverIds: readonly string[];
@@ -496,6 +528,7 @@ export class LocalAuthority {
     this.verificationLinks = options.verificationLinks === true;
     this.presence = options.presence;
     this.legacyVerifyReceipt = options.verifyReceipt;
+    this.verifyAttestation = options.verifyAttestation;
     this.policy = options.policy ?? defaultPolicy;
     this.managedApproverId = options.managedApproverId ?? "synthetic-managed-approver";
     this.trustedEffectObserverIds = options.trustedEffectObserverIds ?? [];
@@ -952,6 +985,22 @@ export class LocalAuthority {
     const humanApproval = request.evidence?.humanApproval;
     if (humanApproval === undefined) {
       return { status: "ESCALATE", reasonCode: "HUMAN_APPROVAL_REQUIRED", approval: null };
+    }
+    if (humanApproval.provider === "attestation") {
+      const verified =
+        this.verifyAttestation?.(humanApproval.attestation, {
+          intentId: request.intent_id,
+          intentHash: request.intent_hash,
+          tenantId: request.tenant_id,
+        }) ?? false;
+      return verified
+        ? { status: "ALLOW", reasonCode: "PRESENCE_ATTESTATION_VERIFIED", approval: null }
+        : {
+            status: "BLOCK",
+            reasonCode: "PRESENCE_ATTESTATION_SIGNATURE_INVALID",
+            approval: null,
+            error: "PRESENCE_ATTESTATION_SIGNATURE_INVALID",
+          };
     }
     if (!this.verifyEvidence(humanApproval, request)) {
       // Decionis verifies the receipt with Presence and refuses the request.
