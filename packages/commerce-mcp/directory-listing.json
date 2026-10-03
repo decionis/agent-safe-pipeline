@@ -1,8 +1,8 @@
 {
   "name": "decionis-commercegate",
-  "display_name": "Decionis CommerceGate",
-  "description": "Check a price change, order, refund or return against your commerce policy before an agent acts. Never writes to a marketplace.",
-  "long_description": "Decionis CommerceGate lets an AI agent ask one question before it touches a marketplace: is this allowed under our policy?\n\nIt checks seven kinds of commerce action in Shadow Mode: a price change, a stock change, accepting an order, a fulfillment step, a promotion change, a refund, or a return authorization. The answer is PROCEED, HOLD or BLOCK with the math behind it: net margin after landed cost and marketplace fees against your margin floor, quantity against your inventory floor, refund amount against what the order has left to refund. Every policy decision is recorded in a signed Decision Dossier that finance can verify months later.\n\nAsk it things like:\n\n- \"Would repricing this SKU to $89 on Walmart still clear our margin floor after the referral fee?\"\n- \"Is it safe to accept this 40-unit order with the stock we have left?\"\n- \"Can the support bot refund $2,850 on this order?\"\n- \"What would Shadow Mode have held this month, and why?\"\n\nFor Dynamics 365 Business Central, a separate tool returns an enforced ALLOW or BLOCK for one complete transaction within the agent's spend budget.\n\nWhat it never does: CommerceGate does not accept, ship, cancel, refund, reprice or change stock on any platform. It evaluates and reads evidence; a person or the connected system still executes. A PROCEED is a policy result, not consent.\n\nSetup: runs locally as a Node.js process. Capability discovery works with no credentials. On macOS, the first valid local Shadow evaluation can create a provisional workspace without registration and securely reuse it. Windows requires existing credentials until secure local persistence is supported. Trial limits apply; ERP requires owned access. Existing DECIONIS_API_KEY and DECIONIS_ORG_ID remain supported.\n\nBuilt by Decionis for marketplace operations, pricing, finance and automation teams on Walmart Marketplace, Shopify, Adobe Commerce and Dynamics 365 Business Central. Documentation: https://commerce.decionis.com/mcp",
+  "display_name": "Decionis Commerce Gate",
+  "description": "Seven commerce-action preflights, a D365 guard, and a marketplace SaaS offer preflight. Never writes to a marketplace or ERP.",
+  "long_description": "Decionis Commerce Gate gives an AI agent a policy checkpoint before a marketplace action or a manual Microsoft Partner Center or AWS Marketplace SaaS offer submission.\n\nIt checks seven kinds of commerce action in Shadow Mode: a price change, a stock change, accepting an order, a fulfillment step, a promotion change, a refund, or a return authorization. A separate Dynamics 365 tool returns enforced ALLOW or BLOCK for one complete transaction within the agent's spend budget. A separate marketplace SaaS offer-submission preflight checks the bounded offer, plan, public URL, platform identity, preview or test, and digest-backed release-evidence packet before a person submits it. Microsoft packets require Microsoft Entra tenant and application IDs. AWS packets require a Login with Amazon identity that is linked to the seller AWS account and IAM role.\n\nEvery policy decision can be recorded in a signed Decision Dossier. The marketplace-offer tool never calls a marketplace, uploads an artifact, creates or changes an offer, or submits an offer for review.\n\nSetup: runs locally as a Node.js process. Capability discovery works with no credentials. On macOS, the first valid local Shadow evaluation can create a provisional workspace without registration and securely reuse it. Windows requires existing credentials until secure local persistence is supported. Trial limits apply; ERP requires owned access. Existing DECIONIS_API_KEY and DECIONIS_ORG_ID remain supported.\n\nBuilt by Decionis for marketplace operations, pricing, finance and automation teams on Walmart Marketplace, Shopify, Adobe Commerce, Dynamics 365 Business Central, Microsoft Marketplace, and AWS Marketplace. Documentation: https://commerce.decionis.com/mcp",
   "user_config": {
     "decionis_api_key": {
       "type": "string",
@@ -30,7 +30,7 @@
   "tools": [
     {
       "name": "commercegate_describe_capabilities",
-      "description": "What CommerceGate can check, how it answers, and whether it is connected to a workspace. Works without credentials."
+      "description": "What Commerce Gate can check, how it answers, and whether it is connected to a workspace. Works without credentials."
     },
     {
       "name": "commercegate_evaluate_action",
@@ -55,6 +55,10 @@
     {
       "name": "commercegate_summarize_shadow_reports",
       "description": "Totals for a period: near misses, policy mismatches and the order value reviewed, to judge whether to turn enforcement on."
+    },
+    {
+      "name": "commercegate_evaluate_marketplace_offer_submission",
+      "description": "Check a bounded Microsoft Partner Center or AWS Marketplace SaaS offer packet in Shadow Mode before manual submission. Never calls a marketplace or submits an offer."
     }
   ],
   "keywords": [

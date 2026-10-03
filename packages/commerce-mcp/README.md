@@ -1,6 +1,6 @@
-# CommerceGate MCP
+# Commerce Gate MCP
 
-CommerceGate MCP gives operations agents a tenant-bound Shadow Mode preflight for price, inventory, order, fulfillment, promotion, refund, and return actions, plus enforced Dynamics 365 transaction authorization, signed decision evidence, and reports.
+Commerce Gate MCP gives operations agents seven tenant-bound Shadow Mode preflights for price, inventory, order, fulfillment, promotion, refund, and return actions; an enforced Dynamics 365 transaction guard; and a separate Shadow Mode preflight for a Microsoft Partner Center or AWS Marketplace SaaS offer submission.
 
 The server runs locally over STDIO and calls the Decionis API. `commercegate_evaluate_action` records a Shadow Mode policy evaluation; it does not execute the proposed action in a marketplace or ERP. `commercegate_validate_erp_transaction` performs enforced binary policy and agent-budget authorization for a complete Dynamics 365 transaction, but it does not post, release, modify, or otherwise write that transaction. Refund, oversell, and other connector execution paths remain separate and are available only when the connected platform exposes the required API, the merchant grants its required scope, and the Commerce Gate connector implements and enables that path.
 
@@ -16,6 +16,7 @@ Package: [@decionis/commerce](https://www.npmjs.com/package/@decionis/commerce)
 - “Does this refund request fit the active policy?” → `REFUND_REQUEST`
 - “May this return or RMA be authorized?” → `RETURN_AUTHORIZATION`
 - “Does this complete Dynamics 365 transaction clear policy and the agent budget?” → `commercegate_validate_erp_transaction`
+- “Is this Microsoft Partner Center or AWS Marketplace SaaS offer packet ready for manual submission?” → `commercegate_evaluate_marketplace_offer_submission`
 - “What would Shadow Mode have held this month, and why?” → the Shadow Report tools
 - “Finance needs the signed evidence for this dossier.” → the dossier and proof-packet tools
 
@@ -37,6 +38,10 @@ Local access is stored separately from AgentSafe in `$AGENTOPS_HOME/credentials.
 
 Existing `DECIONIS_API_KEY` and `DECIONIS_ORG_ID` configuration takes precedence. Store keys in the MCP client's secret manager; never place them in command arguments, source control, prompts, or logs. `DECIONIS_API_BASE` defaults to `https://api.decionis.com` and also accepts the exact `/aws` gateway prefix. Set `AGENTOPS_AUTO_PROVISION=0` to disable new trial creation; already stored credentials remain usable. `NODE_ENV=production` and HTTP transport never provision anonymous access. For capability-only use, disable automatic provisioning and supply no stored or configured credentials.
 
+### Registry sign-in
+
+The same MCP package is published across registries. A Decionis Account is the default sign-in. Microsoft surfaces can use Microsoft Entra, and AWS surfaces can use Login with Amazon. Those sign-ins establish the Decionis session; they do not pass marketplace credentials into the MCP. A Marketplace offer packet still carries only bounded identity evidence: Entra tenant and application IDs for Microsoft, or a Login with Amazon subject linked to an AWS account and IAM role for AWS Marketplace.
+
 ### Codex client configuration
 
 Optionally forward existing credentials and local access preferences from the environment that launches Codex:
@@ -47,7 +52,7 @@ command = "npx"
 args = ["-y", "@decionis/commerce@0.1.5"]
 env_vars = ["DECIONIS_API_KEY", "DECIONIS_ORG_ID", "DECIONIS_API_BASE", "AGENTOPS_HOME", "AGENTOPS_AUTO_PROVISION"]
 enabled = true
-required = false
+required = true
 startup_timeout_sec = 20
 tool_timeout_sec = 45
 default_tools_approval_mode = "writes"
@@ -59,6 +64,7 @@ enabled_tools = [
   "commercegate_get_proof_packet",
   "commercegate_list_shadow_reports",
   "commercegate_summarize_shadow_reports",
+  "commercegate_evaluate_marketplace_offer_submission",
 ]
 ```
 
@@ -69,6 +75,7 @@ enabled_tools = [
 | `commercegate_describe_capabilities`    | Inspect action coverage, safety guarantees, connector boundaries, and connection state   | None; local only                                               |
 | `commercegate_validate_erp_transaction` | Enforced binary authorization for one complete D365 transaction                          | Policy decision and idempotent agent-budget authorization only |
 | `commercegate_evaluate_action`          | Check a price change, stock change, order, fulfillment step, promotion, refund or return | Writes only a Shadow Mode evaluation/evidence record           |
+| `commercegate_evaluate_marketplace_offer_submission` | Check a Microsoft Partner Center or AWS Marketplace SaaS offer packet before manual submission | Writes only a Shadow Mode evaluation/evidence record |
 | `commercegate_get_dossier`              | Read a signed Decision Dossier by UUID                                                   | Protocol tenant read                                           |
 | `commercegate_get_proof_packet`         | Read a dossier proof packet by UUID                                                      | Protocol tenant read                                           |
 | `commercegate_list_shadow_reports`      | Read recent Shadow Mode evaluation rows                                                  | Protocol tenant read                                           |
@@ -91,6 +98,12 @@ Every action includes a stable `actor`, a `platform`, and a bounded `idempotency
 Order acceptance and price change have native CommerceGate margin mappings. The other five action types are generic Protocol Shadow evaluations: the server validates and normalizes their shape, but the result is only as complete as the active tenant policy and the submitted facts. A verdict says whether the action clears policy, not whether the platform's connector can carry it out.
 
 The ERP guard accepts a bounded `erp_region` and the complete canonical D365 request: `transaction_id`, `erp_type`, `tenant_id`, `timestamp`, `agent_id`, `currency`, and 1–200 line records. It sends the configured API key as `X-Decionis-API-Key` and the region as `X-ERP-Region`. An `ALLOW` response means the exact request cleared enforced policy and its idempotent agent-budget authorization; it is not user consent and the MCP still performs no ERP write. The guard returns a reason code and message but does not promise a retrievable Decision Dossier or proof packet for that call.
+
+### Marketplace SaaS offer-submission preflight
+
+`commercegate_evaluate_marketplace_offer_submission` is separate from the seven commerce-action contracts. It accepts one complete `SAAS` offer packet: publisher and offer IDs; unique plan IDs with billing terms and market codes; public HTTPS landing, connection-webhook, support, privacy, and terms URLs; an explicit marketplace identity; optional Business Central extension identity; and digest-bound release evidence. Microsoft Partner Center packets require Microsoft Entra tenant and application IDs. AWS Marketplace packets require the Login with Amazon subject that is linked to the seller's AWS account and IAM role with offer-management access. It rejects credentials, URL query strings and fragments, incomplete evidence, and duplicate plan or market IDs before it creates a Shadow evaluation.
+
+The tool does not call a marketplace, upload an artifact, create or change an offer, or submit an offer for review. `PROCEED` is policy evidence for the exact packet, never consent or authority to submit it.
 
 The Shadow Report tools accept an optional `days` window from 1–365 and `limit` from 1–100. Both read the canonical `/v1/protocol/shadow-reports` document; the list tool presents operational rows while the summary tool presents its aggregate view.
 
@@ -122,10 +135,11 @@ The response contains the Protocol evaluation, the normalized CommerceGate dispo
 
 - `commercegate_evaluate_action` is hard-locked to `SHADOW`. It may create an evaluation and Decision Dossier, but it never executes the proposed action.
 - `commercegate_validate_erp_transaction` is an enforced `ALLOW`/`BLOCK` decision and can reserve agent budget idempotently. It never writes the transaction to Dynamics 365.
+- `commercegate_evaluate_marketplace_offer_submission` is hard-locked to `SHADOW`. It evaluates a digest-bound Microsoft Partner Center or AWS Marketplace SaaS offer packet and never writes to either marketplace.
 - `APPROVE` is evidence, not user consent and not permission to mutate a marketplace.
 - `REJECT` means stop. `REVIEW` or `ESCALATE` means hold and involve an authorized human.
 - Protocol calls are bound to `DECIONIS_ORG_ID`; tools never accept an organization override. The ERP guard instead authenticates the submitted `tenant_id` with the configured API key.
-- Tenant failures and unknown outcomes fail closed to HOLD. The process never silently routes around CommerceGate.
+- Tenant failures and unknown outcomes fail closed to HOLD. The process never silently routes around Commerce Gate.
 - API credentials are never returned. Safe errors omit configured organization values and upstream response bodies.
 - Connector execution is conditional and separate. Do not translate an unavailable action into a different action type.
 
