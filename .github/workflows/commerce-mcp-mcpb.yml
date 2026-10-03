@@ -77,8 +77,6 @@ jobs:
         run: pnpm --filter @decionis/commercegate-claude-extension build && pnpm --filter @decionis/commercegate-claude-extension test
 
       - name: Validate, pack, unpack, and smoke test MCPB
-        env:
-          MCPB_CLI_PATH: packages/commerce-mcp-claude-extension/node_modules/@anthropic-ai/mcpb/dist/cli/cli.js
         run: node packages/commerce-mcp-claude-extension/scripts/VerifyMcpb.mjs --output "${{ runner.temp }}/decionis-commercegate.mcpb"
 
       - name: Upload deterministic MCPB

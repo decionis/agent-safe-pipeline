@@ -43,7 +43,7 @@ jobs:
           # the review reads as an unknown licence, not a restriction.
           # bowser 2.14.1 ships unmodified under MIT / MITNFA; retain its LICENSE.
           # The version-specific review is recorded in license-policy.json.
-          allow-dependencies-licenses: pkg:npm/bowser@2.14.1, pkg:npm/caniuse-lite, pkg:npm/node-forge, pkg:npm/type-fest, pkg:maven/jakarta.servlet/jakarta.servlet-api, pkg:golang/google.golang.org/protobuf
+          allow-dependencies-licenses: pkg:npm/bowser@2.14.1, pkg:npm/caniuse-lite, pkg:maven/jakarta.servlet/jakarta.servlet-api, pkg:golang/google.golang.org/protobuf
           fail-on-severity: low
           fail-on-scopes: runtime
       - name: Review toolchain dependency changes
@@ -59,7 +59,7 @@ jobs:
           # the review reads as an unknown licence, not a restriction.
           # bowser 2.14.1 ships unmodified under MIT / MITNFA; retain its LICENSE.
           # The version-specific review is recorded in license-policy.json.
-          allow-dependencies-licenses: pkg:npm/bowser@2.14.1, pkg:npm/caniuse-lite, pkg:npm/node-forge, pkg:npm/type-fest, pkg:maven/jakarta.servlet/jakarta.servlet-api, pkg:golang/google.golang.org/protobuf
+          allow-dependencies-licenses: pkg:npm/bowser@2.14.1, pkg:npm/caniuse-lite, pkg:maven/jakarta.servlet/jakarta.servlet-api, pkg:golang/google.golang.org/protobuf
           fail-on-severity: moderate
           fail-on-scopes: development
 
