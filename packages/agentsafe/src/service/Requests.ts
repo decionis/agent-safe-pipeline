@@ -5,7 +5,7 @@ import {
   type ExecutionRecoveryReference,
 } from "@decionis/agent-safe-pipeline";
 import type { ExecutorMode } from "../config/ExecutorConfig.js";
-import type { EscalationHandoff } from "./EscalationResolver.js";
+import type { AttestationHandoff, EscalationHandoff } from "./EscalationResolver.js";
 
 const identifier = z.string().trim().min(1).max(200);
 
@@ -96,7 +96,7 @@ export interface ActionResponse {
     readonly reference: ExecutionRecoveryReference;
   } | null;
   /** Present while an escalation is open: what to present to resume. */
-  readonly escalation: EscalationHandoff | null;
+  readonly escalation: EscalationHandoff | AttestationHandoff | null;
 }
 
 export interface ReconciliationResponse {
@@ -108,5 +108,32 @@ export interface ReconciliationResponse {
   readonly reason_codes: readonly string[];
   readonly authorization: AuthorizationBinding | null;
   readonly result: unknown;
+  readonly effect: Readonly<Record<string, unknown>> | null;
+}
+
+/** What the issuer's authorization hook is answered: approve on a held grant, or no match and why. */
+export type CardAuthorizationAnswer =
+  | {
+      readonly decision: "APPROVE";
+      readonly authorization_id: string;
+      readonly intent_id: string;
+      readonly intent_hash: string;
+      readonly decision_id: string;
+      readonly dossier_id: string;
+      readonly grant_id: string;
+      /** Until when a result is recorded as an outcome; after it, as indeterminate. */
+      readonly lease_expires_at: string;
+    }
+  | { readonly decision: "NO_MATCH"; readonly code: string };
+
+/** What a recorded authorization result became: the commit outcome and the effect observed. */
+export interface CardResultResponse {
+  readonly authorization_id: string;
+  readonly intent_id: string;
+  readonly intent_hash: string;
+  readonly outcome: "COMMITTED" | "FAILED" | "INDETERMINATE";
+  readonly executed: boolean | null;
+  readonly finalization: "RECORDED" | "PENDING" | "UNSUPPORTED";
+  readonly reason_codes: readonly string[];
   readonly effect: Readonly<Record<string, unknown>> | null;
 }

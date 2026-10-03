@@ -62,6 +62,12 @@ export default {
   // report that over- or under-states an organisation's usage, a recount that
   // accepts a range the chain does not hold, or a warning raised or withheld
   // wrongly.
+  // The cards family's three are here for the money they let through: the
+  // card-number check decides whether a card number can reach a hashed
+  // intent, a dossier and an evidence line; the purchase rules decide what a
+  // grant can be for; and the matcher decides which issuer authorization
+  // spends a held grant, so a mutant there approves a purchase at another
+  // merchant, in another currency, or above the amount.
   mutate: [
     "src/http/ExecutorHttpServer.ts",
     "src/identity/PrincipalRegistry.ts",
@@ -92,6 +98,9 @@ export default {
     "src/edge/UsageTally.ts",
     "src/edge/UsageCount.ts",
     "src/edge/EntitlementEvaluation.ts",
+    "src/adapters/cards/Pan.ts",
+    "src/adapters/cards/CardPurchase.ts",
+    "src/adapters/cards/CardAuthorizationMatcher.ts",
   ],
   reporters: ["clear-text", "progress"],
   coverageAnalysis: "perTest",

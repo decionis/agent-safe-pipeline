@@ -44,6 +44,9 @@ export function legacyAuthenticator(
 /** The token the operator in `mixedAuthenticator` presents. */
 export const OPERATOR_TOKEN = "synthetic-operator-token-0123456789abcdef";
 
+/** The token the card issuer's authorization hook presents: an operator holding only `cards.authorize`. */
+export const ISSUER_TOKEN = "synthetic-issuer-hook-token-0123456789abcdef";
+
 /**
  * A door with both roles behind bearer tokens: the caller token is a
  * proposer, `OPERATOR_TOKEN` an operator holding every scope. For the tests
@@ -68,6 +71,12 @@ export function mixedAuthenticator(
         role: "OPERATOR",
         scopes: ["status", "metrics", "secrets.reload", "halt", "resume", "evidence"],
         credential: { kind: "BEARER", token_sha256: sha256Hex(OPERATOR_TOKEN) },
+      },
+      {
+        id: "synthetic-issuer-hook",
+        role: "OPERATOR",
+        scopes: ["cards.authorize"],
+        credential: { kind: "BEARER", token_sha256: sha256Hex(ISSUER_TOKEN) },
       },
     ],
   });

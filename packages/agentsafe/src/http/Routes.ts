@@ -15,6 +15,12 @@ export interface RouteDefinition {
   readonly scope?: OperatorScope;
 }
 
+/**
+ * The one route with a parameter: the issuer's authorization id is a path
+ * segment. The template is matched by the listener, segment for segment.
+ */
+export const CARD_AUTHORIZATION_RESULT_PATH = "/v1/card-authorizations/{authorization_id}/result";
+
 /** The whole surface. The README's table is checked against this list. */
 export const ROUTES = [
   { method: "GET", path: "/health", public: true },
@@ -47,6 +53,22 @@ export const ROUTES = [
     scope: "evidence",
   },
   { method: "GET", path: "/metrics", public: false, role: "OPERATOR", scope: "metrics" },
+  // The card issuer's real-time authorization hook, as an operator holding
+  // only this scope: never a proposer, so an agent cannot match its own grant.
+  {
+    method: "POST",
+    path: "/v1/card-authorizations",
+    public: false,
+    role: "OPERATOR",
+    scope: "cards.authorize",
+  },
+  {
+    method: "POST",
+    path: CARD_AUTHORIZATION_RESULT_PATH,
+    public: false,
+    role: "OPERATOR",
+    scope: "cards.authorize",
+  },
 ] as const satisfies readonly RouteDefinition[];
 
 export type RoutePath = (typeof ROUTES)[number]["path"];

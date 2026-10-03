@@ -1218,3 +1218,215 @@ describe("SafeExecutor", () => {
     }
   });
 });
+
+describe("SafeExecutor held grants", () => {
+  function heldSetup(verdict: "ALLOW" | "BLOCK" = "ALLOW") {
+    const parts = setup(verdict);
+    const verifyAndConsume = vi.fn(parts.pair.verifier.verifyAndConsume.bind(parts.pair.verifier));
+    const finalize = vi.fn(async () => "RECORDED" as const);
+    const events: AuditEventV1[] = [];
+    const audit = new AuditRecorder({
+      sink: {
+        write: (event) => {
+          events.push(event);
+        },
+      },
+    });
+    const executor = new SafeExecutor(parts.registry, { verifyAndConsume, finalize }, audit);
+    return { ...parts, verifyAndConsume, finalize, events, executor };
+  }
+
+  it("admits an ALLOW and holds its grant without consuming it or running anything", async () => {
+    const { execute, pair, verifyAndConsume, events, executor } = heldSetup();
+    const intent = captured();
+    const decision = await pair.authority.evaluate(intent);
+
+    const held = await executor.hold(intent, decision);
+
+    expect(held).toMatchObject({
+      outcome: "HELD",
+      executed: false,
+      result: null,
+      authorization: null,
+    });
+    if (held.outcome !== "HELD") throw new Error("TEST_EXPECTED_HOLD");
+    expect(Object.isFrozen(held.held)).toBe(true);
+    expect(held.held).toEqual({
+      captured: intent,
+      decision,
+      expiresAt: decision.authorization?.expiresAt,
+    });
+    expect(verifyAndConsume).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+    expect(events.map((event) => event.eventType)).toEqual([
+      "INTENT_CAPTURED",
+      "AUTHORITY_DECISION",
+      "GRANT_HELD",
+    ]);
+  });
+
+  it("refuses to hold what run would refuse", async () => {
+    const { pair, events, executor } = heldSetup("BLOCK");
+    const intent = captured();
+    const decision = await pair.authority.evaluate(intent);
+    await expect(executor.hold(intent, decision)).resolves.toMatchObject({
+      outcome: "BLOCKED",
+      reason: "DECISION_NOT_ALLOW",
+    });
+    expect(events.map((event) => event.eventType)).not.toContain("GRANT_HELD");
+  });
+
+  it("holds under the strict audit policy only when the hold itself is recorded", async () => {
+    const { pair, registry } = setup();
+    const intent = captured();
+    const decision = await pair.authority.evaluate(intent);
+    const strict = (write: () => Promise<void>) =>
+      new SafeExecutor(
+        registry,
+        pair.verifier,
+        new AuditRecorder({ sink: { write }, failurePolicy: "REQUIRE_BEFORE_EXECUTION" }),
+      );
+    await expect(strict(async () => {}).hold(intent, decision)).resolves.toMatchObject({
+      outcome: "HELD",
+    });
+    const write = vi
+      .fn()
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("audit unavailable"))
+      .mockResolvedValue(undefined);
+    await expect(strict(write).hold(intent, decision)).resolves.toMatchObject({
+      outcome: "BLOCKED",
+      reason: "AUDIT_UNAVAILABLE",
+    });
+    // Best effort, a hold that could not be recorded is still a hold.
+    const lossy = vi
+      .fn()
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("audit unavailable"));
+    await expect(
+      new SafeExecutor(
+        registry,
+        pair.verifier,
+        new AuditRecorder({ sink: { write: lossy }, failurePolicy: "BEST_EFFORT" }),
+      ).hold(intent, decision),
+    ).resolves.toMatchObject({ outcome: "HELD" });
+  });
+
+  it("claims a held grant exactly once, concurrently or later, and never dispatches", async () => {
+    const { execute, pair, verifyAndConsume, events, executor } = heldSetup();
+    const intent = captured();
+    const decision = await pair.authority.evaluate(intent);
+    const held = await executor.hold(intent, decision);
+    if (held.outcome !== "HELD") throw new Error("TEST_EXPECTED_HOLD");
+
+    const [first, second] = await Promise.all([
+      executor.claimHeld(held.held),
+      executor.claimHeld(held.held),
+    ]);
+
+    expect(first).toMatchObject({
+      outcome: "CLAIMED",
+      authorization: { decisionId: decision.decisionId, intentHash: intent.intentHash },
+    });
+    expect(second).toMatchObject({ outcome: "BLOCKED", reason: "AUTHORIZATION_INVALID" });
+    await expect(executor.claimHeld(held.held)).resolves.toMatchObject({
+      outcome: "BLOCKED",
+      reason: "AUTHORIZATION_INVALID",
+    });
+    expect(verifyAndConsume).toHaveBeenCalledTimes(1);
+    expect(execute).not.toHaveBeenCalled();
+    expect(
+      events
+        .map((event) => event.eventType)
+        .slice(3)
+        .sort(),
+    ).toEqual(["EXECUTION_BLOCKED", "EXECUTION_BLOCKED", "EXECUTION_STARTED", "GRANT_CONSUMED"]);
+  });
+
+  it("claims only a hold this executor issued", async () => {
+    const { pair, verifyAndConsume, executor, registry } = heldSetup();
+    const intent = captured();
+    const decision = await pair.authority.evaluate(intent);
+    const forged = Object.freeze({
+      captured: intent,
+      decision,
+      expiresAt: decision.authorization?.expiresAt ?? "",
+    });
+    await expect(executor.claimHeld(forged)).resolves.toMatchObject({
+      outcome: "BLOCKED",
+      reason: "AUTHORIZATION_INVALID",
+    });
+    const other = await new SafeExecutor(registry, pair.verifier).hold(intent, decision);
+    if (other.outcome !== "HELD") throw new Error("TEST_EXPECTED_HOLD");
+    await expect(executor.claimHeld(other.held)).resolves.toMatchObject({
+      outcome: "BLOCKED",
+      reason: "AUTHORIZATION_INVALID",
+    });
+    expect(verifyAndConsume).not.toHaveBeenCalled();
+  });
+
+  it("checks what a held claim returns as run does, and settles nothing it did not claim", async () => {
+    const { pair, registry } = setup();
+    const intent = captured();
+    const decision = await pair.authority.evaluate(intent);
+    const finalize = vi.fn(async () => "RECORDED" as const);
+    const executor = new SafeExecutor(registry, {
+      verifyAndConsume: async () => authorizationFor(decision, intent.intentHash, { grantId: "" }),
+      finalize,
+    });
+    const held = await executor.hold(intent, decision);
+    if (held.outcome !== "HELD") throw new Error("TEST_EXPECTED_HOLD");
+    await expect(executor.claimHeld(held.held)).resolves.toMatchObject({
+      outcome: "BLOCKED",
+      reason: "AUTHORIZATION_INVALID",
+    });
+    await expect(executor.settleHeld(held.held, "COMMITTED")).rejects.toThrow(
+      "HELD_EXECUTION_NOT_CLAIMED",
+    );
+    expect(finalize).not.toHaveBeenCalled();
+  });
+
+  it("settles a claimed hold once, with the outcome and any receipt, under the outcome's own record", async () => {
+    const scenarios = [
+      { outcome: "COMMITTED", eventType: "EXECUTION_COMPLETED", receipt: "a.b.c" },
+      { outcome: "FAILED", eventType: "EXECUTION_REFUSED_AFTER_DISPATCH", receipt: null },
+      { outcome: "INDETERMINATE", eventType: "EXECUTION_OUTCOME_UNKNOWN", receipt: null },
+    ] as const;
+    for (const scenario of scenarios) {
+      const { pair, finalize, events, executor } = heldSetup();
+      const intent = captured();
+      const decision = await pair.authority.evaluate(intent);
+      const held = await executor.hold(intent, decision);
+      if (held.outcome !== "HELD") throw new Error("TEST_EXPECTED_HOLD");
+      await expect(executor.settleHeld(held.held, scenario.outcome)).rejects.toThrow(
+        "HELD_EXECUTION_NOT_CLAIMED",
+      );
+      const claim = await executor.claimHeld(held.held);
+      if (claim.outcome !== "CLAIMED") throw new Error("TEST_EXPECTED_CLAIM");
+
+      const finalization =
+        scenario.receipt === null
+          ? await executor.settleHeld(held.held, scenario.outcome)
+          : await executor.settleHeld(held.held, scenario.outcome, scenario.receipt);
+
+      expect(finalization, scenario.outcome).toBe("RECORDED");
+      expect(finalize).toHaveBeenCalledTimes(1);
+      expect(finalize).toHaveBeenCalledWith({
+        captured: intent,
+        decision,
+        authorization: claim.authorization,
+        outcome: scenario.outcome,
+        ...(scenario.receipt === null ? {} : { effectReceipt: scenario.receipt }),
+      });
+      expect(events.at(-1)?.eventType).toBe(scenario.eventType);
+      expect(events.at(-1)?.reasonCodes).toEqual(["COMMIT_FINALIZATION_RECORDED"]);
+      expect(events.at(-1)?.correlation.grantId).toBe(claim.authorization.grantId);
+      await expect(executor.settleHeld(held.held, scenario.outcome)).rejects.toThrow(
+        "HELD_EXECUTION_NOT_CLAIMED",
+      );
+      expect(finalize).toHaveBeenCalledTimes(1);
+    }
+  });
+});

@@ -7,9 +7,16 @@ import { SecretHandle } from "../../src/secrets/SecretHandle.js";
 import { ServiceError } from "../../src/service/ServiceError.js";
 import type { TrustedExecutorService } from "../../src/service/TrustedExecutorService.js";
 import { CALLER_TOKEN, LOOPBACK_ORIGIN, collectedEvents } from "../support/Environment.js";
-import { legacyAuthenticator, mixedAuthenticator, OPERATOR_TOKEN } from "../support/Principals.js";
+import {
+  ISSUER_TOKEN,
+  legacyAuthenticator,
+  mixedAuthenticator,
+  OPERATOR_TOKEN,
+} from "../support/Principals.js";
 
 const propose = vi.fn();
+const authorizeCard = vi.fn();
+const settleCard = vi.fn();
 const reconcile = vi.fn();
 const resume = vi.fn();
 const halt = vi.fn(() => ({
@@ -49,6 +56,8 @@ const service = {
   propose,
   reconcile,
   resume,
+  authorizeCard,
+  settleCard,
   readiness,
   halt,
   resumeWork,
@@ -154,7 +163,7 @@ describe("ExecutorHttpServer", () => {
     resume.mockResolvedValue({ outcome: "ESCALATE_PENDING" });
   });
 
-  it("declares two public routes, three proposer routes, and six operator routes with their scopes", () => {
+  it("declares two public routes, three proposer routes, and nine operator routes with their scopes", () => {
     expect(ROUTES.map((route) => `${route.method} ${route.path}`)).toEqual([
       "GET /health",
       "GET /ready",
@@ -168,6 +177,8 @@ describe("ExecutorHttpServer", () => {
       "POST /v1/control/secrets/reload",
       "POST /v1/control/evidence-export",
       "GET /metrics",
+      "POST /v1/card-authorizations",
+      "POST /v1/card-authorizations/{authorization_id}/result",
     ]);
     expect(ROUTES.filter((route) => route.public).map((route) => route.path)).toEqual([
       "/health",
@@ -190,6 +201,8 @@ describe("ExecutorHttpServer", () => {
       "/v1/control/secrets/reload:secrets.reload",
       "/v1/control/evidence-export:evidence",
       "/metrics:metrics",
+      "/v1/card-authorizations:cards.authorize",
+      "/v1/card-authorizations/{authorization_id}/result:cards.authorize",
     ]);
   });
 
@@ -319,6 +332,85 @@ describe("ExecutorHttpServer", () => {
     });
     propose.mockResolvedValueOnce({ outcome: "COMPLETED" });
     expect((await send("/v1/actions", CALLER_TOKEN, "{}")).status).toBe(200);
+    await operated.close();
+  });
+
+  it("hands the card routes their bodies and the authorization id, for the issuer's hook alone", async () => {
+    const operated = new ExecutorHttpServer(service, mixedAuthenticator());
+    const bound = await operated.listen(0, "127.0.0.1");
+    const origin = `${LOOPBACK_ORIGIN}:${bound.port}`;
+    const post = async (
+      path: string,
+      token: string,
+      body = "{}",
+    ): Promise<{ status: number; body: Record<string, unknown> }> => {
+      const response = await fetch(`${origin}${path}`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body,
+      });
+      return { status: response.status, body: (await response.json()) as Record<string, unknown> };
+    };
+    authorizeCard.mockResolvedValue({ decision: "NO_MATCH", code: "NO_GRANT" });
+    settleCard.mockResolvedValue({ outcome: "COMMITTED" });
+    const authorized = await post(
+      "/v1/card-authorizations",
+      ISSUER_TOKEN,
+      '{"authorization_id":"a"}',
+    );
+    expect(authorized).toEqual({ status: 200, body: { decision: "NO_MATCH", code: "NO_GRANT" } });
+    expect(authorizeCard).toHaveBeenCalledWith(
+      { authorization_id: "a" },
+      expect.objectContaining({ id: "synthetic-issuer-hook" }),
+    );
+    const settled = await post(
+      "/v1/card-authorizations/fixture_auth.1:x-y/result",
+      ISSUER_TOKEN,
+      '{"status":"APPROVED"}',
+    );
+    expect(settled).toEqual({ status: 200, body: { outcome: "COMMITTED" } });
+    expect(settleCard).toHaveBeenCalledWith(
+      "fixture_auth.1:x-y",
+      { status: "APPROVED" },
+      expect.objectContaining({ id: "synthetic-issuer-hook" }),
+    );
+    // The segment is handed on as written; the service decides what it may be.
+    await post("/v1/card-authorizations/%41b/result", ISSUER_TOKEN);
+    expect(settleCard).toHaveBeenLastCalledWith("%41b", {}, expect.anything());
+    // Only one non-empty segment, and only under exactly this path.
+    for (const path of [
+      "/v1/card-authorizations//result",
+      "/v1/card-authorizations/a/b/result",
+      "/v1/card-authorizations/a/result/more",
+      "/x/v1/card-authorizations/a/result",
+      "/v1/card-authorizations/a/results",
+      "/v1/card-authorizations/a",
+    ]) {
+      expect([path, (await post(path, ISSUER_TOKEN)).status]).toEqual([path, 404]);
+    }
+    expect(settleCard).toHaveBeenCalledTimes(2);
+    // Neither the proposer nor an operator without the scope may reach either route.
+    expect((await post("/v1/card-authorizations", CALLER_TOKEN)).body).toEqual({
+      code: "ROLE_FORBIDDEN",
+    });
+    expect((await post("/v1/card-authorizations/a/result", CALLER_TOKEN)).body).toEqual({
+      code: "ROLE_FORBIDDEN",
+    });
+    expect((await post("/v1/card-authorizations", OPERATOR_TOKEN)).body).toEqual({
+      code: "SCOPE_FORBIDDEN",
+    });
+    expect((await post("/v1/card-authorizations/a/result", OPERATOR_TOKEN)).body).toEqual({
+      code: "SCOPE_FORBIDDEN",
+    });
+    // And the hook holds nothing else.
+    expect((await post("/v1/control/halt", ISSUER_TOKEN)).body).toEqual({
+      code: "SCOPE_FORBIDDEN",
+    });
+    const wrongMethod = await fetch(`${origin}/v1/card-authorizations/a/result`, {
+      headers: { authorization: `Bearer ${ISSUER_TOKEN}` },
+    });
+    expect(wrongMethod.status).toBe(405);
+    expect(authorizeCard).toHaveBeenCalledTimes(1);
     await operated.close();
   });
 

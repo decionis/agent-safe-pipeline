@@ -114,6 +114,31 @@ export {
 export { ibanFromReference, isValidIban, referenceIsValid } from "./adapters/banking/Iban.js";
 export { Money, MoneyError } from "./adapters/banking/Money.js";
 export {
+  matchCardAuthorization,
+  type CardAuthorizationView,
+  type CardMatch,
+  type CardNoMatchCode,
+  type HeldCardGrantView,
+} from "./adapters/cards/CardAuthorizationMatcher.js";
+export {
+  CARD_EFFECT_TYPE,
+  cardExpectedEffect,
+  prepareCardPurchase,
+} from "./adapters/cards/CardEffect.js";
+export { cardHandlers } from "./adapters/cards/CardHandlers.js";
+export {
+  CARD_PURCHASE_ACTION,
+  CardActionError,
+  CardAuthorizationRequestSchema,
+  CardAuthorizationResultSchema,
+  CardPurchaseSchema,
+  isCardActionName,
+  type CardAuthorizationRequest,
+  type CardAuthorizationResult,
+  type CardPurchase,
+} from "./adapters/cards/CardPurchase.js";
+export { containsPan } from "./adapters/cards/Pan.js";
+export {
   EFFECT_REASON_CODES,
   EXECUTION_REASON_CODES,
   isBankingReasonCode,
@@ -425,10 +450,14 @@ export {
   type AuthorityClientsOptions,
 } from "./service/AuthorityClients.js";
 export {
+  AttestationResumeSchema,
   EscalationHandoffSchema,
   EscalationResolver,
+  EscalationResumeSchema,
+  type AttestationHandoff,
   type EscalationDependencies,
   type EscalationHandoff,
+  type EscalationResume,
   type EscalationResolution,
   type EscalationState,
 } from "./service/EscalationResolver.js";
@@ -440,6 +469,8 @@ export {
   type ActionResponse,
   type HaltRequest,
   type AuthorizationBinding,
+  type CardAuthorizationAnswer,
+  type CardResultResponse,
   type ProposalRequest,
   type ReconciliationRequest,
   type ReconciliationResponse,
