@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -232,5 +233,43 @@ describe("govern against the loopback Decionis", () => {
     assert.equal(described.path, "DECIONIS_POLICY.md");
     assert.equal(described.sha256, run.outputs["policy-sha256"]);
     assert.equal(run.report.policy.bytes, 19);
+  });
+
+  // The description on the wire is a record of the file and nothing else:
+  // never `enforce`, which asks Decionis to publish the file as the
+  // workspace's enforced policy, a policy write govern's narrow key is
+  // refused (`x-decionis-warning: POLICY_ENFORCE_SCOPE_MISSING`). The hash is
+  // the content's own, as Decionis now checks before recording anything.
+  it("describes the policy file with its record fields only, and never asks to publish it", async () => {
+    const inline = "# Synthetic policy\n";
+    const referenced = "x".repeat(16 * 1024 + 1);
+    for (const [content, mode] of [
+      [inline, "shadow"],
+      [inline, "enforce"],
+      [referenced, "shadow"],
+    ]) {
+      const mark = authority.requests.length;
+      const dir = await mkdtemp(join(work, "policy-"));
+      await writeFile(join(dir, "DECIONIS_POLICY.md"), content);
+      const run = await govern(["--fail-on", "never"], {
+        mode,
+        extraEnv: { GOVERN_WORKSPACE: dir },
+      });
+      assert.equal(run.status, 0, run.stdout);
+      const sent = since(mark)[0];
+      assert.equal(sent.path, "/v1/authority/enforce-and-bind");
+      const described = sent.body.context.decionis_policy;
+      const isInline = content === inline;
+      assert.deepEqual(
+        Object.keys(described).sort(),
+        ["bytes", "path", "sha256", "truncated", "type", ...(isInline ? ["content"] : [])].sort(),
+      );
+      assert.equal("enforce" in described, false);
+      assert.equal(described.type, "decionis_policy_file");
+      assert.equal(described.sha256, createHash("sha256").update(content, "utf8").digest("hex"));
+      assert.equal(described.bytes, Buffer.byteLength(content, "utf8"));
+      assert.equal(described.truncated, !isInline);
+      if (isInline) assert.equal(described.content, content);
+    }
   });
 });
