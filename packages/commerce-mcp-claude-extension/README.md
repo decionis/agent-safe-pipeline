@@ -1,4 +1,4 @@
-# Decionis CommerceGate for Claude Desktop
+# Decionis Commerce Gate for Claude Desktop
 
 Check a price change, order, refund or return against your commerce policy before an agent acts. Never writes to a marketplace.
 
@@ -13,20 +13,20 @@ notice.
 
 <!-- markdownlint-disable MD034 -->
 
-Decionis CommerceGate lets an AI agent ask one question before it touches a marketplace: is this allowed under our policy?
+Decionis Commerce Gate lets an AI agent ask one question before it touches a marketplace: is this allowed under our policy?
 
-It checks seven kinds of commerce action in Shadow Mode: a price change, a stock change, accepting an order, a fulfillment step, a promotion change, a refund, or a return authorization. The answer is PROCEED, HOLD or BLOCK with the math behind it: net margin after landed cost and marketplace fees against your margin floor, quantity against your inventory floor, refund amount against what the order has left to refund. Every policy decision is recorded in a signed Decision Dossier that finance can verify months later.
+It checks seven kinds of commerce action in Shadow Mode: a price change, a stock change, accepting an order, a fulfillment step, a promotion change, a refund, or a return authorization. The live Walmart Marketplace connection maps Commerce Evaluation, Price Guard, Order Guard, order interception, margin protection, release, hold, and cancel to those bounded preflights. Every policy decision is recorded in a signed Decision Dossier that finance can verify months later.
 
 Ask it things like:
 
 - "Would repricing this SKU to $89 on Walmart still clear our margin floor after the referral fee?"
-- "Is it safe to accept this 40-unit order with the stock we have left?"
+- "Can the Walmart Order Guard intercept this order or hold it for margin protection?"
 - "Can the support bot refund $2,850 on this order?"
 - "What would Shadow Mode have held this month, and why?"
 
-For Dynamics 365 Business Central, a separate tool returns an enforced ALLOW or BLOCK for one complete transaction within the agent's spend budget.
+For Dynamics 365 Business Central, a separate tool returns an enforced ALLOW or BLOCK for one complete transaction within the agent's spend budget. A separate tool preflights a Microsoft Partner Center or AWS Marketplace SaaS offer packet before manual submission.
 
-What it never does: CommerceGate does not accept, ship, cancel, refund, reprice or change stock on any platform. It evaluates and reads evidence; a person or the connected system still executes. A PROCEED is a policy result, not consent.
+What it never does: Commerce Gate does not accept, ship, cancel, refund, reprice or change stock on any platform. It evaluates and reads evidence; a person or the connected system still executes. A PROCEED is a policy result, not consent.
 
 Setup: runs locally as a Node.js process. Capability discovery works with no credentials. On macOS, the first valid local Shadow evaluation can create a provisional workspace without registration and securely reuse it. Windows requires existing credentials until secure local persistence is supported. Trial limits apply; ERP requires owned access. Existing DECIONIS_API_KEY and DECIONIS_ORG_ID remain supported.
 
@@ -49,13 +49,14 @@ and a connector implements and enables that path.
 
 ## Tools
 
-- `commercegate_describe_capabilities` — inspect coverage, boundaries, and connection state without credentials.
+- `commercegate_describe_capabilities` — inspect coverage, Walmart mappings, boundaries, and connection state without credentials.
 - `commercegate_evaluate_action` — evaluate a price, stock, order, fulfillment, promotion, refund, or return proposal in Shadow Mode.
 - `commercegate_validate_erp_transaction` — validate one complete Dynamics 365 Business Central transaction against policy and the agent budget.
 - `commercegate_get_dossier` — read the signed Decision Dossier for a decision.
 - `commercegate_get_proof_packet` — read a dossier proof packet.
 - `commercegate_list_shadow_reports` — list recent Shadow Mode evaluations.
 - `commercegate_summarize_shadow_reports` — summarize Shadow Mode outcomes and near misses.
+- `commercegate_evaluate_marketplace_offer_submission` — preflight a Microsoft Partner Center or AWS Marketplace SaaS offer packet in Shadow Mode.
 
 ## Configuration
 

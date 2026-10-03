@@ -78,7 +78,7 @@
       "post": {
         "operationId": "evaluateCommerceDecision",
         "summary": "Record one tenant-bound commerce action evaluation in Shadow Mode",
-        "description": "The Commerce Gate MCP always submits SHADOW and requires the response to confirm SHADOW. `commercegate_evaluate_action` accepts all seven canonical commerce action types. Order acceptance and price change use native margin mappings; inventory, fulfillment, promotion, refund, and return are generic Protocol evaluations whose outcome depends on the tenant policy and supplied signals. `commercegate_evaluate_marketplace_offer_submission` accepts a separate, bounded Microsoft Partner Center or AWS Marketplace SaaS offer packet with digest-bound release evidence. Either evaluation can create decision evidence but never executes a marketplace action or submits an offer.",
+        "description": "The Commerce Gate MCP always submits SHADOW and requires the response to confirm SHADOW. `commercegate_evaluate_action` accepts all seven canonical commerce action types. For the live Walmart Marketplace connector, Commerce Evaluation, Price Guard, Order Guard, order interception, margin protection, release, hold, and cancel map to those canonical preflights. Order acceptance and price change use native margin mappings; inventory, fulfillment, promotion, refund, and return are generic Protocol evaluations whose outcome depends on the tenant policy and supplied signals. `commercegate_evaluate_marketplace_offer_submission` accepts a separate, bounded Microsoft Partner Center or AWS Marketplace SaaS offer packet with digest-bound release evidence. Either evaluation can create decision evidence but never executes a marketplace action or submits an offer.",
         "x-commercegate-mcp": true,
         "x-commercegate-tools": [
           "commercegate_evaluate_action",
@@ -2370,6 +2370,6 @@
   },
   "x-decionis-source": {
     "path": "connectors/erp-guard/openapi/CommerceGateErp.v1.yaml",
-    "sha256": "c8325b211d564f46529c8b9744c37c28aca3e4d66fcf9b060a0c2f10c713265d"
+    "sha256": "285e48a4e5e4fe2cf9e67f685bd7a5884bad88c6df29f48852435cb15e93a63e"
   }
 }
