@@ -109,7 +109,9 @@ $AGENTSAFE_METRICS_TOKEN`, the operator's token, with `401` for any other, and a
 every tenant, makes a hosted gateway forward nothing until its upstream's origin serves a proof
 bound to its tenant ([the upstream's proof](#the-upstreams-proof)). It is refused on a gateway that
 is not hosted, has no `AGENTSAFE_HOSTED_TENANT`, or has no Decionis organization in
-`DECIONIS_TENANT_ID`, since those are what the proof is bound to.
+`DECIONIS_TENANT_ID`, since those are what the proof is bound to. A gateway built before it
+ignores the variable, as it ignores every variable it does not know, and forwards with no proof:
+set it on a gateway of your own only on an image that has it.
 
 ## Many tenants in one process
 
@@ -168,6 +170,14 @@ replica restarted on that host never comes up. It refuses that tenant's gateway 
 (`CONFIG_INVALID`). Write either only once every replica runs a host that accepts it, and take it
 out of the registry before rolling back to a host that does not. Between releases every build
 reports the same version, so check the image the replicas run, not the version.
+
+`--require-upstream-proof` is newer than the first builds too, and it is an argument, not a field:
+a host built before it refuses to start over it (`REFUSED_TO_START` with
+`UNKNOWN_OPTION: require-upstream-proof`, exit `2`), so every replica that restarts on such an
+image exits. Add it to the host's arguments only on an image that has it, take it out of them
+before rolling back to an image that does not, and check the image, not the version, here as
+well. Being refused is the point of a flag: a host that cannot check a proof does not start, where
+an environment variable it ignored would have it forward as though every origin were proven.
 
 A change to a tenant's `tenantKeyDigests` alone rebuilds nothing: the tenant's gateway admits the
 new set at once and goes on as it was, its chains, rate and counts included, and the tenant is

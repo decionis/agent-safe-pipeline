@@ -53,16 +53,16 @@ had its first look at its upstream's proof or 30 seconds have passed. The regist
 and on `SIGHUP`; `SIGTERM` and `SIGINT` stop it. Every line it prints is JSON, and every line a
 tenant's gateway prints begins with that tenant's id.
 
-| Option                     | Meaning                                                                                                                       |
-| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `--registry <file>`        | the tenant registry; else `AGENTSAFE_TENANT_REGISTRY`                                                                         |
-| `--listen <h:p>`           | where to listen; else `AGENTSAFE_LISTEN`, else every interface                                                                |
-| `--port <n>`               | the port; else `PORT`, else 8080                                                                                              |
-| `--tls-cert <file>`        | terminate TLS with this PEM certificate; else `AGENTSAFE_TLS_CERT_FILE`                                                       |
-| `--tls-key <file>`         | and this key, watched for renewal; else `AGENTSAFE_TLS_KEY_FILE`                                                              |
-| `--redirect-listen <h:p>`  | a plain-HTTP listener that only redirects to HTTPS; needs TLS                                                                 |
-| `--apex-page <file>`       | the HTML the registry's domain answers at `/`                                                                                 |
-| `--require-upstream-proof` | every tenant forwards nothing until its upstream's origin serves its [proof](../gateway/configuration.md#the-upstreams-proof) |
+| Option                     | Meaning                                                                                                                                                                                                                                                          |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--registry <file>`        | the tenant registry; else `AGENTSAFE_TENANT_REGISTRY`                                                                                                                                                                                                            |
+| `--listen <h:p>`           | where to listen; else `AGENTSAFE_LISTEN`, else every interface                                                                                                                                                                                                   |
+| `--port <n>`               | the port; else `PORT`, else 8080                                                                                                                                                                                                                                 |
+| `--tls-cert <file>`        | terminate TLS with this PEM certificate; else `AGENTSAFE_TLS_CERT_FILE`                                                                                                                                                                                          |
+| `--tls-key <file>`         | and this key, watched for renewal; else `AGENTSAFE_TLS_KEY_FILE`                                                                                                                                                                                                 |
+| `--redirect-listen <h:p>`  | a plain-HTTP listener that only redirects to HTTPS; needs TLS                                                                                                                                                                                                    |
+| `--apex-page <file>`       | the HTML the registry's domain answers at `/`                                                                                                                                                                                                                    |
+| `--require-upstream-proof` | every tenant forwards nothing until its upstream's origin serves its [proof](../gateway/configuration.md#the-upstreams-proof); a host built before it refuses to start over it (`UNKNOWN_OPTION`, exit `2`), so take it out before rolling back to such an image |
 
 ### `agentsafe intercept`
 
