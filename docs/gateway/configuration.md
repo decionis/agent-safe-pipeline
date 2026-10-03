@@ -141,7 +141,9 @@ kept, rekeyed, retired and failed.
 
 A change to a tenant's `tenantKeyDigests` alone rebuilds nothing: the tenant's gateway admits the
 new set at once and goes on as it was, its chains, rate and counts included, and the tenant is
-`rekeyed`. A revocation never waits on a build. When the rest of an entry cannot be applied, the
+`rekeyed`. A revocation never waits on a build. Digests are read the same way in place as at a
+build: split at commas, trimmed, and empty values dropped, so a reload of an entry its gateway was
+built from admits the same keys. When the rest of an entry cannot be applied, the
 tenant keeps the gateway it had, but that gateway admits only the keys the entry still lists; if
 the entry's digests are themselves malformed, it keeps only those it already admits that the entry
 still names, and a tenant left with none is not served (`421`) until its entry is fixed. Each

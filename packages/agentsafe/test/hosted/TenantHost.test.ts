@@ -569,6 +569,47 @@ describe("the tenant host", () => {
     await host.close();
   });
 
+  it("reads a tenant's digests as its build does, so a reload of the same entry changes no key", async () => {
+    // Padding and an empty value build: the gateway's loader trims and drops them.
+    const { host, files } = await start([
+      tenant("acme", TENANT_KEY_DIGEST, { tenantKeyDigests: [` ${TENANT_KEY_DIGEST}`, ""] }),
+    ]);
+    const { port, server } = await serve(host);
+    const gateway = host.select(ACME);
+    const status = async (key: string): Promise<number> =>
+      (await get(port, ACME, "/orders", { "agentsafe-tenant-key": key })).status;
+    expect(gateway?.tenantKeys).toEqual([TENANT_KEY_DIGEST]);
+    const unchanged = { served: 1, built: [], kept: 1, rekeyed: [], retired: 0, failed: [] };
+    expect(await host.reload()).toMatchObject(unchanged);
+    expect(host.select(ACME)).toBe(gateway);
+    expect(host.failures()).toEqual([]);
+    expect(await status(TENANT_KEY)).toBe(200);
+
+    // Two digests in one value are two keys, taken in place as a build would take them.
+    files.set(
+      REGISTRY_PATH,
+      registry([
+        tenant("acme", TENANT_KEY_DIGEST, {
+          tenantKeyDigests: [`${TENANT_KEY_DIGEST}, ${OTHER_DIGEST} `],
+        }),
+      ]),
+    );
+    expect(await host.reload()).toMatchObject({ kept: 1, rekeyed: ["acme"], failed: [] });
+    expect(await host.reload()).toMatchObject(unchanged);
+    expect([await status(TENANT_KEY), await status(OTHER_KEY)]).toEqual([200, 200]);
+
+    files.set(
+      REGISTRY_PATH,
+      registry([tenant("acme", OTHER_DIGEST, { tenantKeyDigests: [`${OTHER_DIGEST} `] })]),
+    );
+    expect(await host.reload()).toMatchObject({ kept: 1, rekeyed: ["acme"], failed: [] });
+    expect(await host.reload()).toMatchObject(unchanged);
+    expect(host.select(ACME)).toBe(gateway);
+    expect([await status(TENANT_KEY), await status(OTHER_KEY)]).toEqual([401, 200]);
+    await server.close(100);
+    await host.close();
+  });
+
   it("hands a rebuilt tenant's chains to its new gateway, which persists their heads from then on", async () => {
     const evidenceDir = mkdtempSync(join(tmpdir(), "agentsafe-tenant-evidence-"));
     const { host, io, files } = await start([tenant("acme", TENANT_KEY_DIGEST)], 20, {

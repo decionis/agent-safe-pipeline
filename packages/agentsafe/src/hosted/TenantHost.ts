@@ -256,7 +256,7 @@ export class TenantHost {
         // The gateway it had: unchanged but for its keys, or kept because its
         // new entry cannot be built. Either way it admits, from now on, only
         // keys the entry lists.
-        const keys = TenantHost.rekey(current.gateway, tenant.tenantKeyDigests);
+        const keys = TenantHost.rekey(current.gateway, TenantHost.keyDigests(tenant));
         failure ??= keys.error;
         if (keys.changed) rekeyed.push(tenant.id);
         if (keys.served) {
@@ -379,7 +379,7 @@ export class TenantHost {
       AGENTSAFE_HOSTED_TENANT: tenant.id,
       AGENTSAFE_MODE: "shadow",
       AGENTSAFE_UPSTREAM: tenant.upstream,
-      AGENTSAFE_TENANT_KEY_DIGESTS: tenant.tenantKeyDigests.join(","),
+      AGENTSAFE_TENANT_KEY_DIGESTS: TenantHost.keyDigests(tenant).join(","),
       // The tenant's own timeout wins over the host's.
       ...(tenant.upstreamTimeoutMs === undefined
         ? {}
@@ -387,6 +387,20 @@ export class TenantHost {
       DECIONIS_TENANT_ID: tenant.workspace.tenantId,
       DECIONIS_API_KEY_FILE: tenant.workspace.apiKeyFile,
     };
+  }
+
+  /**
+   * A tenant's key digests as its gateway's loader reads them: split at
+   * commas, trimmed, and without empty values. A build and an in-place rekey
+   * both start from these, so a reload of an entry the build admitted admits
+   * the same keys, and never refuses them.
+   */
+  private static keyDigests(tenant: TenantEntry): readonly string[] {
+    return tenant.tenantKeyDigests
+      .join(",")
+      .split(",")
+      .map((digest) => digest.trim())
+      .filter((digest) => digest !== "");
   }
 
   /**
