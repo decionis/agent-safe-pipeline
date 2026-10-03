@@ -260,6 +260,14 @@ An unknown result includes an immutable `agent-safe.recovery/1` reference contai
 intent, decision, dossier, grant, expiry, and idempotency identifiers. Pass that reference and the
 original captured intent to `SafeExecutor.reconcile`.
 
+The reference comes back from the caller, so its decision, dossier, grant and expiry are a claim.
+Give `SafeExecutor` the attempts it dispatched as `attempts` (a `DispatchedAttempts`) and it holds
+the reference against them before the provider is asked: a binding it did not record is
+`BLOCKED` with `RECOVERY_BINDING_MISMATCH`, and an intent it never dispatched is `BLOCKED` with
+`RECOVERY_ATTEMPT_UNKNOWN`. Without `attempts`, the lookup still runs, and the reconciliation
+events are recorded `NON_AUTHORITATIVE`, because nothing vouches for the binding. The trusted
+executor passes its attempt journal.
+
 Reconciliation is a provider lookup, not authorization. It may return the original completed
 result, prove that no action occurred, or remain unknown. Concurrent reconciliation calls for the
 same intent and idempotency key share one in-flight lookup. A rejected, malformed, or unavailable

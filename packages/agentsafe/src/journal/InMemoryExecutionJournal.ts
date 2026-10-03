@@ -1,4 +1,5 @@
 import {
+  authorizationsFrom,
   openAttemptsFrom,
   type ExecutionJournal,
   type JournalRecord,
@@ -47,6 +48,10 @@ export class InMemoryExecutionJournal implements ExecutionJournal {
 
   public async openAttempts(): Promise<ReturnType<typeof openAttemptsFrom>> {
     return await Promise.resolve(openAttemptsFrom(this.records));
+  }
+
+  public async authorizationsOf(intentId: string): Promise<ReturnType<typeof authorizationsFrom>> {
+    return await Promise.resolve(authorizationsFrom(this.records, intentId));
   }
 
   public close(): void {

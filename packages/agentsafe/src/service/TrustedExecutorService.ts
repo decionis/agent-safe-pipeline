@@ -421,6 +421,12 @@ export class TrustedExecutorService {
       fetch: authorityFetch,
       effects,
       observer: { id: config.banking.adapterId, version: config.banking.adapterVersion },
+      // A recovery reference is the caller's claim; the journal is what this
+      // process dispatched, so reconciliation is held against it.
+      attempts: {
+        authorizationsOf: async (captured) =>
+          await journal.authorizationsOf(captured.intent.intentId),
+      },
       ...(dependencies.presence === undefined ? {} : { presence: dependencies.presence }),
     });
     const posture = dependencies.posture ?? { degraded: false };
@@ -873,8 +879,10 @@ export class TrustedExecutorService {
       this.clients.current().executor.reconcile(captured, parsed.data.reference),
     );
     // A resolved attempt is closed in the journal, so the next start does not
-    // ask the provider about it again.
-    if (outcome.outcome !== "UNKNOWN_AFTER_DISPATCH") {
+    // ask the provider about it again. A refused reconciliation resolved
+    // nothing: closing on it would let any presented reference, however
+    // wrong, take a genuinely open attempt off the next start's list.
+    if (outcome.outcome === "COMPLETED" || outcome.outcome === "DEFINITELY_NOT_EXECUTED") {
       try {
         await this.journal.append({
           record: "RECONCILED",

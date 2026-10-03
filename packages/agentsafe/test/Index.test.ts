@@ -180,6 +180,7 @@ describe("public surface", () => {
       "assertIJson",
       "assertSeparationOfDuties",
       "authorityEffectEvidence",
+      "authorizationsFrom",
       "bankingHandlers",
       "cardExpectedEffect",
       "cardHandlers",
