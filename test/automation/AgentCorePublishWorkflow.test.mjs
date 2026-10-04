@@ -18,13 +18,15 @@ const publish = steps.find((step) => step.id === "publish");
 const repository = "709825985650.dkr.ecr.us-east-1.amazonaws.com/decionis/test-agent";
 const digest = `sha256:${"a".repeat(64)}`;
 
-async function runPublish(target, returnedDigest = digest, latestDigest = returnedDigest) {
+async function runPublish(target, existingDigest = "", returnedDigest = digest) {
   const directory = await mkdtemp(join(tmpdir(), "agentcore-publish-test-"));
   const callsPath = join(directory, "calls");
   const outputPath = join(directory, "output");
+  const inspectionsPath = join(directory, "inspections");
   try {
     await writeFile(callsPath, "");
     await writeFile(outputPath, "");
+    await writeFile(inspectionsPath, "0");
     await writeFile(
       join(directory, "aws"),
       '#!/bin/sh\nprintf "aws %s\\n" "$*" >> "$TEST_CALLS"\nprintf "synthetic-password\\n"\n',
@@ -32,7 +34,20 @@ async function runPublish(target, returnedDigest = digest, latestDigest = return
     );
     await writeFile(
       join(directory, "docker"),
-      '#!/bin/sh\nprintf "docker %s\\n" "$*" >> "$TEST_CALLS"\ncase "$1" in login) cat >/dev/null;; buildx) if [ "$2" = imagetools ]; then case "$4" in *:latest) printf \'"%s"\\n\' "$TEST_LATEST_DIGEST";; *) printf \'"%s"\\n\' "$TEST_DIGEST";; esac; fi;; esac\n',
+      [
+        "#!/bin/sh",
+        'printf "docker %s\\n" "$*" >> "$TEST_CALLS"',
+        'case "$1" in',
+        "  login) cat >/dev/null ;;",
+        '  buildx) if [ "$2" = imagetools ]; then',
+        '    count=$(cat "$TEST_INSPECTIONS")',
+        '    if [ "$count" -eq 0 ]; then value="$TEST_EXISTING_DIGEST"; else value="$TEST_DIGEST"; fi',
+        '    printf \'"%s"\\n\' "$value"',
+        '    echo $((count + 1)) > "$TEST_INSPECTIONS"',
+        "  fi ;;",
+        "esac",
+        "",
+      ].join("\n"),
       { mode: 0o700 },
     );
     const result = spawnSync("bash", ["-c", publish.run], {
@@ -44,8 +59,9 @@ async function runPublish(target, returnedDigest = digest, latestDigest = return
         GITHUB_SHA: "synthetic-sha",
         REPOSITORY: target,
         TEST_CALLS: callsPath,
+        TEST_EXISTING_DIGEST: existingDigest,
         TEST_DIGEST: returnedDigest,
-        TEST_LATEST_DIGEST: latestDigest,
+        TEST_INSPECTIONS: inspectionsPath,
         VERSION: "0.1.4",
       },
     });
@@ -86,23 +102,27 @@ describe("AgentCore Marketplace image publication", () => {
     }
   });
 
-  it("publishes arm64 and exposes the exact digest for attestation", async () => {
+  it("publishes an arm64 immutable version tag and exposes its exact digest for attestation", async () => {
     const { result, calls, output } = await runPublish(repository);
     assert.equal(result.status, 0, result.stderr);
     assert.match(calls, /--platform linux\/arm64 --provenance=false --push/);
-    assert.ok(calls.includes(`-t ${repository}:0.1.4 -t ${repository}:latest .`));
+    assert.ok(calls.includes(`-t ${repository}:0.1.4 .`));
+    assert.ok(!calls.includes(":latest"));
     assert.equal(output, `name=${repository}\ndigest=${digest}\n`);
   });
 
   it("refuses an invalid registry digest instead of attesting it", async () => {
-    const { result, output } = await runPublish(repository, "not-a-digest");
+    const { result, output } = await runPublish(repository, "", "not-a-digest");
     assert.notEqual(result.status, 0);
     assert.equal(output, "");
   });
 
-  it("refuses a latest alias that differs from the versioned image", async () => {
-    const { result, output } = await runPublish(repository, digest, `sha256:${"b".repeat(64)}`);
-    assert.notEqual(result.status, 0);
-    assert.equal(output, "");
+  it("reuses an existing immutable version tag without retagging it", async () => {
+    const { result, calls, output } = await runPublish(repository, digest);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(calls, new RegExp(`imagetools inspect ${repository}:0\\.1\\.4`));
+    assert.ok(!calls.includes("buildx build"));
+    assert.ok(!calls.includes(":latest"));
+    assert.equal(output, `name=${repository}\ndigest=${digest}\n`);
   });
 });
