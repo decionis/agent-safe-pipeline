@@ -22,7 +22,7 @@ Do not add secrets, production policy data, customer fixtures, generated depende
 Contributions to the active AgentSafe workspace are licensed under Apache-2.0. By submitting a
 contribution, you represent that you have the right to license it on those terms. The released
 Commerce Gate runtime retains its Apache-2.0 license and its historical Claude Desktop wrapper
-retains its MIT license; their [public source indexes](./packages/commerce-mcp/README.md) preserve
+retains its MIT license; their [public source indexes](./packages/mcp/README.md) preserve
 that history. Ongoing Commerce MCP contributions belong to Commerce.
 
 ## DCO sign-off and review

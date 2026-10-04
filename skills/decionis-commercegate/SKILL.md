@@ -9,7 +9,7 @@ Before you change a price, publish a stock quantity, accept an order, ship, chan
 
 ## Setup
 
-Commerce owns ongoing development of this client. AgentSafe retains its [released-source index](../../packages/commerce-mcp/README.md).
+Commerce owns ongoing development of this client. AgentSafe retains its [released-source index](../../packages/mcp/README.md).
 
 Add the published MCP server (local STDIO):
 

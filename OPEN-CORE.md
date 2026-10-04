@@ -46,8 +46,8 @@ The two runtime dependencies published by Decionis, `@decionis/presence-node` an
 ## Released Commerce Gate source
 
 Commerce owns ongoing development of the Commerce Gate MCP and Claude Desktop wrapper. The
-public indexes at [`packages/commerce-mcp`](./packages/commerce-mcp/README.md) and
-[`packages/commerce-mcp-claude-extension`](./packages/commerce-mcp-claude-extension/README.md)
+public indexes at [`packages/mcp`](./packages/mcp/README.md) and
+[`packages/mcp/extension/claude`](./packages/mcp/extension/claude/README.md)
 pin their published `v0.1.6` source. The released runtime remains Apache-2.0 and the released
 wrapper remains MIT, including its separate runtime license and notice. Their source history,
 published tags, packages, and release artifacts are preserved. These directories contain no

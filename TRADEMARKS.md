@@ -4,7 +4,7 @@ Brand owner: Decionis Inc.
 
 The active source code and documentation in this repository are licensed under Apache-2.0. The
 historical Commerce Gate Claude Desktop wrapper retains its MIT license; its released source is
-linked from `packages/commerce-mcp-claude-extension`. Neither license grants rights to use Decionis
+linked from `packages/mcp/extension/claude`. Neither license grants rights to use Decionis
 trademarks except for reasonable and customary use in describing the origin of the work.
 
 Decionis, Presence, AgentSafe, Agent-Safe Pipeline, Commerce Gate, and their associated names and

@@ -489,7 +489,7 @@ Runnable, offline, and fixture-backed unless noted. Each one uses this package u
 This package and the repository's architecture, intent contract, execution boundary, client
 adapters, audit contract, shadow mode, conformance vectors, and examples are Apache-2.0. Commerce
 owns ongoing development of the Commerce Gate MCP and Claude Desktop wrapper. Their
-[released-source indexes](https://github.com/decionis/agent-safe-pipeline/tree/master/packages/commerce-mcp)
+[released-source indexes](https://github.com/decionis/agent-safe-pipeline/tree/master/packages/mcp)
 preserve the runtime's Apache-2.0 license and the historical wrapper's MIT license.
 Decionis operates the policy control plane behind `DecionisGate`: policy evaluation, grant issuance
 and atomic consumption, Decision Dossier signing and retention, and Presence.

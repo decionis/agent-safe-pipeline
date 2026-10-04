@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { access, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
@@ -10,23 +10,41 @@ import { parse } from "yaml";
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const read = (path) => readFile(join(root, path), "utf8");
 const sourceCommit = "087b591a19464ecfe0f8b33cac113cc6757944e6";
-const indexes = ["packages/commerce-mcp", "packages/commerce-mcp-claude-extension"];
+const indexes = [
+  { directory: "packages/mcp", historical: "packages/commerce-mcp" },
+  {
+    directory: "packages/mcp/extension/claude",
+    historical: "packages/commerce-mcp-claude-extension",
+  },
+];
 const publisherPath = ".github/workflows/commerce-mcp-npm-publish.yml";
 
 describe("Commerce source ownership", () => {
   it("keeps only indexes to the released source, licenses and unchanged installer", async () => {
-    for (const directory of indexes) {
-      assert.deepEqual(await readdir(join(root, directory)), ["README.md"], directory);
+    for (const [directory, expected] of [
+      ["packages/mcp", ["README.md", "extension"]],
+      ["packages/mcp/extension", ["claude"]],
+      ["packages/mcp/extension/claude", ["README.md"]],
+    ]) {
+      const entries = await readdir(join(root, directory), { withFileTypes: true });
+      assert.deepEqual(entries.map((entry) => entry.name).sort(), expected, directory);
+      for (const entry of entries) {
+        assert.ok(entry.name === "README.md" ? entry.isFile() : entry.isDirectory(), directory);
+      }
+    }
+    for (const { directory, historical } of indexes) {
+      assert.ok(directory.split("/").every((part) => /^[a-z]+$/.test(part)));
+      await assert.rejects(access(join(root, historical)), { code: "ENOENT" });
       const document = await read(`${directory}/README.md`);
       assert.ok(
         document.includes(
-          `https://github.com/decionis/agent-safe-pipeline/tree/${sourceCommit}/${directory}`,
+          `https://github.com/decionis/agent-safe-pipeline/tree/${sourceCommit}/${historical}`,
         ),
         `${directory} must link the published source commit`,
       );
       assert.ok(
         document.includes(
-          `https://github.com/decionis/agent-safe-pipeline/blob/${sourceCommit}/${directory}/LICENSE`,
+          `https://github.com/decionis/agent-safe-pipeline/blob/${sourceCommit}/${historical}/LICENSE`,
         ),
         `${directory} must retain access to the released license`,
       );
@@ -40,7 +58,11 @@ describe("Commerce source ownership", () => {
 
   it("excludes the indexes from workspace dependencies and the published-package inventory", async () => {
     const lockfile = parse(await read("pnpm-lock.yaml"));
-    for (const directory of indexes) assert.equal(lockfile.importers[directory], undefined);
+    for (const { directory, historical } of indexes) {
+      assert.equal(lockfile.importers[directory], undefined);
+      assert.equal(lockfile.importers[historical], undefined);
+    }
+    assert.equal(lockfile.importers["packages/mcp/extension"], undefined);
     const full = await read("llms-full.txt");
     const inventory = [...full.matchAll(/^- Package: (.+)$/gm)].map((match) => match[1]);
     assert.deepEqual(inventory.sort(), ["@decionis/agent-safe-pipeline", "@decionis/agentsafe"]);
@@ -51,7 +73,10 @@ describe("Commerce source ownership", () => {
     ]) {
       assert.equal(JSON.parse(await read(`${directory}/package.json`)).name, name);
     }
-    assert.doesNotMatch(await read("packages/agentsafe/Dockerfile"), /packages\/commerce-mcp/);
+    assert.doesNotMatch(
+      await read("packages/agentsafe/Dockerfile"),
+      /packages\/(?:commerce-mcp|mcp)/,
+    );
   });
 
   it("leaves no active Commerce package release or AgentCore workflow", async () => {
@@ -69,7 +94,7 @@ describe("Commerce source ownership", () => {
       const workflow = await read(`.github/workflows/${name}`);
       assert.doesNotMatch(
         workflow,
-        /packages\/commerce-mcp|@decionis\/commerce(?:["'\s@]|$)/,
+        /packages\/(?:commerce-mcp|mcp)|@decionis\/commerce(?:["'\s@]|$)/,
         name,
       );
     }
