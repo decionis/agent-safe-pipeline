@@ -1,5 +1,7 @@
 import type { CommerceGateConfiguration } from "./Configuration.js";
 import { CommerceGateError } from "./Errors.js";
+import { CommercePreflightBinding } from "./preflight/Binding.js";
+import type { CommercePreflightInput } from "./preflight/Contracts.js";
 import { MCP_SERVER_VERSION } from "./Version.js";
 
 export const SUPPORTED_ACTION_TYPES = [
@@ -151,6 +153,7 @@ export type CommerceAction =
 export interface EvaluateActionInput {
   action: CommerceAction;
   policy_version?: string;
+  preflight?: CommercePreflightInput;
 }
 
 /**
@@ -594,6 +597,7 @@ function buildEvaluationRequest(input: EvaluateActionInput): Record<string, unkn
         ...facts.signals,
       },
       commerce_action: action,
+      ...(input.preflight ? { commerce_preflight: input.preflight } : {}),
     },
   };
 }
@@ -815,14 +819,24 @@ export class CommerceGateClient implements CommerceGateApi {
   }
 
   async evaluateAction(input: EvaluateActionInput): Promise<unknown> {
-    const request = buildEvaluationRequest(input);
+    const binding =
+      input.preflight === undefined
+        ? undefined
+        : new CommercePreflightBinding(input.action, input.preflight);
+    const requestedPolicyVersion = input.policy_version;
+    const captured = binding
+      ? { ...input, action: binding.action, preflight: binding.preflight }
+      : input;
+    const request = buildEvaluationRequest(captured);
     const response = await this.request(EVALUATE_OPERATION.path, {
       method: "POST",
       body: request,
-      idempotencyKey: input.action.idempotency_key,
+      idempotencyKey: captured.action.idempotency_key,
       allowProvision: true,
     });
-    return validateEvaluationResponse(response, input.policy_version);
+    const evaluation = validateEvaluationResponse(response, requestedPolicyVersion);
+    binding?.validateEvaluation(evaluation, requestedPolicyVersion);
+    return evaluation;
   }
 
   async evaluateMarketplaceOfferSubmission(

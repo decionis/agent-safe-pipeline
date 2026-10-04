@@ -12,6 +12,13 @@ import type {
 import { SUPPORTED_ACTION_TYPES } from "./CommerceGateClient.js";
 import type { CommerceGateConfiguration } from "./Configuration.js";
 import { CommerceGateError, toSafeFailure } from "./Errors.js";
+import { CommercePreflightBinding } from "./preflight/Binding.js";
+import {
+  COMMERCE_PREFLIGHT_CHECKS,
+  COMMERCE_PREFLIGHT_RELEASE_STATUS,
+  COMMERCE_PREFLIGHT_VERSION,
+} from "./preflight/Contracts.js";
+import { commercePreflightInputSchema, parseCommercePreflightInput } from "./preflight/Schema.js";
 
 export interface ToolContent {
   type: "text";
@@ -595,6 +602,7 @@ const evaluateActionSchema = {
       pattern: POLICY_VERSION_PATTERN.source,
       description: "Optional exact Decionis policy version. Omit to use the tenant default.",
     },
+    preflight: commercePreflightInputSchema,
   },
   additionalProperties: false,
 } as const;
@@ -1303,7 +1311,11 @@ function parseAction(value: unknown): CommerceAction {
 }
 
 function parseEvaluationInput(args: Record<string, unknown>): EvaluateActionInput {
-  assertAllowedKeys(args, ["action", "policy_version"], "commercegate_evaluate_action input");
+  assertAllowedKeys(
+    args,
+    ["action", "policy_version", "preflight"],
+    "commercegate_evaluate_action input",
+  );
   const policyVersion =
     args.policy_version === undefined
       ? undefined
@@ -1317,6 +1329,9 @@ function parseEvaluationInput(args: Record<string, unknown>): EvaluateActionInpu
   return {
     action: parseAction(args.action),
     ...(policyVersion ? { policy_version: policyVersion } : {}),
+    ...(args.preflight === undefined
+      ? {}
+      : { preflight: parseCommercePreflightInput(args.preflight) }),
   };
 }
 
@@ -1794,6 +1809,17 @@ export class CommerceGateTools {
               },
               outcome_mapping: COMMERCEGATE_OUTCOME_MAP,
               action_support: COMMERCEGATE_ACTION_SUPPORT,
+              versioned_preflight: {
+                version: COMMERCE_PREFLIGHT_VERSION,
+                release_status: COMMERCE_PREFLIGHT_RELEASE_STATUS,
+                input_option: "preflight",
+                opt_in: true,
+                requires_matching_backend: true,
+                backend_support_probed: false,
+                policy_authority: "server",
+                execution_available: false,
+                checks: COMMERCE_PREFLIGHT_CHECKS,
+              },
               guarantees: {
                 marketplace_writes: false,
                 erp_writes: false,
@@ -1847,13 +1873,18 @@ export class CommerceGateTools {
         name: COMMERCEGATE_TOOL_NAMES[2],
         title: "Evaluate a Commerce Action",
         description:
-          "Use this as the default preflight before a price, inventory, order-acceptance, fulfillment, promotion, refund, or return proposal, for questions like 'would repricing this SKU to $89 on Walmart still clear our margin floor after the referral fee?', 'is it safe to accept this 40-unit order with the stock we have left?', or 'can the support bot refund $2,850 on this order?'. It sends the bounded tenant-scoped action and policy signals to Decionis in default SHADOW mode and may persist a signed Decision Dossier. Shadow Mode evaluates real supplied facts without blocking the native commerce flow; it is not a synthetic-data mode. A customer-activated native executor enforces a supported connector path outside this MCP. This MCP is a generic Protocol evaluation: it never calls a marketplace API, executes the proposal, or confirms that a connector exposes the required write path. The result maps to PROCEED, HOLD, or BLOCK: APPROVE is evidence, not consent to execute; REJECT means stop; REVIEW or ESCALATE means hold for a human.",
+          "Use this as the default preflight before a price, inventory, order-acceptance, fulfillment, promotion, refund, or return proposal, for questions like 'would repricing this SKU to $89 on Walmart still clear our margin floor after the referral fee?', 'is it safe to accept this 40-unit order with the stock we have left?', or 'can the support bot refund $2,850 on this order?'. It sends the bounded tenant-scoped action and policy signals to Decionis in default SHADOW mode and may persist a signed Decision Dossier. Shadow Mode evaluates real supplied facts without blocking the native commerce flow; it is not a synthetic-data mode. A customer-activated native executor enforces a supported connector path outside this MCP. This MCP is a generic Protocol evaluation: it never calls a marketplace API, executes the proposal, or confirms that a connector exposes the required write path. The source-candidate preflight option requests all eleven commerce-preflight-v1 checks from a matching backend and fails closed if the complete request-bound result is absent. The result maps to PROCEED, HOLD, or BLOCK: APPROVE is evidence, not consent to execute; REJECT means stop; REVIEW or ESCALATE means hold for a human.",
         inputSchema: evaluateActionSchema,
         annotations: annotations(false, true),
         handler: async (args) =>
           safeCall(async () => {
             const input = parseEvaluationInput(args);
+            const binding =
+              input.preflight === undefined
+                ? undefined
+                : new CommercePreflightBinding(input.action, input.preflight);
             const evaluation = await this.api.evaluateAction(input);
+            const preflight = binding?.validateEvaluation(evaluation, input.policy_version);
             return {
               ok: true,
               mode: "SHADOW",
@@ -1864,6 +1895,7 @@ export class CommerceGateTools {
               commercegate_disposition: commerceGateDisposition(evaluation),
               agent_guidance: outcomeGuidance(evaluation),
               evaluation,
+              ...(preflight ? { preflight } : {}),
               ...(this.configuration.describe().access
                 ? { access: this.configuration.describe().access }
                 : {}),

@@ -99,6 +99,52 @@ Order acceptance and price change have native CommerceGate margin mappings. The 
 
 The ERP guard accepts a bounded `erp_region` and the complete canonical D365 request: `transaction_id`, `erp_type`, `tenant_id`, `timestamp`, `agent_id`, `currency`, and 1–200 line records. It sends the configured API key as `X-Decionis-API-Key` and the region as `X-ERP-Region`. An `ALLOW` response means the exact request cleared enforced policy and its idempotent agent-budget authorization; it is not user consent and the MCP still performs no ERP write. The guard returns a reason code and message but does not promise a retrievable Decision Dossier or proof packet for that call.
 
+### Eleven-check preflight contract — unreleased source candidate
+
+This checkout adds an explicit `commerce-preflight-v1` option. It requires a matching backend and an authorized tenant policy. **The published `@decionis/commerce@0.1.6` installation instructions above do not install this unreleased change.** Existing calls without `preflight` keep their current SHADOW contract; the eight tool names, ERP guard, history tools, and marketplace-offer preflight are unchanged.
+
+Supply the usual action and, optionally, an exact `policy_version`, together with:
+
+```json
+{
+  "preflight": {
+    "version": "commerce-preflight-v1",
+    "facts": {
+      "source": "merchant.erp",
+      "observed_at": "2026-10-05T08:00:00Z",
+      "currency": "USD",
+      "cost_basis": { "source_cost": 60, "system_of_record_cost": 60 },
+      "region": { "country": "SE" },
+      "contract": { "account_type": "retail" }
+    }
+  }
+}
+```
+
+The values above are synthetic documentation facts, not a production evaluation. Use the actual observation time and source for a real proposal. Amounts use the action currency; `estimated_cost` includes fees and landed costs. Facts are caller assertions: the MCP does not read or independently verify a connected platform. The `pricing` group is for promotion projections; ordinary price and order economics remain in the action payload. Other bounded groups cover inventory, discounts, promotion reuse, refundable balance, prior refunds, and lifecycle state. The schema has no fields for raw customer identities, addresses, or credentials and rejects unknown fields, caller-supplied policy thresholds, and tenant or enforcement overrides. Do not place secrets or personal details in free-text labels.
+
+The server evaluates these business checks. Applicability and policy settings remain server-owned; the client does not calculate their decisions.
+
+| ID  | Check                                                |
+| --- | ---------------------------------------------------- |
+| P01 | Net margin floor                                     |
+| P02 | Cost-basis integrity                                 |
+| P03 | Inventory availability and consistency               |
+| P04 | Regional eligibility                                 |
+| P05 | Discount stacking                                    |
+| P06 | B2B contract-price conformity                        |
+| P07 | Promotion abuse indicators                           |
+| P08 | Refundable balance                                   |
+| P09 | Unattended refund limit                              |
+| P10 | Repeat-refund policy                                 |
+| P11 | Order, fulfillment, and return lifecycle eligibility |
+
+The tool exposes the server's result as `preflight` and retains it in `evaluation.commerce_preflight`. Every response has exactly one row per check: `evaluated`, `not_applicable`, `disabled`, `missing_facts`, or `unsupported`, with a verdict where required, reason codes, missing facts, and optional measurements. Missing or unsupported required checks hold; an entirely unassessed action cannot proceed. Omitted facts are never replaced with invented values.
+
+The client verifies the version, SHADOW mode, action type, idempotency key, exact policy when requested, and SHA-256 digests of the sent action and facts using RFC8785/JCS. It rejects missing, inconsistent, or differently bound results and any overall Protocol outcome weaker than the preflight disposition. It never retries by removing `preflight`. The existing `fallback_to_legacy` flag describes continuation of the native flow in SHADOW; a complete versioned result is still required regardless of that flag.
+
+The eleven checks are distinct from the seven action families and from native connector coverage. `execution_available` remains `false`; a preflight neither reserves nor executes a platform operation. Dossier and proof-packet retrieval remain separate evidence tools, and neither a preflight result nor its digest is execution consent. Capability discovery describes this opt-in contract without claiming that the configured backend or a connector is ready.
+
 ### Marketplace SaaS offer-submission preflight
 
 `commercegate_evaluate_marketplace_offer_submission` is separate from the seven commerce-action contracts. It accepts one complete `SAAS` offer packet: publisher and offer IDs; unique plan IDs with billing terms and market codes; public HTTPS landing, connection-webhook, support, privacy, and terms URLs; an explicit marketplace identity; optional Business Central extension identity; and digest-bound release evidence. Microsoft Partner Center packets require Microsoft Entra tenant and application IDs. AWS Marketplace packets require the Login with Amazon subject that is linked to the seller's AWS account and IAM role with offer-management access. It rejects credentials, URL query strings and fragments, incomplete evidence, duplicate plan or market IDs, and customer-commerce fields before it creates a non-blocking preflight evaluation. The packet uses release metadata and preview or test evidence; the tool does not read customer commerce records from a marketplace.
