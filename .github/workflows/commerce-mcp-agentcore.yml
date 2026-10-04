@@ -134,19 +134,22 @@ jobs:
           fi
           registry="${REPOSITORY%%/*}"
           aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$registry"
-          docker buildx build -f packages/commerce-mcp/Dockerfile \
-            --platform linux/arm64 --provenance=false --push \
-            --label "org.opencontainers.image.version=$VERSION" \
-            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
-            -t "$REPOSITORY:$VERSION" -t "$REPOSITORY:latest" .
-          digest="$(docker buildx imagetools inspect "$REPOSITORY:$VERSION" --format '{{json .Manifest.Digest}}' | tr -d '"')"
+          # Marketplace repositories hold immutable tags. A retry may follow a
+          # successful tag push whose later digest read or attestation failed;
+          # retain that exact versioned image rather than attempt to overwrite it.
+          digest="$(docker buildx imagetools inspect "$REPOSITORY:$VERSION" --format '{{json .Manifest.Digest}}' 2>/dev/null | tr -d '"' || true)"
+          if [[ ! "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+            docker buildx build -f packages/commerce-mcp/Dockerfile \
+              --platform linux/arm64 --provenance=false --push \
+              --label "org.opencontainers.image.version=$VERSION" \
+              --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+              -t "$REPOSITORY:$VERSION" .
+            digest="$(docker buildx imagetools inspect "$REPOSITORY:$VERSION" --format '{{json .Manifest.Digest}}' | tr -d '"')"
+          else
+            echo "Reusing existing immutable image $REPOSITORY:$VERSION@$digest."
+          fi
           if [[ ! "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
             echo "::error::The registry did not return a valid image digest."
-            exit 1
-          fi
-          latest_digest="$(docker buildx imagetools inspect "$REPOSITORY:latest" --format '{{json .Manifest.Digest}}' | tr -d '"')"
-          if [[ "$latest_digest" != "$digest" ]]; then
-            echo "::error::The latest alias does not identify the versioned image digest."
             exit 1
           fi
           {
