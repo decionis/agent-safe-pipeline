@@ -2,7 +2,7 @@
   "name": "@decionis/commercegate-claude-extension",
   "version": "0.1.6",
   "private": true,
-  "description": "MIT-licensed Claude Desktop extension wrapper for the Apache-2.0 CommerceGate MCP runtime.",
+  "description": "MIT-licensed Claude Desktop extension wrapper for the Apache-2.0 Commerce Gate MCP runtime.",
   "author": "Decionis, Inc.",
   "license": "MIT",
   "type": "module",

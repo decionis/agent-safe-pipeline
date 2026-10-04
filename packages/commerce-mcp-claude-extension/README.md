@@ -4,9 +4,9 @@ Seven commerce actions default to non-blocking Shadow Mode, with Walmart mapping
 
 This workspace package is the dedicated MIT-licensed Claude Desktop extension wrapper for
 [`@decionis/commerce@0.1.6`](https://github.com/decionis/agent-safe-pipeline/tree/master/packages/commerce-mcp),
-the Apache-2.0 CommerceGate MCP runtime. The licenses do not blend: the small loader, extension
+the Apache-2.0 Commerce Gate MCP runtime. The licenses do not blend: the small loader, extension
 manifest, packaging checks, and extension documentation are MIT; the separately bundled
-CommerceGate runtime remains Apache-2.0 and ships with its own package metadata, license, and
+Commerce Gate runtime remains Apache-2.0 and ships with its own package metadata, license, and
 notice.
 
 ## Directory description
@@ -86,7 +86,7 @@ and runs initialize, tool-list, and capability JSON-RPC requests against the unp
 
 ## Privacy Policy
 
-CommerceGate runs on your machine and talks to one service: the Decionis API at
+Commerce Gate runs on your machine and talks to one service: the Decionis API at
 `https://api.decionis.com` (or the origin configured in `DECIONIS_API_BASE`). It has no telemetry,
 analytics, crash reporting, or other network destination. The full Decionis privacy policy is at
 <https://decionis.com/privacy>; this section describes this extension specifically.
@@ -118,4 +118,4 @@ deletion, or privacy questions, email <commerce@decionis.com>. Security reports 
 - Support: <https://decionis.com/contact>
 - Extension source: <https://github.com/decionis/agent-safe-pipeline/tree/master/packages/commerce-mcp-claude-extension>
 - Extension wrapper: [MIT](./LICENSE)
-- Bundled CommerceGate runtime: `@decionis/commerce@0.1.6`, [Apache-2.0 source](https://github.com/decionis/agent-safe-pipeline/tree/master/packages/commerce-mcp), retained in the MCPB with its package metadata at `vendor/commerce-mcp/package.json`, license at `vendor/commerce-mcp/LICENSE`, and attribution notice at `vendor/commerce-mcp/NOTICE`
+- Bundled Commerce Gate runtime: `@decionis/commerce@0.1.6`, [Apache-2.0 source](https://github.com/decionis/agent-safe-pipeline/tree/master/packages/commerce-mcp), retained in the MCPB with its package metadata at `vendor/commerce-mcp/package.json`, license at `vendor/commerce-mcp/LICENSE`, and attribution notice at `vendor/commerce-mcp/NOTICE`

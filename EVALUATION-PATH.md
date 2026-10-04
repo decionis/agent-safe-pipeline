@@ -18,7 +18,7 @@ The reference implementation is one artefact in three forms:
   [`10.5281/zenodo.22312955`](https://doi.org/10.5281/zenodo.22312955).
 
 The repository also holds `@decionis/agentsafe` in `packages/agentsafe`, the trusted executor as one
-deployable process on its own version, `@decionis/commerce`, a local MCP server over the CommerceGate
+deployable process on its own version, `@decionis/commerce`, a local MCP server over the Commerce Gate
 contract, and a synthetic Decision Dossier corpus under `dossiers/`. It holds no hosted service: "This
 repository is a library and runnable reference implementation, not a hosted authorization
 service."

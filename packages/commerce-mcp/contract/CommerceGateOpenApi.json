@@ -1,9 +1,9 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Decionis CommerceGate API",
+    "title": "Decionis Commerce Gate API",
     "version": "1.4.0-candidate",
-    "description": "Canonical CommerceGate contract for the synchronous ERP guard and the tenant-bound Decionis Protocol operations used by the local CommerceGate MCP adapter, plus the licensed AWS historical assessment and synthetic trial features on the Commerce API."
+    "description": "Canonical Commerce Gate contract for the synchronous ERP guard and the tenant-bound Decionis Protocol operations used by the local Commerce Gate MCP adapter, plus the licensed AWS historical assessment and synthetic trial features on the Commerce API."
   },
   "servers": [
     {
@@ -14,7 +14,7 @@
     "/v1/guard/validate": {
       "post": {
         "operationId": "validateErpTransaction",
-        "summary": "Validate one bounded ERP transaction through CommerceGate",
+        "summary": "Validate one bounded ERP transaction through Commerce Gate",
         "description": "Performs enforced binary policy validation and atomic agent-budget authorization for a complete Dynamics 365 transaction. It returns ALLOW or BLOCK but never writes, posts, releases, or modifies the ERP transaction.",
         "x-commercegate-mcp": true,
         "x-commercegate-tools": ["commercegate_validate_erp_transaction"],
@@ -2802,7 +2802,7 @@
           },
           "channel": {
             "type": "string",
-            "description": "Who is asking. The CommerceGate MCP sends mcp; a repricer, ERP job, workflow or direct API integration names itself so the dossier records the actor.",
+            "description": "Who is asking. The Commerce Gate MCP sends mcp; a repricer, ERP job, workflow or direct API integration names itself so the dossier records the actor.",
             "enum": ["mcp", "repricer", "erp", "workflow", "api"]
           },
           "source": {
@@ -4071,6 +4071,6 @@
   },
   "x-decionis-source": {
     "path": "connectors/erp-guard/openapi/CommerceGateErp.v1.yaml",
-    "sha256": "1acfc9b715ccc06085239bd94f8efa9b0101ad9da91d3fcd1e2ecd72bf1d4e89"
+    "sha256": "1c1b3aae407e6854e3a8083d431308071ffbe90886c8f33de8fdcccded87f0dc"
   }
 }

@@ -328,7 +328,7 @@ const orderAcceptanceActionSchema = {
 const priceChangeActionSchema = {
   title: "Price change preflight",
   description:
-    "Evaluate a proposed SKU price, with optional landed cost for a native CommerceGate margin-floor calculation.",
+    "Evaluate a proposed SKU price, with optional landed cost for a native Commerce Gate margin-floor calculation.",
   type: "object",
   required: ["action_type", "actor", "platform", "idempotency_key", "payload"],
   properties: {
@@ -910,7 +910,7 @@ function boundedNumber(
   ) {
     throw new CommerceGateError(
       "INVALID_INPUT",
-      `${label} is outside the supported CommerceGate ERP guard range.`,
+      `${label} is outside the supported Commerce Gate ERP guard range.`,
     );
   }
   return result;
@@ -1732,7 +1732,7 @@ function shadowReportListView(response: unknown): Record<string, unknown> {
   if (!isRecord(response) || !Array.isArray(response.recent_evaluations)) {
     throw new CommerceGateError(
       "INVALID_UPSTREAM_RESPONSE",
-      "The Decionis API returned an invalid Shadow Report document. CommerceGate failed closed.",
+      "The Decionis API returned an invalid Shadow Report document. Commerce Gate failed closed.",
     );
   }
   return {
@@ -1752,7 +1752,7 @@ function shadowReportSummaryView(response: unknown): Record<string, unknown> {
   if (!isRecord(response) || !isRecord(response.summary)) {
     throw new CommerceGateError(
       "INVALID_UPSTREAM_RESPONSE",
-      "The Decionis API returned an invalid Shadow Report summary. CommerceGate failed closed.",
+      "The Decionis API returned an invalid Shadow Report summary. Commerce Gate failed closed.",
     );
   }
   return {
@@ -1766,7 +1766,7 @@ function shadowReportSummaryView(response: unknown): Record<string, unknown> {
   };
 }
 
-/** Build the operations-facing CommerceGate MCP tool catalog. */
+/** Build the operations-facing Commerce Gate MCP tool catalog. */
 export class CommerceGateTools {
   constructor(
     private readonly configuration: CommerceGateConfiguration,
@@ -1777,7 +1777,7 @@ export class CommerceGateTools {
     return [
       {
         name: COMMERCEGATE_TOOL_NAMES[0],
-        title: "Describe CommerceGate Capabilities",
+        title: "Describe Commerce Gate Capabilities",
         description:
           "Use this first, or when someone asks 'can you check prices, Walmart orders, refunds, or a marketplace offer against our policy?'. It lists the seven commerce-action preflights, the Walmart connection and order-path mappings, the separate Dynamics 365 guard, and the Microsoft Partner Center and AWS Marketplace SaaS offer-submission preflight. It also explains PROCEED, HOLD, and BLOCK, tenant connection state, and available evidence tools. This local diagnostic never calls the Decionis API, reveals credentials, or claims that a platform connector can execute an action.",
         inputSchema: { type: "object", properties: {}, additionalProperties: false },
@@ -1850,7 +1850,7 @@ export class CommerceGateTools {
         name: COMMERCEGATE_TOOL_NAMES[1],
         title: "Validate an ERP Transaction",
         description:
-          "Use this for a fully formed Dynamics 365 Business Central or Finance and Supply Chain Management transaction that needs central enforced authorization. CommerceGate evaluates line economics first and, only after policy clears, atomically authorizes the agent budget before returning the binary ALLOW or BLOCK decision used by the ERP enforcement shell. The tool can reserve budget and returns a reason-coded validation response; unlike the Shadow evaluator, it does not promise a retrievable dossier. It never writes, posts, releases, or modifies the ERP transaction itself. ALLOW is authorization evidence for the exact transaction, not user consent to perform the ERP write.",
+          "Use this for a fully formed Dynamics 365 Business Central or Finance and Supply Chain Management transaction that needs central enforced authorization. Commerce Gate evaluates line economics first and, only after policy clears, atomically authorizes the agent budget before returning the binary ALLOW or BLOCK decision used by the ERP enforcement shell. The tool can reserve budget and returns a reason-coded validation response; unlike the Shadow evaluator, it does not promise a retrievable dossier. It never writes, posts, releases, or modifies the ERP transaction itself. ALLOW is authorization evidence for the exact transaction, not user consent to perform the ERP write.",
         inputSchema: erpGuardSchema,
         annotations: annotations(false, true),
         handler: async (args) =>
@@ -1904,7 +1904,7 @@ export class CommerceGateTools {
       },
       {
         name: COMMERCEGATE_TOOL_NAMES[3],
-        title: "Get a CommerceGate Decision Dossier",
+        title: "Get a Commerce Gate Decision Dossier",
         description:
           "Use this to answer 'why was that order held?' or 'what policy version decided that price change?' by reading the signed Decision Dossier for a known dossier UUID within the environment-bound organization. This is a tenant read; it never executes or modifies a commerce action and it fails closed when credentials are absent or invalid.",
         inputSchema: dossierSchema,
@@ -1918,7 +1918,7 @@ export class CommerceGateTools {
       },
       {
         name: COMMERCEGATE_TOOL_NAMES[4],
-        title: "Get a CommerceGate Proof Packet",
+        title: "Get a Commerce Gate Proof Packet",
         description:
           "Use this when finance or an auditor asks for signed evidence by fetching the proof packet for a known dossier UUID in the environment-bound organization. The tool is read-only, performs no marketplace action, and never treats successful verification as permission to execute.",
         inputSchema: dossierSchema,
@@ -1932,7 +1932,7 @@ export class CommerceGateTools {
       },
       {
         name: COMMERCEGATE_TOOL_NAMES[5],
-        title: "List CommerceGate Shadow Reports",
+        title: "List Commerce Gate Shadow Reports",
         description:
           "Use this to answer 'what would Shadow Mode have held recently?' by listing recent SHADOW evaluations in the environment-bound organization across price, inventory, order, fulfillment, promotion, refund, and return proposals. Results describe what policy would have done; they do not report marketplace execution and must not be interpreted as authority to mutate commerce state.",
         inputSchema: reportSchema,
@@ -1950,7 +1950,7 @@ export class CommerceGateTools {
       },
       {
         name: COMMERCEGATE_TOOL_NAMES[6],
-        title: "Summarize CommerceGate Shadow Reports",
+        title: "Summarize Commerce Gate Shadow Reports",
         description:
           "Use this for 'how much would we have caught this month?' style questions: aggregate SHADOW outcomes, near misses, and policy mismatches for the environment-bound organization, so an operator can judge whether to turn enforcement on. It is a read-only operational summary; it neither changes enforcement mode nor executes any commerce action.",
         inputSchema: reportSchema,

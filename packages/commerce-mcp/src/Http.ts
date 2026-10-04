@@ -179,7 +179,7 @@ export class CommerceGateHttpServer {
         error(
           null,
           MCP_SERVER_BUSY_CODE,
-          "CommerceGate is busy. The request was not processed; retry later.",
+          "Commerce Gate is busy. The request was not processed; retry later.",
         ),
         { ...echo, "retry-after": "1", connection: "close" },
       );

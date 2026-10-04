@@ -153,7 +153,7 @@ if (
   `workspace:${commercePackageManifest.version}`
 ) {
   throw new Error(
-    "Claude extension must pin the Apache CommerceGate runtime as a build dependency",
+    "Claude extension must pin the Apache Commerce Gate runtime as a build dependency",
   );
 }
 for (const requiredAttribution of [

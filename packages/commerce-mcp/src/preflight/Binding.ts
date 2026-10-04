@@ -24,7 +24,7 @@ const OUTCOME_RANK: Readonly<Record<string, number>> = {
 function invalidResponse(): CommerceGateError {
   return new CommerceGateError(
     "INVALID_UPSTREAM_RESPONSE",
-    "The Decionis API did not return a complete, consistent, request-bound commerce-preflight-v1 result. CommerceGate failed closed; no legacy evaluation was substituted.",
+    "The Decionis API did not return a complete, consistent, request-bound commerce-preflight-v1 result. Commerce Gate failed closed; no legacy evaluation was substituted.",
   );
 }
 

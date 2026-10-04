@@ -54,7 +54,7 @@ describe("CommerceGateConfiguration", () => {
       configuration_issues: ["DECIONIS_ORG_ID must be a UUID."],
     });
     expect(() => configuration.requireTenantConnection()).toThrow(
-      "CommerceGate Protocol tenant configuration is invalid",
+      "Commerce Gate Protocol tenant configuration is invalid",
     );
   });
 
@@ -74,7 +74,7 @@ describe("CommerceGateConfiguration", () => {
       apiKey: "secret-key",
     });
     expect(() => configuration.requireTenantConnection()).toThrow(
-      "CommerceGate Protocol tenant configuration is invalid",
+      "Commerce Gate Protocol tenant configuration is invalid",
     );
   });
 

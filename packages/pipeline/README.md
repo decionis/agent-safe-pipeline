@@ -489,7 +489,7 @@ Runnable, offline, and fixture-backed unless noted. Each one uses this package u
 This package and the repository's architecture, intent contract, execution boundary, client
 adapters, audit contract, shadow mode, conformance vectors, and examples are Apache-2.0. The sole
 license exception is the dedicated MIT-licensed Claude Desktop wrapper in
-`packages/commerce-mcp-claude-extension`; the CommerceGate runtime it bundles remains Apache-2.0.
+`packages/commerce-mcp-claude-extension`; the Commerce Gate runtime it bundles remains Apache-2.0.
 Decionis operates the policy control plane behind `DecionisGate`: policy evaluation, grant issuance
 and atomic consumption, Decision Dossier signing and retention, and Presence.
 [OPEN-CORE.md](https://github.com/decionis/agent-safe-pipeline/blob/master/OPEN-CORE.md) states the
