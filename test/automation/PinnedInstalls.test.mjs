@@ -154,9 +154,9 @@ describe("the workflows", () => {
         assert.match(verify.run, /major < 11 \|\| \(major === 11 && minor < 5\)/, path);
       }
     }
-    const commerce = await read(".github/workflows/commerce-mcp-npm-publish.yml");
-    assert.match(commerce, /name: Verify npm supports trusted publishing/);
-    assert.doesNotMatch(commerce, /NPM_VERSION/);
+    const agentsafe = await read(".github/workflows/commerce-mcp-npm-publish.yml");
+    assert.match(agentsafe, /name: Verify npm supports trusted publishing/);
+    assert.doesNotMatch(agentsafe, /NPM_VERSION/);
   });
 
   it("restore the .NET verifier in locked mode against committed lock files", async () => {

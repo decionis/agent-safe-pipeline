@@ -46,8 +46,6 @@ COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 # anything, so the frozen install needs each importer the lockfile names.
 COPY packages/agentsafe/package.json ./packages/agentsafe/
 COPY packages/pipeline/package.json ./packages/pipeline/
-COPY packages/commerce-mcp/package.json ./packages/commerce-mcp/
-COPY packages/commerce-mcp-claude-extension/package.json ./packages/commerce-mcp-claude-extension/
 COPY examples/basic-agent/package.json ./examples/basic-agent/
 COPY examples/crm-outreach-demo/package.json ./examples/crm-outreach-demo/
 COPY examples/github-deploy-agent/package.json ./examples/github-deploy-agent/

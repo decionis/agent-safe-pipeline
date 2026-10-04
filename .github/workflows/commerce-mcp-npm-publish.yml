@@ -1,4 +1,5 @@
-name: Publish CommerceGate MCP to npm
+# Keep this workflow path stable for the existing AgentSafe trusted publisher.
+name: Publish AgentSafe to npm
 
 on:
   workflow_dispatch:
@@ -6,10 +7,9 @@ on:
       npm_package:
         description: npm package to verify or publish
         required: true
-        default: commerce-mcp
+        default: agentsafe
         type: choice
         options:
-          - commerce-mcp
           - agentsafe
       mode:
         description: Verify only or publish to npm
@@ -70,10 +70,6 @@ jobs:
           set -euo pipefail
 
           case "${SELECTED_PACKAGE}" in
-            commerce-mcp)
-              package_directory="packages/commerce-mcp"
-              gate_action="npm-publish-decionis-commerce-mcp"
-              ;;
             agentsafe)
               package_directory="packages/agentsafe"
               gate_action="npm-publish-decionis-agentsafe"
@@ -123,7 +119,7 @@ jobs:
 
       # Publishes through npm trusted publishing over GitHub OIDC. This repository
       # is public, so npm provenance is available once the trusted publisher for
-      # @decionis/commerce points at this repository and workflow. NODE_AUTH_TOKEN
+      # @decionis/agentsafe points at this repository and workflow. NODE_AUTH_TOKEN
       # stays as the fallback until that is configured. The Decionis gate runs
       # before the mutation, as in every other Decionis release workflow.
       - name: Decionis Action Gate (shadow)

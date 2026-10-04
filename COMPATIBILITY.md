@@ -22,10 +22,10 @@ only, for the tenants Decionis onboards; there is no self-serve sign-up yet
 
 ## Other packages in this repository
 
-| Package                               | Needs                    | Details                                                         |
-| ------------------------------------- | ------------------------ | --------------------------------------------------------------- |
-| `@decionis/agent-safe-pipeline` 0.3.5 | Node.js 22.14.0 or later | [`packages/pipeline`](./packages/pipeline/package.json)         |
-| `@decionis/commerce` 0.1.6            | Node.js 20 or later      | [`packages/commerce-mcp`](./packages/commerce-mcp/package.json) |
+| Package                               | Needs                    | Details                                                                                    |
+| ------------------------------------- | ------------------------ | ------------------------------------------------------------------------------------------ |
+| `@decionis/agent-safe-pipeline` 0.3.5 | Node.js 22.14.0 or later | [`packages/pipeline`](./packages/pipeline/package.json)                                    |
+| Released `@decionis/commerce` 0.1.6   | Node.js 20 or later      | [Released-source index](./packages/mcp/README.md); ongoing development belongs to Commerce |
 
 ## Govern 2.1.0
 

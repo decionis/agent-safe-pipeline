@@ -66,8 +66,9 @@ Closed:
 
 - [GHSA-86w9-cpqp-85rv](https://github.com/advisories/GHSA-86w9-cpqp-85rv) (`node-forge`, approved
   2026-10-02) reached the workspace only through the development dependency `@anthropic-ai/mcpb`. The
-  Claude Desktop extension is now packed and validated by
-  `packages/commerce-mcp-claude-extension/scripts/McpbArchive.mjs`, and the dependency is gone.
+  Claude Desktop extension was migrated to its own `McpbArchive.mjs` packer, removing that
+  dependency. Commerce now owns the extension; its [released-source index](./packages/mcp/extension/claude/README.md)
+  preserves the historical implementation and licenses.
 - [GHSA-vfj7-8cjw-p6xm](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm) (`braces`) reached the
   workspace only through the development dependency `markdownlint-cli2`. Markdown is now linted by
   `scripts/LintMarkdown.mjs` with the `markdownlint` library (#300), and the dependency is gone.
