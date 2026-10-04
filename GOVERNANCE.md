@@ -3,8 +3,9 @@
 Agent-Safe Pipeline is maintained as the public reference implementation for an execution boundary
 where agents may propose actions but cannot authorize their own execution. Governance decisions
 must preserve that boundary, the package-specific license boundaries, and truthful public evidence.
-The pipeline and Commerce Gate runtime remain Apache-2.0; the dedicated Claude Desktop wrapper
-remains MIT-licensed and preserves the runtime's Apache attribution.
+The active AgentSafe workspace remains Apache-2.0. Commerce owns ongoing MCP development; the
+released Commerce Gate runtime and Claude Desktop wrapper retain their Apache-2.0 and MIT
+licenses respectively, with public source indexes and attribution history preserved here.
 
 ## Roles and current maintainers
 

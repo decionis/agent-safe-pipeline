@@ -9,10 +9,12 @@ Before you change a price, publish a stock quantity, accept an order, ship, chan
 
 ## Setup
 
-Add the MCP server (local STDIO):
+Commerce owns ongoing development of this client. AgentSafe retains its [released-source index](../../packages/commerce-mcp/README.md).
+
+Add the published MCP server (local STDIO):
 
     command: npx
-    args: ["-y", "@decionis/commerce@0.1.3"]
+    args: ["-y", "@decionis/commerce@0.1.6"]
     env: DECIONIS_API_KEY (secret), DECIONIS_ORG_ID, DECIONIS_API_BASE (optional)
 
 Run `commercegate_describe_capabilities` first; it works without credentials.

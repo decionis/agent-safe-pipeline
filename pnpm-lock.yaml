@@ -16,7 +16,6 @@ overrides:
     4.3.2
     4.3.2
   tmp: 0.2.7
-  tsup@8.5.1>esbuild: 0.27.2
   smol-toml: 1.7.1
 
 importers:
@@ -250,55 +249,6 @@ importers:
       vitest:
         specifier: ^4.1.11
         version: 4.1.11(@types/node@26.6.4)(@vitest/coverage-v8@4.1.11)(vite@6.4.3(@types/node@26.6.4)(tsx@4.23.15)(yaml@2.9.0))
-
-  packages/commerce-mcp:
-    dependencies:
-      '@aws-sdk/client-secrets-manager':
-        specifier: 3.1136.0
-        version: 3.1136.0
-      '@aws-sdk/credential-provider-node':
-        specifier: 3.972.83
-        version: 3.972.83
-      '@smithy/core':
-        specifier: 3.34.1
-        version: 3.34.1
-      '@smithy/signature-v4':
-        specifier: 5.7.3
-        version: 5.7.3
-      '@smithy/types':
-        specifier: 4.18.0
-        version: 4.18.0
-    devDependencies:
-      '@types/node':
-        specifier: ^20.11.30
-        version: 20.19.43
-      tsup:
-        specifier: ^8.5.1
-        version: 8.5.1(postcss@8.5.28)(tsx@4.23.15)(typescript@5.9.3)(yaml@2.9.0)
-      tsx:
-        specifier: ^4.23.15
-        version: 4.23.15
-      typescript:
-        specifier: ^5.6.3
-        version: 5.9.3
-      vitest:
-        specifier: ^4.1.11
-        version: 4.1.11(@types/node@20.19.43)(@vitest/coverage-v8@4.1.11)(vite@6.4.3(@types/node@20.19.43)(tsx@4.23.15)(yaml@2.9.0))
-
-  packages/commerce-mcp-claude-extension:
-    devDependencies:
-      '@decionis/commerce':
-        specifier: workspace:0.1.6
-        version: link:../commerce-mcp
-      '@types/node':
-        specifier: ^20.11.30
-        version: 20.19.43
-      tsup:
-        specifier: ^8.5.1
-        version: 8.5.1(postcss@8.5.28)(tsx@4.23.15)(typescript@5.9.3)(yaml@2.9.0)
-      typescript:
-        specifier: ^5.6.3
-        version: 5.9.3
 
   packages/pipeline:
     dependencies:

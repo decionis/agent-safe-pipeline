@@ -19,11 +19,11 @@ Security-boundary changes must include negative tests and document their fail-op
 
 Do not add secrets, production policy data, customer fixtures, generated dependency directories, or claims that an endpoint/package is live without verifying it. Use synthetic identifiers and values in examples.
 
-Contributions are licensed under Apache-2.0, except contributions within
-`packages/commerce-mcp-claude-extension`, which are licensed under that subtree's MIT License. By
-submitting a contribution, you represent that you have the right to license it on the applicable
-terms. The bundled `@decionis/commerce` runtime remains Apache-2.0 even when distributed inside the
-MIT extension wrapper.
+Contributions to the active AgentSafe workspace are licensed under Apache-2.0. By submitting a
+contribution, you represent that you have the right to license it on those terms. The released
+Commerce Gate runtime retains its Apache-2.0 license and its historical Claude Desktop wrapper
+retains its MIT license; their [public source indexes](./packages/commerce-mcp/README.md) preserve
+that history. Ongoing Commerce MCP contributions belong to Commerce.
 
 ## DCO sign-off and review
 

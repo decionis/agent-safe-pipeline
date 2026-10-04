@@ -13,6 +13,18 @@ if (!full.startsWith(`${short}\n`)) throw new Error("llms-full.txt must embed ll
 const packageDirectories = (await readdir(new URL("packages/", root), { withFileTypes: true }))
   .filter((entry) => entry.isDirectory())
   .map((entry) => `packages/${entry.name}`);
+// These public listing paths retain released-source indexes, not workspace packages.
+for (const directory of ["packages/commerce-mcp", "packages/commerce-mcp-claude-extension"]) {
+  const entries = await readdir(new URL(`${directory}/`, root));
+  if (
+    !packageDirectories.includes(directory) ||
+    entries.length !== 1 ||
+    entries[0] !== "README.md"
+  ) {
+    throw new Error(`${directory} must contain only its released-source README index`);
+  }
+  packageDirectories.splice(packageDirectories.indexOf(directory), 1);
+}
 const workspacePackages = new Set();
 for (const directory of packageDirectories) {
   const manifest = JSON.parse(await read(`${directory}/package.json`));

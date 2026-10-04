@@ -10,7 +10,7 @@ import {
 const facts = {
   fileExists: (path) => ["OPEN-CORE.md", "docs/shadow-mode.md"].includes(path),
   rootScripts: { verify: "…", "dossiers:check": "…" },
-  workspacePackages: new Set(["@decionis/agent-safe-pipeline", "@decionis/commerce"]),
+  workspacePackages: new Set(["@decionis/agent-safe-pipeline", "@decionis/agentsafe"]),
   declaredDependencies: new Set(["@decionis/verify"]),
 };
 
@@ -25,7 +25,7 @@ describe("EvaluationPathChecks", () => {
 
   it("accepts a consistent document", () => {
     const document =
-      "[open core](./OPEN-CORE.md), `pnpm verify`, `@decionis/commerce`, `@decionis/verify`, DOI [`10.5281/zenodo.1`](https://doi.org/10.5281/zenodo.1).";
+      "[open core](./OPEN-CORE.md), `pnpm verify`, `@decionis/agentsafe`, `@decionis/verify`, DOI [`10.5281/zenodo.1`](https://doi.org/10.5281/zenodo.1).";
     assert.deepEqual(evaluationPathProblems({ document, ...facts }), []);
   });
 

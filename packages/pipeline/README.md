@@ -487,9 +487,10 @@ Runnable, offline, and fixture-backed unless noted. Each one uses this package u
 ## Open core
 
 This package and the repository's architecture, intent contract, execution boundary, client
-adapters, audit contract, shadow mode, conformance vectors, and examples are Apache-2.0. The sole
-license exception is the dedicated MIT-licensed Claude Desktop wrapper in
-`packages/commerce-mcp-claude-extension`; the Commerce Gate runtime it bundles remains Apache-2.0.
+adapters, audit contract, shadow mode, conformance vectors, and examples are Apache-2.0. Commerce
+owns ongoing development of the Commerce Gate MCP and Claude Desktop wrapper. Their
+[released-source indexes](https://github.com/decionis/agent-safe-pipeline/tree/master/packages/commerce-mcp)
+preserve the runtime's Apache-2.0 license and the historical wrapper's MIT license.
 Decionis operates the policy control plane behind `DecionisGate`: policy evaluation, grant issuance
 and atomic consumption, Decision Dossier signing and retention, and Presence.
 [OPEN-CORE.md](https://github.com/decionis/agent-safe-pipeline/blob/master/OPEN-CORE.md) states the
@@ -502,7 +503,7 @@ Decionis platform operates it as a hosted authority.
 
 The banking profile of the protocol, whose reference runtime builds on this package, is published at
 [banking.decionis.com](https://banking.decionis.com) (BEAP v1.0, published 2026-09-15; the profile
-Decionis publishes and implements, not a standard approved by any body). The Commerce Gate this repository's MCP server fronts is at
+Decionis publishes and implements, not a standard approved by any body). The separately maintained Commerce Gate product is at
 [commerce.decionis.com](https://commerce.decionis.com).
 The proof-of-human infrastructure this package's `PresenceApprovalCoordinator` coordinates with is
 described at [decionis.com/proof-of-human-infrastructure](https://decionis.com/proof-of-human-infrastructure)

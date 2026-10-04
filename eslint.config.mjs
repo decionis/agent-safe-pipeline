@@ -72,15 +72,4 @@ export default [
       ],
     },
   },
-  {
-    // The CommerceGate MCP came in from decionis/Commerce with underscore-prefixed
-    // unused parameters in its test doubles; keep that convention there.
-    files: ["packages/commerce-mcp/**/*.ts"],
-    rules: {
-      "@typescript-eslint/no-unused-vars": [
-        "error",
-        { argsIgnorePattern: "^_", varsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_" },
-      ],
-    },
-  },
 ];
