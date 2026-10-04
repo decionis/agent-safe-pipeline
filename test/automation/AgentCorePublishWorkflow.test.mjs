@@ -120,7 +120,7 @@ describe("AgentCore Marketplace image publication", () => {
   it("reuses an existing immutable version tag without retagging it", async () => {
     const { result, calls, output } = await runPublish(repository, digest);
     assert.equal(result.status, 0, result.stderr);
-    assert.match(calls, new RegExp(`imagetools inspect ${repository}:0\\.1\\.4`));
+    assert.ok(calls.includes(`imagetools inspect ${repository}:0.1.4`));
     assert.ok(!calls.includes("buildx build"));
     assert.ok(!calls.includes(":latest"));
     assert.equal(output, `name=${repository}\ndigest=${digest}\n`);
