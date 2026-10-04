@@ -1,5 +1,7 @@
 import type { CommerceGateConfiguration } from "./Configuration.js";
 import { CommerceGateError } from "./Errors.js";
+import { CommercePreflightBinding } from "./preflight/Binding.js";
+import type { CommercePreflightInput } from "./preflight/Contracts.js";
 import { MCP_SERVER_VERSION } from "./Version.js";
 
 export const SUPPORTED_ACTION_TYPES = [
@@ -151,6 +153,7 @@ export type CommerceAction =
 export interface EvaluateActionInput {
   action: CommerceAction;
   policy_version?: string;
+  preflight?: CommercePreflightInput;
 }
 
 /**
@@ -265,7 +268,7 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 function responseTooLarge(): CommerceGateError {
   return new CommerceGateError(
     "INVALID_UPSTREAM_RESPONSE",
-    "The Decionis API response exceeded the CommerceGate safety limit.",
+    "The Decionis API response exceeded the Commerce Gate safety limit.",
   );
 }
 
@@ -346,7 +349,7 @@ const ERP_GUARD_RESPONSE_KEYS = new Set([
 function invalidUpstreamResponse(message: string): CommerceGateError {
   return new CommerceGateError(
     "INVALID_UPSTREAM_RESPONSE",
-    `${message} CommerceGate failed closed.`,
+    `${message} Commerce Gate failed closed.`,
   );
 }
 
@@ -447,7 +450,7 @@ function marginSignal(
     // Protocol commerce policies use percentage points (12 means 12%), while
     // net_margin_fraction remains at the legacy 0-1 scale for compatibility.
     // A known positive cost against zero revenue is a total loss, matching the
-    // native CommerceGate margin evaluator's fail-closed -100% convention.
+    // native Commerce Gate margin evaluator's fail-closed -100% convention.
     net_margin_percent: rawNetMarginFraction === null ? null : rounded(rawNetMarginFraction * 100),
   };
 }
@@ -594,6 +597,7 @@ function buildEvaluationRequest(input: EvaluateActionInput): Record<string, unkn
         ...facts.signals,
       },
       commerce_action: action,
+      ...(input.preflight ? { commerce_preflight: input.preflight } : {}),
     },
   };
 }
@@ -680,14 +684,14 @@ function upstreamError(status: number): CommerceGateError {
   if (status === 403) {
     return new CommerceGateError(
       "AUTHORIZATION_FAILED",
-      "The configured credential is not authorized for this CommerceGate request.",
+      "The configured credential is not authorized for this Commerce Gate request.",
       { status },
     );
   }
   if (status === 404) {
     return new CommerceGateError(
       "NOT_FOUND",
-      "The requested CommerceGate evidence was not found.",
+      "The requested Commerce Gate evidence was not found.",
       {
         status,
       },
@@ -696,7 +700,7 @@ function upstreamError(status: number): CommerceGateError {
   if (status === 409) {
     return new CommerceGateError(
       "CONFLICT",
-      "The CommerceGate request conflicted with existing state.",
+      "The Commerce Gate request conflicted with existing state.",
       {
         status,
       },
@@ -711,18 +715,18 @@ function upstreamError(status: number): CommerceGateError {
   if (status >= 500) {
     return new CommerceGateError(
       "UPSTREAM_UNAVAILABLE",
-      "The Decionis API is temporarily unavailable. CommerceGate failed closed.",
+      "The Decionis API is temporarily unavailable. Commerce Gate failed closed.",
       { status, retryable: true },
     );
   }
   return new CommerceGateError(
     "REQUEST_REJECTED",
-    "The Decionis API rejected the CommerceGate request. Review the action fields and policy configuration.",
+    "The Decionis API rejected the Commerce Gate request. Review the action fields and policy configuration.",
     { status },
   );
 }
 
-/** HTTP client for the public CommerceGate guard, Protocol, and evidence surface. */
+/** HTTP client for the public Commerce Gate guard, Protocol, and evidence surface. */
 export class CommerceGateClient implements CommerceGateApi {
   constructor(
     private readonly configuration: CommerceGateConfiguration,
@@ -792,7 +796,7 @@ export class CommerceGateClient implements CommerceGateApi {
       } catch {
         throw new CommerceGateError(
           "INVALID_UPSTREAM_RESPONSE",
-          "The Decionis API returned an invalid JSON response. CommerceGate failed closed.",
+          "The Decionis API returned an invalid JSON response. Commerce Gate failed closed.",
         );
       }
     } catch (error) {
@@ -800,13 +804,13 @@ export class CommerceGateClient implements CommerceGateApi {
       if (controller.signal.aborted) {
         throw new CommerceGateError(
           "UPSTREAM_TIMEOUT",
-          "The Decionis API timed out. CommerceGate failed closed.",
+          "The Decionis API timed out. Commerce Gate failed closed.",
           { retryable: true },
         );
       }
       throw new CommerceGateError(
         "UPSTREAM_UNREACHABLE",
-        "The Decionis API could not be reached. CommerceGate failed closed.",
+        "The Decionis API could not be reached. Commerce Gate failed closed.",
         { retryable: true },
       );
     } finally {
@@ -815,14 +819,24 @@ export class CommerceGateClient implements CommerceGateApi {
   }
 
   async evaluateAction(input: EvaluateActionInput): Promise<unknown> {
-    const request = buildEvaluationRequest(input);
+    const binding =
+      input.preflight === undefined
+        ? undefined
+        : new CommercePreflightBinding(input.action, input.preflight);
+    const requestedPolicyVersion = input.policy_version;
+    const captured = binding
+      ? { ...input, action: binding.action, preflight: binding.preflight }
+      : input;
+    const request = buildEvaluationRequest(captured);
     const response = await this.request(EVALUATE_OPERATION.path, {
       method: "POST",
       body: request,
-      idempotencyKey: input.action.idempotency_key,
+      idempotencyKey: captured.action.idempotency_key,
       allowProvision: true,
     });
-    return validateEvaluationResponse(response, input.policy_version);
+    const evaluation = validateEvaluationResponse(response, requestedPolicyVersion);
+    binding?.validateEvaluation(evaluation, requestedPolicyVersion);
+    return evaluation;
   }
 
   async evaluateMarketplaceOfferSubmission(

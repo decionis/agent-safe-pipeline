@@ -1,4 +1,4 @@
-# AgentOps: CommerceGate MCP for Amazon Bedrock AgentCore Runtime, built
+# AgentOps: Commerce Gate MCP for Amazon Bedrock AgentCore Runtime, built
 # from the repository root as the build context:
 #
 #   docker buildx build -f packages/commerce-mcp/Dockerfile --platform linux/arm64 -t agentops-core:latest .
@@ -60,7 +60,7 @@ RUN pnpm --filter @decionis/commerce build \
 FROM ${RUNTIME_BASE_IMAGE} AS runner
 LABEL org.opencontainers.image.source="https://github.com/decionis/agent-safe-pipeline" \
       org.opencontainers.image.title="AgentOps MCP Server for Amazon Bedrock AgentCore" \
-      org.opencontainers.image.description="The CommerceGate MCP server for Amazon Bedrock AgentCore Runtime: an agent asks before it acts on commerce; allow or hold, the reason, a signed record." \
+      org.opencontainers.image.description="The Commerce Gate MCP server for Amazon Bedrock AgentCore Runtime: an agent asks before it acts on commerce; allow or hold, the reason, a signed record." \
       org.opencontainers.image.licenses="Apache-2.0"
 WORKDIR /app
 ENV NODE_ENV=production

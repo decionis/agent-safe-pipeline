@@ -12,6 +12,13 @@ import type {
 import { SUPPORTED_ACTION_TYPES } from "./CommerceGateClient.js";
 import type { CommerceGateConfiguration } from "./Configuration.js";
 import { CommerceGateError, toSafeFailure } from "./Errors.js";
+import { CommercePreflightBinding } from "./preflight/Binding.js";
+import {
+  COMMERCE_PREFLIGHT_CHECKS,
+  COMMERCE_PREFLIGHT_RELEASE_STATUS,
+  COMMERCE_PREFLIGHT_VERSION,
+} from "./preflight/Contracts.js";
+import { commercePreflightInputSchema, parseCommercePreflightInput } from "./preflight/Schema.js";
 
 export interface ToolContent {
   type: "text";
@@ -321,7 +328,7 @@ const orderAcceptanceActionSchema = {
 const priceChangeActionSchema = {
   title: "Price change preflight",
   description:
-    "Evaluate a proposed SKU price, with optional landed cost for a native CommerceGate margin-floor calculation.",
+    "Evaluate a proposed SKU price, with optional landed cost for a native Commerce Gate margin-floor calculation.",
   type: "object",
   required: ["action_type", "actor", "platform", "idempotency_key", "payload"],
   properties: {
@@ -595,6 +602,7 @@ const evaluateActionSchema = {
       pattern: POLICY_VERSION_PATTERN.source,
       description: "Optional exact Decionis policy version. Omit to use the tenant default.",
     },
+    preflight: commercePreflightInputSchema,
   },
   additionalProperties: false,
 } as const;
@@ -902,7 +910,7 @@ function boundedNumber(
   ) {
     throw new CommerceGateError(
       "INVALID_INPUT",
-      `${label} is outside the supported CommerceGate ERP guard range.`,
+      `${label} is outside the supported Commerce Gate ERP guard range.`,
     );
   }
   return result;
@@ -1303,7 +1311,11 @@ function parseAction(value: unknown): CommerceAction {
 }
 
 function parseEvaluationInput(args: Record<string, unknown>): EvaluateActionInput {
-  assertAllowedKeys(args, ["action", "policy_version"], "commercegate_evaluate_action input");
+  assertAllowedKeys(
+    args,
+    ["action", "policy_version", "preflight"],
+    "commercegate_evaluate_action input",
+  );
   const policyVersion =
     args.policy_version === undefined
       ? undefined
@@ -1317,6 +1329,9 @@ function parseEvaluationInput(args: Record<string, unknown>): EvaluateActionInpu
   return {
     action: parseAction(args.action),
     ...(policyVersion ? { policy_version: policyVersion } : {}),
+    ...(args.preflight === undefined
+      ? {}
+      : { preflight: parseCommercePreflightInput(args.preflight) }),
   };
 }
 
@@ -1717,7 +1732,7 @@ function shadowReportListView(response: unknown): Record<string, unknown> {
   if (!isRecord(response) || !Array.isArray(response.recent_evaluations)) {
     throw new CommerceGateError(
       "INVALID_UPSTREAM_RESPONSE",
-      "The Decionis API returned an invalid Shadow Report document. CommerceGate failed closed.",
+      "The Decionis API returned an invalid Shadow Report document. Commerce Gate failed closed.",
     );
   }
   return {
@@ -1737,7 +1752,7 @@ function shadowReportSummaryView(response: unknown): Record<string, unknown> {
   if (!isRecord(response) || !isRecord(response.summary)) {
     throw new CommerceGateError(
       "INVALID_UPSTREAM_RESPONSE",
-      "The Decionis API returned an invalid Shadow Report summary. CommerceGate failed closed.",
+      "The Decionis API returned an invalid Shadow Report summary. Commerce Gate failed closed.",
     );
   }
   return {
@@ -1751,7 +1766,7 @@ function shadowReportSummaryView(response: unknown): Record<string, unknown> {
   };
 }
 
-/** Build the operations-facing CommerceGate MCP tool catalog. */
+/** Build the operations-facing Commerce Gate MCP tool catalog. */
 export class CommerceGateTools {
   constructor(
     private readonly configuration: CommerceGateConfiguration,
@@ -1762,7 +1777,7 @@ export class CommerceGateTools {
     return [
       {
         name: COMMERCEGATE_TOOL_NAMES[0],
-        title: "Describe CommerceGate Capabilities",
+        title: "Describe Commerce Gate Capabilities",
         description:
           "Use this first, or when someone asks 'can you check prices, Walmart orders, refunds, or a marketplace offer against our policy?'. It lists the seven commerce-action preflights, the Walmart connection and order-path mappings, the separate Dynamics 365 guard, and the Microsoft Partner Center and AWS Marketplace SaaS offer-submission preflight. It also explains PROCEED, HOLD, and BLOCK, tenant connection state, and available evidence tools. This local diagnostic never calls the Decionis API, reveals credentials, or claims that a platform connector can execute an action.",
         inputSchema: { type: "object", properties: {}, additionalProperties: false },
@@ -1794,6 +1809,17 @@ export class CommerceGateTools {
               },
               outcome_mapping: COMMERCEGATE_OUTCOME_MAP,
               action_support: COMMERCEGATE_ACTION_SUPPORT,
+              versioned_preflight: {
+                version: COMMERCE_PREFLIGHT_VERSION,
+                release_status: COMMERCE_PREFLIGHT_RELEASE_STATUS,
+                input_option: "preflight",
+                opt_in: true,
+                requires_matching_backend: true,
+                backend_support_probed: false,
+                policy_authority: "server",
+                execution_available: false,
+                checks: COMMERCE_PREFLIGHT_CHECKS,
+              },
               guarantees: {
                 marketplace_writes: false,
                 erp_writes: false,
@@ -1824,7 +1850,7 @@ export class CommerceGateTools {
         name: COMMERCEGATE_TOOL_NAMES[1],
         title: "Validate an ERP Transaction",
         description:
-          "Use this for a fully formed Dynamics 365 Business Central or Finance and Supply Chain Management transaction that needs central enforced authorization. CommerceGate evaluates line economics first and, only after policy clears, atomically authorizes the agent budget before returning the binary ALLOW or BLOCK decision used by the ERP enforcement shell. The tool can reserve budget and returns a reason-coded validation response; unlike the Shadow evaluator, it does not promise a retrievable dossier. It never writes, posts, releases, or modifies the ERP transaction itself. ALLOW is authorization evidence for the exact transaction, not user consent to perform the ERP write.",
+          "Use this for a fully formed Dynamics 365 Business Central or Finance and Supply Chain Management transaction that needs central enforced authorization. Commerce Gate evaluates line economics first and, only after policy clears, atomically authorizes the agent budget before returning the binary ALLOW or BLOCK decision used by the ERP enforcement shell. The tool can reserve budget and returns a reason-coded validation response; unlike the Shadow evaluator, it does not promise a retrievable dossier. It never writes, posts, releases, or modifies the ERP transaction itself. ALLOW is authorization evidence for the exact transaction, not user consent to perform the ERP write.",
         inputSchema: erpGuardSchema,
         annotations: annotations(false, true),
         handler: async (args) =>
@@ -1847,13 +1873,18 @@ export class CommerceGateTools {
         name: COMMERCEGATE_TOOL_NAMES[2],
         title: "Evaluate a Commerce Action",
         description:
-          "Use this as the default preflight before a price, inventory, order-acceptance, fulfillment, promotion, refund, or return proposal, for questions like 'would repricing this SKU to $89 on Walmart still clear our margin floor after the referral fee?', 'is it safe to accept this 40-unit order with the stock we have left?', or 'can the support bot refund $2,850 on this order?'. It sends the bounded tenant-scoped action and policy signals to Decionis in default SHADOW mode and may persist a signed Decision Dossier. Shadow Mode evaluates real supplied facts without blocking the native commerce flow; it is not a synthetic-data mode. A customer-activated native executor enforces a supported connector path outside this MCP. This MCP is a generic Protocol evaluation: it never calls a marketplace API, executes the proposal, or confirms that a connector exposes the required write path. The result maps to PROCEED, HOLD, or BLOCK: APPROVE is evidence, not consent to execute; REJECT means stop; REVIEW or ESCALATE means hold for a human.",
+          "Use this as the default preflight before a price, inventory, order-acceptance, fulfillment, promotion, refund, or return proposal, for questions like 'would repricing this SKU to $89 on Walmart still clear our margin floor after the referral fee?', 'is it safe to accept this 40-unit order with the stock we have left?', or 'can the support bot refund $2,850 on this order?'. It sends the bounded tenant-scoped action and policy signals to Decionis in default SHADOW mode and may persist a signed Decision Dossier. Shadow Mode evaluates real supplied facts without blocking the native commerce flow; it is not a synthetic-data mode. A customer-activated native executor enforces a supported connector path outside this MCP. This MCP is a generic Protocol evaluation: it never calls a marketplace API, executes the proposal, or confirms that a connector exposes the required write path. The source-candidate preflight option requests all eleven commerce-preflight-v1 checks from a matching backend and fails closed if the complete request-bound result is absent. The result maps to PROCEED, HOLD, or BLOCK: APPROVE is evidence, not consent to execute; REJECT means stop; REVIEW or ESCALATE means hold for a human.",
         inputSchema: evaluateActionSchema,
         annotations: annotations(false, true),
         handler: async (args) =>
           safeCall(async () => {
             const input = parseEvaluationInput(args);
+            const binding =
+              input.preflight === undefined
+                ? undefined
+                : new CommercePreflightBinding(input.action, input.preflight);
             const evaluation = await this.api.evaluateAction(input);
+            const preflight = binding?.validateEvaluation(evaluation, input.policy_version);
             return {
               ok: true,
               mode: "SHADOW",
@@ -1864,6 +1895,7 @@ export class CommerceGateTools {
               commercegate_disposition: commerceGateDisposition(evaluation),
               agent_guidance: outcomeGuidance(evaluation),
               evaluation,
+              ...(preflight ? { preflight } : {}),
               ...(this.configuration.describe().access
                 ? { access: this.configuration.describe().access }
                 : {}),
@@ -1872,7 +1904,7 @@ export class CommerceGateTools {
       },
       {
         name: COMMERCEGATE_TOOL_NAMES[3],
-        title: "Get a CommerceGate Decision Dossier",
+        title: "Get a Commerce Gate Decision Dossier",
         description:
           "Use this to answer 'why was that order held?' or 'what policy version decided that price change?' by reading the signed Decision Dossier for a known dossier UUID within the environment-bound organization. This is a tenant read; it never executes or modifies a commerce action and it fails closed when credentials are absent or invalid.",
         inputSchema: dossierSchema,
@@ -1886,7 +1918,7 @@ export class CommerceGateTools {
       },
       {
         name: COMMERCEGATE_TOOL_NAMES[4],
-        title: "Get a CommerceGate Proof Packet",
+        title: "Get a Commerce Gate Proof Packet",
         description:
           "Use this when finance or an auditor asks for signed evidence by fetching the proof packet for a known dossier UUID in the environment-bound organization. The tool is read-only, performs no marketplace action, and never treats successful verification as permission to execute.",
         inputSchema: dossierSchema,
@@ -1900,7 +1932,7 @@ export class CommerceGateTools {
       },
       {
         name: COMMERCEGATE_TOOL_NAMES[5],
-        title: "List CommerceGate Shadow Reports",
+        title: "List Commerce Gate Shadow Reports",
         description:
           "Use this to answer 'what would Shadow Mode have held recently?' by listing recent SHADOW evaluations in the environment-bound organization across price, inventory, order, fulfillment, promotion, refund, and return proposals. Results describe what policy would have done; they do not report marketplace execution and must not be interpreted as authority to mutate commerce state.",
         inputSchema: reportSchema,
@@ -1918,7 +1950,7 @@ export class CommerceGateTools {
       },
       {
         name: COMMERCEGATE_TOOL_NAMES[6],
-        title: "Summarize CommerceGate Shadow Reports",
+        title: "Summarize Commerce Gate Shadow Reports",
         description:
           "Use this for 'how much would we have caught this month?' style questions: aggregate SHADOW outcomes, near misses, and policy mismatches for the environment-bound organization, so an operator can judge whether to turn enforcement on. It is a read-only operational summary; it neither changes enforcement mode nor executes any commerce action.",
         inputSchema: reportSchema,

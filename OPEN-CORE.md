@@ -29,7 +29,7 @@ business model from the code.
 | `DecionisGate`, `DecionisGrantVerifier`                                   | `packages/pipeline/src/decision`, `execution`                                | Client adapters for the published Decionis contract; they hold no policy logic                                             |
 | `EdgeDecisionAuthority`, `LocalAuthorizationVerifier`                     | `packages/pipeline/src/decision/edge`, `execution`                           | The open host of the separately licensed edge evaluator; it holds no policy logic                                          |
 | `PresenceApprovalCoordinator`                                             | `packages/pipeline/src/approval`                                             | The evidence-not-authority rule for human approval is part of the architecture, not the product                            |
-| CommerceGate MCP server (`@decionis/commerce`)                            | `packages/commerce-mcp`                                                      | A local STDIO client adapter over the published CommerceGate contract; it holds no policy logic and no marketplace client  |
+| Commerce Gate MCP server (`@decionis/commerce`)                           | `packages/commerce-mcp`                                                      | A local STDIO client adapter over the published Commerce Gate contract; it holds no policy logic and no marketplace client |
 | `AuditRecorder`, `AuditPolicyRevisionVerifier`, `agent-safe.audit/1`      | `packages/pipeline/src/audit`                                                | Customers own their evidence stream; the redaction and immutability rules are public                                       |
 | `ShadowPipeline`                                                          | `packages/pipeline/src/shadow`                                               | The adoption path has to be trustworthy before enforcement is; see [shadow mode](./docs/shadow-mode.md)                    |
 | Trusted executor process (`@decionis/agentsafe`), its proof, and the kit  | `packages/agentsafe`, `examples/trusted-executor`, `deploy/`                 | The boundary has to be deployable inside the customer's trust domain with its handler seam, image and manifest inspectable |
@@ -49,7 +49,7 @@ The two runtime dependencies published by Decionis, `@decionis/presence-node` an
 `packages/commerce-mcp-claude-extension` is a narrowly scoped MIT-licensed wrapper containing its
 loader, Claude Desktop manifest, icon, documentation, tests, and packaging verifier. The wrapper
 depends on the Apache-2.0 `@decionis/commerce` workspace package only at build time. Its MCPB keeps
-the built CommerceGate runtime as a separate `vendor/commerce-mcp/Index.js` artifact and includes a
+the built Commerce Gate runtime as a separate `vendor/commerce-mcp/Index.js` artifact and includes a
 byte-identical copy of the runtime's full Apache license, the repository NOTICE, and an explicit
 mixed-license notice. Nothing under `packages/commerce-mcp` is relicensed; its source and npm
 package remain Apache-2.0.
@@ -140,7 +140,7 @@ with no registry access.
 through the [governance process](./GOVERNANCE.md) as trust-boundary changes with project-lead
 approval in a public pull request:
 
-1. The pipeline and CommerceGate runtime packages stay Apache-2.0. The dedicated Claude Desktop wrapper stays MIT, and its bundle preserves the runtime's Apache license and notice. There is no source-available or delayed-open license in the plan.
+1. The pipeline and Commerce Gate runtime packages stay Apache-2.0. The dedicated Claude Desktop wrapper stays MIT, and its bundle preserves the runtime's Apache license and notice. There is no source-available or delayed-open license in the plan.
 2. The `agent-safe.intent/1` binding, its conformance vectors, and the audit event contract stay
    public and versioned.
 3. The Decionis wire contract used by the adapters stays published as OpenAPI.

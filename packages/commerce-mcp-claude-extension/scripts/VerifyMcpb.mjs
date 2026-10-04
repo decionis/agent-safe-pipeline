@@ -172,7 +172,7 @@ async function verifyMetadata() {
   assert.equal(
     extensionPackage.devDependencies?.["@decionis/commerce"],
     `workspace:${commercePackage.version}`,
-    "Extension must pin the workspace CommerceGate runtime version.",
+    "Extension must pin the workspace Commerce Gate runtime version.",
   );
   assert.equal(
     extensionPackage.version,

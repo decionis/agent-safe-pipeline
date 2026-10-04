@@ -55,9 +55,10 @@ const expectedNames = [...COMMERCEGATE_TOOL_NAMES].sort();
 const expectedNameSet = new Set<string>(expectedNames);
 
 /**
- * The vendored copy of https://commerce.decionis.com/.well-known/openapi.json.
- * Refresh with `pnpm contract:sync`; `pnpm contract:check` compares it with
- * the published contract. Tests never reach the network.
+ * The vendored contract for https://commerce.decionis.com/.well-known/openapi.json.
+ * Candidate schema additions are copied from the reviewed Commerce build before release.
+ * `pnpm contract:sync` must wait until that version is published; `pnpm contract:check`
+ * compares the vendored contract with production. Tests never reach the network.
  */
 async function readPublishedOpenApi(): Promise<CommerceOpenApi> {
   return JSON.parse(

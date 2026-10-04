@@ -222,7 +222,7 @@ describe("CommerceGateStdioServer", () => {
           id: 12,
           error: {
             code: MCP_SERVER_BUSY_CODE,
-            message: "CommerceGate is busy. The request was not processed; retry later.",
+            message: "Commerce Gate is busy. The request was not processed; retry later.",
           },
         },
       ]),

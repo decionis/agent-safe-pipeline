@@ -7,7 +7,7 @@ dedicated Claude Desktop wrapper in `packages/commerce-mcp-claude-extension`, wh
 under MIT. Neither license grants rights to use Decionis trademarks except for reasonable and
 customary use in describing the origin of the work.
 
-Decionis, Presence, AgentSafe, Agent-Safe Pipeline, CommerceGate, and their associated names and
+Decionis, Presence, AgentSafe, Agent-Safe Pipeline, Commerce Gate, and their associated names and
 logos are trademarks or service marks of Decionis, Inc. The package names `@decionis/agent-safe-pipeline`,
 `@decionis/agentsafe` and `@decionis/commerce`, the repository name `decionis/agent-safe-pipeline`,
 the container image `ghcr.io/decionis/agentsafe` and its copy `docker.io/decionis/agentsafe`, the

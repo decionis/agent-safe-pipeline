@@ -24,7 +24,7 @@ Outcomes map to the operator vocabulary used across Commerce Gate: APPROVE → P
 
 ## Install
 
-CommerceGate requires Node.js 20 or later. Start the pinned public package with:
+Commerce Gate requires Node.js 20 or later. Start the pinned public package with:
 
 ```sh
 npx -y @decionis/commerce@0.1.6
@@ -95,9 +95,55 @@ Every action includes a stable `actor`, a `platform`, and a bounded `idempotency
 | `REFUND_REQUEST`       | `order_id`, `amount`, optional `currency`, `reason_code`, `remaining_refundable`, `prior_refund_count` |
 | `RETURN_AUTHORIZATION` | `order_id`, optional `rma_id` and `amount`                                                             |
 
-Order acceptance and price change have native CommerceGate margin mappings. The other five action types are generic Protocol evaluations that carry the supplied tenant-scoped facts in default Shadow Mode; the result is only as complete as the active tenant policy and those facts. Synthetic values are reserved for explicit trial and preflight test paths, never substituted for a commerce action evaluation. A verdict says whether the action clears policy, not whether the platform's connector can carry it out.
+Order acceptance and price change have native Commerce Gate margin mappings. The other five action types are generic Protocol evaluations that carry the supplied tenant-scoped facts in default Shadow Mode; the result is only as complete as the active tenant policy and those facts. Synthetic values are reserved for explicit trial and preflight test paths, never substituted for a commerce action evaluation. A verdict says whether the action clears policy, not whether the platform's connector can carry it out.
 
 The ERP guard accepts a bounded `erp_region` and the complete canonical D365 request: `transaction_id`, `erp_type`, `tenant_id`, `timestamp`, `agent_id`, `currency`, and 1–200 line records. It sends the configured API key as `X-Decionis-API-Key` and the region as `X-ERP-Region`. An `ALLOW` response means the exact request cleared enforced policy and its idempotent agent-budget authorization; it is not user consent and the MCP still performs no ERP write. The guard returns a reason code and message but does not promise a retrievable Decision Dossier or proof packet for that call.
+
+### Eleven-check preflight contract — unreleased source candidate
+
+This checkout adds an explicit `commerce-preflight-v1` option. It requires a matching backend and an authorized tenant policy. **The published `@decionis/commerce@0.1.6` installation instructions above do not install this unreleased change.** Existing calls without `preflight` keep their current SHADOW contract; the eight tool names, ERP guard, history tools, and marketplace-offer preflight are unchanged.
+
+Supply the usual action and, optionally, an exact `policy_version`, together with:
+
+```json
+{
+  "preflight": {
+    "version": "commerce-preflight-v1",
+    "facts": {
+      "source": "merchant.erp",
+      "observed_at": "2026-10-05T08:00:00Z",
+      "currency": "USD",
+      "cost_basis": { "source_cost": 60, "system_of_record_cost": 60 },
+      "region": { "country": "SE" },
+      "contract": { "account_type": "retail" }
+    }
+  }
+}
+```
+
+The values above are synthetic documentation facts, not a production evaluation. Use the actual observation time and source for a real proposal. Amounts use the action currency; `estimated_cost` includes fees and landed costs. Facts are caller assertions: the MCP does not read or independently verify a connected platform. The `pricing` group is for promotion projections; ordinary price and order economics remain in the action payload. Other bounded groups cover inventory, discounts, promotion reuse, refundable balance, prior refunds, and lifecycle state. The schema has no fields for raw customer identities, addresses, or credentials and rejects unknown fields, caller-supplied policy thresholds, and tenant or enforcement overrides. Do not place secrets or personal details in free-text labels.
+
+The server evaluates these business checks. Applicability and policy settings remain server-owned; the client does not calculate their decisions.
+
+| ID  | Check                                                |
+| --- | ---------------------------------------------------- |
+| P01 | Net margin floor                                     |
+| P02 | Cost-basis integrity                                 |
+| P03 | Inventory availability and consistency               |
+| P04 | Regional eligibility                                 |
+| P05 | Discount stacking                                    |
+| P06 | B2B contract-price conformity                        |
+| P07 | Promotion abuse indicators                           |
+| P08 | Refundable balance                                   |
+| P09 | Unattended refund limit                              |
+| P10 | Repeat-refund policy                                 |
+| P11 | Order, fulfillment, and return lifecycle eligibility |
+
+The tool exposes the server's result as `preflight` and retains it in `evaluation.commerce_preflight`. Every response has exactly one row per check: `evaluated`, `not_applicable`, `disabled`, `missing_facts`, or `unsupported`, with a verdict where required, reason codes, missing facts, and optional measurements. Missing or unsupported required checks hold; an entirely unassessed action cannot proceed. Omitted facts are never replaced with invented values.
+
+The client verifies the version, SHADOW mode, action type, idempotency key, exact policy when requested, and SHA-256 digests of the sent action and facts using RFC8785/JCS. It rejects missing, inconsistent, or differently bound results and any overall Protocol outcome weaker than the preflight disposition. It never retries by removing `preflight`. The existing `fallback_to_legacy` flag describes continuation of the native flow in SHADOW; a complete versioned result is still required regardless of that flag.
+
+The eleven checks are distinct from the seven action families and from native connector coverage. `execution_available` remains `false`; a preflight neither reserves nor executes a platform operation. Dossier and proof-packet retrieval remain separate evidence tools, and neither a preflight result nor its digest is execution consent. Capability discovery describes this opt-in contract without claiming that the configured backend or a connector is ready.
 
 ### Marketplace SaaS offer-submission preflight
 
@@ -129,7 +175,7 @@ With existing credentials, or to create a provisional local Shadow workspace on 
 }
 ```
 
-The response contains the Protocol evaluation, the normalized CommerceGate disposition, and explicit agent guidance. It also states that no downstream action was executed. A separate Walmart connector can submit a product-line refund only for an eligible shipped or delivered line and only up to its remaining refundable product amount; this MCP call neither checks that live order state nor submits the refund.
+The response contains the Protocol evaluation, the normalized Commerce Gate disposition, and explicit agent guidance. It also states that no downstream action was executed. A separate Walmart connector can submit a product-line refund only for an eligible shipped or delivered line and only up to its remaining refundable product amount; this MCP call neither checks that live order state nor submits the refund.
 
 ## Safety contract
 
@@ -155,12 +201,12 @@ Current shipped examples:
 
 ## Outcome semantics
 
-| Protocol outcome     | CommerceGate disposition | Agent behavior                                                                                                   |
-| -------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------- |
-| `APPROVE`            | `PROCEED`                | Preflight passed; proceed only when the user separately authorized execution and the connector confirms support. |
-| `REJECT`             | `BLOCK`                  | Stop.                                                                                                            |
-| `REVIEW`, `ESCALATE` | `HOLD`                   | Hold and route to an authorized human.                                                                           |
-| Missing or unknown   | `HOLD`                   | Fail closed and ask an operator to inspect the dossier.                                                          |
+| Protocol outcome     | Commerce Gate disposition | Agent behavior                                                                                                   |
+| -------------------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `APPROVE`            | `PROCEED`                 | Preflight passed; proceed only when the user separately authorized execution and the connector confirms support. |
+| `REJECT`             | `BLOCK`                   | Stop.                                                                                                            |
+| `REVIEW`, `ESCALATE` | `HOLD`                    | Hold and route to an authorized human.                                                                           |
+| Missing or unknown   | `HOLD`                    | Fail closed and ask an operator to inspect the dossier.                                                          |
 
 The ERP guard uses a separate binary vocabulary: `ALLOW` maps to `PROCEED` for the exact validated transaction, while `BLOCK` means stop. `ALLOW` remains authorization evidence rather than user consent, and no ERP write occurs inside the MCP.
 
@@ -180,7 +226,7 @@ The API base must use HTTPS. HTTP is accepted only for loopback development.
 
 ## Run it as a remote server (Amazon Bedrock AgentCore Runtime)
 
-AgentOps is the container delivery of the same CommerceGate MCP server,
+AgentOps is the container delivery of the same Commerce Gate MCP server,
 listed as "AgentOps MCP Server for Amazon Bedrock AgentCore" on AWS Marketplace.
 It speaks streamable HTTP for buyers who run their agents in Amazon Bedrock AgentCore Runtime. Start it with
 `--http` (or `MCP_TRANSPORT=http`): it listens on `0.0.0.0:8000`, answers
@@ -296,7 +342,7 @@ pnpm --silent --filter @decionis/commerce mcp
 
 ## Privacy Policy
 
-CommerceGate MCP talks to the configured Decionis API. The AgentOps Marketplace image also contacts AWS STS to generate an identity proof; managed deployments using `AGENTOPS_ACCESS_SECRET_ARN` contact AWS Secrets Manager through the AWS SDK credential chain. It has no telemetry, analytics, or crash reporting. The full Decionis privacy policy is at <https://decionis.com/privacy>; this section describes what this server specifically does.
+Commerce Gate MCP talks to the configured Decionis API. The AgentOps Marketplace image also contacts AWS STS to generate an identity proof; managed deployments using `AGENTOPS_ACCESS_SECRET_ARN` contact AWS Secrets Manager through the AWS SDK credential chain. It has no telemetry, analytics, or crash reporting. The full Decionis privacy policy is at <https://decionis.com/privacy>; this section describes what this server specifically does.
 
 **What it collects.** The first valid unconfigured local Shadow call sends the fixed agent name "AgentOps MCP Shadow" to obtain a provisional workspace. Other application data comes from tool inputs: the commerce facts being checked (SKU, current and new price or quantity, landed cost, order amounts, discount, refund amount and reason, promotion facts, actor type and a non-secret actor identifier, platform, idempotency key), a dossier UUID for evidence reads, and a report window for Shadow reports. The additional managed HTTP history tools send only a selected synthetic source or connected-store UUID, idempotency key, or assessment UUID; they do not accept uploaded customer transactions. The service reads authorized connected-store history separately. The server reads only its configured credentials and local access files; it does not read browser data, the clipboard, or unrelated machine data.
 

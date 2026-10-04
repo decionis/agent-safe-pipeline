@@ -172,14 +172,14 @@ export class CommerceGateConfiguration {
     if (this.apiIssues.length > 0) {
       throw new CommerceGateError(
         "CONFIGURATION_INVALID",
-        "CommerceGate configuration is invalid. Run commercegate_describe_capabilities for safe diagnostics.",
+        "Commerce Gate configuration is invalid. Run commercegate_describe_capabilities for safe diagnostics.",
       );
     }
     const apiKey = this.apiKey ?? this.access?.apiKey;
     if (!apiKey) {
       throw new CommerceGateError(
         "CONFIGURATION_REQUIRED",
-        "CommerceGate is not connected. Configure DECIONIS_API_KEY; no downstream action was executed.",
+        "Commerce Gate is not connected. Configure DECIONIS_API_KEY; no downstream action was executed.",
       );
     }
     return {
@@ -194,14 +194,14 @@ export class CommerceGateConfiguration {
     if (this.tenantIssues.length > 0) {
       throw new CommerceGateError(
         "CONFIGURATION_INVALID",
-        "CommerceGate Protocol tenant configuration is invalid. Run commercegate_describe_capabilities for safe diagnostics.",
+        "Commerce Gate Protocol tenant configuration is invalid. Run commercegate_describe_capabilities for safe diagnostics.",
       );
     }
     const orgId = this.orgId ?? this.access?.orgId;
     if (!orgId) {
       throw new CommerceGateError(
         "CONFIGURATION_REQUIRED",
-        "CommerceGate Protocol tools require DECIONIS_ORG_ID; no downstream action was executed.",
+        "Commerce Gate Protocol tools require DECIONIS_ORG_ID; no downstream action was executed.",
       );
     }
     return {

@@ -48,7 +48,7 @@ export function toSafeFailure(error: unknown): SafeFailure {
       ? error
       : new CommerceGateError(
           "UNEXPECTED_FAILURE",
-          "CommerceGate failed safely. No downstream commerce action was executed.",
+          "Commerce Gate failed safely. No downstream commerce action was executed.",
         );
   return {
     ok: false,

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Refresh the vendored CommerceGate OpenAPI contract from its canonical
+ * Refresh the vendored Commerce Gate OpenAPI contract from its canonical
  * public location. The drift tests pin this package's client routes,
  * request shapes and response projections to the vendored copy, so a
  * contract change on commerce.decionis.com is picked up by re-running
@@ -32,7 +32,7 @@ if (check) {
     );
     process.exit(1);
   }
-  console.log("Vendored CommerceGate OpenAPI contract matches the published contract.");
+  console.log("Vendored Commerce Gate OpenAPI contract matches the published contract.");
 } else {
   await writeFile(target, live);
   console.log(`Wrote ${target.pathname}`);
