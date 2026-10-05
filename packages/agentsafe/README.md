@@ -24,6 +24,13 @@ intent, decided by the authority, and forwarded byte for byte only on an `ALLOW`
 claimed single-use grant. A `BLOCK` is refused, an `ESCALATE` is held, and an authority that
 cannot be reached is its own state, never a verdict.
 
+With interception enabled, only `GET`, `HEAD` and `OPTIONS` pass as safe methods. Unsupported
+methods return `405 HTTP_METHOD_UNSUPPORTED`; method-override headers and ambiguous routing paths
+are refused before forwarding. Route matching decodes literal path characters once, so encoded
+names cannot hide a governed route. `RoutePlan` includes `REFUSE` for these admission failures.
+The captured `context.request_sha256` binds the raw query, headers, transport metadata and body;
+the forwarding handler checks it again before dispatch. Raw headers are not sent to the authority.
+
 ```bash
 npm install -g @decionis/agentsafe
 agentsafe proxy --upstream http://localhost:3000 --port 8080
@@ -995,8 +1002,11 @@ intent_hash, decision_id, dossier_id, grant_id, lease_expires_at }`; anything el
    `{ decision: "NO_MATCH", code }` with `NO_GRANT`, `GRANT_ALREADY_USED`, `GRANT_EXPIRED`,
    `CARD_TOKEN_MISMATCH`, `CURRENCY_MISMATCH`, `MERCHANT_MISMATCH`, `MCC_MISMATCH`,
    `AMOUNT_EXCEEDS_GRANT`, `AUTHORIZATION_ID_REUSED`, `GRANT_CLAIM_REFUSED`, `JOURNAL_UNAVAILABLE`,
-   `EXECUTOR_HALTED` or `POSTURE_DEGRADED`. What a `NO_MATCH` means for the purchase is the issuer's
-   own policy. The same authorization asked again gets the same answer and no second claim.
+   `EXECUTOR_HALTED`, `POSTURE_DEGRADED` or `CARD_AUTHORIZATION_CAPACITY_EXCEEDED`. What a `NO_MATCH`
+   means for the purchase is the issuer's own policy. Concurrent identical requests share one
+   claim and answer. Reusing an authorization id for a different request is refused before another
+   card's grant can be claimed. At most 10,000 distinct authorization ids can be in flight per
+   process. A completed approval is cached for retry while its in-memory record is retained.
 4. The hook posts `{ status: "APPROVED" | "DECLINED", approved_amount_minor?, auth_code? }` to
    `/v1/card-authorizations/{authorization_id}/result`. An approval finalizes the grant
    `COMMITTED` with the effect compared against the grant (inside the ceiling is a match; above it

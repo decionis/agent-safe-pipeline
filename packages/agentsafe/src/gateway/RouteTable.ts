@@ -8,10 +8,13 @@ import {
 /** What the gateway decided about one request before reading its body. */
 export type RoutePlan =
   | { readonly kind: "PASSTHROUGH"; readonly reason: "SAFE_METHOD" | "UNMATCHED" | "DISABLED" }
+  | { readonly kind: "REFUSE"; readonly code: "HTTP_METHOD_UNSUPPORTED" | "HTTP_PATH_AMBIGUOUS" }
   | { readonly kind: "GOVERN"; readonly action: string; readonly route: RouteConfig | null };
 
 const SEGMENT_WILDCARD = "*";
 const TREE_WILDCARD = "**";
+const SAFE_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD", "OPTIONS"]);
+const AMBIGUOUS_PATH_CHARACTERS: ReadonlySet<string> = new Set(["\\", "%", ";", "?", "#"]);
 
 /**
  * A pattern, split once at construction. `/payments` matches itself;
@@ -27,6 +30,28 @@ interface CompiledRoute {
 
 function segmentsOf(path: string): readonly string[] {
   return path.split("/").filter((segment) => segment !== "");
+}
+
+/**
+ * Match decoded literal characters without rewriting the forwarded path.
+ * Refuse encodings that change segment boundaries or admit another decoding
+ * or path-parameter interpretation at the upstream's router.
+ */
+function routingSegments(path: string): readonly string[] | null {
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(path);
+  } catch {
+    return null;
+  }
+  if (path.split("/").length !== decoded.split("/").length) return null;
+  for (const character of decoded) {
+    const code = character.charCodeAt(0);
+    if (AMBIGUOUS_PATH_CHARACTERS.has(character) || code < 32 || code === 127) return null;
+  }
+  const segments = segmentsOf(decoded);
+  if (segments.some((segment) => segment === "." || segment === "..")) return null;
+  return segments;
 }
 
 function matches(pattern: readonly string[], path: readonly string[]): boolean {
@@ -61,11 +86,13 @@ export class RouteTable {
     private readonly unmatched: UnmatchedPolicy,
     private readonly enabled: boolean = true,
   ) {
-    this.routes = routes.map((config) => ({
-      config,
-      segments: segmentsOf(config.path),
-      methods: new Set(config.methods),
-    }));
+    this.routes = routes.map((config) => {
+      const segments = routingSegments(config.path);
+      // Pattern syntax is literal configuration. Encoded wildcards must not
+      // turn into routing operators as a side effect of decoding.
+      if (segments === null || config.path.includes("%")) throw new Error("ROUTE_PATH_AMBIGUOUS");
+      return { config, segments, methods: new Set(config.methods) };
+    });
   }
 
   /** Every action name this table can produce, for the registry to be sealed over. */
@@ -78,11 +105,17 @@ export class RouteTable {
   public plan(method: string, pathname: string): RoutePlan {
     if (!this.enabled) return { kind: "PASSTHROUGH", reason: "DISABLED" };
     const upper = method.toUpperCase();
-    if (!(CONSEQUENTIAL_METHODS as readonly string[]).includes(upper)) {
+    if (SAFE_METHODS.has(upper)) {
       return { kind: "PASSTHROUGH", reason: "SAFE_METHOD" };
     }
+    // WebDAV and extension methods can mutate state too. A method outside
+    // this execution contract cannot inherit the privilege of a safe read.
+    if (!(CONSEQUENTIAL_METHODS as readonly string[]).includes(upper)) {
+      return { kind: "REFUSE", code: "HTTP_METHOD_UNSUPPORTED" };
+    }
     const consequential = upper as ConsequentialMethod;
-    const path = segmentsOf(pathname);
+    const path = routingSegments(pathname);
+    if (path === null) return { kind: "REFUSE", code: "HTTP_PATH_AMBIGUOUS" };
     for (const route of this.routes) {
       if (route.methods.has(consequential) && matches(route.segments, path)) {
         return { kind: "GOVERN", action: route.config.action, route: route.config };

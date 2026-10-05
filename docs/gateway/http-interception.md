@@ -17,6 +17,14 @@ A request is consequential when its method is `POST`, `PUT`, `PATCH` or `DELETE`
 and `OPTIONS` are never evaluated; they pass through with their query and headers, and are counted,
 and the answer is relayed with `agentsafe-execution: PASSTHROUGH`.
 
+With HTTP interception enabled, any other method is refused with `405 HTTP_METHOD_UNSUPPORTED`;
+WebDAV writes such as `MKCOL` and `MOVE` are not safe reads. Requests carrying
+`X-HTTP-Method-Override`, `X-HTTP-Method` or `X-Method-Override` are refused with
+`400 HTTP_METHOD_OVERRIDE_REFUSED` before forwarding. The upstream must use native HTTP method
+semantics: disable application-specific method overrides, path rewrites and writes through safe
+methods, or put those operations behind an explicit executor action. Turning interception off
+explicitly still makes this an unrestricted relay.
+
 A consequential request is named by the [route table](./routes.md). One that no route names is
 governed under a derived name, `http.post`, `http.put`, `http.patch` or `http.delete`, unless the
 configuration says `interception.unmatched: passthrough`. Governing by default is the fail-safe
@@ -37,6 +45,7 @@ captures an intent in the `agent-safe.intent/1` contract:
 | `parameters.method`, `parameters.path`  | as received                                                                                                   |
 | `parameters.query`                      | the query as an object, keys sorted, a list where a key repeats                                               |
 | `parameters.body`                       | the body, when it is JSON within `interception.maxEmbeddedBodyBytes` (64 KiB); absent otherwise               |
+| `context.request_sha256`                | SHA-256 binding of the method, path, raw query, headers, transport metadata and body bytes                    |
 | `context.body_sha256`, `body_bytes`     | SHA-256 and length of the raw bytes, embedded or not                                                          |
 | `context.content_type`                  | the request's                                                                                                 |
 | `context.body_embedded`                 | whether policy can see the fields                                                                             |
@@ -45,8 +54,11 @@ captures an intent in the `agent-safe.intent/1` contract:
 | `idempotencyKey`                        | the client's `Idempotency-Key`, else a fresh one                                                              |
 | `actor`, `tenantId`, `downstreamTarget` | from the configuration: the gateway's actor, the tenant, the upstream as system, the action as operation      |
 
-Request headers are not part of the intent. An `Authorization` or `Cookie` header is the client's
-credential to the upstream and never reaches the authority or the evidence chain. With
+Raw request headers are not sent in the intent. An `Authorization` or `Cookie` header is the client's
+credential to the upstream; only the complete request digest binds its value. The raw value never
+reaches the authority or the evidence chain. Query parameters named `__proto__`, `constructor` or
+`prototype` are refused with `400 QUERY_PARAMETER_INVALID` so no field can disappear during
+normalization. With
 `interception.maxEmbeddedBodyBytes: 0` no body is embedded either: the authority sees the method,
 the path, the query and the body's digest, size and type, and policy cannot read its fields.
 
@@ -59,8 +71,9 @@ with `413` before anyone is asked.
 
 On `ALLOW`, `SafeExecutor` claims the single-use grant and calls the forwarding handler with the
 parameters the authority evaluated. Before the point of no return the handler recomputes the
-digest of the bytes it holds and compares it, with the method and the path, to what the intent
-bound; a mismatch fails before dispatch and nothing is sent. Then, exactly once:
+body digest and complete request digest, including the raw query and header values, and compares
+them with what the intent bound. A mutation fails with `PAYLOAD_BINDING_MISMATCH` before dispatch
+and nothing is sent. Then, exactly once:
 
 - the method and path from the verified parameters, the query as received;
 - the client's headers minus the hop-by-hop ones (`Connection` and what it names, `Keep-Alive`,
