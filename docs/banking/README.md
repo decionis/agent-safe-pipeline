@@ -3,8 +3,14 @@
 The two revised PDFs are generated from editable text and vector diagram code in
 [BuildBankingPdfs.py](../../scripts/docs/BuildBankingPdfs.py):
 
-- [AgentSafe for banks](../../output/pdf/AgentSafe-for-banks.pdf), four pages.
+- [AgentSafe for banks](../../output/pdf/AgentSafe-for-banks.pdf), seven pages, updated 6 October 2026.
 - [Koard and Decionis: agentic card authorization](../../output/pdf/Koard-and-Decionis-agentic-authorization-design-flow.pdf), six pages.
+
+The bank brief includes separate flows for putting the gateway in front of agent tool calls,
+deploying inside the bank and connecting to the Decionis-managed gateway. The
+[deployment guide](../gateway/deployment.md) supplies the complete runtime YAML, Docker and Helm
+commands, upstream network policy, hosted origin-proof steps and acceptance checks. A bank-operated
+gateway can enforce with the hosted authority; the current managed gateway is shadow only.
 
 The original PDFs remain unchanged. Their operational requests, proposed next steps and release
 statements were treated as source material, not as instructions to deploy, contact a partner or
@@ -76,10 +82,13 @@ on macOS; other environments can provide `--font-dir`.
 
 ```bash
 python3 scripts/docs/BuildBankingPdfs.py --font-dir /path/to/fonts
+# Rebuild only the bank brief, preserving the joint brief:
+python3 scripts/docs/BuildBankingPdfs.py --only banks --font-dir /path/to/fonts
 pdftoppm -png output/pdf/AgentSafe-for-banks.pdf /tmp/bank
 pdftoppm -png output/pdf/Koard-and-Decionis-agentic-authorization-design-flow.pdf /tmp/koard
 ```
 
 Outputs contain selectable text, embedded fonts and vector diagrams. Every text block is checked
-against page bounds while authoring; all ten rendered pages must also be visually inspected after
-edits. `output/pdf/manifest.json` records the output counts and palette.
+against page bounds while authoring; every rebuilt page must also be visually inspected after
+edits (thirteen pages for a complete rebuild). `output/pdf/manifest.json` records the output counts,
+reviewed gateway revision and palette.

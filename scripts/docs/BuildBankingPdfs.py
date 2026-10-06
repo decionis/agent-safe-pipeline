@@ -47,10 +47,11 @@ def color(value):
 class Brief:
     """Top-origin page coordinates with bounds checks on every text block."""
 
-    def __init__(self, path, title, short, pages):
+    def __init__(self, path, title, short, pages, date=DATE):
         self.path = path
         self.short = short
         self.pages = pages
+        self.date = date
         self.page = 0
         self.boxes = []
         self.c = canvas.Canvas(str(path), pagesize=A4, pageCompression=1)
@@ -112,7 +113,7 @@ class Brief:
         self.line(MARGIN, HEIGHT - 37, WIDTH - MARGIN, HEIGHT - 37)
         self.c.setFont("Decionis", 7.1)
         self.c.setFillColor(color(MUTED))
-        self.c.drawString(MARGIN, 23, "Decionis, Inc.  |  " + DATE)
+        self.c.drawString(MARGIN, 23, "Decionis, Inc.  |  " + self.date)
         self.c.drawRightString(WIDTH - MARGIN, 23, f"{self.page:02d} / {self.pages:02d}")
 
     def label(self, y, text):
@@ -202,10 +203,65 @@ class Brief:
         return {"file": self.path.name, "pages": self.page, "text_blocks": len(self.boxes)}
 
 
+def bank_gateway_deployment(d):
+    d.begin("Gateway placement", "Put agent calls through AgentSafe", "Route each tool's consequential HTTP calls through the gateway before they reach the system that performs the action.")
+    cw = (CONTENT - 36) / 3
+    for i, (title, body) in enumerate([
+        ("Agent tool client", "Uses the gateway as its API base URL. Keeps the operation's stable idempotency key."),
+        ("AgentSafe gateway", "Captures intent; asks Decionis; verifies and claims the grant before dispatch."),
+        ("Bank API", "Receives the admitted request and performs the action. Enforces its own idempotency."),
+    ]):
+        x = MARGIN + i * (cw + 18)
+        d.box(x, 230, cw, 106, title, body, BLUE if i != 1 else PURPLE)
+        if i < 2:
+            d.arrow(x + cw + 1, 281, x + cw + 17, 281)
+    d.note(355, "Make the gateway the only permitted route", "A base URL change is routing. Restrict direct API access from the agent using network or provider controls, and test that bypass fails. Protect the gateway's HTTP listener with the bank's TLS ingress or mesh.", h=81)
+    d.label(456, "The tool changes its address; the gateway keeps the upstream")
+    d.code(480, "Before: POST https://payments.bank.example/payments\nAfter:  POST https://agentsafe.bank.example/payments\nUpstream on gateway: https://payments.bank.example", 66)
+    d.text(MARGIN, 562, CONTENT, "Keep the method, relative path, query, body and upstream authentication. Configure one gateway per upstream; a base path is added only once. This is a reverse proxy, not a generic HTTP_PROXY / CONNECT endpoint. Changing the model endpoint alone does not govern separate tool calls.", 9.5)
+    d.label(644, "Choose the integration surface")
+    d.text(MARGIN, 668, CONTENT, "<b>Addressed gateway:</b> configure the tool or SDK base URL and govern POST, PUT, PATCH and DELETE. GET, HEAD and OPTIONS must remain safe at the API.<br/><br/><b>Transparent interception:</b> use the supported sidecar when URLs cannot change; governing HTTPS requires the workload to trust the interception CA. Observation alone is not enforcement.<br/><br/><b>Trusted executor:</b> use explicit action APIs for bank-owned credentials, proposer/operator separation and the Koard card flow.", 9.2)
+
+    d.begin("On-premises setup", "Deploy inside the bank", "The gateway and the decision service can be placed independently. A bank-operated gateway can enforce using the hosted Decionis authority.")
+    d.note(226, "Keep the relay in the bank; choose the policy data deliberately", "Agent to gateway to bank API stays on the bank's network. Intent, query, context and embedded JSON fields go to the configured authority. Turning body embedding off does not redact the other fields.", h=81)
+    y = 331
+    for number, title, body in [
+        ("01", "Choose the host or cluster", "Pin the approved image digest. Run the gateway in Docker on a bank host, or use the gateway Helm chart beside the protected Service. Put TLS in front of the listener."),
+        ("02", "Mount the authority credential", "Set the workspace organization and HTTPS authority endpoint. Production reads the key from a secret file, not a key value in environment variables. Keep it separate from agent credentials."),
+        ("03", "Configure the upstream and named routes", "Point the tool at the gateway; keep the bank API as upstream. Start in shadow with unmatched writes governed. Restrict both ingress and bypass, and allow the required authority egress."),
+        ("04", "Start, observe and verify", "Run agentsafe proxy --config agentsafe.yaml, or install the chart. Check health, then test actual decisions and effects. Retain per-replica evidence and plan routing for held approvals."),
+    ]:
+        d.rect(MARGIN, y, 30, 30, PALE)
+        d.text(MARGIN + 5, y + 7, 20, number, 10, PURPLE, True, center=True)
+        d.text(MARGIN + 43, y, CONTENT - 43, title, 10.3, NAVY, True)
+        h = d.text(MARGIN + 43, y + 19, CONTENT - 43, body, 9.1)
+        y += max(65, h + 31)
+    d.code(y + 9, "# Runtime YAML: agentsafe.yaml\nauthority:\n  mode: shadow\n  failurePolicy: failClosed\ninterception:\n  unmatched: govern", 100)
+    d.text(MARGIN, y + 126, CONTENT, "<b>Promote after validation.</b> Runtime YAML uses authority.mode: enforcement; Helm uses gateway.mode: enforcement. Keep fail closed. A bank-controlled decision service must be provisioned separately; the local demo is not an on-premises production authority.", 9.1)
+
+    d.begin("Managed cloud setup", "Connect to the hosted gateway", "The assigned tenant endpoint is a separate deployment option from running the gateway inside the bank and using a hosted authority.")
+    d.note(225, "Current managed gateway: shadow only", "The hosted runtime refuses enforcement mode. Admitted requests can create real effects at the API while Decionis observes policy. For enforcement, run a bank-operated gateway with the configured authority.", h=81)
+    y = 329
+    for number, title, body in [
+        ("01", "Obtain the assigned endpoint and keys", "Decionis onboards the tenant and supplies its URL, ingress key, origin-proof token, limits and report access. Confirm region and retention. There is no self-serve setup assumed here."),
+        ("02", "Check the API is compatible", "Use a public HTTPS origin with valid TLS. The relay cannot present an upstream client certificate, reach private APIs, stream responses or upgrade WebSockets."),
+        ("03", "Prove control of the origin", "Serve the issued token at /.well-known/agentsafe-upstream without authentication or redirects. Keep it published and wait for the proof check before sending business traffic."),
+        ("04", "Change the tool base URL", "Use the assigned tenant host and add AgentSafe-Tenant-Key from the application's secret store. Keep the API credential separate. The cloud gateway processes the full relayed request."),
+        ("05", "Send an approved test operation", "Check the passthrough response and shadow observation. A would-be BLOCK still reaches the API. Use the operator's report access; a tenant key does not open status or metrics."),
+    ]:
+        d.rect(MARGIN, y, 27, 27, PALE)
+        d.text(MARGIN + 4, y + 6, 19, number, 9.7, PURPLE, True, center=True)
+        d.text(MARGIN + 39, y, CONTENT - 39, title, 10, NAVY, True)
+        h = d.text(MARGIN + 39, y + 18, CONTENT - 39, body, 8.95)
+        y += max(60, h + 29)
+    d.code(y + 9, "POST https://TENANT_ID.decionisedge.com/payments\nAgentSafe-Tenant-Key: ISSUED_INGRESS_KEY\nAuthorization: Bearer UPSTREAM_API_CREDENTIAL\n\nExpected: agentsafe-mode: SHADOW\n          agentsafe-execution: PASSTHROUGH", 99)
+    d.text(MARGIN, y + 120, CONTENT, "Complete configuration, Docker and Helm commands, origin-proof details and acceptance checks: docs/gateway/deployment.md in the accompanying repository.", 8.4, MUTED)
+
+
 def bank_brief(out):
-    d = Brief(out / "AgentSafe-for-banks.pdf", "AgentSafe for banks", "Bank architecture brief", 4)
+    d = Brief(out / "AgentSafe-for-banks.pdf", "AgentSafe for banks", "Bank architecture brief", 7, date="06 October 2026")
     d.begin("Execution authority", "AgentSafe<br/>for banks", "An independent authorization check between an AI agent's proposal and the action your bank executes.", cover=True)
-    d.label(269, "Your bank operates the execution boundary")
+    d.label(269, "The bank-operated deployment")
     d.rect(MARGIN, 296, 307, 284, GREY, LINE)
     d.rect(365, 296, CONTENT - 323, 284, PALE, LINE)
     d.text(54, 308, 279, "INSIDE YOUR BANK", 8.2, NAVY, True)
@@ -232,9 +288,9 @@ def bank_brief(out):
     ]):
         d.box(MARGIN + i * (cw + gap), 653, cw, 110, title, body, shade)
 
-    d.begin("Data and control", "A deliberate data boundary", "Choose the integration surface and the fields policy needs. Data minimization is a configuration and adapter decision.")
+    d.begin("Data and control", "A deliberate data boundary", "This table describes data sent to the decision service. The managed cloud gateway also processes the full relayed request; see the deployment options on pages 4-6.")
     y = d.table(227, [126, 173, CONTENT - 299], ["DATA", "TRUSTED EXECUTOR", "HTTP GATEWAY"], [
-        ("Bank credentials", "Resolved inside the bank for registered handlers.", "Client headers can be relayed upstream; their raw values are not sent to Decionis."),
+        ("Bank credentials", "Resolved inside the bank for registered handlers.", "Client headers can be relayed upstream; their raw values are not included in the policy request."),
         ("Intent and context", "Declared action, target, parameters and signals go to the authority.", "Method, path, query and configured identity/context go to the authority."),
         ("Request body", "An adapter controls the declared parameters. Those parameters may contain business data.", "Small JSON bodies are embedded by default (up to 64 KiB). Set maxEmbeddedBodyBytes to 0 to disable embedding."),
         ("Response and result", "Built-in handlers return bounded result/effect evidence. Review custom adapters' output.", "The upstream response is relayed to the caller; it is not sent as the policy request."),
@@ -264,6 +320,8 @@ def bank_brief(out):
             d.arrow(MARGIN + i * (cw + 12) + cw + 1, start + 75, MARGIN + (i + 1) * (cw + 12) - 1, start + 75)
     d.note(start + 183, "Presence, execution authority and issuer approval are separate", "A Koard proof is evidence, not permission. AgentSafe's APPROVE means a matching grant was claimed. The issuer still makes the card-network decision. NO_MATCH requires an explicit bank policy response.", h=83)
 
+    bank_gateway_deployment(d)
+
     d.begin("Deployment and acceptance", "Start with one bank workflow", "Make the scope, data boundary, failure policy and evidence requirements reviewable before enabling enforcement.")
     y = 227
     for number, title, body in [
@@ -279,7 +337,7 @@ def bank_brief(out):
         h = d.text(MARGIN + 43, y + 20, CONTENT - 43, body, 9.4)
         y += max(68, h + 34)
     d.note(y + 6, "Current card integration limits", "One spendable hold per card per process; holds and retry lookup are in memory. A durable journal supports investigation, but a restart does not restore the card match store. Replica routing and recovery need an issuer-specific design.", h=82)
-    d.text(MARGIN, y + 101, CONTENT, "<b>Deployment options.</b> AgentSafe is Apache-2.0 source. The decision service can be hosted, dedicated single-tenant or self-managed under commercial terms. The signed-policy edge evaluator supports local decisions; human approvals retain a Decionis dependency.<br/><br/><b>Supplied hosting and assurance profile (3 October).</b> Azure Central US; default dossier retention of 365 days, configurable, with deletion on request. SOC 2 and an independent assessment were not yet completed. Confirm the current region, retention, licensing and assurance evidence during bank diligence.", 8.5, MUTED)
+    d.text(MARGIN, y + 101, CONTENT, "<b>Deployment options.</b> AgentSafe is Apache-2.0 source. A dedicated or bank-controlled decision service requires a separate commercial deployment. The trusted executor's edge evaluator can decide locally; the generic gateway still calls its configured authority, and human approvals retain a service dependency.<br/><br/><b>Supplied hosting and assurance profile (3 October).</b> Azure Central US; default dossier retention of 365 days, configurable, with deletion on request. SOC 2 and an independent assessment were not yet completed. Confirm the current region, retention, licensing and assurance evidence during bank diligence.", 8.5, MUTED)
     return d.save()
 
 
@@ -372,20 +430,31 @@ def joint_brief(out):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, default=ROOT / "output/pdf")
+    parser.add_argument("--only", choices=("all", "banks", "joint"), default="all")
     parser.add_argument("--font-dir", type=Path, default=Path.home() / ".cache/codex-runtimes/codex-primary-runtime/dependencies/native/libreoffice-headless/libreoffice/LibreOfficeDev.app/Contents/Resources/fonts/truetype")
     args = parser.parse_args()
     for name, filename in [("Decionis", "NotoSans-Regular.ttf"), ("DecionisBold", "NotoSans-Bold.ttf"), ("DecionisMono", "DejaVuSansMono.ttf")]:
         pdfmetrics.registerFont(TTFont(name, str(args.font_dir / filename)))
     pdfmetrics.registerFontFamily("Decionis", normal="Decionis", bold="DecionisBold", italic="Decionis", boldItalic="DecionisBold")
     args.output.mkdir(parents=True, exist_ok=True)
-    results = [bank_brief(args.output), joint_brief(args.output)]
+    manifest_path = args.output / "manifest.json"
+    previous = json.loads(manifest_path.read_text())["outputs"] if manifest_path.exists() else []
+    rebuilt = []
+    if args.only in ("all", "banks"):
+        rebuilt.append(bank_brief(args.output))
+    if args.only in ("all", "joint"):
+        rebuilt.append(joint_brief(args.output))
+    by_file = {entry["file"]: entry for entry in previous + rebuilt}
+    results = [by_file[name] for name in (
+        "AgentSafe-for-banks.pdf", "Koard-and-Decionis-agentic-authorization-design-flow.pdf"
+    ) if name in by_file and (args.output / name).exists()]
     manifest = {
-        "review_date": "2026-10-05", "baseline": "2e564711", "outputs": results,
+        "review_date": "2026-10-06", "baseline": "2e564711", "gateway_revision": "46967428", "outputs": results,
         "brand": {"navy": NAVY, "audit_purple": PURPLE, "trust_blue": BLUE, "logo": "docs/banking/assets/Decionis.png"},
         "renderer": "ReportLab; embedded fonts; vector flow diagrams",
     }
-    (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
-    print(json.dumps(results, indent=2))
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+    print(json.dumps(rebuilt, indent=2))
 
 
 if __name__ == "__main__":

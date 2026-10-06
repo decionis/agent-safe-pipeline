@@ -18,6 +18,10 @@ npm install @decionis/agentsafe
 
 ## The gateway
 
+For client routing, on-premises Docker/Kubernetes setup and managed-cloud onboarding, see the
+[gateway deployment guide](../../docs/gateway/deployment.md). A bank-operated gateway can enforce
+against the hosted authority; the Decionis-managed gateway currently runs in shadow only.
+
 The same runtime is also an HTTP-interception gateway: put it in front of an agent, an API or a
 service, and every `POST`, `PUT`, `PATCH` and `DELETE` that passes through it is captured as an
 intent, decided by the authority, and forwarded byte for byte only on an `ALLOW`, once, under a

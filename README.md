@@ -28,6 +28,9 @@ agentsafe proxy \
 [Linux](./docs/install/linux.md) · [Docker](./docs/install/docker.md) ·
 [Kubernetes](./docs/install/kubernetes.md) · [Hosted](./docs/install/hosted.md)
 
+[Agent integration and deployment guide](./docs/gateway/deployment.md): put the gateway in front
+of tool calls, deploy on premises, or connect to the Decionis-managed shadow gateway.
+
 > The installed forms are produced by the release workflow from `v0.2.0` on; the Homebrew formula
 > reaches master by its own pull request after each release. The same commands run from a clone,
 > as the quickstart shows.
