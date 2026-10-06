@@ -11,6 +11,11 @@ gateway. It describes the implementation reviewed on 6 October 2026, including t
 gateway hardening. Deploy an approved image containing the reviewed changes; the commands below
 do not establish that a particular release or hosted tenant has them.
 
+For Docker with TLS ingress, Kubernetes, Istio, AWS security groups and Azure NSGs, see
+[deployment strategies and network isolation](../deployment/gateway-strategies.md). That guide
+also describes how to validate direct-path denial without mistaking a DNS or TLS failure for
+successful confinement.
+
 ## Choose where the gateway and authority run
 
 | Deployment                                       | Action traffic                                        | Decision authority                                 | Available behavior                                                          |

@@ -31,6 +31,9 @@ agentsafe proxy \
 [Agent integration and deployment guide](./docs/gateway/deployment.md): put the gateway in front
 of tool calls, deploy on premises, or connect to the Decionis-managed shadow gateway.
 
+[Deployment strategies](./docs/deployment/gateway-strategies.md): Docker with TLS ingress,
+Kubernetes, Istio, AWS and Azure network isolation, and deployment acceptance checks.
+
 > The installed forms are produced by the release workflow from `v0.2.0` on; the Homebrew formula
 > reaches master by its own pull request after each release. The same commands run from a clone,
 > as the quickstart shows.
