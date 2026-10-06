@@ -1,0 +1,24 @@
+{
+  "review_date": "2026-10-06",
+  "baseline": "2e564711",
+  "gateway_revision": "46967428",
+  "outputs": [
+    {
+      "file": "AgentSafe-for-banks.pdf",
+      "pages": 7,
+      "text_blocks": 151
+    },
+    {
+      "file": "Koard-and-Decionis-agentic-authorization-design-flow.pdf",
+      "pages": 6,
+      "text_blocks": 137
+    }
+  ],
+  "brand": {
+    "navy": "#0A192F",
+    "audit_purple": "#7C3AED",
+    "trust_blue": "#1E3A8A",
+    "logo": "docs/banking/assets/Decionis.png"
+  },
+  "renderer": "ReportLab; embedded fonts; vector flow diagrams"
+}

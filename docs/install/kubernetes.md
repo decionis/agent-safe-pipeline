@@ -1,5 +1,8 @@
 # Install on Kubernetes
 
+For caller egress, upstream ingress and mesh identity rules, see
+[gateway deployment strategies](../deployment/gateway-strategies.md#kubernetes-networkpolicies).
+
 The gateway runs as a Deployment in front of one upstream Service, from the Helm chart in
 [`charts/agentsafe`](../../charts/agentsafe). It is the same image the release builds for Docker,
 and the same runtime as the executable; the chart deploys it with a Service, a ServiceAccount, a

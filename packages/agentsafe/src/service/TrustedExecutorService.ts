@@ -248,6 +248,14 @@ async function signBundle(secrets: SecretStore, payload: Uint8Array): Promise<st
 export class TrustedExecutorService {
   private readonly hasher = new CanonicalIntentHasher();
   private recovery: RecoveryReport | null = null;
+  /** Bound before any await: one authorization id may claim only one request. */
+  private readonly cardClaims = new Map<
+    string,
+    {
+      readonly digest: string;
+      readonly answer: Promise<CardAuthorizationAnswer>;
+    }
+  >();
 
   private constructor(
     private readonly config: ExecutorConfig,
@@ -1438,6 +1446,28 @@ export class TrustedExecutorService {
       }
       return this.noMatch(null, "AUTHORIZATION_ID_REUSED");
     }
+    const digest = jcsDigest(request as JsonObject);
+    const pending = this.cardClaims.get(request.authorization_id);
+    if (pending !== undefined) {
+      return pending.digest === digest
+        ? await pending.answer
+        : this.noMatch(null, "AUTHORIZATION_ID_REUSED");
+    }
+    if (this.cardClaims.size >= 10_000) {
+      return this.noMatch(null, "CARD_AUTHORIZATION_CAPACITY_EXCEEDED");
+    }
+    // Reserve the id synchronously, before journal/claim I/O can yield to a
+    // conflicting request. Identical concurrent retries share the same result.
+    const answer = Promise.resolve().then(() => this.claimCard(request));
+    this.cardClaims.set(request.authorization_id, { digest, answer });
+    try {
+      return await answer;
+    } finally {
+      this.cardClaims.delete(request.authorization_id);
+    }
+  }
+
+  private async claimCard(request: CardAuthorizationRequest): Promise<CardAuthorizationAnswer> {
     if (this.haltSwitch.current.halted) return this.noMatch(null, "EXECUTOR_HALTED");
     if (this.posture.degraded) return this.noMatch(null, "POSTURE_DEGRADED");
     const grant = this.cards.grant(request.card_token_ref);

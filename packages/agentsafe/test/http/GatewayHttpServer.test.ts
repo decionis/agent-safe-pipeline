@@ -154,6 +154,39 @@ describe("the gateway listener", () => {
     expect(streamed.status).toBe(413);
   });
 
+  it("refuses a write verb outside the supported contract before it reaches the upstream", async () => {
+    const before = upstream.seen.length;
+    const response = await fetch(`${origin}/payments`, { method: "MKCOL" });
+    expect(response.status).toBe(405);
+    expect(response.headers.get("agentsafe-execution")).toBe("NOT_FORWARDED");
+    expect(await response.json()).toEqual({ code: "HTTP_METHOD_UNSUPPORTED" });
+    expect(upstream.seen).toHaveLength(before);
+  });
+
+  it.each(["x-http-method-override", "x-http-method", "x-method-override"])(
+    "refuses %s rather than forwarding an unevaluated effective method",
+    async (header) => {
+      const before = upstream.seen.length;
+      const response = await fetch(`${origin}/payments`, { headers: { [header]: "DELETE" } });
+      expect(response.status).toBe(400);
+      expect(response.headers.get("agentsafe-execution")).toBe("NOT_FORWARDED");
+      expect(await response.json()).toEqual({ code: "HTTP_METHOD_OVERRIDE_REFUSED" });
+      expect(upstream.seen).toHaveLength(before);
+    },
+  );
+
+  it("does not silently omit a prototype-named query parameter from the evaluated intent", async () => {
+    const before = upstream.seen.length;
+    const response = await fetch(`${origin}/payments?__proto__=hidden`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: '{"amount": 20}',
+    });
+    expect(response.status).toBe(400);
+    expect(response.headers.get("agentsafe-execution")).toBe("NOT_FORWARDED");
+    expect(upstream.seen).toHaveLength(before);
+  });
+
   it("answers an internal failure with a code and nothing from the request", async () => {
     const broken = new GatewayHttpServer({
       config: gateway.config,
@@ -168,6 +201,22 @@ describe("the gateway listener", () => {
     expect(response.headers.get("agentsafe-execution")).toBe("INDETERMINATE");
     expect(await response.text()).toBe('{"code":"INTERNAL_ERROR"}');
     await broken.close(10);
+  });
+
+  it("refuses ambiguous routing paths before forwarding and governs encoded literal paths", async () => {
+    const before = upstream.seen.length;
+    const ambiguous = await fetch(`${origin}/payments%2Fadmin`, { method: "POST" });
+    expect(ambiguous.status).toBe(400);
+    expect(await ambiguous.json()).toEqual({ code: "HTTP_PATH_AMBIGUOUS" });
+    expect(ambiguous.headers.get("agentsafe-execution")).toBe("NOT_FORWARDED");
+    const encoded = await fetch(`${origin}/%70ayments/admin`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: '{"amount":2000}',
+    });
+    expect(encoded.status).toBe(403);
+    expect(encoded.headers.get("agentsafe-execution")).toBe("NOT_FORWARDED");
+    expect(upstream.seen).toHaveLength(before);
   });
 });
 

@@ -145,6 +145,56 @@ const auditTypes = (lines: readonly string[]): string[] =>
   parsed(lines).map((line) => String(line["event"]));
 
 describe("a card purchase through the whole boundary", () => {
+  it("binds an authorization id before concurrent requests can claim different cards", async () => {
+    const { service } = build();
+    try {
+      const first = purchase();
+      const second = purchase();
+      await service.propose(first.body);
+      await service.propose(second.body);
+      const asked = authorizationFor(first.parameters);
+      const claims = requestsTo("claim-token").length;
+      const [winner, collision] = await Promise.all([
+        service.authorizeCard(asked, ISSUER),
+        service.authorizeCard(
+          authorizationFor(second.parameters, { authorization_id: asked.authorization_id }),
+          ISSUER,
+        ),
+      ]);
+      expect(winner.decision).toBe("APPROVE");
+      expect(collision).toEqual({ decision: "NO_MATCH", code: "AUTHORIZATION_ID_REUSED" });
+      expect(requestsTo("claim-token").length).toBe(claims + 1);
+      expect(await service.authorizeCard(asked, ISSUER)).toEqual(winner);
+      expect(
+        await service.authorizeCard(authorizationFor(second.parameters), ISSUER),
+      ).toMatchObject({
+        decision: "APPROVE",
+      });
+    } finally {
+      service.close();
+    }
+  });
+
+  it("joins concurrent retries of the exact authorization and claims once", async () => {
+    const { service } = build();
+    try {
+      const { parameters, body } = purchase();
+      await service.propose(body);
+      const asked = authorizationFor(parameters);
+      const claims = requestsTo("claim-token").length;
+      const answers = await Promise.all(
+        Array.from({ length: 8 }, () => service.authorizeCard(asked, ISSUER)),
+      );
+      expect(answers[0]?.decision).toBe("APPROVE");
+      expect(answers.every((answer) => JSON.stringify(answer) === JSON.stringify(answers[0]))).toBe(
+        true,
+      );
+      expect(requestsTo("claim-token").length).toBe(claims + 1);
+    } finally {
+      service.close();
+    }
+  });
+
   it("holds the grant on an ALLOW, claims it once on a matching authorization, and finalizes with the effect", async () => {
     const { service, journal, lines, securityLines } = build();
     const { parameters, body } = purchase();

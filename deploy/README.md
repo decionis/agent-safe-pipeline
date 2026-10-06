@@ -3,6 +3,12 @@
 What an adopter runs to put the execution boundary in front of one workflow, and how it gets from
 a shadow deployment to an enforced one. One image, one manifest, one runbook.
 
+For the HTTP gateway, start with [deployment strategies](../docs/deployment/gateway-strategies.md)
+and the [agent integration and setup guide](../docs/gateway/deployment.md). They cover Docker/TLS,
+Kubernetes, service meshes, AWS, Azure and the managed cloud gateway. This kit deploys the trusted
+executor, whose authenticated proposal interface and credential boundary are different from
+changing a tool's HTTP base URL.
+
 | Piece                                                               | What it is                                                                                                                                          |
 | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [`packages/agentsafe`](../packages/agentsafe)                       | The executor as a process, `@decionis/agentsafe`: the wire contract, the configuration, the seam                                                    |

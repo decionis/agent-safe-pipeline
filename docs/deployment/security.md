@@ -15,8 +15,8 @@ plain-http authority.
 ## What the chart establishes
 
 - `runAsNonRoot`, `readOnlyRootFilesystem`, `allowPrivilegeEscalation: false`, every capability
-  dropped, `RuntimeDefault` seccomp; the pod fails admission under a `restricted` Pod Security
-  profile only where the profile is not applied.
+  dropped and `RuntimeDefault` seccomp. Apply the `restricted` Pod Security profile to the
+  namespace to enforce these admission requirements for workloads there.
 - No service-account token mounted and no bindings: the gateway calls no Kubernetes API.
 - The key as a file from a Secret referenced by name, mode `0440`, group-readable by the process.
 - A NetworkPolicy: ingress on the listener from the named sources; egress to DNS, the upstream
@@ -34,10 +34,11 @@ plain-http authority.
 - **No local verdict.** `ALLOW`, `BLOCK` and `ESCALATE` come from Decionis; an `ESCALATE` becomes
   an execution only through a fresh decision after the ceremony; an unreachable authority is
   `AUTHORITY_UNAVAILABLE`, never a `BLOCK` and never an `ALLOW`.
-- **Nothing sensitive in evidence or telemetry.** Request headers never enter the intent; the
-  evidence lines carry identifiers, digests, verdicts and codes; metric labels are verdicts, codes
-  and configured action names; the key is read through a handle and redacted from every line by
-  digest.
+- **Bounded evidence and telemetry.** Evidence lines carry identifiers, digests, verdicts and
+  codes; metric labels use verdicts, codes and configured action names. Raw request headers are
+  not copied wholesale into the intent, but configured principal headers become unverified
+  claims, and query/context and small JSON bodies can reach the authority. Choose those fields
+  and action names with the data boundary in mind; hashing a request is not redaction.
 - **The authority over sealed egress.** Decionis and Presence are reached through the guarded
   fetch: HTTPS, no redirects, bounded bodies, the origin the configuration named and no other.
 
@@ -54,6 +55,10 @@ plain-http authority.
   (a rolled Secret is read on the next request; a rotated key that no longer works is
   `AUTHORITY_UNAVAILABLE` until the Secret is updated).
 - **Who is on call**, and what group `rbac.operatorGroup` binds.
+
+The [deployment strategies](./gateway-strategies.md) show controls for ingress, caller egress,
+upstream admission, Kubernetes/Istio, AWS and Azure. Validate the effective policies and direct
+reachability from the actual agent; the existence of configuration files is not proof of isolation.
 
 ## Reporting
 

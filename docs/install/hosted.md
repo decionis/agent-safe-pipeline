@@ -1,5 +1,10 @@
 # Hosted
 
+For step-by-step tenant onboarding, origin proof and agent client setup, see
+[Set up the Decionis-managed cloud gateway](../gateway/deployment.md#set-up-the-decionis-managed-cloud-gateway).
+For enforcement with the hosted authority and a gateway inside the bank, use the
+[on-premises setup](../gateway/deployment.md#deploy-on-premises).
+
 Decionis runs this runtime as a hosted fleet, live in shadow: each tenant it onboards is served at
 `{id}.decionisedge.com`, and a request within the gateway's bounds (below) reaches the tenant's API
 while Decionis records what it would have decided. Decionis onboards each tenant and hands it a

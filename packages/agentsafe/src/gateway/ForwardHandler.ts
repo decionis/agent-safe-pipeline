@@ -11,6 +11,7 @@ import { dispatchBudgetMs, MonotonicDeadline } from "../time/MonotonicClock.js";
 import { CONSEQUENTIAL_METHODS } from "./GatewayConfig.js";
 import {
   bodyDigest,
+  requestDigest,
   type HttpActionParameters,
   type InterceptedRequest,
 } from "./InterceptedRequest.js";
@@ -100,6 +101,7 @@ export function httpForwardHandler(
       if (
         request.method.toUpperCase() !== parameters.method ||
         request.path !== parameters.path ||
+        context["request_sha256"] !== requestDigest(request) ||
         context["body_bytes"] !== request.body.length ||
         context["body_sha256"] !== bodyDigest(request.body)
       ) {

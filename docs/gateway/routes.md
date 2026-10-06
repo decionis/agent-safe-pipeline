@@ -4,6 +4,11 @@ A route names a consequential action so policy can be written about it. Without 
 `POST`, `PUT`, `PATCH` and `DELETE` is still governed, under `http.<method>`; routes give the
 actions the names the policy uses.
 
+Only `GET`, `HEAD` and `OPTIONS` are classified as safe. While interception is enabled, methods
+outside these and the four supported consequential methods are refused with
+`405 HTTP_METHOD_UNSUPPORTED`, including on an unmatched passthrough route. Method-override
+headers are also refused; see [HTTP interception](./http-interception.md).
+
 ```yaml
 interception:
   routes:
@@ -22,6 +27,14 @@ interception:
 ## Patterns
 
 Matching walks the path one segment at a time; nothing backtracks.
+
+Literal path characters are percent-decoded once for matching, so `/%70ayments` cannot evade a
+`/payments` rule; the request sent upstream keeps its original spelling and digest. Encoded
+separators, nested percent encoding, path parameters (`;`), control characters, dot segments and
+malformed encoding are refused for consequential requests with `400 HTTP_PATH_AMBIGUOUS`.
+Write configured patterns with decoded literal characters. Encoded or ambiguous patterns fail
+construction with `ROUTE_PATH_AMBIGUOUS`. Integrations must
+not introduce additional application-specific routing rewrites behind this boundary.
 
 | Pattern       | Matches                        | Does not match                |
 | ------------- | ------------------------------ | ----------------------------- |

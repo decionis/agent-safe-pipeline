@@ -12,7 +12,11 @@ import {
   registerHttpActions,
   RequestHolder,
 } from "../../src/gateway/ForwardHandler.js";
-import { bodyDigest, type InterceptedRequest } from "../../src/gateway/InterceptedRequest.js";
+import {
+  bodyDigest,
+  normalizeRequest,
+  type InterceptedRequest,
+} from "../../src/gateway/InterceptedRequest.js";
 import { Upstream } from "../../src/gateway/Upstream.js";
 import { RECEIPT, UpstreamDouble } from "../support/GatewayHarness.js";
 
@@ -31,7 +35,10 @@ const intent = (overrides: Partial<CapturedIntent["intent"]> = {}): CapturedInte
   ({
     intent: {
       intentId: "00000000-0000-4000-8000-000000000001",
-      context: { body_sha256: bodyDigest(body), body_bytes: body.length },
+      context: normalizeRequest(request(), "http.post", {
+        maxEmbeddedBodyBytes: 64,
+        principalHeader: null,
+      }).context,
       ...overrides,
     },
     intentHash: "sha256:abc",
@@ -141,11 +148,40 @@ describe("the exact-forward handler", () => {
     expect(dispatched).toBe(0);
   });
 
+  it.each([
+    { search: "?recipient=attacker" },
+    { headers: { "content-type": "text/plain" } },
+    { headers: { "content-type": "application/json", "x-account-id": "attacker" } },
+    { headers: { "content-type": "application/json", "idempotency-key": "another-attempt" } },
+  ])("refuses a request field changed after capture: %j", async (changes) => {
+    const original = request();
+    const normalized = normalizeRequest(original, "http.post", {
+      maxEmbeddedBodyBytes: 64,
+      principalHeader: null,
+    });
+    const holder = new RequestHolder();
+    const handler = httpForwardHandler(upstream, holder);
+    const captured = intent({ context: normalized.context });
+    holder.hold(captured.intent.intentId, request(changes), {});
+    dispatched = 0;
+    const before = double.seen.length;
+    await expect(
+      handler.execute({ intent: captured, parameters, authorization, dispatch }),
+    ).rejects.toThrow("PAYLOAD_BINDING_MISMATCH");
+    expect(dispatched).toBe(0);
+    expect(double.seen).toHaveLength(before);
+  });
+
   it("reports the upstream's refusal, error and absence after dispatch, keeping the answer for the relay", async () => {
     const holder = new RequestHolder();
     const handler = httpForwardHandler(upstream, holder);
     const at = (path: string) => ({
-      intent: intent(),
+      intent: intent({
+        context: normalizeRequest(request({ path }), "http.post", {
+          maxEmbeddedBodyBytes: 64,
+          principalHeader: null,
+        }).context,
+      }),
       parameters: { ...parameters, path },
       authorization,
       dispatch,
@@ -188,7 +224,12 @@ describe("the exact-forward handler", () => {
     const holder = new RequestHolder();
     const handler = httpForwardHandler(upstream, holder);
     const at = (path: string) => ({
-      intent: intent(),
+      intent: intent({
+        context: normalizeRequest(request({ path }), "http.post", {
+          maxEmbeddedBodyBytes: 64,
+          principalHeader: null,
+        }).context,
+      }),
       parameters: { ...parameters, path },
       authorization,
       dispatch,

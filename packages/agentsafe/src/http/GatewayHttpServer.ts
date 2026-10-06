@@ -29,6 +29,7 @@ const KEEP_ALIVE_TIMEOUT_MS = 5_000;
 const OWN_ROUTES = ["healthz", "readyz", "status", "metrics"] as const;
 const ESCALATIONS = `${GATEWAY_PREFIX}/v1/escalations/`;
 const INTENT_ID = /^[0-9a-f-]{36}$/;
+const METHOD_OVERRIDE_HEADERS = ["x-http-method-override", "x-http-method", "x-method-override"];
 
 /**
  * The challenge a missing or wrong tenant key is answered with: the scheme
@@ -173,7 +174,21 @@ export class GatewayHttpServer {
           "retry-after": String(rate.retryAfterSeconds),
         });
       }
+      // The upstream must act on the method the gateway classified. Common
+      // override headers can otherwise turn an unevaluated GET into a write.
+      if (
+        gateway.config.interception.http &&
+        METHOD_OVERRIDE_HEADERS.some((name) => Object.hasOwn(request.headers, name))
+      ) {
+        throw new GuardError(400, "HTTP_METHOD_OVERRIDE_REFUSED");
+      }
       const plan = gateway.plan(method, url.pathname);
+      if (plan.kind === "REFUSE") {
+        if (plan.code === "HTTP_PATH_AMBIGUOUS") throw new GuardError(400, plan.code);
+        throw new GuardError(405, plan.code, {
+          allow: "GET, HEAD, OPTIONS, POST, PUT, PATCH, DELETE",
+        });
+      }
       const body = await GatewayHttpServer.readBody(
         request,
         plan.kind === "GOVERN"

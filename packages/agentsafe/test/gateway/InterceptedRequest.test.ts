@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   bodyDigest,
   normalizeRequest,
+  requestDigest,
   type InterceptedRequest,
 } from "../../src/gateway/InterceptedRequest.js";
 
@@ -35,6 +36,7 @@ describe("request normalization", () => {
       },
     });
     expect(normalized.context).toEqual({
+      request_sha256: requestDigest(request()),
       body_sha256: `sha256:${createHash("sha256").update('{"amount": 5, "to": "acct-1"}').digest("hex")}`,
       body_bytes: 29,
       content_type: "application/json",
@@ -94,6 +96,7 @@ describe("request normalization", () => {
       query: {},
     });
     expect(normalized.context).toEqual({
+      request_sha256: requestDigest(request()),
       body_sha256: `sha256:${createHash("sha256").update(body).digest("hex")}`,
       body_bytes: 29,
       content_type: "application/json",
@@ -104,6 +107,37 @@ describe("request normalization", () => {
   it("carries the query as sorted keys, with a list where a key repeats", () => {
     const normalized = normalizeRequest(request({ search: "?z=1&a=2&a=3&empty=" }), "a", options);
     expect(normalized.proposal.parameters["query"]).toEqual({ a: ["2", "3"], empty: "", z: "1" });
+  });
+
+  it.each(["__proto__", "%5f%5fproto%5f%5f", "constructor", "prototype"])(
+    "refuses the forbidden query name %s before it can disappear from the intent",
+    (name) => {
+      expect(() => normalizeRequest(request({ search: `?${name}=hidden` }), "a", options)).toThrow(
+        "QUERY_PARAMETER_INVALID",
+      );
+    },
+  );
+
+  it("binds raw query spelling and header values without depending on header insertion order", () => {
+    const original = request({
+      search: "?a=1&b=2",
+      headers: { "content-type": "application/json", authorization: "synthetic-credential" },
+    });
+    const normalized = normalizeRequest(original, "a", options);
+    expect(JSON.stringify(normalized)).not.toContain("synthetic-credential");
+    expect(requestDigest(original)).toBe(
+      requestDigest({
+        ...original,
+        headers: { authorization: "synthetic-credential", "content-type": "application/json" },
+      }),
+    );
+    expect(requestDigest(original)).not.toBe(requestDigest({ ...original, search: "?b=2&a=1" }));
+    expect(requestDigest(original)).not.toBe(
+      requestDigest({
+        ...original,
+        headers: { ...original.headers, authorization: "different-credential" },
+      }),
+    );
   });
 
   it("takes the client's idempotency key, correlation id and claimed principal from bounded headers", () => {

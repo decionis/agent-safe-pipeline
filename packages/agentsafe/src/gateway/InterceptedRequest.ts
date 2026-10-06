@@ -25,6 +25,7 @@ export interface HttpActionParameters extends JsonObject {
 
 /** What the intent's context carries about the body: its digest, size and kind, never its bytes. */
 export interface HttpActionContext extends JsonObject {
+  readonly request_sha256: string;
   readonly body_sha256: string;
   readonly body_bytes: number;
   readonly content_type: string | null;
@@ -45,22 +46,53 @@ const MAX_CORRELATION_LENGTH = 200;
 /** A header the client may use to name itself; bounded like an identifier. */
 const MAX_PRINCIPAL_LENGTH = 200;
 const JSON_TYPES = /^application\/(?:[\w.+-]+\+)?json(?:\s*;.*)?$/i;
+const FORBIDDEN_QUERY_KEYS: ReadonlySet<string> = new Set([
+  "__proto__",
+  "constructor",
+  "prototype",
+]);
 
 /** SHA-256 over the bytes, in the contract's `sha256:` form. */
 export function bodyDigest(body: Uint8Array): `sha256:${string}` {
   return `sha256:${createHash("sha256").update(body).digest("hex")}`;
 }
 
+/**
+ * Binds the complete held request, including raw query spelling and header
+ * values, without disclosing those headers to the authority. Framed metadata
+ * precedes the bytes; sorting header names makes object insertion order immaterial.
+ */
+export function requestDigest(request: InterceptedRequest): `sha256:${string}` {
+  const metadata = JSON.stringify([
+    request.method.toUpperCase(),
+    request.path,
+    request.search,
+    Object.keys(request.headers)
+      .sort()
+      .map((name) => [name, request.headers[name]]),
+    request.remoteAddress,
+    request.encrypted,
+  ]);
+  return `sha256:${createHash("sha256").update(metadata, "utf8").update(request.body).digest("hex")}`;
+}
+
 /** Query pairs as an object: one value, or a list where a key repeats; keys sorted for stable hashing. */
 function queryObject(search: string): { [key: string]: string | string[] } {
-  const pairs = new URLSearchParams(search);
-  const keys = [...new Set(pairs.keys())].sort();
-  const query: { [key: string]: string | string[] } = {};
-  for (const key of keys) {
-    const values = pairs.getAll(key);
-    query[key] = values.length === 1 ? (values[0] ?? "") : values;
+  const grouped = new Map<string, string[]>();
+  for (const [key, value] of new URLSearchParams(search)) {
+    // Assignment to __proto__ would silently hide an input from policy.
+    // Keep the same forbidden names as the canonical intent contract.
+    if (FORBIDDEN_QUERY_KEYS.has(key)) throw new Error("QUERY_PARAMETER_INVALID");
+    const values = grouped.get(key);
+    if (values === undefined) grouped.set(key, [value]);
+    else values.push(value);
   }
-  return query;
+  return Object.fromEntries(
+    [...grouped.keys()].sort().map((key) => {
+      const values = grouped.get(key)!;
+      return [key, values.length === 1 ? values[0]! : values];
+    }),
+  );
 }
 
 /** A bounded header value, or null when absent, empty or over the bound. */
@@ -80,8 +112,8 @@ function header(
  * embedding limit, the body itself, so policy can see the fields it decides
  * on. The context binds the raw bytes by digest whether or not they were
  * embedded, which is what the forwarding handler checks before dispatch.
- * Request headers are not part of the intent: a credential to the upstream
- * is the client's business with the upstream and never reaches the authority.
+ * Raw request headers never reach the authority. Their digest binds their
+ * meaning along with the exact query and bytes for the final dispatch check.
  */
 export function normalizeRequest(
   request: InterceptedRequest,
@@ -114,6 +146,7 @@ export function normalizeRequest(
   return {
     proposal: { action, target, parameters },
     context: {
+      request_sha256: requestDigest(request),
       body_sha256: bodyDigest(request.body),
       body_bytes: request.body.length,
       content_type: contentType,

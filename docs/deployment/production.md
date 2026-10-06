@@ -4,6 +4,11 @@ What a production deployment of the gateway looks like, on Kubernetes or a Linux
 order in which it gets there. None of it changes the protocol: the same intent, the same
 authority, the same claim and finalization as on a laptop.
 
+Start with the [agent integration and deployment guide](../gateway/deployment.md) for the full
+client, Docker, Kubernetes and managed-cloud setup. The `gateway.mode`, `gateway.routes` and
+`gateway.failurePolicy` names below are Helm values; runtime YAML uses `authority.mode`,
+`interception.routes` and `authority.failurePolicy` respectively.
+
 ## The checklist
 
 - **Pin the image by digest.** `image.digest` in the chart, or `ghcr.io/decionis/agentsafe@sha256:...`
@@ -29,8 +34,10 @@ authority, the same claim and finalization as on a laptop.
   an answer; `agentsafe_execution_indeterminate_total` means an upstream stopped answering after
   dispatch; `agentsafe_ungoverned_forwards_total` above zero means fail open is doing what it was
   told. The executor's [alert rules](../../deploy/alerts/TrustedExecutor.yaml) are the model.
-- **Resources.** The defaults (100m CPU, 128Mi request, 512Mi limit) fit a gateway that holds up
-  to 1,000 escalations of 1 MiB each; raise the memory limit if `maxBodyBytes` is raised.
+- **Resources.** Size for concurrent requests, held bodies and runtime overhead. The default
+  512Mi limit does not cover 1,000 simultaneous 1 MiB holds: those bodies alone need about
+  1,000 MiB. Measure the expected approval backlog and set memory, admission rate and body limits
+  together; see [capacity](./high-availability.md#capacity).
 
 ## Three modes, in order
 
