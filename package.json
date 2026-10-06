@@ -18,6 +18,7 @@
     "overrides": {
       "fast-uri": "3.1.8",
       "ip-address": "10.7.1",
+      "proxy-addr": "2.0.8",
       "brace-expansion@1": "1.1.21",
       "brace-expansion@5": "5.0.12",
       "qs": "6.16.0",
