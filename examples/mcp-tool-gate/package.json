@@ -12,7 +12,7 @@
   "dependencies": {
     "@decionis/agent-safe-pipeline": "workspace:*",
     "@decionis/agentsafe": "workspace:*",
-    "@modelcontextprotocol/sdk": "1.30.0",
-    "zod": "^4.5.4"
+    "@modelcontextprotocol/sdk": "1.32.0",
+    "zod": "^4.6.5"
   }
 }
