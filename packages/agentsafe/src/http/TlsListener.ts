@@ -47,8 +47,19 @@ export class TlsListener {
     this.mutual = options.material().clientCa !== null;
   }
 
-  public createServer(handler: RequestListener): Server {
-    return createServer(this.context(), handler);
+  public createServer(
+    handler: RequestListener,
+    options: { handshakeTimeoutMs?: number } = {},
+  ): Server {
+    return createServer(
+      {
+        ...this.context(),
+        ...(options.handshakeTimeoutMs === undefined
+          ? {}
+          : { handshakeTimeout: options.handshakeTimeoutMs }),
+      },
+      handler,
+    );
   }
 
   public rotate(server: Server): void {

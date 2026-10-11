@@ -64,6 +64,31 @@ tenant's gateway prints begins with that tenant's id.
 | `--apex-page <file>`       | the HTML the registry's domain answers at `/`                                                                                                                                                                                                                    |
 | `--require-upstream-proof` | every tenant forwards nothing until its upstream's origin serves its [proof](../gateway/configuration.md#the-upstreams-proof); a host built before it refuses to start over it (`UNKNOWN_OPTION`, exit `2`), so take it out before rolling back to such an image |
 
+### `agentsafe connector`, `agentsafe tunnel`
+
+The [hosted TCP relay](../gateway/hosted-tcp-relay.md) connects a loopback application listener
+to a fixed numeric IP and port through an outbound connector. Enable the TCP resource first,
+then save its distinct connector and client credentials in separate files, each mode `0600`.
+Use the resource's exact gateway, route UUID, and target in both commands:
+
+```sh
+npx @decionis/agentsafe@0.3.0 connector \
+  --gateway https://acme.decionisedge.com \
+  --route 00000000-0000-4000-8000-000000000123 \
+  --credential-file ./connector.key --target 10.20.30.40:5432
+
+npx @decionis/agentsafe@0.3.0 tunnel \
+  --gateway https://acme.decionisedge.com \
+  --route 00000000-0000-4000-8000-000000000123 \
+  --credential-file ./client.key --target 10.20.30.40:5432 --port 15432
+```
+
+`--port` is required only for `tunnel`, which always listens on `127.0.0.1`. Credential paths
+resolve from the current directory. `--control-api <https-origin>` (alias `--api`) overrides the
+default `https://api.decionis.com`; `--help` prints usage. `SIGTERM` or `SIGINT` closes the
+command's channels. The relay forwards opaque TCP bytes; application TLS must still verify the
+actual service hostname and certificate while dialing the local port.
+
 ### `agentsafe intercept`
 
 The [transparent interceptor](../gateway/transparent-interception.md) as a process: the sidecar
