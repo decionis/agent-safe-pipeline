@@ -24,6 +24,8 @@ import { isGatewayCommand, runGatewayCommand } from "./cli/Commands.js";
 import { runEdge } from "./cli/Edge.js";
 import { usage } from "./cli/Help.js";
 import { runVerifyIntent } from "./cli/VerifyIntent.js";
+import { runTcpBroker } from "./cli/TcpBrokerCli.js";
+import { runConnector, runTunnel } from "./cli/TcpClientCli.js";
 import { parseTarget, probeContainment } from "./containment/ContainmentProbe.js";
 import { dial } from "./egress/TcpProbe.js";
 import { serve } from "./Serve.js";
@@ -51,6 +53,9 @@ const COMMANDS = [
   "verify-intent",
   "probe-containment",
   "edge",
+  "tcp-broker",
+  "connector",
+  "tunnel",
 ] as const;
 /**
  * The whole entry is one function rather than top-level statements, because
@@ -81,6 +86,12 @@ async function main(): Promise<void> {
     await runGatewayCommand(command, rest, nodeCliProcess());
   } else if (command === "serve") {
     await serve();
+  } else if (command === "tcp-broker") {
+    await runTcpBroker(nodeCliProcess(), rest);
+  } else if (command === "connector") {
+    await runConnector(nodeCliProcess(), rest);
+  } else if (command === "tunnel") {
+    await runTunnel(nodeCliProcess(), rest);
   } else if (command === "verify-chain") {
     const source = rest[0];
     const text = readFileSync(source === undefined ? 0 : source, "utf8");

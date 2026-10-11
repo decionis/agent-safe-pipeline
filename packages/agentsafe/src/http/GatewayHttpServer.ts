@@ -21,6 +21,8 @@ import type { InterceptedRequest } from "../gateway/InterceptedRequest.js";
 import { UPSTREAM_PROOF_HEADER } from "../gateway/UpstreamProof.js";
 import { METRICS_CONTENT_TYPE, RESPONSE_HEADERS } from "./Routes.js";
 import type { TlsListener } from "./TlsListener.js";
+import type { TcpHostRelay } from "../http/TcpHostRelay.js";
+import { TCP_TRANSPORT } from "../http/TcpRelayStreams.js";
 
 const REQUEST_TIMEOUT_MS = 30_000;
 const HEADERS_TIMEOUT_MS = 10_000;
@@ -74,6 +76,8 @@ export interface GatewayHttpServerOptions {
    * a reload changes them in place; null serves nothing.
    */
   readonly apex?: { readonly hostname: () => string | null; readonly page: () => string | null };
+  /** Optional, fixed internal broker transport; independent of HTTP upstream tenancy. */
+  readonly tcpRelay?: TcpHostRelay;
 }
 
 /** HSTS for a listener that terminates TLS: a year, every subdomain. */
@@ -116,6 +120,10 @@ export class GatewayHttpServer {
     this.server.requestTimeout = REQUEST_TIMEOUT_MS;
     this.server.headersTimeout = HEADERS_TIMEOUT_MS;
     this.server.keepAliveTimeout = KEEP_ALIVE_TIMEOUT_MS;
+    if (options.tcpRelay)
+      this.server.on("connect", (req, socket, head) =>
+        options.tcpRelay!.connect(req, socket, head),
+      );
   }
 
   public async listen(port: number, host: string): Promise<AddressInfo> {
@@ -140,6 +148,7 @@ export class GatewayHttpServer {
 
   /** Stops accepting, lets requests in flight finish for a grace period, then closes what is left. */
   public async close(graceMs = 10_000): Promise<void> {
+    this.options.tcpRelay?.close();
     const closed = new Promise<void>((resolve) => this.server.close(() => resolve()));
     this.server.closeIdleConnections();
     const timer = setTimeout(() => this.server.closeAllConnections(), graceMs);
@@ -152,6 +161,14 @@ export class GatewayHttpServer {
       // Stryker disable next-line all: Node sets `url` on every request it hands out; the fallback satisfies the type.
       const url = new URL(request.url ?? "/", "http://gateway.invalid");
       const method = (request.method ?? "GET").toUpperCase();
+      if (this.options.tcpRelay && url.pathname === `${GATEWAY_PREFIX}/tcp/capabilities`) {
+        if (method !== "GET") throw new GuardError(405, "METHOD_NOT_ALLOWED");
+        const ready = await this.options.tcpRelay.capabilities(request);
+        return GatewayHttpServer.reply(response, ready ? 200 : 503, {
+          transport: TCP_TRANSPORT,
+          ready,
+        });
+      }
       const gateway = this.select(GatewayHttpServer.hostnameOf(request));
       if (gateway === null) return this.unserved(request, method, url, response);
       if (url.pathname === GATEWAY_PREFIX || url.pathname.startsWith(`${GATEWAY_PREFIX}/`)) {

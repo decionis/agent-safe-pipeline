@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -6,6 +7,9 @@ import { parseAllDocuments, parse } from "yaml";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const chart = `${root}charts/agentsafe`;
+const runtimeVersion = JSON.parse(
+  readFileSync(`${root}packages/agentsafe/package.json`, "utf8"),
+).version;
 const helm = spawnSync("helm", ["version", "--short"], { encoding: "utf8" });
 const available = helm.status === 0;
 const TENANT_ID = "00000000-0000-4000-8000-000000000001";
@@ -117,7 +121,7 @@ describe("the Helm chart", { skip: available ? false : "helm is not installed" }
     const pod = deployment.spec.template.spec;
     const container = pod.containers[0];
     assert.deepEqual(container.args, ["run"]);
-    assert.equal(container.image, "ghcr.io/decionis/agentsafe:0.2.5");
+    assert.equal(container.image, `ghcr.io/decionis/agentsafe:${runtimeVersion}`);
     const env = Object.fromEntries(
       container.env.map((entry) => [entry.name, entry.value ?? entry.valueFrom]),
     );

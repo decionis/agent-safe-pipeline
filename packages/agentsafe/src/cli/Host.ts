@@ -7,6 +7,7 @@ import { RedirectServer } from "../http/RedirectServer.js";
 import { TlsListener } from "../http/TlsListener.js";
 import { SecurityEvents } from "../incident/SecurityEvents.js";
 import { CompositeSecretStore } from "../secrets/CompositeSecretStore.js";
+import { TcpHostRelay } from "../http/TcpHostRelay.js";
 import { packageVersion } from "../Version.js";
 import { optionPort, optionValue, parseArguments } from "./Arguments.js";
 import type { CliProcess } from "./CliProcess.js";
@@ -157,6 +158,23 @@ export async function runHost(
     return;
   }
   const apexPage = (): string | null => (apexPath === null ? null : io.files.read(apexPath));
+  let tcpRelay: TcpHostRelay | undefined;
+  try {
+    const broker = io.env["AGENTSAFE_TCP_BROKER_HOST"];
+    if (broker !== undefined) {
+      if (tls === null) throw new Error("TCP_RELAY_REQUIRES_TLS");
+      tcpRelay = new TcpHostRelay({
+        host: broker,
+        port: Number(io.env["AGENTSAFE_TCP_BROKER_PORT"] ?? 8443),
+        domain: () => host.domain(),
+      });
+    }
+  } catch {
+    keys?.close();
+    await host.close();
+    refuse("TCP_RELAY_CONFIGURATION_INVALID", 2);
+    return;
+  }
   const server = new GatewayHttpServer(host.select, {
     metricsToken: io.env["AGENTSAFE_METRICS_TOKEN"] ?? null,
     // Not ready until every tenant the registry names has been served once,
@@ -165,6 +183,7 @@ export async function runHost(
     probe: { ready: () => host.ready() },
     tls,
     apex: { hostname: () => host.domain(), page: apexPage },
+    ...(tcpRelay ? { tcpRelay } : {}),
   });
   // A renewal that does not make a valid context (a key that does not match
   // its certificate, a file not yet whole) keeps the context in use and says so.

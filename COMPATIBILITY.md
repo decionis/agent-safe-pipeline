@@ -6,15 +6,15 @@ runtime is the same in every distribution; only the packaging differs
 requirement or a supported configuration updates this page in the same pull request
 ([MAINTENANCE.md](./MAINTENANCE.md#change-and-documentation-policy)).
 
-## The runtime, `agentsafe` 0.2.5
+## The runtime, `agentsafe` 0.3.0
 
 | Distribution                                    | Runs on                                                     | Needs                                  | Details                                                                                         |
 | ----------------------------------------------- | ----------------------------------------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | Executable: Homebrew, the archive, `install.sh` | macOS on Apple silicon and Intel; Linux on x86_64 and arm64 | Nothing else: it carries a pinned Node | [macOS](./docs/install/macos.md), [Linux](./docs/install/linux.md)                              |
 | `.deb` and `.rpm`                               | Linux on x86_64 and arm64                                   | Nothing else                           | [Linux](./docs/install/linux.md)                                                                |
 | Container image                                 | `linux/amd64` and `linux/arm64`                             | A container runtime                    | [Docker](./docs/install/docker.md)                                                              |
-| Helm chart 0.2.5                                | Kubernetes 1.27 or later (`kubeVersion: ">=1.27.0-0"`)      | The container image above              | [Kubernetes](./docs/install/kubernetes.md), [`charts/agentsafe`](./charts/agentsafe/Chart.yaml) |
-| npm: `@decionis/agentsafe` 0.2.5                | Node.js                                                     | Node.js 22.14.0 or later               | [`packages/agentsafe`](./packages/agentsafe/package.json)                                       |
+| Helm chart 0.3.0                                | Kubernetes 1.27 or later (`kubeVersion: ">=1.27.0-0"`)      | The container image above              | [Kubernetes](./docs/install/kubernetes.md), [`charts/agentsafe`](./charts/agentsafe/Chart.yaml) |
+| npm: `@decionis/agentsafe` 0.3.0                | Node.js                                                     | Node.js 22.14.0 or later               | [`packages/agentsafe`](./packages/agentsafe/package.json)                                       |
 
 There is no Windows build of the runtime. The hosted fleet, `{id}.decionisedge.com`, runs in shadow
 only, for the tenants Decionis onboards; there is no self-serve sign-up yet

@@ -681,6 +681,18 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/cli/TcpBrokerCli.test.ts",
+      "family": "Hosted TCP relay test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/cli/TcpClientCli.test.ts",
+      "family": "Hosted TCP relay test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/cli/TestCommand.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
@@ -803,6 +815,18 @@
     {
       "path": "packages/agentsafe/test/egress/GuardedFetch.test.ts",
       "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/egress/TcpClient.test.ts",
+      "family": "Hosted TCP relay test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/egress/TcpControlClient.test.ts",
+      "family": "Hosted TCP relay test fixture",
       "source": "synthetic",
       "containsCustomerData": false
     },
@@ -977,6 +1001,18 @@
     {
       "path": "packages/agentsafe/test/http/RequestContext.test.ts",
       "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/http/TcpBroker.test.ts",
+      "family": "Hosted TCP relay test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/http/TcpHostRelay.test.ts",
+      "family": "Hosted TCP relay test fixture",
       "source": "synthetic",
       "containsCustomerData": false
     },
@@ -1263,6 +1299,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/support/TcpRelayHarness.ts",
+      "family": "Hosted TCP relay test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/support/TestCertificateAuthority.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
@@ -1271,6 +1313,12 @@
     {
       "path": "packages/agentsafe/test/support/UsageReportVector.ts",
       "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/tcp/TcpWire.test.ts",
+      "family": "Hosted TCP relay test fixture",
       "source": "synthetic",
       "containsCustomerData": false
     },
