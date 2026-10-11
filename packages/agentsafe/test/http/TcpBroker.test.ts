@@ -158,6 +158,54 @@ describe("hosted TCP broker", () => {
     await vi.waitFor(() => expect(control.released).toHaveLength(2));
     next.socket.destroy();
   });
+  it("rejects ready and payload sent during delayed redemption before pairing an existing client", async () => {
+    const { control, port } = await start({ pairMs: 500 });
+    const redeem = control.redeem.bind(control);
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.spyOn(control, "redeem").mockImplementation(async (ticket, binding) => {
+      const grant = await redeem(ticket, binding);
+      if (binding.role === "connector") await blocked;
+      return grant;
+    });
+    const waiting = connectLeg(port, ca, control.issue("client"), "client");
+    const socket = tlsConnect({
+      host: "127.0.0.1",
+      port,
+      ca: ca.certificate,
+      servername: "tcp-broker.decionisedge.com",
+    });
+    socket.on("error", () => undefined);
+    const received: Buffer[] = [];
+    socket.on("data", (chunk: Buffer) => received.push(chunk));
+    try {
+      await once(socket, "secureConnect");
+      await vi.waitFor(() => expect(control.redeemed).toHaveLength(1));
+      socket.write(
+        `CONNECT ${ROUTE}:443 HTTP/1.1\r\nHost: ${TENANT}\r\nAuthorization: Bearer ${control.issue("connector")}\r\nAgentSafe-TCP-Role: connector\r\n\r\n`,
+      );
+      await vi.waitFor(() => expect(control.redeemed).toHaveLength(2));
+      // A separate TLS write lands after CONNECT parsing, while redemption is still pending.
+      socket.write('{"type":"ready"}\nunsolicited-payload');
+      await vi.waitFor(() => expect(socket.readableEnded).toBe(true));
+      expect(Buffer.concat(received).length).toBe(0);
+      expect(control.released.filter((grant) => grant.role === "connector")).toHaveLength(0);
+      release();
+      await vi.waitFor(() =>
+        expect(control.released.filter((grant) => grant.role === "connector")).toHaveLength(1),
+      );
+      const client = await waiting;
+      expect(client.status).toBe(504);
+      expect(client.head.toString()).not.toContain("unsolicited-payload");
+      expect(control.released).toHaveLength(2);
+    } finally {
+      release();
+      socket.destroy();
+      (await waiting).socket.destroy();
+    }
+  });
   it.each(["revocation", "changed binding"])("closes both active streams on %s", async (kind) => {
     const { control, port } = await start({ refreshMs: 40 });
     const { connector, client } = await pair(port, control);

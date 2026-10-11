@@ -190,6 +190,7 @@ export class TcpBroker {
     };
     this.legs.add(leg);
     socket.once("close", () => this.finish(leg));
+    if (leg.binding.role === "connector") this.waitForClient(leg);
     try {
       const grant = validGrant(
         await this.options.control.redeem(parsed.ticket, parsed.binding),
@@ -229,7 +230,6 @@ export class TcpBroker {
       if (leg.binding.role === "connector") {
         connectedTcp(socket);
         leg.responded = true;
-        this.waitForClient(leg);
       }
       const mate = [...this.legs].find(
         (other) =>
@@ -265,6 +265,12 @@ export class TcpBroker {
     leg.socket.resume();
   }
   private async pair(first: Leg, second: Leg): Promise<void> {
+    const connector = first.binding.role === "connector" ? first : second;
+    const client = first.binding.role === "client" ? first : second;
+    if (connector.socket.readableLength > 0 || connector.socket.readableEnded) {
+      this.finish(connector);
+      return;
+    }
     first.paired = second;
     second.paired = first;
     if (first.pairTimer) clearTimeout(first.pairTimer);
@@ -272,8 +278,6 @@ export class TcpBroker {
     first.waitingCleanup?.();
     second.waitingCleanup?.();
     first.waitingCleanup = second.waitingCleanup = null;
-    const connector = first.binding.role === "connector" ? first : second;
-    const client = first.binding.role === "client" ? first : second;
     try {
       connector.socket.write('{"type":"attach"}\n');
       const reply = await controlLine(connector.socket, connector.head, this.limits.connectMs);
