@@ -12,6 +12,6 @@
   "dependencies": {
     "@decionis/agent-safe-pipeline": "workspace:*",
     "@decionis/presence-node": "^0.2.0",
-    "zod": "^4.5.4"
+    "zod": "^4.6.5"
   }
 }
