@@ -1001,8 +1001,12 @@ describe("holds shared across replicas through the Postgres store", () => {
     const held = await a.service.propose(body);
     expect(held).toMatchObject({ outcome: "HELD_FOR_AUTHORIZATION" });
     expect(sql.holds.size).toBe(1);
-    // The row holds no token in clear.
-    for (const row of sql.holds.values()) expect(row.sealed).not.toMatch(/eyJ|token/);
+    // The row holds no token in clear: a sealed value is the seal's own
+    // shape, base64url throughout, and no JSON could survive in it.
+    for (const row of sql.holds.values()) {
+      expect(row.sealed).toMatch(/^v1(\.[\w-]{16,})+$/);
+      expect(row.sealed).not.toMatch(/["{}:]/);
+    }
     // B never saw the purchase: the second purchase on the card waits there too.
     const waits = await refusal(
       b.service.propose({ ...body, idempotency_key: "fixture-card-purchase-on-b" }),
