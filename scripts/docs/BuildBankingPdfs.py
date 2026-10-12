@@ -484,7 +484,7 @@ def response_brief(out):
         ("Three places a tap can wait; only one was built", "Before the authorization: built first. Fraud queue: a hold-less authorization is evaluated at commit, answered PENDING with the handoff, and resumed by the tap. After: evidence only. Tap to Authenticate: a signal policy can require; its producer signature is not verified yet.", "AgentSafe card-authorization.md: The three places a tap can wait; joint brief, page 4"),
         ("Regulated deployment: where Presence, the authority and the keys live; a kill switch", "Three hosting tiers written once (hosted, dedicated single-tenant, self-managed under licence), where every signing key lives and the HSM-backed option; enforcement on one BIN range (binRanges) with the stop, POST /v1/control/halt.", "AgentSafe docs/gateway/deployment.md; bank brief, pages 7 to 9; docs page: Hosting"),
     ], size=8.1)
-    d.text(MARGIN, y + 11, CONTENT, "<b>Licences and limits.</b> @decionis/iso8583 is proprietary, taken under a written licence from Decionis; AgentSafe stays Apache-2.0 at github.com/decionis/agent-safe-pipeline. Not built: signed producer signals for Tap to Authenticate. Nothing here claims SOC 2, a penetration test or a PCI assessment. The docs page is decionis.com/docs/card-authorization.", 8.4, MUTED)
+    d.text(MARGIN, y + 11, CONTENT, "<b>Licences and limits.</b> @decionis/iso8583 is proprietary, taken under a written licence from Decionis; AgentSafe stays Apache-2.0 at github.com/decionis/agent-safe-pipeline. Not built: signed producer signals for Tap to Authenticate. The docs page is decionis.com/docs/card-authorization.", 8.4, MUTED)
     return d.save()
 
 
