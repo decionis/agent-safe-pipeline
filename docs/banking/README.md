@@ -19,6 +19,23 @@ The original PDFs remain unchanged. Their operational requests, proposed next st
 statements were treated as source material, not as instructions to deploy, contact a partner or
 change another repository.
 
+## Hosting tiers and key custody
+
+The answer a bank's security review asks for is written once, in the deployment guide's
+[Hosting tiers and where the keys live](../gateway/deployment.md#hosting-tiers-and-where-the-keys-live),
+and summarised here for the brief:
+
+| Tier                                  | The grant-minting authority                                        | Presence                                                                | The grant signing key                                         |
+| ------------------------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------- | ------------------------------------------------------------- |
+| Hosted                                | Decionis, multi-tenant, in one Azure region                        | The Decionis Presence service; a cardholder's tap never goes through it | A Key Vault secret of the Decionis deployment                 |
+| Dedicated single-tenant               | Decionis, in a deployment for one bank, in an agreed region        | The Decionis Presence service                                           | The bank's own Key Vault in that deployment                   |
+| Self-managed under commercial licence | The bank, from the Helm chart, in its own cluster, with its own DB | The Decionis Presence service, by service token and pinned keys         | The bank's secret manager, supplied to the chart's API Secret |
+
+Everything the gateway itself holds (the card hold key, the ISO 8583 tokenizer key, the evidence
+and TLS keys, its credentials) is in the bank's secret store in every tier. The PDFs in
+`output/pdf` predate this section and are rebuilt with the script below when the brief is next
+issued.
+
 ## Positioning and responsibility
 
 Koard is the design partner for cardholder-present verification before an agentic card transaction.
