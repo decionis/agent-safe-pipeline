@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { describe, expect, it } from "vitest";
 import type { AuditRecorder } from "../../src/audit/AuditRecorder.js";
+import type { DecisionGate } from "../../src/decision/DecisionAuthority.js";
+import { immutableDecisionGate } from "../../src/decision/ImmutableDecisionGate.js";
 import {
   FixtureAuthorizationVerifier,
   createFixtureAuthorityPair,
@@ -140,6 +142,9 @@ describe("hold adoption", () => {
     const verifier = new FixtureAuthorizationVerifier(a.pair.authority.publicKey(), replay, true);
     const b = new SafeExecutor(registry, verifier, audit().recorder);
     const handle = b.adoptClaim(intent, decision, authorization, material);
+    // The handle is the hold's, exactly: what settlement finalizes and records.
+    expect(handle).toEqual({ captured: intent, decision, expiresAt: authorization.expiresAt });
+    expect(Object.isFrozen(handle)).toBe(true);
     expect(await b.settleHeld(handle, "COMMITTED")).toBe("RECORDED");
     expect(verifier.commitOf(authorization.grantId)).toMatchObject({ outcome: "COMMITTED" });
     // Without material, the settlement has nowhere to go; with wrong material, it is refused.
@@ -157,6 +162,24 @@ describe("hold adoption", () => {
     expect(() => c.adoptClaim(captured(353), decision, authorization, material)).toThrow(
       "CLAIM_ADOPTION_MISMATCH",
     );
+    // Each binding is checked on its own: a decision about another intent
+    // with an authorization that matches, and an observation that is no
+    // decision at all, are refused the same way.
+    const elsewhere = immutableDecisionGate({
+      ...decision,
+      intentHash: `sha256:${"c".repeat(64)}`,
+    });
+    expect(() => c.adoptClaim(intent, elsewhere, authorization, material)).toThrow(
+      "CLAIM_ADOPTION_MISMATCH",
+    );
+    for (const observation of [
+      { ...decision, authority: "OBSERVATIONAL" },
+      { ...decision, mode: "SHADOW" },
+    ]) {
+      expect(() =>
+        c.adoptClaim(intent, observation as unknown as DecisionGate, authorization, material),
+      ).toThrow("CLAIM_ADOPTION_MISMATCH");
+    }
     expect(() =>
       c.adoptClaim(
         intent,

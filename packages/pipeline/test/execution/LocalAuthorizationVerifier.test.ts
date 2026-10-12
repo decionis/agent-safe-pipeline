@@ -299,6 +299,94 @@ describe("LocalAuthorizationVerifier", () => {
     expect(await verifier.verifyAndConsume(intent, decisionFor(grant, "hosted"))).toBeNull();
   });
 
+  it("names a local claim's material as local, and a delegated claim's as the delegate's", async () => {
+    const intent = captured();
+    const { grants, verifier } = setup();
+    const grant = grantFor(intent);
+    const token = grants.issue(grant);
+    const authorization = await verifier.verifyAndConsume(intent, decisionFor(grant, token));
+    if (authorization === null) throw new Error("not consumed");
+    expect(verifier.claimMaterial(authorization)).toEqual({ kind: "local" });
+    // An authorization this verifier did not claim, with no delegate to ask: nothing.
+    const foreign: VerifiedAuthorization = { ...authorization, grantId: "hosted-grant-1" };
+    expect(verifier.claimMaterial(foreign)).toBeNull();
+    // With a delegate, a foreign claim's material is whatever the delegate says.
+    const delegate = {
+      verifyAndConsume: vi.fn(async () => null),
+      claimMaterial: vi.fn(() => ({ kind: "decionis", claim_token: "c".repeat(43) })),
+      adoptClaim: vi.fn(() => true),
+    };
+    const delegating = setup({ delegate });
+    expect(delegating.verifier.claimMaterial(foreign)).toEqual({
+      kind: "decionis",
+      claim_token: "c".repeat(43),
+    });
+    expect(delegate.claimMaterial).toHaveBeenCalledWith(foreign);
+    // A delegate without the seam keeps its claims to itself.
+    const bare = setup({ delegate: { verifyAndConsume: async () => null } });
+    expect(bare.verifier.claimMaterial(foreign)).toBeNull();
+  });
+
+  it("adopts a claim as local from its material, so its finalization is recorded here, and hands other material to the delegate", async () => {
+    const intent = captured();
+    const { verifier, records } = setup();
+    const grant = grantFor(intent);
+    const decision = decisionFor(grant, "token-made-elsewhere");
+    const authorization: VerifiedAuthorization = {
+      decisionId: grant.decisionId,
+      dossierId: grant.dossierId,
+      grantId: `edge:${grant.intentId}`,
+      intentHash: grant.intentHash,
+      expiresAt: grant.expiresAt,
+    };
+    // Before adoption the claim is nobody's here: finalization has nowhere to go.
+    expect(
+      await verifier.finalize({ captured: intent, decision, authorization, outcome: "COMMITTED" }),
+    ).toBe("PENDING");
+    expect(verifier.adoptClaim(authorization, { kind: "local" })).toBe(true);
+    expect(
+      await verifier.finalize({ captured: intent, decision, authorization, outcome: "COMMITTED" }),
+    ).toBe("RECORDED");
+    expect(records).toEqual([
+      {
+        event: "EDGE_EXECUTION_FINALIZED",
+        intent_id: intent.intent.intentId,
+        intent_hash: intent.intentHash,
+        decision_id: grant.decisionId,
+        outcome: "COMMITTED",
+      },
+    ]);
+    // Material of another kind is the delegate's to adopt, and nobody's without one.
+    const other: VerifiedAuthorization = { ...authorization, grantId: "hosted-grant-2" };
+    expect(verifier.adoptClaim(other, { kind: "decionis", claim_token: "c".repeat(43) })).toBe(
+      false,
+    );
+    const delegate = {
+      verifyAndConsume: vi.fn(async () => null),
+      adoptClaim: vi.fn(() => true),
+    };
+    const delegating = setup({ delegate });
+    expect(
+      delegating.verifier.adoptClaim(other, { kind: "decionis", claim_token: "c".repeat(43) }),
+    ).toBe(true);
+    expect(delegate.adoptClaim).toHaveBeenCalledWith(other, {
+      kind: "decionis",
+      claim_token: "c".repeat(43),
+    });
+    // Adopted through the delegate, the claim is still not local: its finalization is the delegate's.
+    expect(
+      await delegating.verifier.finalize({
+        captured: intent,
+        decision,
+        authorization: other,
+        outcome: "COMMITTED",
+      }),
+    ).toBe("PENDING");
+    expect(delegating.records).toEqual([]);
+    const bare = setup({ delegate: { verifyAndConsume: async () => null } });
+    expect(bare.verifier.adoptClaim(other, { kind: "decionis" })).toBe(false);
+  });
+
   it("records a local attempt's outcome as its finalization", async () => {
     const intent = captured();
     const { grants, verifier, records } = setup();

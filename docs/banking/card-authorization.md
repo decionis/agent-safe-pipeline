@@ -197,12 +197,14 @@ subject.
 ## Latency
 
 What this process adds to the hook is measured in the package's `test/performance` suite on every
-verification, and is far inside any authorization's budget:
+verification, and is far inside any authorization's budget. The suite asserts a budget wide
+enough to hold on a loaded runner and under the mutation gate's instrumentation; a quiet machine
+measures an order of magnitude below it:
 
-| Step, in process                                                | 99th percentile, measured |
-| --------------------------------------------------------------- | ------------------------- |
-| match an authorization to a held grant                          | under 50 microseconds     |
-| find, open and spend a hold in the in-memory store, 10,000 held | under 1 millisecond       |
+| Step, in process                                                | 99th percentile, measured | Asserted budget |
+| --------------------------------------------------------------- | ------------------------- | --------------- |
+| match an authorization to a held grant                          | under 50 microseconds     | 1 millisecond   |
+| find, open and spend a hold in the in-memory store, 10,000 held | under 1 millisecond       | 5 milliseconds  |
 
 The rest of the hook's time is the claim: one HTTPS round trip from the executor to the authority
 (`POST /v1/execution/claim-token`), and, with the shared store, one or two round trips to the
