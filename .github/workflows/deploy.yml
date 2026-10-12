@@ -289,8 +289,25 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # ECR Public meters anonymous pulls per source address and GitHub's
+      # runners share addresses, so a 429 before the build's first step is the
+      # registry, not the image: the pinned bases are pulled first, with a
+      # pause between attempts, and the build then finds them locally.
       - name: Build the trusted executor image
-        run: docker build -f packages/agentsafe/Dockerfile -t agentsafe:ci .
+        shell: bash
+        run: |
+          set -euo pipefail
+          pull() {
+            for attempt in 1 2 3; do
+              if docker pull --quiet "$1"; then return 0; fi
+              if [ "$attempt" = 3 ]; then echo "could not pull $1 after 3 attempts" >&2; return 1; fi
+              sleep $((attempt * 30))
+            done
+          }
+          for image in $(sed -n 's/^ARG [A-Z_]*_BASE_IMAGE=//p' packages/agentsafe/Dockerfile); do
+            pull "$image"
+          done
+          docker build -f packages/agentsafe/Dockerfile -t agentsafe:ci .
       - name: Refuse to start without configuration
         shell: bash
         run: |
