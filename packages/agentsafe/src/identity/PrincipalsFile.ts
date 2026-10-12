@@ -12,6 +12,7 @@ export const OPERATOR_SCOPES = [
   "metrics",
   "evidence",
   "cards.authorize",
+  "escalations.resume",
 ] as const;
 export type OperatorScope = (typeof OPERATOR_SCOPES)[number];
 

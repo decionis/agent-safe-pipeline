@@ -1,6 +1,6 @@
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { LocalAuthority } from "@decionis/agent-safe-pipeline/testing";
+import { LocalAuthority, LocalPresence } from "@decionis/agent-safe-pipeline/testing";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { cardHandlers } from "../../src/adapters/cards/CardHandlers.js";
 import { prepareCardPurchase } from "../../src/adapters/cards/CardEffect.js";
@@ -11,7 +11,12 @@ import { InMemoryExecutionJournal } from "../../src/journal/InMemoryExecutionJou
 import type { ActionResponse } from "../../src/service/Requests.js";
 import { ServiceError } from "../../src/service/ServiceError.js";
 import { TrustedExecutorService } from "../../src/service/TrustedExecutorService.js";
-import { collectedEvents, loopbackEnvironment, openSecrets } from "../support/Environment.js";
+import {
+  APPROVER_ID,
+  collectedEvents,
+  loopbackEnvironment,
+  openSecrets,
+} from "../support/Environment.js";
 
 /** A cardholder's tap, as the presence provider would sign it; the double accepts only this one. */
 const TAPPED =
@@ -56,10 +61,24 @@ interface Built {
 
 function build(
   mode: "ENFORCEMENT" | "SHADOW" = "ENFORCEMENT",
-  options: { readonly env?: Record<string, string>; readonly posture?: { degraded: boolean } } = {},
+  options: {
+    readonly env?: Record<string, string>;
+    readonly posture?: { degraded: boolean };
+    readonly authority?: LocalAuthority;
+    readonly presence?: LocalPresence;
+    readonly escalation?: "NONE" | "DIRECT";
+  } = {},
 ): Built {
   const env: Record<string, string> = {
-    ...loopbackEnvironment({ authority, providerBaseUrl: "http://127.0.0.1:9" }, mode),
+    ...loopbackEnvironment(
+      {
+        authority: options.authority ?? authority,
+        ...(options.presence === undefined ? {} : { presence: options.presence }),
+        providerBaseUrl: "http://127.0.0.1:9",
+      },
+      mode,
+      options.escalation ?? "NONE",
+    ),
     DOWNSTREAM_SYSTEM: "synthetic-issuer",
     DOWNSTREAM_OPERATION: "card_purchase",
     EXECUTOR_ACTOR_ID: "synthetic-shopping-agent",
@@ -679,6 +698,141 @@ describe("a cardholder's tap resumes an escalated purchase", () => {
       service.resume({ mode: "ATTESTATION", intent: {}, attestation: TAPPED }),
     );
     expect([unknownIntent.status, unknownIntent.code]).toEqual([400, "INTENT_INVALID"]);
+    service.close();
+  });
+});
+
+describe("a hold the policy sends to a presence provider", () => {
+  const presence = new LocalPresence({ autoComplete: "MANUAL", roles: { [APPROVER_ID]: "CRO" } });
+  const routed = new LocalAuthority({
+    presence,
+    verifyAttestation: (attestation) => attestation === TAPPED,
+    escalationRouting: {
+      selector: { kind: "ROLE", role_id: "CARDHOLDER" },
+      verification: { provider: "koard", methods: ["CARD_TAP"], level: "STANDARD" },
+    },
+  });
+  const routedRequests = (part: string) =>
+    routed.requests.filter((request) => request.path.includes(part));
+
+  /** The issuer app's backend, where the cardholder's tap lands: one scope, nothing else. */
+  const PRESENTER: Principal = {
+    ...ISSUER,
+    id: "synthetic-issuer-app",
+    scopes: new Set(["escalations.resume"]),
+  } as unknown as Principal;
+
+  beforeAll(async () => {
+    await presence.start();
+    await routed.start();
+  });
+
+  afterAll(async () => {
+    await routed.stop();
+    await presence.stop();
+  });
+
+  it("hands the caller where the hold goes, and asks Presence for nothing even in DIRECT", async () => {
+    const { service } = build("ENFORCEMENT", { authority: routed, presence, escalation: "DIRECT" });
+    const asked = presence.requests.length;
+    const { body } = purchase(50_000);
+    const escalated = await service.propose(body);
+    expect(escalated).toMatchObject({
+      verdict: "ESCALATE",
+      outcome: "ESCALATE_PENDING",
+      executed: false,
+      escalation: {
+        mode: "ATTESTATION",
+        requirement: {
+          requirement_id: null,
+          selector: { kind: "ROLE", role_id: "CARDHOLDER" },
+          verification: { provider: "koard", methods: ["CARD_TAP"], level: "STANDARD" },
+        },
+      },
+    });
+    expect(
+      Date.parse(
+        (escalated.escalation as { requirement: { expires_at: string } }).requirement.expires_at,
+      ),
+    ).toBeGreaterThan(Date.now());
+    expect(presence.requests).toHaveLength(asked);
+    service.close();
+  });
+
+  it("lets the issuer app's backend present the tap, and refuses it anything else", async () => {
+    const { service, lines } = build("ENFORCEMENT", { authority: routed });
+    const { body } = purchase(50_000);
+    const escalated = await service.propose(body);
+    const handoff = JSON.parse(JSON.stringify(escalated.escalation)) as Record<string, unknown>;
+    const intent = handoff["intent"] as Record<string, unknown>;
+
+    // Without the scope, nothing is read.
+    const unscoped = { ...PRESENTER, scopes: new Set(["status"]) } as unknown as Principal;
+    const scoped = await refusal(service.resume({ ...handoff, attestation: TAPPED }, unscoped));
+    expect([scoped.status, scoped.code]).toEqual([403, "ROLE_FORBIDDEN"]);
+    // A Presence handoff is the proposer's to resume, never an operator's.
+    const direct = await refusal(
+      service.resume(
+        {
+          mode: "DIRECT",
+          intent,
+          request_id: "synthetic-request-1",
+          approval_url: null,
+          expires_at: null,
+        },
+        PRESENTER,
+      ),
+    );
+    expect([direct.status, direct.code]).toEqual([403, "ROLE_FORBIDDEN"]);
+    // The intent is re-hashed on the way in: a card number written into it is refused.
+    const tampered = {
+      ...intent,
+      parameters: { ...(intent["parameters"] as object), cardTokenRef: "4111111111111111" },
+    };
+    const pan = await refusal(
+      service.resume({ mode: "ATTESTATION", intent: tampered, attestation: TAPPED }, PRESENTER),
+    );
+    expect([pan.status, pan.code]).toEqual([422, "CARD_PAN_REFUSED"]);
+
+    // The handoff presented whole, with the tap, by the operator: a fresh evaluation.
+    const evaluations = routedRequests("enforce-and-bind").length;
+    const resumed = await service.resume({ ...handoff, attestation: TAPPED }, PRESENTER);
+    expect(resumed).toMatchObject({
+      intent_id: escalated.intent_id,
+      intent_hash: escalated.intent_hash,
+      verdict: "ALLOW",
+      outcome: "HELD_FOR_AUTHORIZATION",
+      reason_codes: ["PRESENCE_ATTESTATION_VERIFIED"],
+    });
+    expect(routedRequests("enforce-and-bind")).toHaveLength(evaluations + 1);
+    expect(routedRequests("enforce-and-bind").at(-1)?.body).toMatchObject({
+      intent_id: escalated.intent_id,
+      evidence: { humanApproval: { provider: "attestation", attestation: TAPPED } },
+    });
+    // Every line the resumption produced names the operator, not the agent.
+    expect(parsed(lines).find((line) => line["event"] === "GRANT_HELD")).toMatchObject({
+      caller_principal: PRESENTER.id,
+    });
+    service.close();
+  });
+
+  it("tells the authority how busy the card is, in numbers only", async () => {
+    const { service } = build("ENFORCEMENT", { authority: routed });
+    const { parameters, body } = purchase();
+    await service.propose(body);
+    const first = routedRequests("enforce-and-bind").at(-1)?.body as {
+      context: Record<string, unknown>;
+    };
+    expect(first.context["card_velocity"]).toEqual({ window_seconds: 600, holds: 0, claims: 0 });
+    expect(await service.authorizeCard(authorizationFor(parameters), ISSUER)).toMatchObject({
+      decision: "APPROVE",
+    });
+    await service.propose({ ...body, idempotency_key: "fixture-card-purchase-velocity" });
+    const second = routedRequests("enforce-and-bind").at(-1)?.body as {
+      context: Record<string, unknown>;
+    };
+    expect(second.context["card_velocity"]).toEqual({ window_seconds: 600, holds: 1, claims: 1 });
+    expect(JSON.stringify(second.context)).not.toContain(parameters.cardTokenRef);
     service.close();
   });
 });

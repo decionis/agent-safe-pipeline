@@ -457,3 +457,40 @@ describe("LocalAuthority presence attestations", () => {
     expect(attesting.requests.at(-1)?.response?.status).toBe(409);
   });
 });
+
+describe("where the synthetic authority sends a hold", () => {
+  const routed = new LocalAuthority({
+    escalationRouting: {
+      selector: { kind: "ROLE", role_id: "CARDHOLDER" },
+      verification: { provider: "koard", methods: ["CARD_TAP"], level: "STANDARD" },
+    },
+  });
+
+  beforeAll(async () => {
+    await routed.start();
+  });
+
+  afterAll(async () => {
+    await routed.stop();
+  });
+
+  it("attaches the routing to every ESCALATE and to nothing else, as the hosted authority does", async () => {
+    const gate = new DecionisGate({
+      baseUrl: routed.baseUrl,
+      apiKey: LOCAL_AUTHORITY_API_KEY,
+      allowInsecureLoopback: true,
+    });
+    const held = capture(50_000);
+    const decision = await gate.evaluate(held);
+    expect(decision.verdict).toBe("ESCALATE");
+    expect(decision.escalationRequirement).toEqual({
+      requirementId: null,
+      expiresAt: held.intent.expiresAt,
+      selector: { kind: "ROLE", roleId: "CARDHOLDER" },
+      verification: { provider: "koard", methods: ["CARD_TAP"], level: "STANDARD" },
+    });
+    const allowed = await gate.evaluate(capture(50));
+    expect(allowed.verdict).toBe("ALLOW");
+    expect(allowed).not.toHaveProperty("escalationRequirement");
+  });
+});

@@ -502,3 +502,106 @@ describe("DecionisGate human-approval evidence", () => {
     });
   });
 });
+
+describe("where an ESCALATE goes", () => {
+  const routing = {
+    requirement_id: null,
+    expires_at: "2026-10-12T12:05:00.000Z",
+    selector: { kind: "ROLE", role_id: "CARDHOLDER" },
+    verification: { provider: "koard", methods: ["CARD_TAP"], level: "STANDARD" },
+  };
+  const held = (intent: CapturedIntent, overrides: Record<string, unknown> = {}) =>
+    decisionBody(intent, {
+      status: "ESCALATE",
+      should_execute: false,
+      execution_token: null,
+      execution_token_expires_at: null,
+      approval_request_id: "reqauth_cards_0001",
+      escalation_requirement: routing,
+      ...overrides,
+    });
+
+  it("reads the routing the authority attached to a hold, in enforcement and in shadow", async () => {
+    const intent = captured();
+    const expected = {
+      requirementId: null,
+      expiresAt: "2026-10-12T12:05:00.000Z",
+      selector: { kind: "ROLE", roleId: "CARDHOLDER" },
+      verification: { provider: "koard", methods: ["CARD_TAP"], level: "STANDARD" },
+    };
+    const enforcement = await gateWith(
+      vi.fn<typeof fetch>(async () => json(held(intent))),
+    ).evaluate(intent);
+    expect(enforcement.verdict).toBe("ESCALATE");
+    expect(enforcement.escalationRequirement).toEqual(expected);
+    const shadow = await gateWith(
+      vi.fn<typeof fetch>(async () => json(held(intent, { mode: "SHADOW" }))),
+      "SHADOW",
+    ).evaluate(intent);
+    expect(shadow.escalationRequirement).toEqual(expected);
+    const presence = await gateWith(
+      vi.fn<typeof fetch>(async () =>
+        json(
+          held(intent, {
+            escalation_requirement: {
+              ...routing,
+              requirement_id: "reqauth_wire_0001",
+              selector: { kind: "PRINCIPAL" },
+              verification: null,
+            },
+          }),
+        ),
+      ),
+    ).evaluate(intent);
+    expect(presence.escalationRequirement).toEqual({
+      requirementId: "reqauth_wire_0001",
+      expiresAt: "2026-10-12T12:05:00.000Z",
+      selector: { kind: "PRINCIPAL" },
+      verification: null,
+    });
+  });
+
+  it("carries no routing on anything but a hold, and none when the authority sent none", async () => {
+    const intent = captured();
+    const allowed = await gateWith(
+      vi.fn<typeof fetch>(async () =>
+        json(decisionBody(intent, { escalation_requirement: routing })),
+      ),
+    ).evaluate(intent);
+    expect(allowed.verdict).toBe("ALLOW");
+    expect(allowed).not.toHaveProperty("escalationRequirement");
+    const silent = await gateWith(
+      vi.fn<typeof fetch>(async () => json(held(intent, { escalation_requirement: null }))),
+    ).evaluate(intent);
+    expect(silent.verdict).toBe("ESCALATE");
+    expect(silent).not.toHaveProperty("escalationRequirement");
+    const absent = await gateWith(
+      vi.fn<typeof fetch>(async () => {
+        const body: Record<string, unknown> = held(intent);
+        delete body["escalation_requirement"];
+        return json(body);
+      }),
+    ).evaluate(intent);
+    expect(absent).not.toHaveProperty("escalationRequirement");
+  });
+
+  it("fails closed on routing it cannot read, as on any field outside the contract", async () => {
+    const intent = captured();
+    for (const broken of [
+      { ...routing, verification: { ...routing.verification, methods: "CARD_TAP" } },
+      { ...routing, verification: { ...routing.verification, provider: "Koard" } },
+      { ...routing, selector: { kind: "TEAM" } },
+      { ...routing, extra: true },
+      "koard",
+    ]) {
+      const decision = await gateWith(
+        vi.fn<typeof fetch>(async () => json(held(intent, { escalation_requirement: broken }))),
+      ).evaluate(intent);
+      expect(decision, JSON.stringify(broken)).toMatchObject({
+        verdict: "BLOCK",
+        failClosed: true,
+        reasonCodes: ["AUTHORITY_UNAVAILABLE"],
+      });
+    }
+  });
+});

@@ -189,6 +189,13 @@ describe("ExecutorHttpServer", () => {
         (route) => route.path,
       ),
     ).toEqual(["/v1/actions", "/v1/reconciliations", "/v1/escalations"]);
+    // The issuer app's backend presents a cardholder's attestation for an
+    // intent it did not propose: one proposer route admits one operator scope.
+    expect(
+      ROUTES.flatMap((route) =>
+        "operatorScope" in route ? [`${route.path}:${String(route.operatorScope)}`] : [],
+      ),
+    ).toEqual(["/v1/escalations:escalations.resume"]);
     expect(
       ROUTES.flatMap((route) =>
         "role" in route && route.role === "OPERATOR" ? [`${route.path}:${route.scope}`] : [],

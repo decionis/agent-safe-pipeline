@@ -403,6 +403,20 @@ export interface LocalAuthorityOptions {
    * this double's own origin, so a test can see the link travel end to end.
    */
   readonly verificationLinks?: boolean;
+  /**
+   * Where every ESCALATE goes, as the hosted authority reads it from the
+   * policy and attaches it to the decision as `escalation_requirement`: the
+   * selector (kind and role) and who proves the person. A test names a
+   * third-party provider here to see a hold routed to a cardholder's tap.
+   */
+  readonly escalationRouting?: {
+    readonly selector?: { readonly kind: "ROLE" | "PRINCIPAL"; readonly role_id?: string } | null;
+    readonly verification: {
+      readonly provider: string;
+      readonly methods: readonly string[];
+      readonly level: "STANDARD" | "HIGH_CONFIDENCE";
+    };
+  };
 }
 
 /** The organization a provisioned synthetic workspace belongs to. */
@@ -519,6 +533,7 @@ export class LocalAuthority {
     { readonly request: LocalAuthorityRequest; readonly decision: Decision }
   >();
   private readonly verificationLinks: boolean;
+  private readonly escalationRouting: LocalAuthorityOptions["escalationRouting"];
   private server: Server | null = null;
   private port = 0;
 
@@ -526,6 +541,7 @@ export class LocalAuthority {
     if (process.env.NODE_ENV === "production") throw new Error("LOCAL_DOUBLE_FORBIDDEN");
     this.apiKey = options.apiKey ?? LOCAL_AUTHORITY_API_KEY;
     this.verificationLinks = options.verificationLinks === true;
+    this.escalationRouting = options.escalationRouting;
     this.presence = options.presence;
     this.legacyVerifyReceipt = options.verifyReceipt;
     this.verifyAttestation = options.verifyAttestation;
@@ -1052,6 +1068,20 @@ export class LocalAuthority {
       dossier_sha256: `sha256:${createHash("sha256").update(dossierId).digest("hex")}`,
       dossier_url: `/v1/protocol/dossiers/${dossierId}`,
       approval_request_id: status === "ESCALATE" ? `synthetic-approval-${sequence}` : null,
+      ...(status === "ESCALATE" && this.escalationRouting !== undefined
+        ? {
+            escalation_requirement: {
+              requirement_id: null,
+              expires_at: request.expires_at,
+              selector: this.escalationRouting.selector ?? null,
+              verification: {
+                provider: this.escalationRouting.verification.provider,
+                methods: [...this.escalationRouting.verification.methods],
+                level: this.escalationRouting.verification.level,
+              },
+            },
+          }
+        : {}),
       ledger_entry_id: `synthetic-ledger-${sequence}`,
       authority_classification: request.mode === "ENFORCEMENT" ? "AUTHORITATIVE" : "OBSERVATIONAL",
       execution_eligible: false,
