@@ -143,12 +143,12 @@ The issuer's real-time hook, an `OPERATOR` holding `cards.authorize`, posts the 
 }
 ```
 
-The match is pure and local: same card, same currency, same merchant (and category when the
-purchase named one), an amount at or below the grant, a grant unexpired and unspent. A match claims
-the grant through the authority exactly once and answers `{ "decision": "APPROVE", ... }`; anything
-else answers `{ "decision": "NO_MATCH", "code": ... }`, and what that means for the authorization is
-the issuer's own policy. The codes, the retry semantics and the per-process bounds are in the
-README's card section.
+The hold is found by the card and the merchant the authorization names, and the match is pure and
+local: same currency, same category when the purchase named one, an amount at or below the grant,
+a grant unexpired and unspent. A match claims the grant through the authority exactly once and
+answers `{ "decision": "APPROVE", ... }`; anything else answers `{ "decision": "NO_MATCH", "code":
+... }`, and what that means for the authorization is the issuer's own policy. The codes, the retry
+semantics and the bounds are in the README's card section.
 
 ## 5. The result becomes the effect
 
@@ -158,15 +158,114 @@ above the ceiling is `EFFECT_MISMATCH`, which halts the executor by default. A d
 `FAILED`; a result after the claim's lease finalizes `INDETERMINATE`. The dossier then carries the
 intent, the policy version, the approval facts and what the issuer actually approved.
 
+## 6. Replicas and restarts
+
+Holds are keyed by the card and the merchant, so an agent's burst across merchants holds in
+parallel and one card has at most one pending purchase per merchant. By default they live in the
+process, which is right for exactly one replica: a restart loses only grants nobody claimed, and
+they expire with no effect.
+
+A bank that runs several replicas behind its hook, or that must keep holds across a restart, gives
+the executor a shared store:
+
+| Variable                                    | What it is                                                                   |
+| ------------------------------------------- | ---------------------------------------------------------------------------- |
+| `EXECUTOR_CARD_HOLDS_STORE=postgres`        | holds, claims and the per-card activity become rows every replica shares     |
+| `EXECUTOR_CARD_HOLDS_NAMESPACE`             | whose rows these are; two deployments on one database never see each other's |
+| `EXECUTOR_CARD_HOLDS_DATABASE_URL`, `_FILE` | the connection string, a secret like any other                               |
+| `EXECUTOR_CARD_HOLDS_KEY`, `_FILE`          | 32 bytes, hex or base64: what a row keeps of a grant is sealed under it      |
+| `EXECUTOR_CARD_HOLDS_TABLE`                 | the tables' prefix, `agentsafe_card` by default                              |
+
+`agentsafe cards holds-schema` prints the DDL; the operator creates the three tables once, before
+the first replica starts, and the executor's database role needs `SELECT`, `INSERT`, `UPDATE` and
+`DELETE` on them and nothing else. The executor probes the tables at start and refuses to start
+when it cannot reach them, since no authorization could then match.
+
+The race rule is the same as in memory, decided by the database in one statement instead of by one
+process's memory: a hold takes its key when the row is absent, spent or expired, and an
+authorization spends the row that is still unspent and unexpired, so of two replicas racing for the
+same hold one claims. A hold another replica made is admitted on first use through the executor's
+own checks, exactly as the replica that made it admitted it, and recorded as adopted. A claim
+another replica made is settled with the claim material that replica sealed into the row, so the
+hook and its result may reach any replica, in any order, and a replica started after the claim
+finalizes it with the authority. The rows outside the seal are references, times and flags; the
+grant's token and the claim's tokens are never in the database in clear, and a sealed value moved
+to another row does not open. The hold key is read from the secret store when a row is sealed; it
+is the deployment's, not Decionis's, and where it lives per hosting tier is the deployment guide's
+subject.
+
+## Latency
+
+What this process adds to the hook is measured in the package's `test/performance` suite on every
+verification, and is far inside any authorization's budget:
+
+| Step, in process                                                | 99th percentile, measured |
+| --------------------------------------------------------------- | ------------------------- |
+| match an authorization to a held grant                          | under 50 microseconds     |
+| find, open and spend a hold in the in-memory store, 10,000 held | under 1 millisecond       |
+
+The rest of the hook's time is the claim: one HTTPS round trip from the executor to the authority
+(`POST /v1/execution/claim-token`), and, with the shared store, one or two round trips to the
+bank's database. Those are the network's figures, measured in a deployment rather than here; the
+`@decionis/iso8583` simulator reports them per authorization on a given link. The figure Decionis
+stands behind for the hook is therefore stated as a budget per placement, and confirmed on the
+bank's own link before enforcement:
+
+| Placement of the claim                                            | Hook answer, 99th percentile |
+| ----------------------------------------------------------------- | ---------------------------- |
+| hosted authority in the same cloud region as the executor         | 150 ms                       |
+| hosted authority in another region                                | 300 ms                       |
+| local claim at the edge (below), hosted authority told afterwards | 10 ms                        |
+
+A hook whose processor budget is tighter than its placement allows uses the local claim.
+
+## A local claim with the edge evaluator
+
+Where the budget demands it, the claim stays in the bank. With
+`EXECUTOR_DECISION_AUTHORITY=edge` ([the edge evaluator](../edge-evaluator.md)) the purchase is
+decided locally by the signed policy bundle and the `ALLOW` becomes a local authorization; the
+hold keeps it, the issuer's authorization claims it in the process through the local verifier, and
+single use is held in the replay store every replica shares. The whole path, decision to
+finalization, makes no network call: the decision and its finalization are recorded in the
+executor's evidence chain (`EDGE_DECISION`, `EDGE_EXECUTION_FINALIZED`) under the bundle's id and
+key, and the hosted authority learns of them afterwards through the signed usage reports.
+
+What that is as evidence: a local claim is single-use by the shared replay store, bound to the
+intent's hash by the bundle's own evaluation digest, and signed into the evidence chain; it is not
+a hosted Decision Dossier for the claim, and a cardholder's tap is never evaluated locally, since
+an `ESCALATE` always goes to the hosted authority. The recommendation is to accept it on the card
+path when three things hold: the replay store is the shared Postgres one, the evidence chain is
+retained and signed, and the bundle and usage-report keys live in the bank's key vault, one per
+tenant. With the shared hold store, a hold claimed locally on one replica is settled on another,
+which records the finalization in its own chain.
+
+## Incremental and split authorizations
+
+An issuer may be asked for the same authorization twice, for more. `EXECUTOR_CARD_AUTHORIZATIONS`
+says what the hook does with it, per deployment:
+
+- `single` (the default): one authorization spends the hold, and the same authorization id
+  re-presented for a different amount is `NO_MATCH` with `AUTHORIZATION_ID_REUSED`.
+- `incremental`: the same authorization id re-presented for a higher amount, within the grant's
+  ceiling and before its result is recorded, is answered from the same claim, with no second claim
+  (`CARD_AUTHORIZATION_INCREMENTED` in the security stream); the result then records the final
+  amount against the ceiling. Less than before, more than the ceiling, another merchant, or a
+  re-presentation after the result are refused as a reuse.
+
+Split authorizations, several authorization ids against one purchase, are not offered: a grant is
+claimed and finalized once, so a second capture against it would have no finalization of its own
+and the dossier would not say what happened to it. An issuer that splits lets the first capture
+settle the grant and treats the rest as `NO_MATCH`, or the agent proposes one purchase per capture.
+
 ## What this version does not do
 
-- Holds are per process and in memory. A restart loses only grants nobody claimed. Replica routing
-  and a shared store are later work.
-- One pending purchase per card at a time. A second purchase on the same card waits for the first
-  to be authorised or to expire.
+- Split authorizations, as above.
 - The intent comes from the agent platform. Nothing here derives an intent from an ISO 8583
-  message; an authorization with no grant is `NO_MATCH`.
-- The latency of the claim call inside the authorization's budget has not been published.
+  message; an authorization with no grant is `NO_GRANT`. The
+  [`@decionis/iso8583` interceptor](https://github.com/decionis/Decionis/tree/master/packages/interceptors/iso8583)
+  does that on the wire, in its match mode, through this hook.
+- Rotating the hold key re-seals nothing: a hold sealed under the previous key is read as absent,
+  and expires with no effect. Rotate between bursts, or let the holds drain first.
 
 The evidence boundary is unchanged: the security stream carries intent ids and codes, never a card
 reference, an amount, a merchant or a token.

@@ -525,6 +525,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/adapters/cards/CardHoldSeal.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/adapters/cards/CardPurchase.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
@@ -538,6 +544,12 @@
     },
     {
       "path": "packages/agentsafe/test/adapters/cards/Pan.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/adapters/cards/PostgresCardHolds.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false
@@ -592,6 +604,12 @@
     },
     {
       "path": "packages/agentsafe/test/cli/Arguments.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/cli/Cards.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false
@@ -1161,6 +1179,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/performance/CardAuthorizationPerformance.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/posture/HostPosture.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
@@ -1221,6 +1245,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/service/EdgeCardFlow.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/service/EdgeRuntime.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
@@ -1270,6 +1300,12 @@
     },
     {
       "path": "packages/agentsafe/test/support/EvidenceLog.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/support/FakeCardHoldsSql.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false
@@ -1468,6 +1504,12 @@
     },
     {
       "path": "packages/pipeline/test/execution/FixtureFinalization.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/pipeline/test/execution/HoldAdoption.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false

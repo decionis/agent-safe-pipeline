@@ -336,88 +336,93 @@ Every variable, in one list (`CONFIG_KEYS`). A missing or invalid value is a ref
 names the variable and never its value. Nothing that identifies a tenant, a system, a person or a
 network path has a default.
 
-| Variable                                                      | Meaning                                                                                                                    |
-| ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `EXECUTOR_MODE`                                               | `SHADOW` or `ENFORCEMENT`                                                                                                  |
-| `EXECUTOR_BIND_ADDRESS`, `PORT`                               | Where the listener binds                                                                                                   |
-| `EXECUTOR_TENANT_ID`                                          | Legacy mode only: the Decionis tenant, a UUID                                                                              |
-| `EXECUTOR_ACTOR_ID`, `_TYPE`                                  | Legacy mode only: the actor the intent names; `EXECUTOR_ACTOR_RUNTIME` is optional                                         |
-| `EXECUTOR_INTENT_TTL_SECONDS`                                 | How long a proposal stays valid, at most five minutes; a ceremony has to finish inside it                                  |
-| `EXECUTOR_CALLER_TOKEN`                                       | Legacy mode only: the token the one caller presents; secret                                                                |
-| `EXECUTOR_PRINCIPALS_FILE`                                    | The principals file; excludes `EXECUTOR_TENANT_ID`, `EXECUTOR_ACTOR_*` and the caller token; required in production        |
-| `EXECUTOR_ALLOW_LEGACY_CALLER`                                | `true` lets production run without a principals file, on the legacy caller alone                                           |
-| `EXECUTOR_JWT_AUDIENCE`, `EXECUTOR_JWKS_FILE`                 | Together: the audience workload tokens must carry, and the JWKS they are verified against                                  |
-| `EXECUTOR_JWKS_URL`, `EXECUTOR_JWKS_CA_FILE`                  | Optional: where the JWKS is refreshed from through the guarded fetch, and the bundle that address is verified against      |
-| `EXECUTOR_JWKS_REFRESH_SECONDS`                               | How often, one minute to a day, five minutes by default                                                                    |
-| `EXECUTOR_JWT_CLOCK_TOLERANCE_SECONDS`                        | Leeway on a token's times, up to five minutes, thirty seconds by default                                                   |
-| `EXECUTOR_RATE_LIMIT_UNAUTHENTICATED`                         | `<count>/<seconds>` for attempts that never became a principal; `20/60` by default                                         |
-| `EXECUTOR_AUTH_LOCKOUT`                                       | `<failures>/<seconds>/<lock seconds>` for a principal's proven failures; `10/60/300` by default, `0/…` disables            |
-| `EXECUTOR_ESCALATION`                                         | `NONE`, `DIRECT` or `MANAGED`; refused in shadow, which never escalates                                                    |
-| `EXECUTOR_POSTURE`                                            | `ENFORCED` (the default) or `DEVELOPMENT`, which waives the host checks and says so; refused under `NODE_ENV=production`   |
-| `EXECUTOR_POSTURE_INTERVAL_SECONDS`                           | How often the drift checks repeat while running; ten seconds to ten minutes, sixty by default                              |
-| `EXECUTOR_SECRETS_DIR`                                        | The directory every `<NAME>_FILE` must resolve inside; required in production when any file is mounted                     |
-| `EXECUTOR_TLS_CERT_FILE`, `EXECUTOR_TLS_KEY`                  | The listener's certificate chain and its private key; the key is a secret, given as `EXECUTOR_TLS_KEY_FILE` in production  |
-| `EXECUTOR_TLS_CLIENT_CA_FILE`                                 | Optional: the CA that callers' client certificates chain to; every non-public route then requires one                      |
-| `EXECUTOR_TLS_MIN_VERSION`                                    | `1.3` (the default) or `1.2`, which admits TLS 1.2 with AEAD ciphers only                                                  |
-| `EXECUTOR_ALLOW_PLAINTEXT_LISTENER`                           | `true` runs the listener without TLS, for a developer's machine; refused under `NODE_ENV=production`                       |
-| `EXECUTOR_EGRESS_MAX_RESPONSE_BYTES`                          | The most any outbound response may carry, 1 KiB to 16 MiB, 1 MiB by default                                                |
-| `EXECUTOR_JOURNAL_DIR`                                        | Where the evidence chains' heads and the attempt journal live; absolute, writable, required in enforcement                 |
-| `EXECUTOR_JOURNAL_REQUIRED`                                   | `false` lets enforcement run without a journal, for a developer's machine; refused under `NODE_ENV=production`             |
-| `EXECUTOR_JOURNAL_RETAIN_DAYS`                                | How many days of attempt files a restart reads back, one to a year, seven by default                                       |
-| `EXECUTOR_READY_REQUIRES_NO_UNKNOWN_ATTEMPTS`                 | `true` keeps `/ready` at 503 while any attempt's outcome is unknown                                                        |
-| `EXECUTOR_HALT_FILE`                                          | Optional: a file whose presence halts the executor, watched and polled                                                     |
-| `EXECUTOR_HALT_ON_AUTH_FAILURES`                              | `<count>/<seconds>` of door refusals that halt the executor; `50/60` by default                                            |
-| `EXECUTOR_HALT_ON_EGRESS_REFUSALS`                            | `<count>/<seconds>` of refused outbound requests that halt it; `5/60` by default                                           |
-| `EXECUTOR_HARD_LIMIT_SINGLE_MINOR`                            | `CHF:2500000000,EUR:1000000`: the most one action may move, per currency, in minor units                                   |
-| `EXECUTOR_HARD_LIMIT_WINDOW_SECONDS`                          | The window the count and sum below are measured over; required with either                                                 |
-| `EXECUTOR_HARD_LIMIT_WINDOW_COUNT`                            | Optional: the most actions that may execute inside the window                                                              |
-| `EXECUTOR_HARD_LIMIT_WINDOW_SUM_MINOR`                        | Optional: the most value that may move inside the window, in minor units                                                   |
-| `EXECUTOR_MAX_CLOCK_SKEW_MS`                                  | How far the authority's clock may differ before the executor halts; two seconds by default                                 |
-| `EXECUTOR_AUDIT_CHECKPOINT_LINES`                             | How many chained lines between persisted heads, one hundred by default                                                     |
-| `EXECUTOR_EVIDENCE_DIR`                                       | Where an operator's evidence bundle is written; exporting is refused with `409` when absent                                |
-| `EXECUTOR_EVIDENCE_WINDOW_LINES`                              | Lines of each stream this process keeps for a bundle, 100 to 200000, five thousand by default                              |
-| `EXECUTOR_EVIDENCE_SIGNING_KEY`                               | Optional Ed25519 PKCS#8 key that signs a bundle's manifest; secret, and needs an evidence directory                        |
-| `EXECUTOR_IMAGE_DIGEST`                                       | What the platform says this deployment is running; carried into a bundle and marked not self-verified                      |
-| `EXECUTOR_DECISION_AUTHORITY`                                 | `hosted` (the default): Decionis decides every intent. `edge`: the edge evaluator decides locally                          |
-| `EXECUTOR_EDGE_WASM_PATH`                                     | `edge` only: the evaluator module (ABI 3), licensed separately; the executor refuses to start without it                   |
-| `EXECUTOR_EDGE_ORG_ID`                                        | `edge` only: the Decionis organisation the policy bundles are issued to                                                    |
-| `EXECUTOR_EDGE_BUNDLE_SOURCE`, `_FILE`                        | `url` (the default) fetches bundles from Decionis; `file` reads `EXECUTOR_EDGE_BUNDLE_FILE`                                |
-| `EXECUTOR_EDGE_REFRESH_SECONDS`                               | The routine bundle refresh, one minute to a day, an hour by default                                                        |
-| `EXECUTOR_EDGE_ON_UNAVAILABLE`                                | `hosted` (the default) asks Decionis when there is no usable bundle; `block` refuses                                       |
-| `EXECUTOR_EDGE_REPLAY_STORE`                                  | `memory` (the default) or `postgres`: where single use is held; several replicas need `postgres`                           |
-| `EXECUTOR_EDGE_SINGLE_REPLICA`                                | `true` is required with `memory`: the deployment's statement that it runs one replica                                      |
-| `EXECUTOR_EDGE_REPLAY_DATABASE_URL`, `_TABLE`                 | `postgres` only: the connection string (secret) and the claims table, `agentsafe_edge_replay` by default                   |
-| `EXECUTOR_EDGE_INSTALLATION_ID`                               | The installation a usage report names, one per evidence chain; generated and kept in the journal when absent               |
-| `EXECUTOR_EDGE_USAGE_SIGNING_KEY`, `_KEY_ID`                  | Ed25519 PKCS#8 key monthly usage reports are signed with (secret), and its `kid`; without it a licence warning stands      |
-| `EXECUTOR_EDGE_USAGE_REPORT_DIR`                              | `file` source only: where signed usage reports are written for an operator to upload                                       |
-| `EXECUTOR_EDGE_ENTITLEMENT_FILE`, `EXECUTOR_EDGE_JWKS_FILE`   | `file` source only: the signed entitlement and the pinned Decionis JWKS it is verified against                             |
-| `DECIONIS_API_URL`                                            | The authority, HTTPS                                                                                                       |
-| `DECIONIS_API_KEY`                                            | The server-side Decionis credential; secret                                                                                |
-| `DECIONIS_ALLOW_INSECURE_LOOPBACK`                            | `true` permits plain HTTP to loopback for local doubles; refused under `NODE_ENV=production`                               |
-| `DECIONIS_CA_FILE`, `DECIONIS_SPKI_PINS`                      | Optional: the PEM bundle the authority is verified against, and two or more `sha256/<base64>` SPKI pins                    |
-| `PRESENCE_APPROVER_ID`                                        | The person who must approve (`DIRECT` and `MANAGED`); `PRESENCE_APPROVER_ROLE` is optional in `MANAGED`                    |
-| `PRESENCE_VERIFICATION_LEVEL`, `_METHODS`                     | `STANDARD` or `HIGH_CONFIDENCE`, and a comma-separated list of `WEBAUTHN`, `ACTIVE_LIVENESS`                               |
-| `PRESENCE_API_URL`, `PRESENCE_API_KEY`                        | `DIRECT` only: the Presence service and its server-side credential; secret                                                 |
-| `PRESENCE_ORGANIZATION`                                       | `DIRECT` only: the requesting party the person sees                                                                        |
-| `PRESENCE_CA_FILE`                                            | `DIRECT` only, optional: the PEM bundle the Presence service is verified against                                           |
-| `PRESENCE_HARDWARE_PKI_REQUIRED`, `_DISALLOW_VIRTUAL_CAMERAS` | `DIRECT` only: `true` or `false`                                                                                           |
-| `DOWNSTREAM_URL`                                              | Where the reference handler forwards the verified parameters, HTTPS                                                        |
-| `DOWNSTREAM_LOOKUP_URL`                                       | Optional read-only lookup for reconciliation; must contain `{idempotency_key}`                                             |
-| `DOWNSTREAM_SYSTEM`, `_OPERATION`, `_ENVIRONMENT`             | The downstream target the intent names                                                                                     |
-| `DOWNSTREAM_CREDENTIAL_KIND`                                  | `STATIC_HEADER` (the default), `PRIVATE_KEY_JWT` or `SIGNED_REQUEST`; the other kinds' keys must be absent                 |
-| `DOWNSTREAM_CREDENTIAL`                                       | `STATIC_HEADER`: the header value the downstream expects, prefix included; secret                                          |
-| `DOWNSTREAM_CREDENTIAL_HEADER`                                | `STATIC_HEADER`: the header it goes in                                                                                     |
-| `DOWNSTREAM_TOKEN_URL`, `DOWNSTREAM_CLIENT_ID`                | `PRIVATE_KEY_JWT`: the token endpoint, HTTPS, and the client id                                                            |
-| `DOWNSTREAM_PRIVATE_KEY`                                      | `PRIVATE_KEY_JWT`: the PKCS#8 key the assertion is signed with; secret                                                     |
-| `DOWNSTREAM_PRIVATE_KEY_ID`, `_ALGORITHM`                     | `PRIVATE_KEY_JWT`: optional `kid`, and `ES256` (the default) or `PS256`                                                    |
-| `DOWNSTREAM_TOKEN_AUDIENCE`, `DOWNSTREAM_TOKEN_SCOPE`         | `PRIVATE_KEY_JWT`: optional assertion audience (the token endpoint by default) and scope                                   |
-| `DOWNSTREAM_SIGNING_KEY`, `DOWNSTREAM_SIGNING_KEY_ID`         | `SIGNED_REQUEST`: the Ed25519 PKCS#8 key or the HMAC secret, and the `keyid` the downstream knows it by; the key is secret |
-| `DOWNSTREAM_SIGNING_ALGORITHM`                                | `SIGNED_REQUEST`: `ed25519` (the default) or `hmac-sha256`                                                                 |
-| `DOWNSTREAM_CA_FILE`, `DOWNSTREAM_SPKI_PINS`                  | Optional: the PEM bundle the downstream is verified against, and two or more `sha256/<base64>` SPKI pins                   |
-| `DOWNSTREAM_TIMEOUT_MS`                                       | Finite, at most fifteen seconds                                                                                            |
-| `DOWNSTREAM_LOOKUP_BY_REFERENCE_URL`                          | Optional read-back by the provider's own reference; must contain `{provider_reference}`                                    |
-| `BANKING_ADAPTER_ID`, `BANKING_ADAPTER_VERSION`               | The observer identity the effect evidence names; `AGENTSAFE_CORE_BANKING` and `0.1.0` by default                           |
-| `EXECUTOR_ON_EFFECT_MISMATCH`                                 | `HALT` (the default) or `ALERT`: what an observed effect that is not the authorised one does                               |
+| Variable                                                      | Meaning                                                                                                                              |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `EXECUTOR_MODE`                                               | `SHADOW` or `ENFORCEMENT`                                                                                                            |
+| `EXECUTOR_BIND_ADDRESS`, `PORT`                               | Where the listener binds                                                                                                             |
+| `EXECUTOR_TENANT_ID`                                          | Legacy mode only: the Decionis tenant, a UUID                                                                                        |
+| `EXECUTOR_ACTOR_ID`, `_TYPE`                                  | Legacy mode only: the actor the intent names; `EXECUTOR_ACTOR_RUNTIME` is optional                                                   |
+| `EXECUTOR_INTENT_TTL_SECONDS`                                 | How long a proposal stays valid, at most five minutes; a ceremony has to finish inside it                                            |
+| `EXECUTOR_CALLER_TOKEN`                                       | Legacy mode only: the token the one caller presents; secret                                                                          |
+| `EXECUTOR_PRINCIPALS_FILE`                                    | The principals file; excludes `EXECUTOR_TENANT_ID`, `EXECUTOR_ACTOR_*` and the caller token; required in production                  |
+| `EXECUTOR_ALLOW_LEGACY_CALLER`                                | `true` lets production run without a principals file, on the legacy caller alone                                                     |
+| `EXECUTOR_JWT_AUDIENCE`, `EXECUTOR_JWKS_FILE`                 | Together: the audience workload tokens must carry, and the JWKS they are verified against                                            |
+| `EXECUTOR_JWKS_URL`, `EXECUTOR_JWKS_CA_FILE`                  | Optional: where the JWKS is refreshed from through the guarded fetch, and the bundle that address is verified against                |
+| `EXECUTOR_JWKS_REFRESH_SECONDS`                               | How often, one minute to a day, five minutes by default                                                                              |
+| `EXECUTOR_JWT_CLOCK_TOLERANCE_SECONDS`                        | Leeway on a token's times, up to five minutes, thirty seconds by default                                                             |
+| `EXECUTOR_RATE_LIMIT_UNAUTHENTICATED`                         | `<count>/<seconds>` for attempts that never became a principal; `20/60` by default                                                   |
+| `EXECUTOR_AUTH_LOCKOUT`                                       | `<failures>/<seconds>/<lock seconds>` for a principal's proven failures; `10/60/300` by default, `0/…` disables                      |
+| `EXECUTOR_ESCALATION`                                         | `NONE`, `DIRECT` or `MANAGED`; refused in shadow, which never escalates                                                              |
+| `EXECUTOR_POSTURE`                                            | `ENFORCED` (the default) or `DEVELOPMENT`, which waives the host checks and says so; refused under `NODE_ENV=production`             |
+| `EXECUTOR_POSTURE_INTERVAL_SECONDS`                           | How often the drift checks repeat while running; ten seconds to ten minutes, sixty by default                                        |
+| `EXECUTOR_SECRETS_DIR`                                        | The directory every `<NAME>_FILE` must resolve inside; required in production when any file is mounted                               |
+| `EXECUTOR_TLS_CERT_FILE`, `EXECUTOR_TLS_KEY`                  | The listener's certificate chain and its private key; the key is a secret, given as `EXECUTOR_TLS_KEY_FILE` in production            |
+| `EXECUTOR_TLS_CLIENT_CA_FILE`                                 | Optional: the CA that callers' client certificates chain to; every non-public route then requires one                                |
+| `EXECUTOR_TLS_MIN_VERSION`                                    | `1.3` (the default) or `1.2`, which admits TLS 1.2 with AEAD ciphers only                                                            |
+| `EXECUTOR_ALLOW_PLAINTEXT_LISTENER`                           | `true` runs the listener without TLS, for a developer's machine; refused under `NODE_ENV=production`                                 |
+| `EXECUTOR_EGRESS_MAX_RESPONSE_BYTES`                          | The most any outbound response may carry, 1 KiB to 16 MiB, 1 MiB by default                                                          |
+| `EXECUTOR_JOURNAL_DIR`                                        | Where the evidence chains' heads and the attempt journal live; absolute, writable, required in enforcement                           |
+| `EXECUTOR_JOURNAL_REQUIRED`                                   | `false` lets enforcement run without a journal, for a developer's machine; refused under `NODE_ENV=production`                       |
+| `EXECUTOR_JOURNAL_RETAIN_DAYS`                                | How many days of attempt files a restart reads back, one to a year, seven by default                                                 |
+| `EXECUTOR_READY_REQUIRES_NO_UNKNOWN_ATTEMPTS`                 | `true` keeps `/ready` at 503 while any attempt's outcome is unknown                                                                  |
+| `EXECUTOR_HALT_FILE`                                          | Optional: a file whose presence halts the executor, watched and polled                                                               |
+| `EXECUTOR_HALT_ON_AUTH_FAILURES`                              | `<count>/<seconds>` of door refusals that halt the executor; `50/60` by default                                                      |
+| `EXECUTOR_HALT_ON_EGRESS_REFUSALS`                            | `<count>/<seconds>` of refused outbound requests that halt it; `5/60` by default                                                     |
+| `EXECUTOR_HARD_LIMIT_SINGLE_MINOR`                            | `CHF:2500000000,EUR:1000000`: the most one action may move, per currency, in minor units                                             |
+| `EXECUTOR_HARD_LIMIT_WINDOW_SECONDS`                          | The window the count and sum below are measured over; required with either                                                           |
+| `EXECUTOR_HARD_LIMIT_WINDOW_COUNT`                            | Optional: the most actions that may execute inside the window                                                                        |
+| `EXECUTOR_HARD_LIMIT_WINDOW_SUM_MINOR`                        | Optional: the most value that may move inside the window, in minor units                                                             |
+| `EXECUTOR_MAX_CLOCK_SKEW_MS`                                  | How far the authority's clock may differ before the executor halts; two seconds by default                                           |
+| `EXECUTOR_AUDIT_CHECKPOINT_LINES`                             | How many chained lines between persisted heads, one hundred by default                                                               |
+| `EXECUTOR_EVIDENCE_DIR`                                       | Where an operator's evidence bundle is written; exporting is refused with `409` when absent                                          |
+| `EXECUTOR_EVIDENCE_WINDOW_LINES`                              | Lines of each stream this process keeps for a bundle, 100 to 200000, five thousand by default                                        |
+| `EXECUTOR_EVIDENCE_SIGNING_KEY`                               | Optional Ed25519 PKCS#8 key that signs a bundle's manifest; secret, and needs an evidence directory                                  |
+| `EXECUTOR_IMAGE_DIGEST`                                       | What the platform says this deployment is running; carried into a bundle and marked not self-verified                                |
+| `EXECUTOR_DECISION_AUTHORITY`                                 | `hosted` (the default): Decionis decides every intent. `edge`: the edge evaluator decides locally                                    |
+| `EXECUTOR_EDGE_WASM_PATH`                                     | `edge` only: the evaluator module (ABI 3), licensed separately; the executor refuses to start without it                             |
+| `EXECUTOR_EDGE_ORG_ID`                                        | `edge` only: the Decionis organisation the policy bundles are issued to                                                              |
+| `EXECUTOR_EDGE_BUNDLE_SOURCE`, `_FILE`                        | `url` (the default) fetches bundles from Decionis; `file` reads `EXECUTOR_EDGE_BUNDLE_FILE`                                          |
+| `EXECUTOR_EDGE_REFRESH_SECONDS`                               | The routine bundle refresh, one minute to a day, an hour by default                                                                  |
+| `EXECUTOR_EDGE_ON_UNAVAILABLE`                                | `hosted` (the default) asks Decionis when there is no usable bundle; `block` refuses                                                 |
+| `EXECUTOR_EDGE_REPLAY_STORE`                                  | `memory` (the default) or `postgres`: where single use is held; several replicas need `postgres`                                     |
+| `EXECUTOR_EDGE_SINGLE_REPLICA`                                | `true` is required with `memory`: the deployment's statement that it runs one replica                                                |
+| `EXECUTOR_EDGE_REPLAY_DATABASE_URL`, `_TABLE`                 | `postgres` only: the connection string (secret) and the claims table, `agentsafe_edge_replay` by default                             |
+| `EXECUTOR_EDGE_INSTALLATION_ID`                               | The installation a usage report names, one per evidence chain; generated and kept in the journal when absent                         |
+| `EXECUTOR_EDGE_USAGE_SIGNING_KEY`, `_KEY_ID`                  | Ed25519 PKCS#8 key monthly usage reports are signed with (secret), and its `kid`; without it a licence warning stands                |
+| `EXECUTOR_EDGE_USAGE_REPORT_DIR`                              | `file` source only: where signed usage reports are written for an operator to upload                                                 |
+| `EXECUTOR_CARD_HOLDS_STORE`                                   | `memory` (the default) or `postgres`: where card holds and claims live; several replicas, or holds across a restart, need `postgres` |
+| `EXECUTOR_CARD_HOLDS_NAMESPACE`                               | `postgres` only, required: whose holds these are; two deployments on one database never see each other's                             |
+| `EXECUTOR_CARD_HOLDS_DATABASE_URL`, `_TABLE`                  | `postgres` only: the connection string (secret) and the tables' prefix, `agentsafe_card` by default                                  |
+| `EXECUTOR_CARD_HOLDS_KEY`                                     | `postgres` only: 32 bytes, hex or base64 (secret), under which what a row keeps of a grant is sealed                                 |
+| `EXECUTOR_CARD_AUTHORIZATIONS`                                | `single` (the default): one amount per authorization id. `incremental`: the same id may be re-presented for more, up to the ceiling  |
+| `EXECUTOR_EDGE_ENTITLEMENT_FILE`, `EXECUTOR_EDGE_JWKS_FILE`   | `file` source only: the signed entitlement and the pinned Decionis JWKS it is verified against                                       |
+| `DECIONIS_API_URL`                                            | The authority, HTTPS                                                                                                                 |
+| `DECIONIS_API_KEY`                                            | The server-side Decionis credential; secret                                                                                          |
+| `DECIONIS_ALLOW_INSECURE_LOOPBACK`                            | `true` permits plain HTTP to loopback for local doubles; refused under `NODE_ENV=production`                                         |
+| `DECIONIS_CA_FILE`, `DECIONIS_SPKI_PINS`                      | Optional: the PEM bundle the authority is verified against, and two or more `sha256/<base64>` SPKI pins                              |
+| `PRESENCE_APPROVER_ID`                                        | The person who must approve (`DIRECT` and `MANAGED`); `PRESENCE_APPROVER_ROLE` is optional in `MANAGED`                              |
+| `PRESENCE_VERIFICATION_LEVEL`, `_METHODS`                     | `STANDARD` or `HIGH_CONFIDENCE`, and a comma-separated list of `WEBAUTHN`, `ACTIVE_LIVENESS`                                         |
+| `PRESENCE_API_URL`, `PRESENCE_API_KEY`                        | `DIRECT` only: the Presence service and its server-side credential; secret                                                           |
+| `PRESENCE_ORGANIZATION`                                       | `DIRECT` only: the requesting party the person sees                                                                                  |
+| `PRESENCE_CA_FILE`                                            | `DIRECT` only, optional: the PEM bundle the Presence service is verified against                                                     |
+| `PRESENCE_HARDWARE_PKI_REQUIRED`, `_DISALLOW_VIRTUAL_CAMERAS` | `DIRECT` only: `true` or `false`                                                                                                     |
+| `DOWNSTREAM_URL`                                              | Where the reference handler forwards the verified parameters, HTTPS                                                                  |
+| `DOWNSTREAM_LOOKUP_URL`                                       | Optional read-only lookup for reconciliation; must contain `{idempotency_key}`                                                       |
+| `DOWNSTREAM_SYSTEM`, `_OPERATION`, `_ENVIRONMENT`             | The downstream target the intent names                                                                                               |
+| `DOWNSTREAM_CREDENTIAL_KIND`                                  | `STATIC_HEADER` (the default), `PRIVATE_KEY_JWT` or `SIGNED_REQUEST`; the other kinds' keys must be absent                           |
+| `DOWNSTREAM_CREDENTIAL`                                       | `STATIC_HEADER`: the header value the downstream expects, prefix included; secret                                                    |
+| `DOWNSTREAM_CREDENTIAL_HEADER`                                | `STATIC_HEADER`: the header it goes in                                                                                               |
+| `DOWNSTREAM_TOKEN_URL`, `DOWNSTREAM_CLIENT_ID`                | `PRIVATE_KEY_JWT`: the token endpoint, HTTPS, and the client id                                                                      |
+| `DOWNSTREAM_PRIVATE_KEY`                                      | `PRIVATE_KEY_JWT`: the PKCS#8 key the assertion is signed with; secret                                                               |
+| `DOWNSTREAM_PRIVATE_KEY_ID`, `_ALGORITHM`                     | `PRIVATE_KEY_JWT`: optional `kid`, and `ES256` (the default) or `PS256`                                                              |
+| `DOWNSTREAM_TOKEN_AUDIENCE`, `DOWNSTREAM_TOKEN_SCOPE`         | `PRIVATE_KEY_JWT`: optional assertion audience (the token endpoint by default) and scope                                             |
+| `DOWNSTREAM_SIGNING_KEY`, `DOWNSTREAM_SIGNING_KEY_ID`         | `SIGNED_REQUEST`: the Ed25519 PKCS#8 key or the HMAC secret, and the `keyid` the downstream knows it by; the key is secret           |
+| `DOWNSTREAM_SIGNING_ALGORITHM`                                | `SIGNED_REQUEST`: `ed25519` (the default) or `hmac-sha256`                                                                           |
+| `DOWNSTREAM_CA_FILE`, `DOWNSTREAM_SPKI_PINS`                  | Optional: the PEM bundle the downstream is verified against, and two or more `sha256/<base64>` SPKI pins                             |
+| `DOWNSTREAM_TIMEOUT_MS`                                       | Finite, at most fifteen seconds                                                                                                      |
+| `DOWNSTREAM_LOOKUP_BY_REFERENCE_URL`                          | Optional read-back by the provider's own reference; must contain `{provider_reference}`                                              |
+| `BANKING_ADAPTER_ID`, `BANKING_ADAPTER_VERSION`               | The observer identity the effect evidence names; `AGENTSAFE_CORE_BANKING` and `0.1.0` by default                                     |
+| `EXECUTOR_ON_EFFECT_MISMATCH`                                 | `HALT` (the default) or `ALERT`: what an observed effect that is not the authorised one does                                         |
 
 ### The edge evaluator
 
@@ -1011,23 +1016,29 @@ mcc? }` and the target `card:<cardTokenRef>`. The card is named by its token ref
    grouped) is refused with `422 CARD_PAN_REFUSED` before the intent is captured. The amount is a
    ceiling in minor units of a currency this build knows the exponent of.
 2. On an `ALLOW` the grant is held, not claimed: the answer is `outcome: "HELD_FOR_AUTHORIZATION"`,
-   `executed: false`, with the grant's expiry in `result.expires_at`. One card has at most one
-   spendable hold; a second purchase on it is `409 CARD_GRANT_ALREADY_HELD` until the first is
-   authorised or expires. An `ESCALATE` resumes with an attestation, as above.
+   `executed: false`, with the grant's expiry in `result.expires_at`. Holds are keyed by the card
+   and the merchant: one card has at most one spendable hold per merchant, so a second purchase at
+   the same merchant is `409 CARD_GRANT_ALREADY_HELD` until the first is authorised or expires,
+   while purchases at other merchants hold in parallel. An `ESCALATE` resumes with an attestation,
+   as above.
 3. The issuer's hook posts `{ authorization_id, card_token_ref, amount_minor, currency,
-merchant_id, mcc? }` to `/v1/card-authorizations`. The match is pure and the claim is the only
-   network call: same card, same currency, same merchant (and category, when the purchase named
-   one), an amount at or below the grant, and a grant unexpired and unspent. A match claims the
-   grant through the authority exactly once and answers `{ decision: "APPROVE", intent_id,
-intent_hash, decision_id, dossier_id, grant_id, lease_expires_at }`; anything else answers
-   `{ decision: "NO_MATCH", code }` with `NO_GRANT`, `GRANT_ALREADY_USED`, `GRANT_EXPIRED`,
-   `CARD_TOKEN_MISMATCH`, `CURRENCY_MISMATCH`, `MERCHANT_MISMATCH`, `MCC_MISMATCH`,
-   `AMOUNT_EXCEEDS_GRANT`, `AUTHORIZATION_ID_REUSED`, `GRANT_CLAIM_REFUSED`, `JOURNAL_UNAVAILABLE`,
-   `EXECUTOR_HALTED`, `POSTURE_DEGRADED` or `CARD_AUTHORIZATION_CAPACITY_EXCEEDED`. What a `NO_MATCH`
-   means for the purchase is the issuer's own policy. Concurrent identical requests share one
-   claim and answer. Reusing an authorization id for a different request is refused before another
-   card's grant can be claimed. At most 10,000 distinct authorization ids can be in flight per
-   process. A completed approval is cached for retry while its in-memory record is retained.
+merchant_id, mcc? }` to `/v1/card-authorizations`. The hold is found by the card and the merchant
+   the authorization names, the match is pure, and the claim is the only network call: same
+   currency, same category when the purchase named one, an amount at or below the grant, and a
+   grant unexpired and unspent. A match claims the grant through the authority exactly once and
+   answers `{ decision: "APPROVE", intent_id, intent_hash, decision_id, dossier_id, grant_id,
+lease_expires_at }`; anything else answers `{ decision: "NO_MATCH", code }` with `NO_GRANT`
+   (none held for this card at this merchant), `GRANT_ALREADY_USED`, `GRANT_EXPIRED`,
+   `CURRENCY_MISMATCH`, `MCC_MISMATCH`, `AMOUNT_EXCEEDS_GRANT`, `AUTHORIZATION_ID_REUSED`,
+   `GRANT_CLAIM_REFUSED`, `JOURNAL_UNAVAILABLE`, `CARD_HOLDS_UNAVAILABLE`, `EXECUTOR_HALTED`,
+   `POSTURE_DEGRADED` or `CARD_AUTHORIZATION_CAPACITY_EXCEEDED`. What a `NO_MATCH` means for the
+   purchase is the issuer's own policy. Concurrent identical requests share one claim and answer.
+   Reusing an authorization id for a different request is refused before another card's grant can
+   be claimed, unless the issuer may increment: with `EXECUTOR_CARD_AUTHORIZATIONS=incremental`,
+   the same id re-presented for a higher amount, within the ceiling and before its result, is
+   answered from the same claim (`CARD_AUTHORIZATION_INCREMENTED`), and the result records the
+   final amount. At most 10,000 distinct authorization ids can be in flight per process. A
+   completed approval is cached for retry while its record is retained.
 4. The hook posts `{ status: "APPROVED" | "DECLINED", approved_amount_minor?, auth_code? }` to
    `/v1/card-authorizations/{authorization_id}/result`. An approval finalizes the grant
    `COMMITTED` with the effect compared against the grant (inside the ceiling is a match; above it
@@ -1035,17 +1046,34 @@ intent_hash, decision_id, dossier_id, grant_id, lease_expires_at }`; anything el
    claim's lease finalizes `INDETERMINATE` with `CLAIM_LEASE_EXPIRED`, because the authority no
    longer takes a commit for it. A result is recorded once.
 
-Holds live in memory, bounded, for no longer than their grant; a restart loses only grants nobody
-claimed, which expire with no effect. Each card purchase's intent context carries
+Holds live in memory by default, bounded, for no longer than their grant; a restart loses only
+grants nobody claimed, which expire with no effect, and that is right for exactly one replica. A
+deployment with several replicas, or one that must keep its holds across a restart, sets
+`EXECUTOR_CARD_HOLDS_STORE=postgres`: holds and claims become rows every replica shares, unique on
+the card and the merchant, and the database decides each race in one statement, so of two
+purchases racing for the same key one holds, and of two authorizations racing for the same hold
+one claims, exactly as in memory. What a row keeps of a grant, and later of the claim, is sealed
+under `EXECUTOR_CARD_HOLDS_KEY` (32 bytes, hex or base64, a secret) with the row's own identity
+as associated data, so the database holds no bearer credential in clear and a row moved elsewhere
+does not open. A hold another replica made is admitted on first use through the executor's own
+checks (`GRANT_HELD` with `HOLD_ADOPTED`), and a claim another replica made is settled with the
+claim material that replica sealed, so the issuer's hook and its result may reach any replica.
+`agentsafe cards holds-schema [--table <prefix>]` prints the DDL; the operator creates the three
+tables once, the executor probes them at start and sweeps them hourly, and
+`EXECUTOR_CARD_HOLDS_NAMESPACE` keeps two deployments on one database apart. Each card purchase's
+intent context carries
 `card_velocity: { window_seconds: 600, holds, claims }`, how many purchases this process held for
 the same card and how many authorizations claimed one in the last ten minutes, counted here because
 the policy language counts nothing over time: a rule can hold a burst for the cardholder's tap. The
 numbers are part of the hashed intent; the card reference is not among them. A claimed authorization is journaled before the issuer is
 told to approve, and one whose result never arrives stays an open, unknown attempt, because the
 executor has no read path into the issuer's ledger. The security stream carries
-`CARD_GRANT_HELD`, `CARD_AUTHORIZATION_MATCHED`, `CARD_AUTHORIZATION_NO_MATCH` with its code, and
-`CARD_AUTHORIZATION_SETTLED` with the outcome: intent ids and codes, never a card reference, an
-amount or a merchant.
+`CARD_GRANT_HELD`, `CARD_AUTHORIZATION_MATCHED`, `CARD_AUTHORIZATION_INCREMENTED`,
+`CARD_AUTHORIZATION_NO_MATCH` with its code, `CARD_AUTHORIZATION_SETTLED` with the outcome, and
+`CARD_CLAIM_RECORD_FAILED` when the shared store could not keep a claim: intent ids and codes,
+never a card reference, an amount or a merchant. The card path's own cost is measured in
+`test/performance`; what the hook's latency is in a deployment is in
+[the card authorization guide](../../docs/banking/card-authorization.md#latency).
 
 ## The image
 

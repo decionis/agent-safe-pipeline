@@ -199,6 +199,7 @@ export async function createTrustedExecutor(
       // it did, never told to do it again.
       await service.recover();
       await service.startEdge();
+      await service.startCards();
       const bound = await server.listen(port, address);
       stopPosture = posture.start();
       stopHalt = haltSwitch.start();

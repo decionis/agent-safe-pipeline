@@ -140,6 +140,8 @@ export const SecurityEventSchema = z.discriminatedUnion("event", [
   // only: never a card reference, an amount, or a merchant.
   z.strictObject({ event: z.literal("CARD_GRANT_HELD"), intent_id: identifier }),
   z.strictObject({ event: z.literal("CARD_AUTHORIZATION_MATCHED"), intent_id: identifier }),
+  z.strictObject({ event: z.literal("CARD_AUTHORIZATION_INCREMENTED"), intent_id: identifier }),
+  z.strictObject({ event: z.literal("CARD_CLAIM_RECORD_FAILED"), intent_id: identifier }),
   z.strictObject({
     event: z.literal("CARD_AUTHORIZATION_NO_MATCH"),
     intent_id: identifier.nullable(),

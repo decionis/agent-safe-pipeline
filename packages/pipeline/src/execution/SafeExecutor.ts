@@ -3,6 +3,7 @@ import type { AuditAuthority, AuditEventType, AuditRecorder } from "../audit/Aud
 import { CanonicalIntentHasher } from "../intent/CanonicalIntentHasher.js";
 import type { CapturedIntent } from "../intent/ExecutionIntent.js";
 import { boundaryOf, workloadOf } from "../intent/ExecutionSignals.js";
+import type { JsonObject } from "../intent/JsonValue.js";
 import type { ActionRegistry } from "./ActionRegistry.js";
 import type {
   AuthorizationVerifier,
@@ -468,6 +469,75 @@ export class SafeExecutor {
     captured: CapturedIntent,
     decision: DecisionGate,
   ): Promise<ExecutionHeldResult | ExecutionBlockedResult> {
+    return await this.holdWith(captured, decision, []);
+  }
+
+  /**
+   * Admits a hold this executor did not make: one another replica made, or
+   * this process made before a restart, read back from a store the replicas
+   * share. Every check `hold` makes is made again on the way in, and the
+   * record says the hold was adopted. Adoption adds no authority: the grant
+   * is still the authority's to hand out once, so a hold claimed elsewhere
+   * is refused at the claim by the authority or the shared replay store,
+   * never admitted twice by this executor's own memory.
+   */
+  public async adoptHold(
+    captured: CapturedIntent,
+    decision: DecisionGate,
+  ): Promise<ExecutionHeldResult | ExecutionBlockedResult> {
+    return await this.holdWith(captured, decision, ["HOLD_ADOPTED"]);
+  }
+
+  /**
+   * Registers a claim this executor did not make, so that `settleHeld` can
+   * finalize it here: the hold's intent and decision, and the authorization
+   * the claim returned, as the store that shared them kept them. Nothing is
+   * consumed and nothing is checked against the authority; the finalization
+   * is, as always, the authority's to accept or refuse.
+   */
+  public adoptClaim(
+    captured: CapturedIntent,
+    decision: DecisionGate,
+    authorization: VerifiedAuthorization,
+    material: JsonObject | null = null,
+  ): HeldExecution {
+    if (
+      !SafeExecutor.isAuthoritativeDecision(decision) ||
+      decision.intentHash !== captured.intentHash ||
+      authorization.intentHash !== captured.intentHash
+    ) {
+      throw new Error("CLAIM_ADOPTION_MISMATCH");
+    }
+    if (material !== null) {
+      const adopt = this.verifier.adoptClaim;
+      if (adopt === undefined || !adopt.call(this.verifier, authorization, material)) {
+        throw new Error("CLAIM_MATERIAL_REFUSED");
+      }
+    }
+    const held: HeldExecution = Object.freeze({
+      captured,
+      decision,
+      expiresAt: authorization.expiresAt,
+    });
+    this.claims.set(held, authorization);
+    return held;
+  }
+
+  /**
+   * What another process needs to finalize a claim this executor's verifier
+   * made, for a store the replicas share to keep sealed; null when the
+   * verifier keeps its claims to itself or did not make this one.
+   */
+  public claimMaterial(authorization: VerifiedAuthorization): JsonObject | null {
+    const material = this.verifier.claimMaterial;
+    return material === undefined ? null : material.call(this.verifier, authorization);
+  }
+
+  private async holdWith(
+    captured: CapturedIntent,
+    decision: DecisionGate,
+    reasonCodes: readonly string[],
+  ): Promise<ExecutionHeldResult | ExecutionBlockedResult> {
     const startedAt = Date.now();
     const refused = await this.admit(captured, decision, startedAt);
     if (refused !== null) return refused;
@@ -477,6 +547,7 @@ export class SafeExecutor {
       eventType: "GRANT_HELD",
       captured,
       decision,
+      ...(reasonCodes.length === 0 ? {} : { reasonCodes: [...reasonCodes] }),
       durationMs: Date.now() - startedAt,
     });
     // Stryker restore all

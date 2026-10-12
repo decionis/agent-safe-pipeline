@@ -1,6 +1,7 @@
 import { createPublicKey, generateKeyPairSync, randomUUID, type KeyObject } from "node:crypto";
 import { SignJWT, jwtVerify } from "jose";
 import type { CapturedIntent } from "../intent/ExecutionIntent.js";
+import type { JsonObject } from "../intent/JsonValue.js";
 import type {
   AuthorizationFinalizationInput,
   AuthorizationVerifier,
@@ -142,6 +143,34 @@ export class FixtureAuthorizationVerifier implements AuthorizationVerifier {
 
   public commitOf(grantId: string): FixtureCommitRecord | null {
     return this.commits.get(grantId) ?? null;
+  }
+
+  /** A fixture claim's material is its grant id: the ledger here is the only record it has. */
+  public claimMaterial(authorization: VerifiedAuthorization): JsonObject | null {
+    return this.commits.has(authorization.grantId)
+      ? { kind: "fixture", grant_id: authorization.grantId }
+      : null;
+  }
+
+  public adoptClaim(authorization: VerifiedAuthorization, material: JsonObject): boolean {
+    if (material["kind"] !== "fixture" || material["grant_id"] !== authorization.grantId) {
+      return false;
+    }
+    if (!this.commits.has(authorization.grantId)) {
+      this.commits.set(
+        authorization.grantId,
+        Object.freeze({
+          grantId: authorization.grantId,
+          decisionId: authorization.decisionId,
+          dossierId: authorization.dossierId,
+          intentHash: authorization.intentHash,
+          claimedAt: new Date().toISOString(),
+          outcome: null,
+          finalizedAt: null,
+        }),
+      );
+    }
+    return true;
   }
 
   /**

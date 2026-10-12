@@ -150,6 +150,19 @@ export interface AuthorizationVerifier {
    * authority: it must not retry a side effect, and it must not throw.
    */
   finalize?(input: AuthorizationFinalizationInput): Promise<"RECORDED" | "PENDING">;
+  /**
+   * What another process needs to finalize a claim this verifier made, for
+   * a store the replicas share to keep sealed; it is claim material, which
+   * this verifier exposes nowhere else. Absent on a verifier whose claims
+   * cannot leave the process; null for an authorization it did not claim.
+   */
+  claimMaterial?(authorization: VerifiedAuthorization): JsonObject | null;
+  /**
+   * Registers claim material read back from such a store against an
+   * authorization rebuilt from it, so `finalize` can proceed in this
+   * process. False when the material is not this verifier's.
+   */
+  adoptClaim?(authorization: VerifiedAuthorization, material: JsonObject): boolean;
 }
 
 const boundedIdentifier = z
@@ -160,6 +173,14 @@ const boundedIdentifier = z
 const sha256Digest = z.string().regex(/^sha256:[0-9a-f]{64}$/);
 const intentHash = sha256Digest;
 const CLAIM_TOKEN_PATTERN = /^[\w-]{43,128}$/;
+/** Claim material as a shared store hands it back: the claim's two tokens and its correlation. */
+const ClaimMaterialSchema = z.object({
+  kind: z.literal("decionis"),
+  execution_token: z.string().min(1).max(8_192),
+  claim_token: z.string().regex(CLAIM_TOKEN_PATTERN),
+  commit_correlation_id: z.string().min(1).max(200),
+  expected_effect_digest: sha256Digest.optional(),
+});
 const COMPACT_JWS_PATTERN = /^[\w-]+\.[\w-]+\.[\w-]+$/;
 /** `boundedIdentifier` from the Decionis `EffectEvidence` contract, verbatim. */
 const effectIdentifier = z.string().trim().min(1).max(500);
@@ -441,6 +462,32 @@ export class DecionisGrantVerifier implements AuthorizationVerifier {
     } finally {
       clearTimeout(timeout);
     }
+  }
+
+  public claimMaterial(authorization: VerifiedAuthorization): JsonObject | null {
+    const claim = this.claims.get(authorization);
+    if (claim === undefined) return null;
+    return {
+      kind: "decionis",
+      execution_token: claim.executionToken,
+      claim_token: claim.claimToken,
+      commit_correlation_id: claim.commitCorrelationId,
+      ...(claim.expectedEffectDigest === undefined
+        ? {}
+        : { expected_effect_digest: claim.expectedEffectDigest }),
+    };
+  }
+
+  public adoptClaim(authorization: VerifiedAuthorization, material: JsonObject): boolean {
+    const parsed = ClaimMaterialSchema.safeParse(material);
+    if (!parsed.success) return false;
+    this.claims.set(authorization, {
+      executionToken: parsed.data.execution_token,
+      claimToken: parsed.data.claim_token,
+      commitCorrelationId: parsed.data.commit_correlation_id,
+      expectedEffectDigest: parsed.data.expected_effect_digest,
+    });
+    return true;
   }
 
   public async finalize(input: AuthorizationFinalizationInput): Promise<"RECORDED" | "PENDING"> {

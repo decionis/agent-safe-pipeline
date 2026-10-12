@@ -1,46 +1,23 @@
-import type {
-  HeldExecution,
-  SafeExecutor,
-  VerifiedAuthorization,
-} from "@decionis/agent-safe-pipeline";
-import type { CardAuthorizationAnswer } from "../../service/Requests.js";
-import type { PreparedAction } from "../EffectAdapter.js";
-import type { HeldCardGrantView } from "./CardAuthorizationMatcher.js";
-import type { CardAuthorizationRequest, CardPurchase } from "./CardPurchase.js";
+import {
+  CARD_VELOCITY_WINDOW_MS,
+  cardHoldKey,
+  type CardClaimInput,
+  type CardHoldKey,
+  type CardHoldStore,
+  type CardVelocity,
+  type ClaimedCardAuthorization,
+  type HeldCardGrant,
+  type HeldCardGrantRecord,
+} from "./CardHoldStore.js";
+import type { CardAuthorizationRequest } from "./CardPurchase.js";
 
-/** One held grant: the purchase, the executor's handle on it, and whether it is spent. */
-export interface HeldCardGrant extends HeldCardGrantView {
-  readonly purchase: CardPurchase;
-  readonly prepared: PreparedAction;
-  readonly held: HeldExecution;
-  /** The executor that issued the hold; only it can claim it. */
-  readonly executor: SafeExecutor;
-  used: boolean;
-}
-
-/** What the issuer was answered when an authorization matched, kept for a retry of the same one. */
-export type CardApproval = Extract<CardAuthorizationAnswer, { readonly decision: "APPROVE" }>;
-
-/** An authorization that claimed a grant, until its result is recorded or it is forgotten. */
-export interface ClaimedCardAuthorization {
-  readonly grant: HeldCardGrant;
-  readonly request: CardAuthorizationRequest;
-  readonly authorization: VerifiedAuthorization;
-  readonly leaseExpiresAtMs: number;
-  readonly answer: CardApproval;
-  readonly retainUntilMs: number;
-  settled: boolean;
-}
-
-/** How far back a card's holds and claims are counted for policy. */
-export const CARD_VELOCITY_WINDOW_MS = 10 * 60_000;
-
-/** How often one card was held for and claimed lately: counts for policy, never a reference. */
-export interface CardVelocity {
-  readonly window_seconds: number;
-  readonly holds: number;
-  readonly claims: number;
-}
+export type {
+  CardApproval,
+  CardVelocity,
+  ClaimedCardAuthorization,
+  HeldCardGrant,
+} from "./CardHoldStore.js";
+export { CARD_VELOCITY_WINDOW_MS } from "./CardHoldStore.js";
 
 export interface HeldCardGrantsOptions {
   /** Entries of each kind this process keeps at most; a hold beyond it is refused. */
@@ -52,17 +29,22 @@ export interface HeldCardGrantsOptions {
 
 /**
  * Grants held for a card authorization that has not happened yet, keyed by
- * the card token reference, and the authorizations that claimed one, keyed
+ * the card and the merchant, and the authorizations that claimed one, keyed
  * by the issuer's authorization id. In memory and bounded on purpose: a hold
  * lives no longer than its grant, which the authority caps in minutes, and a
  * restart that loses one loses only a grant nobody claimed, which expires
- * with no effect. A claimed authorization is already in the journal.
+ * with no effect. A claimed authorization is already in the journal. A
+ * deployment with more than one replica, or one that must keep its holds
+ * across a restart, uses the shared store instead.
  *
- * One card has at most one spendable hold. An agent that wants a second
- * purchase on the same card waits for the first to be authorised or to
- * expire, so an authorization can never be matched to the wrong one of two.
+ * One card has at most one spendable hold per merchant. An agent that wants
+ * a second purchase at the same merchant on the same card waits for the
+ * first to be authorised or to expire, so an authorization can never be
+ * matched to the wrong one of two; purchases at different merchants hold in
+ * parallel, because the authorization names its merchant.
  */
-export class HeldCardGrants {
+export class HeldCardGrants implements CardHoldStore {
+  public readonly kind = "memory" as const;
   private static readonly MAX_ACTIVITY_PER_CARD = 100;
   private readonly holds = new Map<string, HeldCardGrant>();
   private readonly claims = new Map<string, ClaimedCardAuthorization>();
@@ -81,25 +63,84 @@ export class HeldCardGrants {
     this.clock = options.clock ?? ((): number => Date.now());
   }
 
-  /** Whether the card has a hold an authorization could still match. */
-  public spendable(cardTokenRef: string): boolean {
-    const grant = this.grant(cardTokenRef);
-    return grant !== undefined && !grant.used && grant.expiresAtMs > this.clock();
+  public async spendable(key: CardHoldKey): Promise<boolean> {
+    return this.spendableNow(key);
   }
 
-  /** The hold for a card, spent, expired or neither, until it is forgotten. */
-  public grant(cardTokenRef: string): HeldCardGrant | undefined {
-    this.sweep();
-    return this.holds.get(cardTokenRef);
-  }
-
-  /** Keeps a hold; false when the card already has a spendable one or the store is full. */
-  public hold(grant: HeldCardGrant): boolean {
-    if (this.spendable(grant.cardTokenRef)) return false;
-    this.holds.delete(grant.cardTokenRef);
+  public async hold(grant: HeldCardGrant): Promise<boolean> {
+    const key = cardHoldKey(grant);
+    if (this.spendableNow(grant)) return false;
+    this.holds.delete(key);
     if (this.holds.size >= this.maxEntries) return false;
-    this.holds.set(grant.cardTokenRef, grant);
+    this.holds.set(key, grant);
     this.note(grant.cardTokenRef, "hold");
+    return true;
+  }
+
+  public async grant(key: CardHoldKey): Promise<HeldCardGrantRecord | undefined> {
+    this.sweep();
+    const grant = this.holds.get(cardHoldKey(key));
+    if (grant === undefined) return undefined;
+    return {
+      cardTokenRef: grant.cardTokenRef,
+      merchantId: grant.merchantId,
+      amountMinor: grant.amountMinor,
+      currency: grant.currency,
+      mcc: grant.mcc,
+      expiresAtMs: grant.expiresAtMs,
+      used: grant.used,
+      intentId: grant.held.captured.intent.intentId,
+      open: async () => grant,
+    };
+  }
+
+  /** Spent before anything is awaited by the caller: the first to ask gets it, later askers find it used. */
+  public async spend(grant: HeldCardGrant): Promise<boolean> {
+    if (grant.used || this.holds.get(cardHoldKey(grant)) !== grant) return false;
+    grant.used = true;
+    return true;
+  }
+
+  public async claimed(authorizationId: string): Promise<ClaimedCardAuthorization | undefined> {
+    this.sweep();
+    return this.claims.get(authorizationId);
+  }
+
+  /** Remembers a claim for its result; a full store forgets the oldest, which the journal still holds. */
+  public async recordClaim(
+    authorizationId: string,
+    claim: CardClaimInput,
+  ): Promise<ClaimedCardAuthorization> {
+    // The claim material is the shared store's concern; here the claim stays in the process.
+    const record: ClaimedCardAuthorization = {
+      grant: claim.grant,
+      request: claim.request,
+      authorization: claim.authorization,
+      leaseExpiresAtMs: claim.leaseExpiresAtMs,
+      answer: claim.answer,
+      retainUntilMs: this.clock() + this.claimRetentionMs,
+      settled: false,
+    };
+    if (this.claims.size >= this.maxEntries) {
+      const oldest = this.claims.keys().next().value as string;
+      this.claims.delete(oldest);
+    }
+    this.claims.set(authorizationId, record);
+    this.note(claim.grant.cardTokenRef, "claim");
+    return record;
+  }
+
+  public async amend(authorizationId: string, request: CardAuthorizationRequest): Promise<boolean> {
+    const claim = this.claims.get(authorizationId);
+    if (claim === undefined || claim.settled) return false;
+    claim.request = request;
+    return true;
+  }
+
+  public async settle(authorizationId: string): Promise<boolean> {
+    const claim = this.claims.get(authorizationId);
+    if (claim === undefined || claim.settled) return false;
+    claim.settled = true;
     return true;
   }
 
@@ -110,11 +151,36 @@ export class HeldCardGrants {
    * and puts the numbers in the intent's context; a card reference never
    * leaves with them.
    */
-  public velocity(cardTokenRef: string, windowMs = CARD_VELOCITY_WINDOW_MS): CardVelocity {
+  public async velocity(
+    cardTokenRef: string,
+    windowMs = CARD_VELOCITY_WINDOW_MS,
+  ): Promise<CardVelocity> {
     const since = this.clock() - windowMs;
     const recent = (this.activity.get(cardTokenRef) ?? []).filter((entry) => entry.at > since);
     const holds = recent.filter((entry) => entry.kind === "hold").length;
     return { window_seconds: Math.round(windowMs / 1_000), holds, claims: recent.length - holds };
+  }
+
+  public async ready(): Promise<void> {
+    return undefined;
+  }
+
+  public async cleanup(): Promise<void> {
+    this.sweep();
+  }
+
+  public async close(): Promise<void> {
+    return undefined;
+  }
+
+  public get size(): { readonly holds: number; readonly claims: number } {
+    return { holds: this.holds.size, claims: this.claims.size };
+  }
+
+  private spendableNow(key: CardHoldKey): boolean {
+    this.sweep();
+    const grant = this.holds.get(cardHoldKey(key));
+    return grant !== undefined && !grant.used && grant.expiresAtMs > this.clock();
   }
 
   /** Remembers one hold or claim on a card, bounded per card and across cards. */
@@ -133,34 +199,6 @@ export class HeldCardGrants {
     if (this.activity.size > this.maxEntries) {
       this.activity.delete(this.activity.keys().next().value as string);
     }
-  }
-
-  public claimed(authorizationId: string): ClaimedCardAuthorization | undefined {
-    this.sweep();
-    return this.claims.get(authorizationId);
-  }
-
-  /** Remembers a claim for its result; a full store forgets the oldest, which the journal still holds. */
-  public recordClaim(
-    authorizationId: string,
-    claim: Omit<ClaimedCardAuthorization, "retainUntilMs" | "settled">,
-  ): ClaimedCardAuthorization {
-    const record: ClaimedCardAuthorization = {
-      ...claim,
-      retainUntilMs: this.clock() + this.claimRetentionMs,
-      settled: false,
-    };
-    if (this.claims.size >= this.maxEntries) {
-      const oldest = this.claims.keys().next().value as string;
-      this.claims.delete(oldest);
-    }
-    this.claims.set(authorizationId, record);
-    this.note(claim.grant.cardTokenRef, "claim");
-    return record;
-  }
-
-  public get size(): { readonly holds: number; readonly claims: number } {
-    return { holds: this.holds.size, claims: this.claims.size };
   }
 
   private sweep(): void {

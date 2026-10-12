@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type { DecisionGate } from "../decision/DecisionAuthority.js";
 import type { CapturedIntent } from "../intent/ExecutionIntent.js";
+import type { JsonObject } from "../intent/JsonValue.js";
 import type {
   AuthorizationFinalizationInput,
   AuthorizationVerifier,
@@ -120,6 +121,24 @@ export class LocalAuthorizationVerifier implements AuthorizationVerifier {
     });
     this.local.add(authorization);
     return authorization;
+  }
+
+  /** A local claim's material says only that it is local; a delegated one is the delegate's. */
+  public claimMaterial(authorization: VerifiedAuthorization): JsonObject | null {
+    if (this.local.has(authorization)) return { kind: "local" };
+    const delegate = this.options.delegate;
+    if (delegate?.claimMaterial === undefined) return null;
+    return delegate.claimMaterial(authorization);
+  }
+
+  public adoptClaim(authorization: VerifiedAuthorization, material: JsonObject): boolean {
+    if (material["kind"] === "local") {
+      this.local.add(authorization);
+      return true;
+    }
+    const delegate = this.options.delegate;
+    if (delegate?.adoptClaim === undefined) return false;
+    return delegate.adoptClaim(authorization, material);
   }
 
   /**
