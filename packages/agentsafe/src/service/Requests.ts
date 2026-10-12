@@ -124,6 +124,24 @@ export type CardAuthorizationAnswer =
       /** Until when a result is recorded as an outcome; after it, as indeterminate. */
       readonly lease_expires_at: string;
     }
+  | {
+      /**
+       * Evaluated at the commit boundary and escalated: a platform that can
+       * pend keeps the authorization pending, the tap is presented through
+       * `POST /v1/escalations` with the handoff's intent, and the
+       * authorization is re-presented once the hold exists.
+       */
+      readonly decision: "PENDING";
+      readonly authorization_id: string;
+      readonly intent_id: string;
+      readonly intent_hash: string;
+      readonly decision_id: string | null;
+      readonly dossier_id: string | null;
+      /** Until when the platform may re-present the authorization: the intent's own expiry. */
+      readonly expires_at: string;
+      /** Where the hold goes: the intent to present back with the tap, and the requirement. */
+      readonly escalation: EscalationHandoff | AttestationHandoff;
+    }
   | { readonly decision: "NO_MATCH"; readonly code: string };
 
 /** What a recorded authorization result became: the commit outcome and the effect observed. */

@@ -197,6 +197,20 @@ export interface CardsConfig {
    * grant's ceiling and before its result, against the same claim.
    */
   readonly authorizations: "single" | "incremental";
+  /**
+   * What the hook does with an authorization that has no hold. `no_match`
+   * (the default) answers `NO_MATCH` with `NO_GRANT`. `evaluate` evaluates
+   * the authorization at the commit boundary as a `card.purchase` intent
+   * of the commit actor: an `ALLOW` is held and claimed in the same call,
+   * an `ESCALATE` is answered `PENDING` with the handoff for a platform that
+   * can pend, a `BLOCK` is `NO_MATCH`.
+   */
+  readonly noGrant: "no_match" | "evaluate";
+  /** The tenant and actor a commit-boundary evaluation is captured as; present exactly with `evaluate`. */
+  readonly commit: {
+    readonly tenantId: string;
+    readonly actor: { readonly id: string; readonly type: string };
+  } | null;
 }
 
 /**
@@ -322,6 +336,11 @@ const CARD_HOLDS_POSTGRES_KEYS = [
   "EXECUTOR_CARD_HOLDS_DATABASE_URL_FILE",
   "EXECUTOR_CARD_HOLDS_KEY",
   "EXECUTOR_CARD_HOLDS_KEY_FILE",
+] as const;
+const CARD_COMMIT_KEYS = [
+  "EXECUTOR_CARD_COMMIT_TENANT_ID",
+  "EXECUTOR_CARD_COMMIT_ACTOR_ID",
+  "EXECUTOR_CARD_COMMIT_ACTOR_TYPE",
 ] as const;
 const TLS_KEYS = [
   "EXECUTOR_TLS_CERT_FILE",
@@ -455,6 +474,10 @@ const EnvironmentSchema = z.object({
     .regex(/^[\w.:-]{1,200}$/)
     .optional(),
   EXECUTOR_CARD_AUTHORIZATIONS: z.enum(["single", "incremental"]).optional(),
+  EXECUTOR_CARD_NO_GRANT: z.enum(["no_match", "evaluate"]).optional(),
+  EXECUTOR_CARD_COMMIT_TENANT_ID: z.string().uuid().optional(),
+  EXECUTOR_CARD_COMMIT_ACTOR_ID: identifier.optional(),
+  EXECUTOR_CARD_COMMIT_ACTOR_TYPE: identifier.optional(),
   DECIONIS_API_URL: z.string().trim().min(1).max(500),
   DECIONIS_ALLOW_INSECURE_LOOPBACK: booleanFlag.optional(),
   DECIONIS_CA_FILE: absolutePath.optional(),
@@ -820,6 +843,7 @@ export class ExecutorConfigLoader {
    */
   private static cards(values: Environment, env: EnvironmentMap): CardsConfig {
     const authorizations = values.EXECUTOR_CARD_AUTHORIZATIONS ?? "single";
+    const { noGrant, commit } = ExecutorConfigLoader.cardCommit(values, env);
     const store = values.EXECUTOR_CARD_HOLDS_STORE ?? "memory";
     if (store === "memory") {
       const given = CARD_HOLDS_POSTGRES_KEYS.filter((key) => env[key] !== undefined);
@@ -828,7 +852,7 @@ export class ExecutorConfigLoader {
           `CONFIG_INVALID: EXECUTOR_CARD_HOLDS_STORE (memory with ${given.join(", ")})`,
         );
       }
-      return { holds: { store: "memory" }, authorizations };
+      return { holds: { store: "memory" }, authorizations, noGrant, commit };
     }
     const namespace = values.EXECUTOR_CARD_HOLDS_NAMESPACE;
     if (namespace === undefined) {
@@ -839,6 +863,47 @@ export class ExecutorConfigLoader {
     return {
       holds: { store, table: values.EXECUTOR_CARD_HOLDS_TABLE ?? "agentsafe_card", namespace },
       authorizations,
+      noGrant,
+      commit,
+    };
+  }
+
+  /**
+   * The commit-boundary evaluation needs an identity to capture the
+   * authorization as, named by the deployment: the hook's own principal is
+   * an operator, which carries none. Its settings without it are refused.
+   */
+  private static cardCommit(
+    values: Environment,
+    env: EnvironmentMap,
+  ): Pick<CardsConfig, "noGrant" | "commit"> {
+    const noGrant = values.EXECUTOR_CARD_NO_GRANT ?? "no_match";
+    if (noGrant === "no_match") {
+      const given = CARD_COMMIT_KEYS.filter((key) => env[key] !== undefined);
+      if (given.length > 0) {
+        throw new Error(
+          `CONFIG_INVALID: EXECUTOR_CARD_NO_GRANT (no_match with ${given.join(", ")})`,
+        );
+      }
+      return { noGrant, commit: null };
+    }
+    const missing = (
+      ["EXECUTOR_CARD_COMMIT_TENANT_ID", "EXECUTOR_CARD_COMMIT_ACTOR_ID"] as const
+    ).filter((key) => values[key] === undefined);
+    if (missing.length > 0) {
+      throw new Error(
+        `CONFIG_INVALID: ${missing.join(", ")} (required to evaluate at the commit boundary)`,
+      );
+    }
+    return {
+      noGrant,
+      commit: {
+        tenantId: values.EXECUTOR_CARD_COMMIT_TENANT_ID ?? "",
+        actor: {
+          id: values.EXECUTOR_CARD_COMMIT_ACTOR_ID ?? "",
+          type: values.EXECUTOR_CARD_COMMIT_ACTOR_TYPE ?? "SYSTEM",
+        },
+      },
     };
   }
 
