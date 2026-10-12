@@ -235,8 +235,8 @@ key, and the hosted authority learns of them afterwards through the signed usage
 What that is as evidence: a local claim is single-use by the shared replay store, bound to the
 intent's hash by the bundle's own evaluation digest, and signed into the evidence chain; it is not
 a hosted Decision Dossier for the claim, and a cardholder's tap is never evaluated locally, since
-an `ESCALATE` always goes to the hosted authority. The recommendation is to accept it on the card
-path when three things hold: the replay store is the shared Postgres one, the evidence chain is
+an `ESCALATE` always goes to the hosted authority. It is acceptable evidence on the card path when
+three things hold: the replay store is the shared Postgres one, the evidence chain is
 retained and signed, and the bundle and usage-report keys live in the bank's key vault, one per
 tenant. With the shared hold store, a hold claimed locally on one replica is settled on another,
 which records the finalization in its own chain.
@@ -302,6 +302,33 @@ for a `PENDING` authorization is `404 CARD_AUTHORIZATION_UNKNOWN`, since nothing
 The pending answers are kept per replica; a re-presentation that reaches another replica before
 the tap is evaluated there too, and the tap resolves one of the two intents while the other
 expires with no effect.
+
+## Hosting and key custody
+
+Where the authority and Presence run per hosting tier, and whose custody every signing key is in,
+are written once in the deployment guide,
+[Hosting tiers and where the keys live](../gateway/deployment.md#hosting-tiers-and-where-the-keys-live).
+For the card path the short form is: the grant the hook claims is minted and signed by the
+authority (Decionis-run and hosted, Decionis-run for one bank, or bank-run under licence), its
+key is a Key Vault secret of that deployment or the bank's own secret manager; the cardholder's
+tap is signed by the provider and verified against the provider's public key; and everything the
+gateway holds (the card hold key, the tokenizer key, the evidence and TLS keys) is in the bank's
+secret store and never leaves it.
+
+## Weeks 10 to 12: enforcement on one range, with a stop
+
+Koard's path to a bank ends with enforcement on a narrow issuing range and a kill switch. Both are
+built:
+
+- **BIN scoping.** The `@decionis/iso8583` interceptor governs only the issuing ranges named in
+  its `binRanges`; an authorization outside them passes through to the host untouched and is
+  recorded as ungoverned. Widen the list range by range as the shadow weeks show what each would
+  have done.
+- **The stop.** `POST /v1/control/halt` with a reason, by an `OPERATOR` holding `halt`, or the
+  halt file (`EXECUTOR_HALT_FILE`) on the host: the gateway takes no new work, the hook answers
+  `NO_MATCH` with `EXECUTOR_HALTED`, and the interceptor's fail policy says what each frame then
+  does on the wire (`onUnavailable`: forward or decline). The [incident response
+  guide](../incident-response.md) has the rest of the stop and the evidence it leaves.
 
 ## What this version does not do
 

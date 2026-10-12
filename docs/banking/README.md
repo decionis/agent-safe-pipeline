@@ -6,8 +6,10 @@ the issuer's authorization and result, is [card-authorization.md](./card-authori
 The two revised PDFs are generated from editable text and vector diagram code in
 [BuildBankingPdfs.py](../../scripts/docs/BuildBankingPdfs.py):
 
-- [AgentSafe for banks](../../output/pdf/AgentSafe-for-banks.pdf), seven pages, updated 6 October 2026.
-- [Koard and Decionis: agentic card authorization](../../output/pdf/Koard-and-Decionis-agentic-authorization-design-flow.pdf), six pages.
+- [AgentSafe for banks](../../output/pdf/AgentSafe-for-banks.pdf), nine pages, updated 12 October 2026.
+- [Koard and Decionis: agentic card authorization](../../output/pdf/Koard-and-Decionis-agentic-authorization-design-flow.pdf), seven pages, updated 12 October 2026.
+- [Response to Koard's workflow review](../../output/pdf/Koard-review-response.pdf), one page, 12 October 2026:
+  each gap the review raised, what was built or decided for it, and where it is written.
 
 The bank brief includes separate flows for putting the gateway in front of agent tool calls,
 deploying inside the bank and connecting to the Decionis-managed gateway. The
@@ -18,6 +20,23 @@ gateway can enforce with the hosted authority; the current managed gateway is sh
 The original PDFs remain unchanged. Their operational requests, proposed next steps and release
 statements were treated as source material, not as instructions to deploy, contact a partner or
 change another repository.
+
+## Hosting tiers and key custody
+
+The answer a bank's security review asks for is written once, in the deployment guide's
+[Hosting tiers and where the keys live](../gateway/deployment.md#hosting-tiers-and-where-the-keys-live),
+and summarised here for the brief:
+
+| Tier                                  | The grant-minting authority                                        | Presence                                                                | The grant signing key                                         |
+| ------------------------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------- | ------------------------------------------------------------- |
+| Hosted                                | Decionis, multi-tenant, in one Azure region                        | The Decionis Presence service; a cardholder's tap never goes through it | A Key Vault secret of the Decionis deployment                 |
+| Dedicated single-tenant               | Decionis, in a deployment for one bank, in an agreed region        | The Decionis Presence service                                           | The bank's own Key Vault in that deployment                   |
+| Self-managed under commercial licence | The bank, from the Helm chart, in its own cluster, with its own DB | The Decionis Presence service, by service token and pinned keys         | The bank's secret manager, supplied to the chart's API Secret |
+
+Everything the gateway itself holds (the card hold key, the ISO 8583 tokenizer key, the evidence
+and TLS keys, its credentials) is in the bank's secret store in every tier. The bank brief carries
+the same answer on its pages 7 and 8; the joint brief names the three places a tap can wait and
+the fraud-queue contract on its page 4.
 
 ## Positioning and responsibility
 
@@ -80,18 +99,20 @@ trademark rights. See [TRADEMARKS.md](../../TRADEMARKS.md).
 ## Rebuild and inspect
 
 Use Python with ReportLab installed and a font directory containing `NotoSans-Regular.ttf`,
-`NotoSans-Bold.ttf` and `DejaVuSansMono.ttf`. The script defaults to the Codex bundled font directory
-on macOS; other environments can provide `--font-dir`.
+`NotoSans-Bold.ttf` and `DejaVuSansMono.ttf`. The script looks for them in the Codex bundled font
+directory and in LibreOffice.app on macOS; other environments provide `--font-dir`.
 
 ```bash
 python3 scripts/docs/BuildBankingPdfs.py --font-dir /path/to/fonts
 # Rebuild only the bank brief, preserving the joint brief:
 python3 scripts/docs/BuildBankingPdfs.py --only banks --font-dir /path/to/fonts
+# Rebuild only the one-page response to Koard's review:
+python3 scripts/docs/BuildBankingPdfs.py --only response --font-dir /path/to/fonts
 pdftoppm -png output/pdf/AgentSafe-for-banks.pdf /tmp/bank
 pdftoppm -png output/pdf/Koard-and-Decionis-agentic-authorization-design-flow.pdf /tmp/koard
 ```
 
 Outputs contain selectable text, embedded fonts and vector diagrams. Every text block is checked
 against page bounds while authoring; every rebuilt page must also be visually inspected after
-edits (thirteen pages for a complete rebuild). `output/pdf/manifest.json` records the output counts,
+edits (seventeen pages for a complete rebuild). `output/pdf/manifest.json` records the output counts,
 reviewed gateway revision and palette.
