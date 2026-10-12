@@ -57,7 +57,21 @@ registered for that provider, the audience, the expiry and the intent binding, a
 approval facts into the evaluation context; an `ESCALATE` becomes `ALLOW` only where policy has a
 rule that matches them. The attestation is evaluated once: unlike a Presence receipt it is not
 presented again at the claim. This package never verifies, logs, or records it. The trusted
-executor accepts one on `/v1/escalations` as `{ mode: "ATTESTATION", intent, attestation }`.
+executor accepts one on `/v1/escalations` as `{ mode: "ATTESTATION", intent, attestation }`, from
+the proposer or from an `OPERATOR` holding `escalations.resume` (the issuer app's backend, where
+the tap lands).
+
+Where a hold goes is the policy's to say. A rule's `verification_requirements` may name a method
+`CARD_TAP` and a `provider` (an admitted presence provider's id, `koard` for one); Decionis reads
+the decision's `escalation_requirement` for a runtime at 0.3.7 or later, and `DecionisGate`
+carries it as `GateDecision.escalationRequirement`: the selector (a kind and a role, never a
+person) and the verification (`provider`, `methods`, `level`). A provider other than `decionis`
+means no Presence ceremony is asked for; the executor hands the caller an `ATTESTATION` handoff
+with the routing in `requirement` and waits for that provider's attestation. Decionis also tells
+the organisation's webhook subscribers: `authority.escalation_required` carries the same
+`selector` and `verification`, and `authority.escalation_resolved` carries what became of the
+hold once a proof was presented, the fresh decision's outcome or `REFUSED` with the code, with the
+proof's facts and never the proof.
 
 ## Ceremony requirements and delivery
 

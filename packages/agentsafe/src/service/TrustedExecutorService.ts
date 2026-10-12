@@ -84,6 +84,7 @@ import { packageVersion } from "../Version.js";
 import {
   EscalationResumeSchema,
   type AttestationHandoff,
+  type AttestationRequirement,
   type EscalationDependencies,
   type EscalationHandoff,
   type EscalationState,
@@ -244,6 +245,9 @@ async function signBundle(secrets: SecretStore, payload: Uint8Array): Promise<st
   const key = await importPKCS8(pem, "EdDSA");
   return await new CompactSign(payload).setProtectedHeader({ alg: "EdDSA" }).sign(key);
 }
+
+/** The provider id an escalation requirement names for Decionis Presence. */
+const DECIONIS_PRESENCE_PROVIDER = "decionis";
 
 export class TrustedExecutorService {
   private readonly hasher = new CanonicalIntentHasher();
@@ -928,18 +932,25 @@ export class TrustedExecutorService {
    * intent past its lifetime is refused before anything is asked.
    */
   public async resume(input: unknown, caller?: Principal): Promise<ActionResponse> {
-    const proposer = this.proposer(caller);
+    // The proposer that holds the intent resumes it. An operator holding
+    // `escalations.resume` (the issuer app's backend, where a cardholder's
+    // tap lands) may present a presence provider's attestation for an intent
+    // it did not propose, and nothing else: the authority binds the
+    // attestation to the intent hash, so the operator adds no authority.
+    const proposer = caller?.role === "OPERATOR" ? null : this.proposer(caller);
+    const presenter = proposer ?? TrustedExecutorService.presenter(caller as Principal);
     const parsed = EscalationResumeSchema.safeParse(input);
     if (!parsed.success) throw new ServiceError(400, "REQUEST_INVALID");
     const resume = parsed.data;
     // An attestation needs no escalation shape: it is evidence for a fresh
     // evaluation, which any enforcing executor can ask for.
     const attested = resume.mode === "ATTESTATION";
+    if (proposer === null && !attested) throw new ServiceError(403, "ROLE_FORBIDDEN");
     if (this.config.mode === "SHADOW" || (!attested && this.config.escalation.mode === "NONE")) {
       throw new ServiceError(409, "ESCALATION_NOT_CONFIGURED");
     }
     const captured = this.presented(resume.intent);
-    this.assertOwn(captured, proposer);
+    if (proposer !== null) this.assertOwn(captured, proposer);
     if (Date.parse(captured.intent.expiresAt) <= Date.now()) {
       throw new ServiceError(409, "INTENT_EXPIRED");
     }
@@ -947,7 +958,7 @@ export class TrustedExecutorService {
       throw new ServiceError(422, "ACTION_NOT_REGISTERED");
     }
     this.assertPosture();
-    return await RequestContext.run({ principal: proposer.id }, async () => {
+    return await RequestContext.run({ principal: presenter.id }, async () => {
       try {
         this.assertNotHalted(captured);
         this.assertCardSpendable(captured);
@@ -1074,6 +1085,16 @@ export class TrustedExecutorService {
     return principal as Principal & { tenantId: string; actor: NonNullable<Principal["actor"]> };
   }
 
+  /**
+   * An operator may present an attestation only under `escalations.resume`;
+   * without it the operator is no presenter at all, and the refusal is the
+   * door's: a role the route does not admit.
+   */
+  private static presenter(caller: Principal): Principal {
+    if (!caller.scopes.has("escalations.resume")) throw new ServiceError(403, "ROLE_FORBIDDEN");
+    return caller;
+  }
+
   private operator(caller: Principal | undefined, scope: OperatorScope): Principal {
     if (caller === undefined || caller.role !== "OPERATOR")
       throw new ServiceError(403, "ROLE_FORBIDDEN");
@@ -1114,6 +1135,14 @@ export class TrustedExecutorService {
       ? this.bindBanking(request, proposer)
       : null;
     const card = isCardActionName(request.proposal.action) ? this.bindCard(request) : null;
+    const context: JsonObject = {
+      caller_principal: proposer.id,
+      ...(bound === null ? {} : bound.context),
+    };
+    // The burst on this card, counted here because policy counts nothing over
+    // time: how many purchases were held for it and claimed lately. Numbers
+    // only; the card reference stays in the parameters.
+    if (card !== null) context["card_velocity"] = { ...this.cards.velocity(card.cardTokenRef) };
     const trusted: TrustedIntentContext = {
       tenantId: proposer.tenantId,
       actor: proposer.actor,
@@ -1122,11 +1151,11 @@ export class TrustedExecutorService {
         operation: this.config.downstream.operation,
         environment: this.config.downstream.environment,
       },
-      context: { caller_principal: proposer.id, ...(bound === null ? {} : bound.context) },
+      context,
       idempotencyKey: request.idempotency_key,
       ...(request.correlation_id === undefined ? {} : { correlationId: request.correlation_id }),
       ...(bound === null ? {} : { expectedEffectDigest: bound.expectedEffectDigest }),
-      ...(card === null ? {} : { expectedEffectDigest: card }),
+      ...(card === null ? {} : { expectedEffectDigest: card.expectedEffectDigest }),
     };
     const parameters: JsonObject = request.proposal.parameters ?? {};
     try {
@@ -1173,16 +1202,60 @@ export class TrustedExecutorService {
    * above all, and the target is derived from the card. What comes back is
    * the expected-effect digest the authority binds its grant to.
    */
-  private bindCard(request: ProposalRequest): string {
+  private bindCard(request: ProposalRequest): {
+    readonly expectedEffectDigest: string;
+    readonly cardTokenRef: string;
+  } {
     try {
       const purchase = bindCardPurchase({
         target: request.proposal.target,
         parameters: request.proposal.parameters ?? {},
       });
-      return prepareCardPurchase(purchase).expectedEffectDigest;
+      return {
+        expectedEffectDigest: prepareCardPurchase(purchase).expectedEffectDigest,
+        cardTokenRef: purchase.cardTokenRef,
+      };
     } catch (error) {
       throw new ServiceError(422, (error as CardActionError).code);
     }
+  }
+
+  /** The hold's routing as the handoff carries it, from the decision when the authority said. */
+  private static attestationRequirement(decision: GateDecision): AttestationRequirement | null {
+    const routing = decision.escalationRequirement;
+    if (routing === undefined) return null;
+    return {
+      requirement_id: routing.requirementId,
+      expires_at: routing.expiresAt,
+      selector:
+        routing.selector === null
+          ? null
+          : {
+              kind: routing.selector.kind,
+              ...(routing.selector.roleId === undefined
+                ? {}
+                : { role_id: routing.selector.roleId }),
+            },
+      verification:
+        routing.verification === null
+          ? null
+          : {
+              provider: routing.verification.provider,
+              methods: [...routing.verification.methods],
+              level: routing.verification.level,
+            },
+    };
+  }
+
+  /** Whether the policy sent the hold to a presence provider other than Decionis Presence. */
+  private static routedToProvider(
+    requirement: AttestationRequirement | null,
+  ): requirement is AttestationRequirement {
+    return (
+      requirement !== null &&
+      requirement.verification !== null &&
+      requirement.verification.provider !== DECIONIS_PRESENCE_PROVIDER
+    );
   }
 
   /**
@@ -1347,13 +1420,21 @@ export class TrustedExecutorService {
     let handoff: EscalationHandoff | AttestationHandoff | null = null;
     let unavailable = false;
     if (decision.verdict === "ESCALATE" && !decision.failClosed) {
-      const state: EscalationState | null = await escalation.handoff(captured, decision);
-      if (state !== null) handoff = { ...state, intent: captured.intent };
-      // A cardholder's tap needs no Presence ceremony: whatever shape this
-      // executor escalates in, a card purchase can be resumed with an
-      // attestation over the intent it is handed here.
-      else if (card) handoff = { mode: "ATTESTATION", intent: captured.intent };
-      else if (this.config.escalation.mode !== "NONE") unavailable = true;
+      const requirement = TrustedExecutorService.attestationRequirement(decision);
+      if (TrustedExecutorService.routedToProvider(requirement)) {
+        // The policy sent this hold to a third-party presence provider (a
+        // cardholder's tap through the issuer's app): no Presence ceremony
+        // is asked for, and only that provider's attestation resumes it.
+        handoff = { mode: "ATTESTATION", intent: captured.intent, requirement };
+      } else {
+        const state: EscalationState | null = await escalation.handoff(captured, decision);
+        if (state !== null) handoff = { ...state, intent: captured.intent };
+        // A cardholder's tap needs no Presence ceremony: whatever shape this
+        // executor escalates in, a card purchase can be resumed with an
+        // attestation over the intent it is handed here.
+        else if (card) handoff = { mode: "ATTESTATION", intent: captured.intent, requirement };
+        else if (this.config.escalation.mode !== "NONE") unavailable = true;
+      }
     }
     return this.response(
       captured,

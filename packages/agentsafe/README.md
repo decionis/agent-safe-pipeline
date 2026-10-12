@@ -150,22 +150,22 @@ where those controls are written down.
 
 ## The wire contract
 
-| Method | Path                                                | Who                                  | What it does                                                                               |
-| ------ | --------------------------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------ |
-| `GET`  | `/health`                                           | anyone                               | The process is up                                                                          |
-| `GET`  | `/ready`                                            | anyone                               | Ready, or 503 while halted or still resolving an attempt; reports the mode and the actions |
-| `POST` | `/v1/actions`                                       | a `PROPOSER`                         | Capture, evaluate, and in enforcement execute once on an `ALLOW`                           |
-| `POST` | `/v1/reconciliations`                               | the `PROPOSER` that proposed         | Read-only: what the provider did with an attempt whose answer was lost                     |
-| `POST` | `/v1/escalations`                                   | the `PROPOSER` that proposed         | Resume an open escalation: one lookup, then a fresh decision if the person answered        |
-| `GET`  | `/v1/control/status`                                | an `OPERATOR` with `status`          | Mode, actions, posture, principals, the chain's head, the halt, the open attempts          |
-| `POST` | `/v1/control/halt`                                  | an `OPERATOR` with `halt`            | Stop taking new work, with a reason                                                        |
-| `POST` | `/v1/control/resume`                                | an `OPERATOR` with `resume`          | Take work again, with a reason; refused while the cause of the halt stands                 |
-| `GET`  | `/v1/control/open-attempts`                         | an `OPERATOR` with `status`          | The attempts whose outcome this process does not know                                      |
-| `POST` | `/v1/control/secrets/reload`                        | an `OPERATOR` with `secrets.reload`  | Re-read every secret file now; the report names files, never values                        |
-| `POST` | `/v1/control/evidence-export`                       | an `OPERATOR` with `evidence`        | Write a bundle of this process's own evidence, and return its manifest                     |
-| `GET`  | `/metrics`                                          | an `OPERATOR` with `metrics`         | The OpenMetrics exposition                                                                 |
-| `POST` | `/v1/card-authorizations`                           | an `OPERATOR` with `cards.authorize` | The card issuer's authorization hook: match it to a held grant, and claim that grant once  |
-| `POST` | `/v1/card-authorizations/{authorization_id}/result` | an `OPERATOR` with `cards.authorize` | What the issuer did with it: finalize the claimed grant with the effect                    |
+| Method | Path                                                | Who                                                                                                | What it does                                                                               |
+| ------ | --------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `GET`  | `/health`                                           | anyone                                                                                             | The process is up                                                                          |
+| `GET`  | `/ready`                                            | anyone                                                                                             | Ready, or 503 while halted or still resolving an attempt; reports the mode and the actions |
+| `POST` | `/v1/actions`                                       | a `PROPOSER`                                                                                       | Capture, evaluate, and in enforcement execute once on an `ALLOW`                           |
+| `POST` | `/v1/reconciliations`                               | the `PROPOSER` that proposed                                                                       | Read-only: what the provider did with an attempt whose answer was lost                     |
+| `POST` | `/v1/escalations`                                   | the `PROPOSER` that proposed, or an `OPERATOR` with `escalations.resume` presenting an attestation | Resume an open escalation: one lookup, then a fresh decision if the person answered        |
+| `GET`  | `/v1/control/status`                                | an `OPERATOR` with `status`                                                                        | Mode, actions, posture, principals, the chain's head, the halt, the open attempts          |
+| `POST` | `/v1/control/halt`                                  | an `OPERATOR` with `halt`                                                                          | Stop taking new work, with a reason                                                        |
+| `POST` | `/v1/control/resume`                                | an `OPERATOR` with `resume`                                                                        | Take work again, with a reason; refused while the cause of the halt stands                 |
+| `GET`  | `/v1/control/open-attempts`                         | an `OPERATOR` with `status`                                                                        | The attempts whose outcome this process does not know                                      |
+| `POST` | `/v1/control/secrets/reload`                        | an `OPERATOR` with `secrets.reload`                                                                | Re-read every secret file now; the report names files, never values                        |
+| `POST` | `/v1/control/evidence-export`                       | an `OPERATOR` with `evidence`                                                                      | Write a bundle of this process's own evidence, and return its manifest                     |
+| `GET`  | `/metrics`                                          | an `OPERATOR` with `metrics`                                                                       | The OpenMetrics exposition                                                                 |
+| `POST` | `/v1/card-authorizations`                           | an `OPERATOR` with `cards.authorize`                                                               | The card issuer's authorization hook: match it to a held grant, and claim that grant once  |
+| `POST` | `/v1/card-authorizations/{authorization_id}/result` | an `OPERATOR` with `cards.authorize`                                                               | What the issuer did with it: finalize the claimed grant with the effect                    |
 
 Who may call is the principals file, described below; without one, the one legacy caller presents
 the caller token as `Authorization: Bearer <token>`. Every request that is not public passes the
@@ -310,8 +310,25 @@ never logged, never written to the evidence stream or the journal, and not sent 
 claim. The authority verifies the signature under the key the organisation registered for its
 provider and binds it to the intent hash; an attestation it cannot verify is a fail-closed `BLOCK`,
 and one it verifies becomes an `ALLOW` only where policy has a rule matching the approval. A card
-purchase escalated with no Presence handoff is handed `{ mode: "ATTESTATION", intent }` for exactly
-this.
+purchase escalated with no Presence handoff is handed `{ mode: "ATTESTATION", intent, requirement }`
+for exactly this.
+
+When the authority says where a hold goes, the handoff carries it as `requirement`:
+`{ requirement_id, expires_at, selector: { kind, role_id? } | null, verification: { provider,
+methods, level } | null }`, the policy's selector (a kind and a role, never a person) and who
+proves the person. A `verification.provider` other than `decionis` names a presence provider the
+organisation admitted, such as a card tap through the issuer's app (`koard`, method `CARD_TAP`):
+no Presence ceremony is asked for, whatever `EXECUTOR_ESCALATION` says, and only that provider's
+attestation resumes the hold. The decision carries the routing from Decionis for a runtime at
+0.3.7 or later; an older authority says nothing and `requirement` is `null`.
+
+The tap lands with the issuer's app, not with the agent that proposed. An `OPERATOR` holding
+`escalations.resume` may therefore present `{ mode: "ATTESTATION", intent, attestation }` for an
+intent it did not propose, and nothing else: a Presence handoff from an operator is
+`403 ROLE_FORBIDDEN`. The operator adds no authority, because the authority binds the attestation
+to the intent hash and evaluates the policy again; the intent is re-hashed on the way in, so an
+intent altered in transit (a card number written into it, say) is refused before anything is
+asked. Every line the resumption produces names the operator as its principal.
 
 ## Configuration
 
@@ -1019,7 +1036,11 @@ intent_hash, decision_id, dossier_id, grant_id, lease_expires_at }`; anything el
    longer takes a commit for it. A result is recorded once.
 
 Holds live in memory, bounded, for no longer than their grant; a restart loses only grants nobody
-claimed, which expire with no effect. A claimed authorization is journaled before the issuer is
+claimed, which expire with no effect. Each card purchase's intent context carries
+`card_velocity: { window_seconds: 600, holds, claims }`, how many purchases this process held for
+the same card and how many authorizations claimed one in the last ten minutes, counted here because
+the policy language counts nothing over time: a rule can hold a burst for the cardholder's tap. The
+numbers are part of the hashed intent; the card reference is not among them. A claimed authorization is journaled before the issuer is
 told to approve, and one whose result never arrives stays an open, unknown attempt, because the
 executor has no read path into the issuer's ledger. The security stream carries
 `CARD_GRANT_HELD`, `CARD_AUTHORIZATION_MATCHED`, `CARD_AUTHORIZATION_NO_MATCH` with its code, and

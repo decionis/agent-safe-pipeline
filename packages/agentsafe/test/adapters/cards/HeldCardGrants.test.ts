@@ -100,4 +100,54 @@ describe("HeldCardGrants", () => {
     expect(recorded.retainUntilMs - Date.now()).toBeLessThanOrEqual(15 * 60_000);
     expect(store.hold(grant("fixture_card_1", { expiresAtMs: Date.now() + 60_000 }))).toBe(true);
   });
+
+  it("counts a card's holds and claims over the window, and nothing older", () => {
+    let now = NOW;
+    const store = new HeldCardGrants({ clock: () => now });
+    expect(store.velocity("fixture_card_1")).toEqual({ window_seconds: 600, holds: 0, claims: 0 });
+    const first = grant("fixture_card_1");
+    expect(store.hold(first)).toBe(true);
+    store.recordClaim("fixture_auth_1", claim(first));
+    first.used = true;
+    now += 60_000;
+    expect(store.hold(grant("fixture_card_1", { expiresAtMs: now + 60_000 }))).toBe(true);
+    expect(store.velocity("fixture_card_1")).toEqual({ window_seconds: 600, holds: 2, claims: 1 });
+    expect(store.velocity("fixture_card_2")).toEqual({ window_seconds: 600, holds: 0, claims: 0 });
+    // A refused hold is not activity.
+    expect(store.hold(grant("fixture_card_1", { expiresAtMs: now + 60_000 }))).toBe(false);
+    expect(store.velocity("fixture_card_1").holds).toBe(2);
+    // The window moves: the first hold and its claim fall out together.
+    now = NOW + 600_000;
+    expect(store.velocity("fixture_card_1")).toEqual({ window_seconds: 600, holds: 1, claims: 0 });
+    expect(store.velocity("fixture_card_1", 30_000)).toEqual({
+      window_seconds: 30,
+      holds: 0,
+      claims: 0,
+    });
+    now = NOW + 660_000;
+    expect(store.velocity("fixture_card_1")).toEqual({ window_seconds: 600, holds: 0, claims: 0 });
+  });
+
+  it("bounds what it remembers per card and across cards, forgetting the stalest card first", () => {
+    let now = NOW;
+    const store = new HeldCardGrants({ clock: () => now, maxEntries: 2 });
+    for (let index = 0; index < 150; index += 1) {
+      const held = grant("fixture_card_1", { expiresAtMs: now + 1 });
+      expect(store.hold(held)).toBe(true);
+      held.used = true;
+      now += 1;
+    }
+    expect(store.velocity("fixture_card_1").holds).toBe(100);
+    // Two cards are remembered; a third evicts the one touched longest ago.
+    store.recordClaim("fixture_auth_2", claim(grant("fixture_card_2")));
+    store.recordClaim("fixture_auth_3", claim(grant("fixture_card_3")));
+    expect(store.velocity("fixture_card_1")).toEqual({ window_seconds: 600, holds: 0, claims: 0 });
+    expect(store.velocity("fixture_card_2").claims).toBe(1);
+    expect(store.velocity("fixture_card_3").claims).toBe(1);
+    // Touching a card again makes it the freshest.
+    store.recordClaim("fixture_auth_4", claim(grant("fixture_card_2")));
+    store.recordClaim("fixture_auth_5", claim(grant("fixture_card_4")));
+    expect(store.velocity("fixture_card_3").claims).toBe(0);
+    expect(store.velocity("fixture_card_2").claims).toBe(2);
+  });
 });

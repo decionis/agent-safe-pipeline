@@ -11,6 +11,7 @@ import {
   type DecisionEvaluationMode,
   type DecisionEvaluationOptions,
   type DecisionEvidence,
+  type EscalationRequirement,
   type GateDecision,
   type ManagedEscalationRequest,
   type ManagedEscalationState,
@@ -118,6 +119,33 @@ const VerificationEnvelopeSchema = z
   .passthrough();
 
 /**
+ * Where an ESCALATE goes, as the contract's `escalation_requirement` carries it
+ * for a runtime that reads it: the policy's selector (kind and role only) and
+ * who proves the person. Closed shapes, like the decision they ride on.
+ */
+const EscalationRequirementWireSchema = z
+  .object({
+    requirement_id: boundedIdentifier.nullable(),
+    expires_at: z.string().datetime(),
+    selector: z
+      .object({
+        kind: z.enum(["ROLE", "PRINCIPAL"]),
+        role_id: boundedIdentifier.optional(),
+      })
+      .strict()
+      .nullable(),
+    verification: z
+      .object({
+        provider: z.string().regex(/^[a-z][a-z0-9_.:-]{0,63}$/),
+        methods: z.array(z.string().min(1).max(64)).min(1).max(3),
+        level: z.enum(["STANDARD", "HIGH_CONFIDENCE"]),
+      })
+      .strict()
+      .nullable(),
+  })
+  .strict();
+
+/**
  * Mirrors `ExecutionAuthorityDecision` in the Decionis OpenAPI contract, which
  * declares `additionalProperties: false`; an undocumented field therefore fails
  * closed instead of being interpreted as execution semantics.
@@ -146,6 +174,7 @@ const AuthorityResponseSchema = z
     execution_token_key_id: boundedIdentifier.nullable().optional(),
     managed_escalation: ManagedEscalationWireSchema.nullable().optional(),
     verification: VerificationEnvelopeSchema.nullable().optional(),
+    escalation_requirement: EscalationRequirementWireSchema.nullable().optional(),
   })
   .strict();
 
@@ -716,6 +745,15 @@ export class DecionisGate implements DecisionAuthority {
           : "BLOCK";
     const verificationUrl = parsed.verification?.verification_page_url;
     const verification = verificationUrl === undefined ? {} : { verificationUrl };
+    // Routing rides only on a hold: anywhere else it would say nothing true.
+    const routing =
+      verdict === "ESCALATE" && parsed.escalation_requirement != null
+        ? {
+            escalationRequirement: DecionisGate.escalationRequirementFromWire(
+              parsed.escalation_requirement,
+            ),
+          }
+        : {};
     if (this.evaluationMode === "SHADOW") {
       return immutableGateDecision({
         verdict,
@@ -726,6 +764,7 @@ export class DecionisGate implements DecisionAuthority {
         authorization: null,
         failClosed: parsed.status === "ERROR",
         ...verification,
+        ...routing,
         ...(evidence === undefined ? {} : { evidence }),
       });
     }
@@ -761,9 +800,34 @@ export class DecionisGate implements DecisionAuthority {
         : null,
       failClosed: parsed.status === "ERROR",
       ...verification,
+      ...routing,
       ...(evidence === undefined ? {} : { evidence }),
       ...(managedEscalation === undefined ? {} : { managedEscalation }),
     });
+  }
+
+  private static escalationRequirementFromWire(
+    wire: z.infer<typeof EscalationRequirementWireSchema>,
+  ): EscalationRequirement {
+    return {
+      requirementId: wire.requirement_id,
+      expiresAt: wire.expires_at,
+      selector:
+        wire.selector === null
+          ? null
+          : {
+              kind: wire.selector.kind,
+              ...(wire.selector.role_id === undefined ? {} : { roleId: wire.selector.role_id }),
+            },
+      verification:
+        wire.verification === null
+          ? null
+          : {
+              provider: wire.verification.provider,
+              methods: [...wire.verification.methods],
+              level: wire.verification.level,
+            },
+    };
   }
 
   private initialManagedState(

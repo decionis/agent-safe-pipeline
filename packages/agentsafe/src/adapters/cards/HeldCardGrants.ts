@@ -32,6 +32,16 @@ export interface ClaimedCardAuthorization {
   settled: boolean;
 }
 
+/** How far back a card's holds and claims are counted for policy. */
+export const CARD_VELOCITY_WINDOW_MS = 10 * 60_000;
+
+/** How often one card was held for and claimed lately: counts for policy, never a reference. */
+export interface CardVelocity {
+  readonly window_seconds: number;
+  readonly holds: number;
+  readonly claims: number;
+}
+
 export interface HeldCardGrantsOptions {
   /** Entries of each kind this process keeps at most; a hold beyond it is refused. */
   readonly maxEntries?: number;
@@ -53,8 +63,14 @@ export interface HeldCardGrantsOptions {
  * expire, so an authorization can never be matched to the wrong one of two.
  */
 export class HeldCardGrants {
+  private static readonly MAX_ACTIVITY_PER_CARD = 100;
   private readonly holds = new Map<string, HeldCardGrant>();
   private readonly claims = new Map<string, ClaimedCardAuthorization>();
+  /** When each card was last held for and claimed, most recently touched card last. */
+  private readonly activity = new Map<
+    string,
+    Array<{ readonly at: number; readonly kind: "hold" | "claim" }>
+  >();
   private readonly maxEntries: number;
   private readonly claimRetentionMs: number;
   private readonly clock: () => number;
@@ -83,7 +99,40 @@ export class HeldCardGrants {
     this.holds.delete(grant.cardTokenRef);
     if (this.holds.size >= this.maxEntries) return false;
     this.holds.set(grant.cardTokenRef, grant);
+    this.note(grant.cardTokenRef, "hold");
     return true;
+  }
+
+  /**
+   * The burst a policy wants to see: how many purchases were held for this
+   * card and how many authorizations claimed one, over the window. The
+   * policy language counts nothing over time, so the executor counts here
+   * and puts the numbers in the intent's context; a card reference never
+   * leaves with them.
+   */
+  public velocity(cardTokenRef: string, windowMs = CARD_VELOCITY_WINDOW_MS): CardVelocity {
+    const since = this.clock() - windowMs;
+    const recent = (this.activity.get(cardTokenRef) ?? []).filter((entry) => entry.at > since);
+    const holds = recent.filter((entry) => entry.kind === "hold").length;
+    return { window_seconds: Math.round(windowMs / 1_000), holds, claims: recent.length - holds };
+  }
+
+  /** Remembers one hold or claim on a card, bounded per card and across cards. */
+  private note(cardTokenRef: string, kind: "hold" | "claim"): void {
+    const now = this.clock();
+    const entries = (this.activity.get(cardTokenRef) ?? []).filter(
+      (entry) => entry.at > now - CARD_VELOCITY_WINDOW_MS,
+    );
+    entries.push({ at: now, kind });
+    if (entries.length > HeldCardGrants.MAX_ACTIVITY_PER_CARD) {
+      entries.splice(0, entries.length - HeldCardGrants.MAX_ACTIVITY_PER_CARD);
+    }
+    // Re-inserted so the map's order is recency, and the stalest card goes first.
+    this.activity.delete(cardTokenRef);
+    this.activity.set(cardTokenRef, entries);
+    if (this.activity.size > this.maxEntries) {
+      this.activity.delete(this.activity.keys().next().value as string);
+    }
   }
 
   public claimed(authorizationId: string): ClaimedCardAuthorization | undefined {
@@ -106,6 +155,7 @@ export class HeldCardGrants {
       this.claims.delete(oldest);
     }
     this.claims.set(authorizationId, record);
+    this.note(claim.grant.cardTokenRef, "claim");
     return record;
   }
 

@@ -13,6 +13,12 @@ export interface RouteDefinition {
   readonly role?: Role;
   /** The scope an operator must hold, on control routes. */
   readonly scope?: OperatorScope;
+  /**
+   * On a proposer route, the scope under which an `OPERATOR` may call it
+   * too: the issuer app's backend presenting a cardholder's attestation for
+   * an intent the agent proposed. Role or scope, never both.
+   */
+  readonly operatorScope?: OperatorScope;
 }
 
 /**
@@ -27,7 +33,13 @@ export const ROUTES = [
   { method: "GET", path: "/ready", public: true },
   { method: "POST", path: "/v1/actions", public: false, role: "PROPOSER" },
   { method: "POST", path: "/v1/reconciliations", public: false, role: "PROPOSER" },
-  { method: "POST", path: "/v1/escalations", public: false, role: "PROPOSER" },
+  {
+    method: "POST",
+    path: "/v1/escalations",
+    public: false,
+    role: "PROPOSER",
+    operatorScope: "escalations.resume",
+  },
   { method: "GET", path: "/v1/control/status", public: false, role: "OPERATOR", scope: "status" },
   { method: "POST", path: "/v1/control/halt", public: false, role: "OPERATOR", scope: "halt" },
   { method: "POST", path: "/v1/control/resume", public: false, role: "OPERATOR", scope: "resume" },

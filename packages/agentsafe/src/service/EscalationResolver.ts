@@ -72,6 +72,8 @@ export const AttestationResumeSchema = z.strictObject({
     .string()
     .max(20_000)
     .regex(/^[\w-]+\.[\w-]+\.[\w-]+$/),
+  /** The handoff's routing, echoed by a caller that presents the handoff whole; never read. */
+  requirement: z.unknown().optional(),
 });
 
 /** What `/v1/escalations` accepts: a handoff it was given, or an attestation for the intent. */
@@ -80,12 +82,32 @@ export const EscalationResumeSchema = z.union([EscalationHandoffSchema, Attestat
 export type EscalationResume = z.infer<typeof EscalationResumeSchema>;
 
 /**
+ * Where the authority sent the hold, as its decision carried it: the policy's
+ * selector (kind and role, never a person) and who proves the person, by
+ * which method. A third-party provider here (`koard`, method `CARD_TAP`)
+ * means that provider's attestation alone resumes the hold; `decionis` means
+ * Decionis Presence. Routing for whoever asks the person, never authority.
+ */
+export interface AttestationRequirement {
+  readonly requirement_id: string | null;
+  readonly expires_at: string;
+  readonly selector: { readonly kind: "ROLE" | "PRINCIPAL"; readonly role_id?: string } | null;
+  readonly verification: {
+    readonly provider: string;
+    readonly methods: readonly string[];
+    readonly level: "STANDARD" | "HIGH_CONFIDENCE";
+  } | null;
+}
+
+/**
  * What the caller is handed when an escalation can be resumed with an
- * attestation and nothing else: the exact intent, to present back with it.
+ * attestation and nothing else: the exact intent, to present back with it,
+ * and where the authority sent the hold when it said.
  */
 export interface AttestationHandoff {
   readonly mode: "ATTESTATION";
   readonly intent: Record<string, unknown>;
+  readonly requirement: AttestationRequirement | null;
 }
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;

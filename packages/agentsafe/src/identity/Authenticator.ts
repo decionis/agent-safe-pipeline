@@ -2,6 +2,7 @@ import type { RouteDefinition } from "../http/Routes.js";
 import type { SecurityEvents } from "../incident/SecurityEvents.js";
 import type { PeerIdentity } from "./PeerIdentity.js";
 import type { Principal, PrincipalRegistry } from "./PrincipalRegistry.js";
+import type { OperatorScope } from "./PrincipalsFile.js";
 import type { LockoutRule, RateLimiter, RateLimitRule } from "./RateLimiter.js";
 import { JwtError, type WorkloadJwtVerifier } from "./WorkloadJwtVerifier.js";
 
@@ -128,9 +129,12 @@ export class Authenticator {
     if (principal.rateLimit !== null && !limits.allow(principal.id, principal.rateLimit)) {
       throw new Refusal(429, "RATE_LIMITED", method, principal);
     }
-    if (input.route.role !== principal.role) {
-      throw new Refusal(403, "ROLE_FORBIDDEN", method, principal);
-    }
+    // A route admits its role, or an operator holding the one scope the route
+    // names beside it; a scope the route does not name admits nobody.
+    const admitted =
+      input.route.role === principal.role ||
+      principal.scopes.has(input.route.operatorScope as OperatorScope);
+    if (!admitted) throw new Refusal(403, "ROLE_FORBIDDEN", method, principal);
     if (input.route.scope !== undefined && !principal.scopes.has(input.route.scope)) {
       throw new Refusal(403, "SCOPE_FORBIDDEN", method, principal);
     }

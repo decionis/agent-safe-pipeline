@@ -533,3 +533,74 @@ describe("Authenticator", () => {
     expect(vi.isMockFunction(broken.byBearerDigest)).toBe(false);
   });
 });
+
+describe("the one proposer route an operator may call", () => {
+  const PRESENTER_SAN = "spiffe://synthetic.example/ns/issuer/sa/app-backend";
+
+  function withPresenter(): PrincipalRegistry {
+    const text = JSON.stringify({
+      version: "agent-safe.principals/1",
+      principals: [
+        {
+          id: "bearer-agent",
+          role: "PROPOSER",
+          tenant_id: TENANT_ID,
+          actor: { id: "synthetic-payout-agent", type: "AI_AGENT" },
+          allowed_actions: ["forward_request"],
+          credential: { kind: "BEARER", token_sha256: sha256Hex(CALLER_TOKEN) },
+        },
+        {
+          id: "issuer-app-backend",
+          role: "OPERATOR",
+          scopes: ["escalations.resume"],
+          credential: { kind: "MTLS", san_uri: PRESENTER_SAN },
+        },
+        {
+          id: "ops-oncall",
+          role: "OPERATOR",
+          scopes: ["status", "metrics"],
+          credential: { kind: "MTLS", san_uri: SAN },
+        },
+      ],
+    });
+    return PrincipalRegistry.fromEntries(parsePrincipalsFile(text), {
+      registeredActions: ["forward_request"],
+      jwtConfigured: false,
+      mutualTls: true,
+    });
+  }
+
+  it("admits an operator holding `escalations.resume` on `/v1/escalations`, and nowhere else by it", async () => {
+    const { door: d, lines } = door({ registry: withPresenter(), jwt: null });
+    expect(route("/v1/escalations")).toMatchObject({
+      role: "PROPOSER",
+      operatorScope: "escalations.resume",
+    });
+    expect(await d.authenticate(cert([PRESENTER_SAN], { path: "/v1/escalations" }))).toMatchObject({
+      principal: { id: "issuer-app-backend" },
+      method: "mtls",
+    });
+    // The proposer route still admits its proposer.
+    expect(await d.authenticate(bearer(CALLER_TOKEN, "/v1/escalations"))).toMatchObject({
+      principal: { id: "bearer-agent" },
+    });
+    // The scope opens one route: not another proposer route, not a control route it lacks.
+    expect(await refused(d.authenticate(cert([PRESENTER_SAN], { path: "/v1/actions" })))).toEqual([
+      403,
+      "ROLE_FORBIDDEN",
+    ]);
+    expect(
+      await refused(d.authenticate(cert([PRESENTER_SAN], { path: "/v1/control/status" }))),
+    ).toEqual([403, "SCOPE_FORBIDDEN"]);
+    // An operator without the scope is refused on the route as before.
+    expect(await refused(d.authenticate(cert([SAN], { path: "/v1/escalations" })))).toEqual([
+      403,
+      "ROLE_FORBIDDEN",
+    ]);
+    expect(failures(lines)).toEqual([
+      ["mtls", "ROLE_FORBIDDEN"],
+      ["mtls", "SCOPE_FORBIDDEN"],
+      ["mtls", "ROLE_FORBIDDEN"],
+    ]);
+  });
+});

@@ -108,6 +108,29 @@ export interface HostedEvaluation {
   readonly verificationUrl: string | null;
 }
 
+/**
+ * Where an `ESCALATE` goes, as the authority read it from the policy: which
+ * authority the policy requires (its kind and role, never a person) and who
+ * proves that person, by which method. `decionis` names Decionis Presence;
+ * any other provider is a third party whose signed attestation resumes the
+ * hold (a cardholder's card tap through the issuer's app). Routing, never
+ * authority: only a fresh evaluation with the proof as evidence can turn the
+ * hold into a grant.
+ */
+export interface EscalationRequirement {
+  readonly requirementId: string | null;
+  readonly expiresAt: string;
+  readonly selector: {
+    readonly kind: "ROLE" | "PRINCIPAL";
+    readonly roleId?: string;
+  } | null;
+  readonly verification: {
+    readonly provider: string;
+    readonly methods: readonly string[];
+    readonly level: "STANDARD" | "HIGH_CONFIDENCE";
+  } | null;
+}
+
 export interface GateDecision {
   readonly verdict: DecisionVerdict;
   readonly decisionId: string;
@@ -127,6 +150,8 @@ export interface GateDecision {
   readonly managedEscalation?: ManagedEscalationState;
   /** Present only when a hosted Decionis evaluation ran beside the local authority. */
   readonly hosted?: HostedEvaluation;
+  /** Present on an `ESCALATE` when the authority said where it goes. */
+  readonly escalationRequirement?: EscalationRequirement;
 }
 
 export interface DecisionAuthority {
