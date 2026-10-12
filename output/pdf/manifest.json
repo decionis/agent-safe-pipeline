@@ -1,17 +1,17 @@
 {
-  "review_date": "2026-10-06",
-  "baseline": "2e564711",
-  "gateway_revision": "46967428",
+  "review_date": "2026-10-12",
+  "baseline": "19453788",
+  "gateway_revision": "19453788",
   "outputs": [
     {
       "file": "AgentSafe-for-banks.pdf",
-      "pages": 7,
-      "text_blocks": 151
+      "pages": 9,
+      "text_blocks": 207
     },
     {
       "file": "Koard-and-Decionis-agentic-authorization-design-flow.pdf",
-      "pages": 6,
-      "text_blocks": 137
+      "pages": 7,
+      "text_blocks": 161
     }
   ],
   "brand": {

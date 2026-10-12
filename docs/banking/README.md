@@ -6,8 +6,8 @@ the issuer's authorization and result, is [card-authorization.md](./card-authori
 The two revised PDFs are generated from editable text and vector diagram code in
 [BuildBankingPdfs.py](../../scripts/docs/BuildBankingPdfs.py):
 
-- [AgentSafe for banks](../../output/pdf/AgentSafe-for-banks.pdf), seven pages, updated 6 October 2026.
-- [Koard and Decionis: agentic card authorization](../../output/pdf/Koard-and-Decionis-agentic-authorization-design-flow.pdf), six pages.
+- [AgentSafe for banks](../../output/pdf/AgentSafe-for-banks.pdf), nine pages, updated 12 October 2026.
+- [Koard and Decionis: agentic card authorization](../../output/pdf/Koard-and-Decionis-agentic-authorization-design-flow.pdf), seven pages, updated 12 October 2026.
 
 The bank brief includes separate flows for putting the gateway in front of agent tool calls,
 deploying inside the bank and connecting to the Decionis-managed gateway. The
@@ -32,9 +32,9 @@ and summarised here for the brief:
 | Self-managed under commercial licence | The bank, from the Helm chart, in its own cluster, with its own DB | The Decionis Presence service, by service token and pinned keys         | The bank's secret manager, supplied to the chart's API Secret |
 
 Everything the gateway itself holds (the card hold key, the ISO 8583 tokenizer key, the evidence
-and TLS keys, its credentials) is in the bank's secret store in every tier. The PDFs in
-`output/pdf` predate this section and are rebuilt with the script below when the brief is next
-issued.
+and TLS keys, its credentials) is in the bank's secret store in every tier. The bank brief carries
+the same answer on its pages 7 and 8; the joint brief names the three places a tap can wait and
+the fraud-queue contract on its page 4.
 
 ## Positioning and responsibility
 
@@ -97,8 +97,8 @@ trademark rights. See [TRADEMARKS.md](../../TRADEMARKS.md).
 ## Rebuild and inspect
 
 Use Python with ReportLab installed and a font directory containing `NotoSans-Regular.ttf`,
-`NotoSans-Bold.ttf` and `DejaVuSansMono.ttf`. The script defaults to the Codex bundled font directory
-on macOS; other environments can provide `--font-dir`.
+`NotoSans-Bold.ttf` and `DejaVuSansMono.ttf`. The script looks for them in the Codex bundled font
+directory and in LibreOffice.app on macOS; other environments provide `--font-dir`.
 
 ```bash
 python3 scripts/docs/BuildBankingPdfs.py --font-dir /path/to/fonts
@@ -110,5 +110,5 @@ pdftoppm -png output/pdf/Koard-and-Decionis-agentic-authorization-design-flow.pd
 
 Outputs contain selectable text, embedded fonts and vector diagrams. Every text block is checked
 against page bounds while authoring; every rebuilt page must also be visually inspected after
-edits (thirteen pages for a complete rebuild). `output/pdf/manifest.json` records the output counts,
+edits (sixteen pages for a complete rebuild). `output/pdf/manifest.json` records the output counts,
 reviewed gateway revision and palette.
