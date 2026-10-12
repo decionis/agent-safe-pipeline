@@ -13,9 +13,9 @@ import type {
   DecisionAuthority,
   DecisionEvidence,
   DecisionVerdict,
-  GateDecision,
+  DecisionGate,
 } from "./DecisionAuthority.js";
-import { immutableGateDecision } from "./ImmutableGateDecision.js";
+import { immutableDecisionGate } from "./ImmutableDecisionGate.js";
 
 export type FixtureVerdictResolver = (
   intent: CapturedIntent,
@@ -54,13 +54,13 @@ export class FixtureDecisionAuthority implements DecisionAuthority {
   public async evaluate(
     intent: CapturedIntent,
     evidence?: DecisionEvidence,
-  ): Promise<GateDecision> {
+  ): Promise<DecisionGate> {
     const verdict = this.resolveVerdict(intent, evidence);
     const decisionId = `fixture_${randomUUID()}`;
     const dossierId = `fixture_dossier_${randomUUID()}`;
     const evidenceField = evidence === undefined ? {} : { evidence };
     if (verdict !== "ALLOW") {
-      return immutableGateDecision({
+      return immutableDecisionGate({
         verdict,
         decisionId,
         dossierId,
@@ -93,7 +93,7 @@ export class FixtureDecisionAuthority implements DecisionAuthority {
       .setNotBefore(issuedAt)
       .setExpirationTime(expiresAt)
       .sign(this.privateKey);
-    return immutableGateDecision({
+    return immutableDecisionGate({
       verdict,
       decisionId,
       dossierId,
@@ -172,7 +172,7 @@ export class FixtureAuthorizationVerifier implements AuthorizationVerifier {
 
   public async verifyAndConsume(
     captured: CapturedIntent,
-    decision: GateDecision,
+    decision: DecisionGate,
   ): Promise<VerifiedAuthorization | null> {
     if (decision.authorization === null || decision.dossierId === null) return null;
     try {

@@ -3,7 +3,7 @@ import type { GateResult, HumanApprovalGate } from "@decionis/presence-node";
 import type { AuditRecorder } from "../audit/AuditRecorder.js";
 import type {
   DecisionAuthority,
-  GateDecision,
+  DecisionGate,
   HumanApprovalEvidence,
 } from "../decision/DecisionAuthority.js";
 import { FailClosedDecision } from "../decision/DecisionAuthority.js";
@@ -164,7 +164,7 @@ export class PresenceApprovalCoordinator {
     captured: CapturedIntent,
     result: PresenceGateResult,
     options: PresenceResolutionOptions = {},
-  ): Promise<GateDecision> {
+  ): Promise<DecisionGate> {
     const initialBoundaryFailure = this.boundaryFailure(captured, options.signal);
     if (initialBoundaryFailure !== null) {
       return FailClosedDecision.create(captured.intentHash, initialBoundaryFailure);
@@ -320,7 +320,7 @@ export class PresenceApprovalCoordinator {
     captured: CapturedIntent,
     evidence: HumanApprovalEvidence,
     signal?: AbortSignal,
-  ): Promise<BoundedResult<GateDecision>> {
+  ): Promise<BoundedResult<DecisionGate>> {
     const boundaryFailure = this.boundaryFailure(captured, signal);
     if (boundaryFailure !== null) {
       return { reasonCode: boundaryFailure };

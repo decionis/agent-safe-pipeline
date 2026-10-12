@@ -6,9 +6,9 @@ import {
   type DecisionEvaluationOptions,
   type DecisionEvidence,
   type DecisionVerdict,
-  type GateDecision,
+  type DecisionGate,
 } from "./DecisionAuthority.js";
-import { immutableGateDecision } from "./ImmutableGateDecision.js";
+import { immutableDecisionGate } from "./ImmutableDecisionGate.js";
 
 /** Higher is more restrictive. The Decionis contract has no fourth verdict. */
 const RESTRICTIVENESS: Readonly<Record<DecisionVerdict, number>> = Object.freeze({
@@ -51,7 +51,7 @@ export class ShadowGate implements DecisionAuthority {
     captured: CapturedIntent,
     evidence?: DecisionEvidence,
     options: DecisionEvaluationOptions = {},
-  ): Promise<GateDecision> {
+  ): Promise<DecisionGate> {
     const [local, hosted] = await Promise.all([
       this.local.evaluate(captured, evidence, options),
       this.hostedDecision(captured, evidence, options),
@@ -59,7 +59,7 @@ export class ShadowGate implements DecisionAuthority {
     const governs =
       this.mode === "ENFORCEMENT" &&
       RESTRICTIVENESS[hosted.verdict] >= RESTRICTIVENESS[local.verdict];
-    return immutableGateDecision({
+    return immutableDecisionGate({
       ...(governs ? hosted : local),
       hosted: {
         mode: this.mode,
@@ -82,8 +82,8 @@ export class ShadowGate implements DecisionAuthority {
     captured: CapturedIntent,
     evidence: DecisionEvidence | undefined,
     options: DecisionEvaluationOptions,
-  ): Promise<GateDecision> {
-    let decision: GateDecision;
+  ): Promise<DecisionGate> {
+    let decision: DecisionGate;
     try {
       decision = await this.hosted.evaluate(captured, evidence, options);
     } catch {

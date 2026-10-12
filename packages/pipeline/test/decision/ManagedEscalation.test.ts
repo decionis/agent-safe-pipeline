@@ -5,7 +5,7 @@ import {
 } from "../../src/decision/DecionisGate.js";
 import type {
   DecisionEvidence,
-  GateDecision,
+  DecisionGate,
   ManagedEscalationState,
 } from "../../src/decision/DecisionAuthority.js";
 import type { CapturedIntent } from "../../src/intent/ExecutionIntent.js";
@@ -76,7 +76,7 @@ function managedWire(
 function pendingDecision(
   intent: CapturedIntent,
   stateOverrides: Partial<ManagedEscalationState> = {},
-): GateDecision {
+): DecisionGate {
   return {
     verdict: "ESCALATE",
     decisionId: "synthetic-decision-managed-1",

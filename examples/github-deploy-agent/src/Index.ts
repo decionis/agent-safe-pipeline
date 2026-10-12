@@ -7,7 +7,7 @@ import {
   createHostedGate,
   printHostedOutcome,
   type AgentProposal,
-  type GateDecision,
+  type DecisionGate,
 } from "@decionis/agent-safe-pipeline";
 import { z } from "zod";
 
@@ -60,7 +60,7 @@ const proposals: AgentProposal[] = [
   { action: "force_push", target: "github:decionis/example:main", parameters: { branch: "main" } },
 ];
 const results = [];
-const decisions: Array<{ readonly proposal: AgentProposal; readonly decision: GateDecision }> = [];
+const decisions: Array<{ readonly proposal: AgentProposal; readonly decision: DecisionGate }> = [];
 for (const [index, proposal] of proposals.entries()) {
   const captured = capture.capture(proposal, {
     tenantId: gate.tenantId,

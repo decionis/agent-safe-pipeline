@@ -12,12 +12,12 @@ import {
   type DecisionEvaluationOptions,
   type DecisionEvidence,
   type EscalationRequirement,
-  type GateDecision,
+  type DecisionGate,
   type ManagedEscalationRequest,
   type ManagedEscalationState,
   type ManagedEscalationStatus,
 } from "./DecisionAuthority.js";
-import { immutableGateDecision } from "./ImmutableGateDecision.js";
+import { immutableDecisionGate } from "./ImmutableDecisionGate.js";
 
 const boundedIdentifier = z
   .string()
@@ -221,7 +221,7 @@ export type ManagedEscalationStatusResult = ManagedEscalationStatusBase &
     | {
         readonly status: "GRANT_READY";
         readonly outcome: "ALLOW";
-        readonly decision: GateDecision;
+        readonly decision: DecisionGate;
       }
     | {
         readonly status: ManagedEscalationBlockedStatus;
@@ -343,7 +343,7 @@ export class DecionisGate implements DecisionAuthority {
   private readonly timeoutMs: number;
   private readonly fetchImpl: typeof fetch;
   private readonly userAgent: string;
-  private readonly pendingAuthorizationWaits = new Map<string, Promise<GateDecision>>();
+  private readonly pendingAuthorizationWaits = new Map<string, Promise<DecisionGate>>();
   public constructor(options: DecionisGateOptions) {
     this.baseUrl = AuthorityBaseUrl.normalize(
       options.baseUrl,
@@ -364,7 +364,7 @@ export class DecionisGate implements DecisionAuthority {
     captured: CapturedIntent,
     evidence?: DecisionEvidence,
     options: DecisionEvaluationOptions = {},
-  ): Promise<GateDecision> {
+  ): Promise<DecisionGate> {
     // An intent past its expiry is refused before the authority is asked: no
     // grant could outlive it, and a decision about it would only record a
     // dead intent.
@@ -556,9 +556,9 @@ export class DecionisGate implements DecisionAuthority {
    */
   public async waitForAuthorization(
     captured: CapturedIntent,
-    pendingDecision: GateDecision,
+    pendingDecision: DecisionGate,
     options: ManagedAuthorizationWaitOptions = {},
-  ): Promise<GateDecision> {
+  ): Promise<DecisionGate> {
     const escalation = pendingDecision.managedEscalation;
     if (
       escalation === undefined ||
@@ -609,11 +609,11 @@ export class DecionisGate implements DecisionAuthority {
 
   private async waitForAuthorizationInternal(
     captured: CapturedIntent,
-    pendingDecision: GateDecision,
+    pendingDecision: DecisionGate,
     escalation: ManagedEscalationState,
     configuration: WaitConfiguration,
     signal?: AbortSignal,
-  ): Promise<GateDecision> {
+  ): Promise<DecisionGate> {
     const deadline = this.managedDeadline(captured, escalation);
     if (deadline === null) {
       return this.failedWaitDecision(
@@ -729,7 +729,7 @@ export class DecionisGate implements DecisionAuthority {
     parsed: AuthorityResponse,
     evidence?: DecisionEvidence,
     managedEscalation?: ManagedEscalationState,
-  ): GateDecision {
+  ): DecisionGate {
     if (parsed.action_hash !== captured.intentHash) {
       return FailClosedDecision.create(captured.intentHash, "AUTHORITY_BINDING_MISMATCH");
     }
@@ -755,7 +755,7 @@ export class DecionisGate implements DecisionAuthority {
           }
         : {};
     if (this.evaluationMode === "SHADOW") {
-      return immutableGateDecision({
+      return immutableDecisionGate({
         verdict,
         decisionId: parsed.decision_id,
         dossierId: parsed.dossier_id,
@@ -786,7 +786,7 @@ export class DecionisGate implements DecisionAuthority {
     if (verdict === "ALLOW" && !canExecute) {
       return FailClosedDecision.create(captured.intentHash, "AUTHORITY_GRANT_MISSING");
     }
-    return immutableGateDecision({
+    return immutableDecisionGate({
       verdict,
       decisionId: parsed.decision_id,
       dossierId: parsed.dossier_id,
@@ -989,9 +989,9 @@ export class DecionisGate implements DecisionAuthority {
 
   private terminalWaitDecision(
     captured: CapturedIntent,
-    pending: GateDecision,
+    pending: DecisionGate,
     status: Exclude<ManagedEscalationStatusResult, { status: ManagedEscalationPendingStatus }>,
-  ): GateDecision {
+  ): DecisionGate {
     const fallback =
       status.status === "EXPIRED"
         ? ["INTENT_EXPIRED", "RECAPTURE_REQUIRED"]
@@ -1003,7 +1003,7 @@ export class DecionisGate implements DecisionAuthority {
               ? ["CANCELLED"]
               : ["MANAGED_ESCALATION_FAILED"];
     const codes = status.reasonCodes.length === 0 ? fallback : status.reasonCodes;
-    return immutableGateDecision({
+    return immutableDecisionGate({
       verdict: "BLOCK",
       decisionId: pending.decisionId,
       dossierId: pending.dossierId,
@@ -1017,10 +1017,10 @@ export class DecionisGate implements DecisionAuthority {
 
   private expiredWaitDecision(
     captured: CapturedIntent,
-    pending: GateDecision,
+    pending: DecisionGate,
     escalation: ManagedEscalationState,
-  ): GateDecision {
-    return immutableGateDecision({
+  ): DecisionGate {
+    return immutableDecisionGate({
       verdict: "BLOCK",
       decisionId: pending.decisionId,
       dossierId: pending.dossierId,
@@ -1039,11 +1039,11 @@ export class DecionisGate implements DecisionAuthority {
 
   private failedWaitDecision(
     captured: CapturedIntent,
-    pending: GateDecision,
+    pending: DecisionGate,
     escalation: ManagedEscalationState,
     reasonCode: string,
-  ): GateDecision {
-    return immutableGateDecision({
+  ): DecisionGate {
+    return immutableDecisionGate({
       verdict: "BLOCK",
       decisionId: pending.decisionId,
       dossierId: pending.dossierId,
@@ -1309,13 +1309,13 @@ export class DecionisGate implements DecisionAuthority {
    * The contract returns an `ERROR` decision body on 409 and 503 so the
    * refusal is evidence-bearing. Anything else fails closed generically.
    */
-  private static failedResponse(captured: CapturedIntent, text: string): GateDecision {
+  private static failedResponse(captured: CapturedIntent, text: string): DecisionGate {
     try {
       const parsed = AuthorityResponseSchema.parse(JSON.parse(text));
       if (parsed.status !== "ERROR" || parsed.action_hash !== captured.intentHash) {
         return FailClosedDecision.create(captured.intentHash, "AUTHORITY_REQUEST_FAILED");
       }
-      return immutableGateDecision({
+      return immutableDecisionGate({
         verdict: "BLOCK",
         decisionId: parsed.decision_id,
         dossierId: parsed.dossier_id,

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createFixtureAuthorityPair,
   type DecisionAuthority,
-  type GateDecision,
+  type DecisionGate,
   type JsonObject,
 } from "@decionis/agent-safe-pipeline";
 import { jcsDigest } from "../../../src/adapters/JcsDigest.js";
@@ -74,7 +74,7 @@ describe("the MCP execution boundary", () => {
     const { invoke, pair } = setup();
 
     // A real ALLOW, for deleting the synthetic customer.
-    let issued: GateDecision | null = null;
+    let issued: DecisionGate | null = null;
     const observed = new McpGuard({
       tools: [{ binding: BINDING, invoke: async () => ({ ok: true }) }],
       authority: {
@@ -95,7 +95,7 @@ describe("the MCP execution boundary", () => {
     // this one.
     const replaying = new McpGuard({
       tools: [{ binding: BINDING, invoke }],
-      authority: { evaluate: async () => issued as unknown as GateDecision },
+      authority: { evaluate: async () => issued as unknown as DecisionGate },
       verifier: pair.verifier,
       tenantId: TENANT_ID,
       actor: ACTOR,

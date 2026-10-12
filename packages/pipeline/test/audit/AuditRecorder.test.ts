@@ -5,7 +5,7 @@ import {
   AuditRecorder,
   type AuditEventV1,
 } from "../../src/audit/AuditRecorder.js";
-import type { GateDecision } from "../../src/decision/DecisionAuthority.js";
+import type { DecisionGate } from "../../src/decision/DecisionAuthority.js";
 import { ActionRegistry } from "../../src/execution/ActionRegistry.js";
 import { SafeExecutor } from "../../src/execution/SafeExecutor.js";
 import { IntentCapture } from "../../src/intent/IntentCapture.js";
@@ -33,7 +33,7 @@ function captured() {
   );
 }
 
-function decision(intentHash: string): GateDecision {
+function decision(intentHash: string): DecisionGate {
   return {
     verdict: "ALLOW",
     decisionId: "decision-1",
@@ -370,7 +370,7 @@ describe("AuditRecorder", () => {
       captured: intent,
       decision: decision(intent.intentHash),
     });
-    const persisted = JSON.parse(JSON.stringify(events[0])) as GateDecision;
+    const persisted = JSON.parse(JSON.stringify(events[0])) as DecisionGate;
     const execute = vi.fn();
     const registry = new ActionRegistry()
       .register("refund_order", {

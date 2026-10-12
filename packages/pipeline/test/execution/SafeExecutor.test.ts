@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { describe, expect, it, vi } from "vitest";
 import { AuditRecorder, type AuditEventV1 } from "../../src/audit/AuditRecorder.js";
-import type { GateDecision } from "../../src/decision/DecisionAuthority.js";
+import type { DecisionGate } from "../../src/decision/DecisionAuthority.js";
 import { createFixtureAuthorityPair } from "../../src/decision/FixtureDecisionAuthority.js";
 import {
   ActionRegistry,
@@ -117,7 +117,7 @@ function setupAt(boundaryId: string) {
 }
 
 function authorizationFor(
-  decision: GateDecision,
+  decision: DecisionGate,
   intentHash: string,
   overrides: Partial<VerifiedAuthorization> = {},
 ): VerifiedAuthorization {
@@ -367,7 +367,7 @@ describe("SafeExecutor", () => {
     const observational = [
       { ...decision, authority: "OBSERVATIONAL" },
       { ...decision, mode: "SHADOW" },
-    ] as unknown as GateDecision[];
+    ] as unknown as DecisionGate[];
 
     for (const candidate of observational) {
       expect(await executor.run(intent, candidate)).toMatchObject({
@@ -377,7 +377,7 @@ describe("SafeExecutor", () => {
     }
     for (const authorization of [undefined, "token"]) {
       expect(
-        await executor.run(intent, { ...decision, authorization } as unknown as GateDecision),
+        await executor.run(intent, { ...decision, authorization } as unknown as DecisionGate),
       ).toMatchObject({ outcome: "BLOCKED", reason: "AUTHORIZATION_MISSING" });
     }
     expect(permissiveVerifier.verifyAndConsume).not.toHaveBeenCalled();
@@ -446,7 +446,7 @@ describe("SafeExecutor", () => {
     const decision = await pair.authority.evaluate(intent);
     const valid = authorizationFor(decision, intent.intentHash);
     const intentExpiry = Date.parse(intent.intent.expiresAt);
-    const cases: Array<{ decision: GateDecision; authorization: VerifiedAuthorization }> = [
+    const cases: Array<{ decision: DecisionGate; authorization: VerifiedAuthorization }> = [
       { decision, authorization: { ...valid, decisionId: "other-decision" } },
       { decision, authorization: { ...valid, dossierId: "other-dossier" } },
       { decision, authorization: { ...valid, grantId: "" } },

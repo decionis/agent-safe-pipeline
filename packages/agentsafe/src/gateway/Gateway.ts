@@ -11,7 +11,7 @@ import {
   SafeExecutor,
   ShadowPipeline,
   type CapturedIntent,
-  type GateDecision,
+  type DecisionGate,
   type SafeExecutionResult,
   type ShadowObservation,
   type TrustedIntentContext,
@@ -250,7 +250,7 @@ export function shortDigest(digest: string): string {
 interface HeldEscalation {
   readonly captured: CapturedIntent;
   readonly request: InterceptedRequest;
-  readonly decision: GateDecision;
+  readonly decision: DecisionGate;
   readonly handoff: EscalationHandoff | null;
   readonly heldAt: string;
   readonly expiresAt: number;
@@ -1263,7 +1263,7 @@ export class Gateway {
   private async unavailable(
     request: InterceptedRequest,
     captured: CapturedIntent,
-    decision: GateDecision,
+    decision: DecisionGate,
     startedAt: number,
     authorityMs: number,
   ): Promise<GatewayResponse> {
@@ -1330,7 +1330,7 @@ export class Gateway {
   private async execute(
     request: InterceptedRequest,
     captured: CapturedIntent,
-    decision: GateDecision,
+    decision: DecisionGate,
     startedAt: number,
     authorityMs: number | null,
   ): Promise<GatewayResponse> {

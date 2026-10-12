@@ -4,9 +4,9 @@ import type {
   DecisionAuthority,
   DecisionEvaluationMode,
   DecisionVerdict,
-  GateDecision,
+  DecisionGate,
 } from "../../src/decision/DecisionAuthority.js";
-import { immutableGateDecision } from "../../src/decision/ImmutableGateDecision.js";
+import { immutableDecisionGate } from "../../src/decision/ImmutableDecisionGate.js";
 
 export const TENANT_ID = "00000000-0000-4000-8000-000000000002";
 
@@ -69,11 +69,11 @@ export function json(body: unknown, status = 200): Response {
 /** An authority that answers with a fixed verdict about whatever it is asked. */
 export function stubAuthority(
   verdict: DecisionVerdict,
-  overrides: Partial<GateDecision> = {},
+  overrides: Partial<DecisionGate> = {},
 ): DecisionAuthority {
   return {
     evaluate: async (intent) =>
-      immutableGateDecision({
+      immutableDecisionGate({
         verdict,
         decisionId: `stub-${verdict.toLowerCase()}`,
         dossierId: `stub-dossier-${verdict.toLowerCase()}`,

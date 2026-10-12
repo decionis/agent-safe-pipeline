@@ -2,7 +2,7 @@ import type { AuditRecorder } from "../audit/AuditRecorder.js";
 import type {
   DecisionAuthority,
   DecisionVerdict,
-  GateDecision,
+  DecisionGate,
 } from "../decision/DecisionAuthority.js";
 import type { CapturedIntent } from "../intent/ExecutionIntent.js";
 
@@ -13,7 +13,7 @@ export type ShadowObservationStatus =
  * Non-authoritative record of what the authority would have decided.
  *
  * The shape deliberately has no `authorization` or `failClosed` field, so it
- * is not structurally assignable to `GateDecision`, and it carries explicit
+ * is not structurally assignable to `DecisionGate`, and it carries explicit
  * `mode: "SHADOW"` and `authority: "OBSERVATIONAL"` markers that
  * `SafeExecutor` rejects at runtime after any cast or JSON round trip.
  */
@@ -202,8 +202,8 @@ export class ShadowPipeline {
   }
 
   /** Validates a decision from any authority; the grant, if any, is discarded and reported. */
-  private static classify(captured: CapturedIntent, decision: GateDecision): Classified {
-    const candidate = decision as Partial<GateDecision> | null | undefined;
+  private static classify(captured: CapturedIntent, decision: DecisionGate): Classified {
+    const candidate = decision as Partial<DecisionGate> | null | undefined;
     if (
       candidate === null ||
       typeof candidate !== "object" ||

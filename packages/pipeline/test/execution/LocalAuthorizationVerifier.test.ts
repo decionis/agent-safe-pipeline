@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { GateDecision } from "../../src/decision/DecisionAuthority.js";
+import type { DecisionGate } from "../../src/decision/DecisionAuthority.js";
 import type {
   AuthorizationFinalizationInput,
   AuthorizationVerifier,
@@ -30,8 +30,8 @@ function grantFor(intent = captured(), overrides: Partial<LocalGrant> = {}): Loc
 function decisionFor(
   grant: LocalGrant,
   token: string,
-  overrides: Partial<GateDecision> = {},
-): GateDecision {
+  overrides: Partial<DecisionGate> = {},
+): DecisionGate {
   return {
     verdict: "ALLOW",
     decisionId: grant.decisionId,
@@ -149,7 +149,7 @@ describe("LocalAuthorizationVerifier", () => {
     ).toBeNull();
   });
 
-  const mismatches: [string, (grant: LocalGrant) => Partial<GateDecision>][] = [
+  const mismatches: [string, (grant: LocalGrant) => Partial<DecisionGate>][] = [
     ["a verdict other than ALLOW", () => ({ verdict: "ESCALATE" })],
     ["a fail-closed decision", () => ({ failClosed: true })],
     ["another decision id", () => ({ decisionId: "edge:other" })],

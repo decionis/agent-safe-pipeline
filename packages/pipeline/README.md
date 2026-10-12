@@ -267,7 +267,7 @@ const observation = await run.observation;
 // Decionis would have returned, the dossier identifier, and whether a grant was discarded.
 ```
 
-A shadow observation carries no grant, is structurally distinct from a `GateDecision`, and is
+A shadow observation carries no grant, is structurally distinct from a `DecisionGate`, and is
 rejected by `SafeExecutor` at runtime. See
 [shadow mode](https://github.com/decionis/agent-safe-pipeline/blob/master/docs/shadow-mode.md).
 
@@ -411,7 +411,7 @@ them from the testing entry. See
 | Concern        | Exports                                                                                           | Role                                                                                           |
 | -------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | Intent         | `IntentCapture`, `CanonicalIntentHasher`, `ExecutionIntentSchema`, `AgentProposalSchema`          | Build the immutable `agent-safe.intent/1` binding and its canonical SHA-256 hash               |
-| Decision       | `DecionisGate`, `DecisionAuthority`, `GateDecision`, `FailClosedDecision`                         | Obtain an independent `ALLOW` / `ESCALATE` / `BLOCK` decision with dossier identifiers         |
+| Decision       | `DecionisGate`, `DecisionAuthority`, `DecisionGate`, `FailClosedDecision`                         | Obtain an independent `ALLOW` / `ESCALATE` / `BLOCK` decision with dossier identifiers         |
 | Selection      | `createGate`, `ShadowGate`, `SelectedGate`, `HostedEvaluation`, `printDecision`                   | Choose local, shadow, or enforcement from the environment; combine and report the two verdicts |
 | Human approval | `PresenceApprovalCoordinator`, `ManagedEscalationRequest`, `HumanApprovalEvidence`                | Coordinate DIRECT Presence ceremonies or request MANAGED orchestration by Decionis             |
 | Execution      | `SafeExecutor`, `ActionRegistry`, `DecionisGrantVerifier`, `AuthorizationVerifier`, `ReplayStore` | Claim the single-use grant, validate parameters, invoke a sealed handler, finalize the attempt |

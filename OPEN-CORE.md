@@ -84,13 +84,13 @@ bundles, customer data, and credentials are explicitly excluded by the
 ```ts
 interface DecisionAuthority {
   readonly evaluationMode?: "ENFORCEMENT" | "SHADOW";
-  evaluate(intent: CapturedIntent, evidence?: DecisionEvidence): Promise<GateDecision>;
+  evaluate(intent: CapturedIntent, evidence?: DecisionEvidence): Promise<DecisionGate>;
 }
 
 interface AuthorizationVerifier {
   verifyAndConsume(
     captured: CapturedIntent,
-    decision: GateDecision,
+    decision: DecisionGate,
   ): Promise<VerifiedAuthorization | null>;
   finalize?(input: AuthorizationFinalizationInput): Promise<"RECORDED" | "PENDING">;
 }
@@ -98,7 +98,7 @@ interface AuthorizationVerifier {
 
 `SafeExecutor` depends only on these interfaces plus `ReplayStore` and `AuditSink`. It contains no
 Decionis-specific code path. A third-party or self-built authority that returns a bound
-`GateDecision` and consumes its own grants atomically is a first-class citizen of the executor.
+`DecisionGate` and consumes its own grants atomically is a first-class citizen of the executor.
 
 **Module ABI** (edge evaluator, ABI 3): `load_bundle`, `decide`, `unload_bundle` over JSON in
 linear memory, documented with the module. `EdgeModule` refuses any other ABI.

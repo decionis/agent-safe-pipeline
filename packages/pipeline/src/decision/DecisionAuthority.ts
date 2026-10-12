@@ -1,5 +1,5 @@
 import type { CapturedIntent } from "../intent/ExecutionIntent.js";
-import { immutableGateDecision } from "./ImmutableGateDecision.js";
+import { immutableDecisionGate } from "./ImmutableDecisionGate.js";
 
 export type DecisionVerdict = "ALLOW" | "ESCALATE" | "BLOCK";
 
@@ -131,7 +131,7 @@ export interface EscalationRequirement {
   } | null;
 }
 
-export interface GateDecision {
+export interface DecisionGate {
   readonly verdict: DecisionVerdict;
   readonly decisionId: string;
   readonly dossierId: string | null;
@@ -165,12 +165,12 @@ export interface DecisionAuthority {
     intent: CapturedIntent,
     evidence?: DecisionEvidence,
     options?: DecisionEvaluationOptions,
-  ): Promise<GateDecision>;
+  ): Promise<DecisionGate>;
 }
 
 export class FailClosedDecision {
-  public static create(intentHash: string, reasonCode: string): GateDecision {
-    return immutableGateDecision({
+  public static create(intentHash: string, reasonCode: string): DecisionGate {
+    return immutableDecisionGate({
       verdict: "BLOCK",
       decisionId: "unavailable",
       dossierId: null,

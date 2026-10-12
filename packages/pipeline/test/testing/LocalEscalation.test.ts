@@ -3,7 +3,7 @@ import { z } from "zod";
 import { HumanApprovalGate, PresenceClient } from "@decionis/presence-node";
 import { PresenceApprovalCoordinator } from "../../src/approval/PresenceApprovalCoordinator.js";
 import { DecionisGate } from "../../src/decision/DecionisGate.js";
-import type { GateDecision } from "../../src/decision/DecisionAuthority.js";
+import type { DecisionGate } from "../../src/decision/DecisionAuthority.js";
 import { ActionRegistry } from "../../src/execution/ActionRegistry.js";
 import { DecionisGrantVerifier } from "../../src/execution/AuthorizationVerifier.js";
 import { SafeExecutor } from "../../src/execution/SafeExecutor.js";
@@ -97,7 +97,7 @@ function coordinator(authorityGate: DecionisGate) {
   );
 }
 
-function grantOf(decision: GateDecision) {
+function grantOf(decision: DecisionGate) {
   return decision.authorization === null
     ? null
     : authority.grants.get(decision.authorization.token);
