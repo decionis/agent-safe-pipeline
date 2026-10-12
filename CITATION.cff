@@ -11,8 +11,8 @@ authors:
     given-names: Festus B.
     affiliation: Decionis, Inc.
     orcid: https://orcid.org/0009-0006-4895-6046
-version: 0.3.6
-date-released: 2026-10-11
+version: 0.3.7
+date-released: 2026-10-12
 license: Apache-2.0
 repository-code: https://github.com/decionis/agent-safe-pipeline
 url: https://github.com/decionis/agent-safe-pipeline
