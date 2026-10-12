@@ -291,23 +291,26 @@ jobs:
           persist-credentials: false
       # ECR Public meters anonymous pulls per source address and GitHub's
       # runners share addresses, so a 429 before the build's first step is the
-      # registry, not the image: the pinned bases are pulled first, with a
-      # pause between attempts, and the build then finds them locally.
+      # registry, not the image. The pinned bases are pulled first, from Docker
+      # Hub at the same digest when ECR Public will not serve them, and every
+      # build in this job is told which refs it got (BASE_IMAGE_BUILD_ARGS is
+      # a list of words, expanded unquoted on purpose).
+      - name: Resolve the pinned base images
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "$DOCKERHUB_USERNAME" && -n "$DOCKERHUB_TOKEN" ]]; then
+            printf '%s' "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+          fi
+          node scripts/ResolveBaseImages.mjs packages/agentsafe/Dockerfile
       - name: Build the trusted executor image
         shell: bash
         run: |
           set -euo pipefail
-          pull() {
-            for attempt in 1 2 3; do
-              if docker pull --quiet "$1"; then return 0; fi
-              if [ "$attempt" = 3 ]; then echo "could not pull $1 after 3 attempts" >&2; return 1; fi
-              sleep $((attempt * 30))
-            done
-          }
-          for image in $(sed -n 's/^ARG [A-Z_]*_BASE_IMAGE=//p' packages/agentsafe/Dockerfile); do
-            pull "$image"
-          done
-          docker build -f packages/agentsafe/Dockerfile -t agentsafe:ci .
+          docker build -f packages/agentsafe/Dockerfile $BASE_IMAGE_BUILD_ARGS -t agentsafe:ci .
       - name: Refuse to start without configuration
         shell: bash
         run: |
@@ -540,7 +543,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker build -f packages/agentsafe/Dockerfile --target init -t agentsafe-init:ci .
+          docker build -f packages/agentsafe/Dockerfile $BASE_IMAGE_BUILD_ARGS --target init -t agentsafe-init:ci .
           docker run --rm --entrypoint sh agentsafe-init:ci -n /usr/local/bin/agentsafe-redirect
           rules="$(docker run --rm --cap-add NET_ADMIN --cap-add NET_RAW agentsafe-init:ci)"
           echo "$rules"
@@ -1491,6 +1494,19 @@ jobs:
       - name: Set up Buildx
         if: steps.release.outputs.exists != 'true'
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      # The same registry fallback as the image job: the buildx builder pulls
+      # the bases itself, from the refs that resolved here.
+      - name: Resolve the pinned base images
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "$DOCKERHUB_USERNAME" && -n "$DOCKERHUB_TOKEN" ]]; then
+            printf '%s' "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+          fi
+          node scripts/ResolveBaseImages.mjs packages/agentsafe/Dockerfile
       - name: Build the runtime image
         if: steps.release.outputs.exists != 'true'
         id: image
@@ -1519,7 +1535,7 @@ jobs:
           fi
           # The runner's own platform first, loaded locally, so the image can
           # be run and refused before anything is pushed.
-          docker buildx build -f packages/agentsafe/Dockerfile "${labels[@]}" \
+          docker buildx build -f packages/agentsafe/Dockerfile $BASE_IMAGE_BUILD_ARGS "${labels[@]}" \
             --platform linux/amd64 --load -t "$image:$RELEASE_VERSION" .
           if output="$(docker run --rm "$image:$RELEASE_VERSION" 2>&1)"; then
             echo "The gateway started with no configuration." >&2
@@ -1537,7 +1553,7 @@ jobs:
           printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_ACTOR" --password-stdin
           # Both architectures as one manifest list, with BuildKit's own SBOM
           # and provenance attestations attached to it.
-          docker buildx build -f packages/agentsafe/Dockerfile "${labels[@]}" \
+          docker buildx build -f packages/agentsafe/Dockerfile $BASE_IMAGE_BUILD_ARGS "${labels[@]}" \
             --platform linux/amd64,linux/arm64 --sbom=true --provenance=mode=max \
             "${tags[@]}" --push .
           digest="$(docker buildx imagetools inspect "$image:$RELEASE_VERSION" --format '{{json .Manifest.Digest}}' | tr -d '"')"
@@ -1549,7 +1565,7 @@ jobs:
           if [[ "$RELEASE_VERSION" != *-* ]]; then
             init_tags+=(-t "$image:$minor-init" -t "$image:$major-init" -t "$image:latest-init")
           fi
-          docker buildx build -f packages/agentsafe/Dockerfile --target init "${labels[@]}" \
+          docker buildx build -f packages/agentsafe/Dockerfile $BASE_IMAGE_BUILD_ARGS --target init "${labels[@]}" \
             --platform linux/amd64,linux/arm64 --sbom=true --provenance=mode=max \
             "${init_tags[@]}" --push .
           init_digest="$(docker buildx imagetools inspect "$image:$RELEASE_VERSION-init" --format '{{json .Manifest.Digest}}' | tr -d '"')"
