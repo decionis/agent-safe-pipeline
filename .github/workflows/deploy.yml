@@ -39,7 +39,7 @@ jobs:
           run_install: false
           standalone: true
       - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22.20.0
           cache: pnpm
@@ -82,7 +82,7 @@ jobs:
           run_install: false
           standalone: true
       - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22.20.0
           cache: pnpm
@@ -239,7 +239,7 @@ jobs:
           run_install: false
           standalone: true
       - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22.20.0
           cache: pnpm
@@ -753,7 +753,7 @@ jobs:
           run_install: false
           standalone: false
       - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22.20.0
           cache: pnpm
@@ -1178,7 +1178,7 @@ jobs:
           standalone: true
       - name: Set up Node.js for release
         if: steps.release.outputs.exists != 'true'
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24.18.0
           registry-url: https://registry.npmjs.org
