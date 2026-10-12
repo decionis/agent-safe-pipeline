@@ -270,7 +270,7 @@ what each is on AgentSafe.
 | Before the authorization exists            | **Tap to Verify**, for a held purchase         | Sections 1 to 5 above: the agent proposes, policy holds the grant or asks for the cardholder, the tap resumes the hold, the authorization matches it in milliseconds. The cleanest path, and the one built first.                                                                                                                                                                                                                                                                         |
 | In the bank's fraud queue                  | **Tap to Verify**, for a flagged authorization | `EXECUTOR_CARD_NO_GRANT=evaluate`: an authorization with no hold is evaluated at the commit boundary, below. An `ALLOW` is held and claimed in the same call; an `ESCALATE` is answered `PENDING` with the handoff, the platform pends the authorization, the tap arrives through `POST /v1/escalations`, and the re-presented authorization matches the hold the tap left. Needs a platform that can pend.                                                                               |
 | After the authorization                    | **Tap to Confirm**, called by the platform     | Nothing can pend, so the authorization goes through and the cardholder confirms or rejects it afterwards in the issuer's app; a rejection is a reversal the bank's own rail carries. AgentSafe's part is evidence only: the same commit-boundary evaluation in `SHADOW` records what policy would have said (`NO_MATCH` with `SHADOW_OBSERVED`), and the `@decionis/iso8583` interceptor's shadow mode records it on the wire. The easiest to build and the weakest: the money has moved. |
-| A standing permission, no amount behind it | **Tap to Authenticate**                        | Not a purchase: the cardholder grants an agent permission to buy on their behalf, a new device, account recovery. It is a signal policy requires rather than an intent to hold, named in `required_signals` under the admission pattern; a producer's own signature on that signal is not verified today.                                                                                                                                                                                 |
+| A standing permission, no amount behind it | **Tap to Authenticate**                        | Not a purchase: the cardholder grants an agent permission to buy on their behalf, a new device, account recovery. It is a signal the producer signs and the agent presents with each purchase, verified by the authority and named by policy with `required_signals`: [the standing permission](#a-standing-permission-tap-to-authenticate), below.                                                                                                                                       |
 
 Soft decline and re-present is left off on purpose, as Koard's paper leaves it off: the step-up it
 invites assumes a person at a browser.
@@ -302,6 +302,69 @@ for a `PENDING` authorization is `404 CARD_AUTHORIZATION_UNKNOWN`, since nothing
 The pending answers are kept per replica; a re-presentation that reaches another replica before
 the tap is evaluated there too, and the tap resolves one of the two intents while the other
 expires with no effect.
+
+## A standing permission: Tap to Authenticate
+
+A cardholder taps once to let an agent buy on their behalf for a while: up to an amount, in a
+currency, with a card. Nothing is held, since there is no purchase yet. What Koard produces is a
+signed signal: a compact Ed25519 JWS, `typ` `decionis-signed-signal+jwt`, issued by the producer
+(`iss`, `koard`) to the bank (`aud`, its organisation id) about an opaque subject (`sub`, never a
+card number), with `iat`, `exp` at most thirty days later, `jti`, and a `signal` claim:
+
+| Claim                   | What it says                                                                          |
+| ----------------------- | ------------------------------------------------------------------------------------- |
+| `signal.name`           | the fact's name, `card_delegation` here (`^[a-z][a-z0-9_]{0,63}$`)                    |
+| `signal.method`         | how the producer verified the person who granted it, `card_tap`                       |
+| `signal.result`         | `VERIFIED`; a `FAILED` signal is refused                                              |
+| `signal.agent`          | optional: the agent principal the permission is for                                   |
+| `signal.scope.actions`  | optional: the actions it covers, `["card.purchase"]`                                  |
+| `signal.limits`         | optional: `{ "currency": "USD", "amount_minor": 5000 }`, the most one purchase may be |
+| `signal.card_token_ref` | optional: the card, as an opaque token reference                                      |
+
+The agent presents it with the proposal, beside the intent and never inside it:
+
+```json
+{
+  "proposal": {
+    "action": "card.purchase",
+    "target": "card:tok_synthetic_card_a",
+    "parameters": {
+      "cardTokenRef": "tok_synthetic_card_a",
+      "amountMinor": 4000,
+      "currency": "USD",
+      "merchantId": "merchant_synthetic_1"
+    }
+  },
+  "idempotency_key": "purchase-one",
+  "signals": [{ "token": "<compact JWS>" }]
+}
+```
+
+The executor carries the token to the authority as evidence (`evidence.signals`) and keeps
+nothing of it: it is in no journal line, no hold row and no response. The authority verifies it
+against the key the bank registered for the producer (`POST /v1/execution/provider-keys` with
+`purpose` `signed_signal`), or against the JWKS of a provider the bank admitted from the
+directory, and writes the facts under `agent_safe.signed_signals.<name>`: the producer, the
+method, the subject, the signal id, the key id, the issued and expiry times, a digest of the
+token (`evidence_digest`), what the signal asserts, and `covers`, one entry per axis, `true`,
+`false`, or `null` when the signal says nothing about it: `action` (the intent's action is in
+`scope.actions`), `agent` (the proposer is the named agent), `amount` and `currency` (the purchase
+is within `limits`), `card` (the card is the one named). `covers_intent` is true when nothing the
+signal asserts is false. The facts are recorded in the signed binding and rebuilt at the claim,
+where the key's trust and the expiry are checked again; the token itself is recorded nowhere.
+
+The policy for it names the fact and reads one of them: `required_signals` carries
+`agent_safe.signed_signals.card_delegation`, so a purchase without the signal escalates; a rule
+compares `agent_safe.signed_signals.card_delegation.covers_intent` with `true` and allows; the
+escalation rule's `verification_requirements` name `CARD_TAP` through `koard`, so anything the
+permission does not cover goes to the cardholder's tap as a held purchase does. The bundle itself
+is on the Decionis docs page for card authorization.
+
+A forged, expired or mis-addressed token is refused before any evaluation, as a forged tap is
+(`SIGNED_SIGNAL_SIGNATURE_INVALID`, `SIGNED_SIGNAL_EXPIRED`, `SIGNED_SIGNAL_AUDIENCE_MISMATCH`,
+`SIGNED_SIGNAL_KEY_UNKNOWN`), and the proposal fails closed with that code. The edge evaluator
+holds no producer keys, so a proposal that carries a signal is decided by the hosted authority
+even where the claim is local.
 
 ## Hosting and key custody
 

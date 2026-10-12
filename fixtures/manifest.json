@@ -1659,6 +1659,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/pipeline/test/testing/SignedSignals.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "policies/deploy-policy.json",
       "family": "Policy example",
       "source": "synthetic",

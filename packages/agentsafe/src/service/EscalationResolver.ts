@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { HumanApprovalGate, PresenceClient } from "@decionis/presence-node";
 import {
+  type DecisionEvidence,
   PresenceApprovalCoordinator,
   type AuditRecorder,
   type CapturedIntent,
@@ -189,10 +190,16 @@ export class EscalationResolver {
     return this.config.mode;
   }
 
-  /** The first evaluation: in managed mode it also asks the authority to orchestrate. */
-  public async evaluate(captured: CapturedIntent): Promise<DecisionGate> {
-    if (this.config.mode !== "MANAGED") return await this.first.evaluate(captured);
-    return await this.first.evaluate(captured, undefined, {
+  /**
+   * The first evaluation, with the signed signals the proposal carried as
+   * evidence; in managed mode it also asks the authority to orchestrate.
+   */
+  public async evaluate(
+    captured: CapturedIntent,
+    evidence?: DecisionEvidence,
+  ): Promise<DecisionGate> {
+    if (this.config.mode !== "MANAGED") return await this.first.evaluate(captured, evidence);
+    return await this.first.evaluate(captured, evidence, {
       escalation: {
         mode: "MANAGED",
         approver: {

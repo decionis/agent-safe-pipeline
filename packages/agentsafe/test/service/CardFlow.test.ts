@@ -1,7 +1,12 @@
+import { generateKeyPairSync } from "node:crypto";
 import { randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { LocalAuthority, LocalPresence } from "@decionis/agent-safe-pipeline/testing";
+import {
+  mintSignedSignal,
+  LocalAuthority,
+  LocalPresence,
+} from "@decionis/agent-safe-pipeline/testing";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { cardHandlers } from "../../src/adapters/cards/CardHandlers.js";
 import { prepareCardPurchase } from "../../src/adapters/cards/CardEffect.js";
@@ -15,6 +20,7 @@ import type { LoadPg, PgPool } from "../../src/edge/EdgeReplay.js";
 import { TrustedExecutorService } from "../../src/service/TrustedExecutorService.js";
 import { FakeCardHoldsSql } from "../support/FakeCardHoldsSql.js";
 import {
+  TENANT_ID,
   APPROVER_ID,
   collectedEvents,
   loopbackEnvironment,
@@ -1302,5 +1308,192 @@ describe("an authorization with no hold, evaluated at the commit boundary", () =
     expect(again).not.toEqual(first);
     expect(requestsTo("enforce-and-bind").length).toBe(evaluations + 1);
     short.service.close();
+  });
+});
+
+describe("a standing permission: Tap to Authenticate", () => {
+  const producer = generateKeyPairSync("ed25519");
+  const stranger = generateKeyPairSync("ed25519");
+  const seen: unknown[] = [];
+  const delegated = new LocalAuthority({
+    verifyAttestation: (attestation) => attestation === TAPPED,
+    escalationRouting: {
+      selector: { kind: "ROLE", role_id: "CARDHOLDER" },
+      verification: { provider: "koard", methods: ["CARD_TAP"], level: "STANDARD" },
+    },
+    // The bank's policy: a purchase the cardholder's standing permission
+    // covers is allowed; anything else goes to the cardholder's tap.
+    policy: (request) => {
+      seen.push(request.signed_signals);
+      return request.signed_signals?.["card_delegation"]?.covers_intent === true
+        ? "ALLOW"
+        : "ESCALATE";
+    },
+  });
+  delegated.registerProviderKey({
+    kid: "koard-signal-key-a",
+    issuer: "koard",
+    publicJwk: producer.publicKey.export({ format: "jwk" }),
+    purpose: "signed_signal",
+  });
+  const delegatedRequests = (part: string) =>
+    delegated.requests.filter((request) => request.path.includes(part));
+
+  /** The cardholder's permission as Koard signs it: this agent, card purchases, up to 50 EUR. */
+  const permission = (overrides: Partial<Parameters<typeof mintSignedSignal>[0]> = {}) =>
+    mintSignedSignal({
+      privateKey: producer.privateKey,
+      kid: "koard-signal-key-a",
+      issuer: "koard",
+      audience: TENANT_ID,
+      subject: "cardholder-synthetic-7",
+      signal: {
+        name: "card_delegation",
+        method: "card_tap",
+        result: "VERIFIED",
+        agent: "synthetic-shopping-agent",
+        scope: { actions: ["card.purchase"] },
+        limits: { currency: "EUR", amount_minor: 5_000 },
+      },
+      ...overrides,
+    });
+
+  beforeAll(async () => {
+    await delegated.start();
+  });
+
+  afterAll(async () => {
+    await delegated.stop();
+  });
+
+  it("holds a purchase the permission covers, and keeps nothing of the token", async () => {
+    const { service, lines, securityLines, journal } = build("ENFORCEMENT", {
+      authority: delegated,
+    });
+    const token = permission();
+    const { body } = purchase(4_250);
+    seen.length = 0;
+    const held = await service.propose({ ...body, signals: [{ token }] });
+    expect(held).toMatchObject({
+      verdict: "ALLOW",
+      outcome: "HELD_FOR_AUTHORIZATION",
+      reason_codes: ["POLICY_AUTONOMOUS_LIMIT"],
+    });
+    // The authority saw the token as evidence, beside the intent, and the
+    // facts it verified: who signed, how, what it covers.
+    const evaluated = delegatedRequests("enforce-and-bind").at(-1)?.body as Record<string, unknown>;
+    expect(evaluated["evidence"]).toEqual({ signals: [{ token }] });
+    expect(JSON.stringify(evaluated["context"])).not.toContain(token);
+    expect(seen[0]).toMatchObject({
+      card_delegation: {
+        verified: true,
+        producer: "koard",
+        method: "card_tap",
+        key_id: "koard-signal-key-a",
+        agent: "synthetic-shopping-agent",
+        limits: { currency: "EUR", amount_minor: 5_000 },
+        covers: { action: true, agent: true, amount: true, currency: true, card: null },
+        covers_intent: true,
+      },
+    });
+    // Nothing this process keeps carries the token: not the answer, not the
+    // audit or security lines, not the journal.
+    const everything = JSON.stringify([held, lines, securityLines, journal.all]);
+    expect(everything).not.toContain(token);
+    expect(everything).not.toContain(token.split(".")[2]);
+    service.close();
+  });
+
+  it("sends a purchase the permission does not cover to the cardholder's tap", async () => {
+    const { service } = build("ENFORCEMENT", { authority: delegated });
+    const { body } = purchase(50_000);
+    seen.length = 0;
+    const escalated = await service.propose({ ...body, signals: [{ token: permission() }] });
+    expect(escalated).toMatchObject({
+      verdict: "ESCALATE",
+      outcome: "ESCALATE_PENDING",
+      executed: false,
+      escalation: {
+        mode: "ATTESTATION",
+        requirement: { verification: { provider: "koard", methods: ["CARD_TAP"] } },
+      },
+    });
+    expect(seen[0]).toMatchObject({
+      card_delegation: { covers: { amount: false }, covers_intent: false },
+    });
+    // A permission for another agent is verified and covers nothing of this
+    // intent; it escalates, it is not refused.
+    const other = await service.propose({
+      ...purchase(4_250).body,
+      signals: [
+        {
+          token: permission({
+            signal: {
+              name: "card_delegation",
+              method: "card_tap",
+              result: "VERIFIED",
+              agent: "synthetic-other-agent",
+            },
+          }),
+        },
+      ],
+    });
+    expect(other).toMatchObject({ verdict: "ESCALATE", outcome: "ESCALATE_PENDING" });
+    service.close();
+  });
+
+  it("refuses a forged, expired, mis-addressed or unknown token before any evaluation", async () => {
+    const { service } = build("ENFORCEMENT", { authority: delegated });
+    const cases: Array<[Partial<Parameters<typeof mintSignedSignal>[0]>, string]> = [
+      [{ privateKey: stranger.privateKey }, "SIGNED_SIGNAL_SIGNATURE_INVALID"],
+      [{ issuedAtMs: Date.now() - 3 * 24 * 60 * 60 * 1_000 }, "SIGNED_SIGNAL_EXPIRED"],
+      [{ audience: "00000000-0000-4000-8000-000000000002" }, "SIGNED_SIGNAL_AUDIENCE_MISMATCH"],
+      [{ kid: "koard-signal-key-z" }, "SIGNED_SIGNAL_KEY_UNKNOWN"],
+    ];
+    for (const [overrides, code] of cases) {
+      const refused = await service.propose({
+        ...purchase(4_250).body,
+        signals: [{ token: permission(overrides) }],
+      });
+      expect(refused, code).toMatchObject({
+        verdict: "BLOCK",
+        fail_closed: true,
+        executed: false,
+        reason_codes: [code],
+      });
+    }
+    service.close();
+  });
+
+  it("never sends a malformed signal, or more than eight, to the authority", async () => {
+    const { service } = build("ENFORCEMENT", { authority: delegated });
+    const evaluations = delegatedRequests("enforce-and-bind").length;
+    for (const signals of [
+      [{ token: "not-a-jws" }],
+      [],
+      Array.from({ length: 9 }, () => ({ token: permission() })),
+      [{ token: permission(), extra: true }],
+    ]) {
+      const refused = await refusal(service.propose({ ...purchase(4_250).body, signals }));
+      expect([refused.status, refused.code]).toEqual([400, "REQUEST_INVALID"]);
+    }
+    expect(delegatedRequests("enforce-and-bind").length).toBe(evaluations);
+    service.close();
+  });
+
+  it("observes the permission in shadow, and holds nothing", async () => {
+    const { service } = build("SHADOW", { authority: delegated });
+    const token = permission();
+    const observed = await service.propose({ ...purchase(4_250).body, signals: [{ token }] });
+    expect(observed).toMatchObject({
+      mode: "SHADOW",
+      verdict: "ALLOW",
+      executed: false,
+      authorization: null,
+    });
+    const evaluated = delegatedRequests("enforce-and-bind").at(-1)?.body as Record<string, unknown>;
+    expect(evaluated["mode"]).toBe("SHADOW");
+    expect(evaluated["evidence"]).toEqual({ signals: [{ token }] });
+    service.close();
   });
 });

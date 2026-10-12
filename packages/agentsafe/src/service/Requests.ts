@@ -16,6 +16,20 @@ const identifier = z.string().trim().min(1).max(200);
  * the strict schema. The idempotency key and correlation id are the caller's,
  * derived from its own record of the work, never from the model.
  */
+const COMPACT_JWS = /^[\w-]+\.[\w-]+\.[\w-]+$/;
+
+/**
+ * A producer's signed, standing signal presented with a proposal: a compact
+ * Ed25519 JWS the authority verifies against the key the organisation
+ * registered for the producer (purpose `signed_signal`), such as a
+ * cardholder's grant of permission to an agent, within limits and until a
+ * time. Evidence for the evaluation, never part of the intent: this process
+ * carries it bounded and shaped and keeps nothing of it.
+ */
+export const SignedSignalSchema = z.strictObject({
+  token: z.string().max(20_000).regex(COMPACT_JWS),
+});
+
 export const ProposalRequestSchema = z.strictObject({
   proposal: z.strictObject({
     action: z.string().trim().min(1).max(120),
@@ -24,6 +38,8 @@ export const ProposalRequestSchema = z.strictObject({
   }),
   idempotency_key: z.string().trim().min(1).max(180),
   correlation_id: identifier.optional(),
+  /** At most eight signed signals; the authority refuses one it cannot verify. */
+  signals: z.array(SignedSignalSchema).min(1).max(8).optional(),
 });
 
 export type ProposalRequest = z.infer<typeof ProposalRequestSchema>;

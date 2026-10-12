@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import {
+  type DecisionEvidence,
   AuditRecorder,
   CanonicalIntentHasher,
   ExecutionIntentSchema,
@@ -873,11 +874,16 @@ export class TrustedExecutorService {
     }
     const velocity = await this.cardVelocity(request);
     const captured = this.captureIntent(request, proposer, velocity);
+    // A producer's signed signals travel beside the intent as evidence, never
+    // inside it: the authority verifies them and keeps their facts, and this
+    // process keeps nothing of the tokens.
+    const evidence: DecisionEvidence | undefined =
+      request.signals === undefined ? undefined : { signals: request.signals };
     // Every line this proposal causes names the proposer, whichever
     // transport asked; the door's own scope, when there is one, agrees.
     return await RequestContext.run({ principal: proposer.id }, async () => {
       if (this.config.mode === "SHADOW") {
-        const observed = await this.observe(captured);
+        const observed = await this.observe(captured, evidence);
         this.metrics.proposals.inc({ verdict: observed.verdict ?? "NONE" });
         return observed;
       }
@@ -892,15 +898,18 @@ export class TrustedExecutorService {
         if (error instanceof ServiceError) await this.recordRefusal(captured, error.code);
         throw error;
       }
-      const answer = await this.enforceAfterPosture(captured);
+      const answer = await this.enforceAfterPosture(captured, evidence);
       this.metrics.proposals.inc({ verdict: answer.verdict ?? "NONE" });
       return answer;
     });
   }
 
-  private async enforceAfterPosture(captured: CapturedIntent): Promise<ActionResponse> {
+  private async enforceAfterPosture(
+    captured: CapturedIntent,
+    evidence?: DecisionEvidence,
+  ): Promise<ActionResponse> {
     this.assertPosture();
-    return await this.enforce(captured);
+    return await this.enforce(captured, evidence);
   }
 
   /** The stop, checked after the intent is captured and before any authority is asked. */
@@ -1483,13 +1492,20 @@ export class TrustedExecutorService {
     }
   }
 
-  private async observe(captured: CapturedIntent): Promise<ActionResponse> {
+  private async observe(
+    captured: CapturedIntent,
+    evidence?: DecisionEvidence,
+  ): Promise<ActionResponse> {
     const shadow = this.clients.current().shadow;
     if (shadow === null) throw new ServiceError(500, "MODE_MISMATCH");
     // The production action, if any, runs in the caller. What this process
     // contributes in shadow is the observation and its evidence, never an
     // execution and never a grant.
-    const comparison = await shadow.compare(captured, () => null);
+    const comparison = await shadow.compare(
+      captured,
+      () => null,
+      evidence === undefined ? {} : { evidence },
+    );
     const observation = comparison.observation;
     return {
       mode: "SHADOW",
@@ -1511,9 +1527,12 @@ export class TrustedExecutorService {
     };
   }
 
-  private async enforce(captured: CapturedIntent): Promise<ActionResponse> {
+  private async enforce(
+    captured: CapturedIntent,
+    evidence?: DecisionEvidence,
+  ): Promise<ActionResponse> {
     const { escalation, executor } = this.clients.current();
-    const decision = await escalation.evaluate(captured);
+    const decision = await escalation.evaluate(captured, evidence);
     const card = isCardActionName(captured.intent.action);
     let outcome: SafeExecutionResult;
     if (card) {

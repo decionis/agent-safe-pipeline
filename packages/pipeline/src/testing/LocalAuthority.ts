@@ -28,6 +28,12 @@ import {
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { z } from "zod";
 import { readBody, type LocalPresence } from "./LocalPresence.js";
+import {
+  verifySignedSignals,
+  type SignedSignalFacts,
+  type SignedSignalKey,
+  type SignedSignalRefusalCode,
+} from "./SignedSignals.js";
 
 export const LOCAL_AUTHORITY_API_KEY = "test-key";
 export const AUTONOMOUS_LIMIT_MINOR = 10_000;
@@ -188,6 +194,12 @@ const AuthorityEvidenceSchema = z.strictObject({
       }),
     ])
     .optional(),
+  /** A producer's signed standing signals (`SignedSignalEvidence`), at most eight. */
+  signals: z
+    .array(z.strictObject({ token: z.string().max(20_000).regex(COMPACT_JWS) }))
+    .min(1)
+    .max(8)
+    .optional(),
 });
 
 /** `ExecutionAuthorityRequest`: the binding plus hash, mode, evidence, and managed constraints. */
@@ -225,6 +237,15 @@ const FinalizeRequestSchema = z.strictObject({
   effect_receipt: z.string().min(1).max(20_000).regex(COMPACT_JWS).optional(),
 });
 
+/** What a registered key may sign, as the hosted `ExecutionProviderKeyPurpose` names it. */
+export const PROVIDER_KEY_PURPOSES = [
+  "effect_receipt",
+  "presence_attestation",
+  "usage_report",
+  "signed_signal",
+] as const;
+export type LocalProviderKeyPurpose = (typeof PROVIDER_KEY_PURPOSES)[number];
+
 /** `ExecutionProviderKeyRegistrationRequest`: the public half of an Ed25519 key. */
 const ProviderKeyRegistrationSchema = z.strictObject({
   org_id: z.uuid().optional(),
@@ -240,6 +261,7 @@ const ProviderKeyRegistrationSchema = z.strictObject({
     use: z.literal("sig").optional(),
   }),
   label: z.string().max(200).optional(),
+  purpose: z.enum(PROVIDER_KEY_PURPOSES).optional(),
 });
 
 const BINDING_KEYS = Object.keys(IntentBindingSchema.shape);
@@ -268,7 +290,15 @@ interface Computed {
 }
 
 /** Verdict for an intent evaluated without evidence; evidence handling stays generic. */
-export type LocalAuthorityPolicy = (request: LocalAuthorityRequest) => Verdict;
+/**
+ * What a policy hook sees: the request, and the facts of every signed signal
+ * it carried, verified, under `signed_signals` by name, as the hosted
+ * authority writes them under `agent_safe.signed_signals`.
+ */
+export type LocalAuthorityPolicyInput = LocalAuthorityRequest & {
+  readonly signed_signals?: Readonly<Record<string, SignedSignalFacts>>;
+};
+export type LocalAuthorityPolicy = (request: LocalAuthorityPolicyInput) => Verdict;
 
 export interface LocalRouteOverride {
   readonly status?: number;
@@ -349,6 +379,7 @@ export interface LocalProviderKey {
   readonly issuer: string;
   readonly publicKey: KeyObject;
   readonly label: string | null;
+  readonly purpose: LocalProviderKeyPurpose;
 }
 
 export interface LocalManagedEscalationRecord {
@@ -627,13 +658,53 @@ export class LocalAuthority {
     readonly issuer: string;
     readonly publicJwk: JsonWebKey;
     readonly label?: string;
+    /** What the key may sign; a receipt key by default, as the hosted route defaults. */
+    readonly purpose?: LocalProviderKeyPurpose;
   }): void {
     this.providerKeys.set(input.kid, {
       kid: input.kid,
       issuer: input.issuer,
       publicKey: createPublicKey({ key: input.publicJwk, format: "jwk" }),
       label: input.label ?? null,
+      purpose: input.purpose ?? "effect_receipt",
     });
+  }
+
+  /** The key a signed signal's `kid` names, when it was registered to sign signals. */
+  private signedSignalKey(kid: string): SignedSignalKey | null {
+    const key = this.providerKeys.get(kid);
+    return key !== undefined && key.purpose === "signed_signal"
+      ? { kid: key.kid, issuer: key.issuer, publicKey: key.publicKey }
+      : null;
+  }
+
+  /**
+   * The signed signals a request carries, verified as the hosted authority
+   * verifies them, as facts by name for the policy hook; a refusal names its
+   * code, and the route answers it with a 409 like a refused attestation.
+   */
+  private signedSignalsOf(
+    request: LocalAuthorityRequest,
+  ):
+    | { readonly facts: Readonly<Record<string, SignedSignalFacts>> | undefined }
+    | { readonly refused: SignedSignalRefusalCode } {
+    const signals = request.evidence?.signals;
+    if (signals === undefined) return { facts: undefined };
+    const verification = verifySignedSignals(
+      signals.map((signal) => signal.token),
+      {
+        orgId: request.tenant_id,
+        findKey: (kid) => this.signedSignalKey(kid),
+        intent: {
+          action: request.action.type,
+          actorId: request.actor.id,
+          resource: request.action.resource,
+          parameters: request.action.parameters as Readonly<Record<string, unknown>>,
+        },
+        nowMs: this.clock(),
+      },
+    );
+    return verification.ok ? { facts: verification.facts } : { refused: verification.code };
   }
 
   /**
@@ -875,6 +946,7 @@ export class LocalAuthority {
       issuer: body.issuer,
       publicJwk: { kty: body.public_jwk.kty, crv: body.public_jwk.crv, x: body.public_jwk.x },
       ...(body.label === undefined ? {} : { label: body.label }),
+      ...(body.purpose === undefined ? {} : { purpose: body.purpose }),
     });
     return [
       201,
@@ -991,7 +1063,13 @@ export class LocalAuthority {
     readonly approval: { readonly requestId: string; readonly receiptDossierId: string } | null;
     readonly error?: string;
   } {
-    const verdict = this.policy(request);
+    const signed = this.signedSignalsOf(request);
+    if ("refused" in signed) {
+      return { status: "BLOCK", reasonCode: signed.refused, approval: null, error: signed.refused };
+    }
+    const verdict = this.policy(
+      signed.facts === undefined ? request : { ...request, signed_signals: signed.facts },
+    );
     if (verdict === "BLOCK") {
       return { status: "BLOCK", reasonCode: "POLICY_HARD_LIMIT_EXCEEDED", approval: null };
     }
@@ -1363,7 +1441,12 @@ export class LocalAuthority {
     if (!verification.ok)
       return done("FAILED", ["PRESENCE_VERIFICATION_FAILED", verification.reasonCode]);
     // PRESENCE_VERIFIED and REAUTHORIZING are passed through within one lookup, as Decionis does.
-    const reevaluated = this.policy(managed.request);
+    const signed = this.signedSignalsOf(managed.request);
+    const reevaluated = this.policy(
+      "refused" in signed || signed.facts === undefined
+        ? managed.request
+        : { ...managed.request, signed_signals: signed.facts },
+    );
     if (reevaluated === "BLOCK") return done("BLOCKED", ["REAUTHORIZATION_BLOCKED"]);
     return done("GRANT_READY", ["PRESENCE_RECEIPT_VERIFIED"]);
   }
