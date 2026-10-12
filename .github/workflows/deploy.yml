@@ -52,7 +52,7 @@ jobs:
         run: pnpm examples:prove
       - name: Upload coverage report
         if: ${{ success() || hashFiles('packages/pipeline/coverage/**') != '' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: pipeline-coverage
           path: packages/pipeline/coverage/
@@ -920,7 +920,7 @@ jobs:
           [ ! -e "$prefix/bin/agentsafe" ]
           kill "$server"
       - name: Upload runtime artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: runtime-${{ matrix.target }}
           path: |
@@ -1071,7 +1071,7 @@ jobs:
           [ ! -e "$prefix/bin/govern" ]
           kill "$server"
       - name: Upload govern artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: govern-${{ matrix.target }}
           path: |
@@ -1901,7 +1901,7 @@ jobs:
           git push origin "$branch"
       - name: Upload verified dry-run assets
         if: steps.release.outputs.exists != 'true' && github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-dry-run-${{ steps.release.outputs.version }}
           path: release/
