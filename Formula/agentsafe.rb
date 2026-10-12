@@ -6,28 +6,28 @@
 class Agentsafe < Formula
   desc "Execution-authority gateway: intercepts consequential actions and enforces Decionis verdicts"
   homepage "https://github.com/decionis/agent-safe-pipeline"
-  version "0.2.5"
+  version "0.4.0"
   license "Apache-2.0"
 
   on_macos do
     on_arm do
-      url "https://github.com/decionis/agent-safe-pipeline/releases/download/v0.3.5/agentsafe-0.2.5-darwin-arm64.tar.gz"
-      sha256 "ff7e9c1426753b15f0cddec1fa4da8b5768ae6638ea797c4e2d871758a64dfeb"
+      url "https://github.com/decionis/agent-safe-pipeline/releases/download/v0.3.7/agentsafe-0.4.0-darwin-arm64.tar.gz"
+      sha256 "77c4d4e4189524cd1fa9f2b9dfefb5027a2cdafefdb691978cd4d6bece306aa9"
     end
     on_intel do
-      url "https://github.com/decionis/agent-safe-pipeline/releases/download/v0.3.5/agentsafe-0.2.5-darwin-x64.tar.gz"
-      sha256 "8706f1b3b4896a8e784dca5aebe8b452761affa2796190f593903b83e0d041c3"
+      url "https://github.com/decionis/agent-safe-pipeline/releases/download/v0.3.7/agentsafe-0.4.0-darwin-x64.tar.gz"
+      sha256 "2dd8affb028b6c0c43cd5c532de805fa8ae833335a6922f152916f4c6fbe01f6"
     end
   end
 
   on_linux do
     on_arm do
-      url "https://github.com/decionis/agent-safe-pipeline/releases/download/v0.3.5/agentsafe-0.2.5-linux-arm64.tar.gz"
-      sha256 "627a6c2748e4f66708fb3df09e37b7c9b033da2888f3146a318f33fa797db2eb"
+      url "https://github.com/decionis/agent-safe-pipeline/releases/download/v0.3.7/agentsafe-0.4.0-linux-arm64.tar.gz"
+      sha256 "76bcf5f9e2ac3f5459d9ff13e4bdef9b04a54a42a098e6a7a68bf4c338a9bd36"
     end
     on_intel do
-      url "https://github.com/decionis/agent-safe-pipeline/releases/download/v0.3.5/agentsafe-0.2.5-linux-x64.tar.gz"
-      sha256 "3c4168b945e2e911c2da85c44c7580612f577e87bc68554276e1b41506cadcb6"
+      url "https://github.com/decionis/agent-safe-pipeline/releases/download/v0.3.7/agentsafe-0.4.0-linux-x64.tar.gz"
+      sha256 "3d3b8a8a7010d34b7cbd2b595d1fe3a68599cd345901dd9707b2ce23c432e340"
     end
   end
 
