@@ -8,6 +8,8 @@ The two revised PDFs are generated from editable text and vector diagram code in
 
 - [AgentSafe for banks](../../output/pdf/AgentSafe-for-banks.pdf), nine pages, updated 12 October 2026.
 - [Koard and Decionis: agentic card authorization](../../output/pdf/Koard-and-Decionis-agentic-authorization-design-flow.pdf), seven pages, updated 12 October 2026.
+- [Response to Koard's workflow review](../../output/pdf/Koard-review-response.pdf), one page, 12 October 2026:
+  each gap the review raised, what was built or decided for it, and where it is written.
 
 The bank brief includes separate flows for putting the gateway in front of agent tool calls,
 deploying inside the bank and connecting to the Decionis-managed gateway. The
@@ -104,11 +106,13 @@ directory and in LibreOffice.app on macOS; other environments provide `--font-di
 python3 scripts/docs/BuildBankingPdfs.py --font-dir /path/to/fonts
 # Rebuild only the bank brief, preserving the joint brief:
 python3 scripts/docs/BuildBankingPdfs.py --only banks --font-dir /path/to/fonts
+# Rebuild only the one-page response to Koard's review:
+python3 scripts/docs/BuildBankingPdfs.py --only response --font-dir /path/to/fonts
 pdftoppm -png output/pdf/AgentSafe-for-banks.pdf /tmp/bank
 pdftoppm -png output/pdf/Koard-and-Decionis-agentic-authorization-design-flow.pdf /tmp/koard
 ```
 
 Outputs contain selectable text, embedded fonts and vector diagrams. Every text block is checked
 against page bounds while authoring; every rebuilt page must also be visually inspected after
-edits (sixteen pages for a complete rebuild). `output/pdf/manifest.json` records the output counts,
+edits (seventeen pages for a complete rebuild). `output/pdf/manifest.json` records the output counts,
 reviewed gateway revision and palette.

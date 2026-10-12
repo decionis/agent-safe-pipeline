@@ -472,6 +472,22 @@ def joint_brief(out):
     return d.save()
 
 
+def response_brief(out):
+    d = Brief(out / "Koard-review-response.pdf", "Koard review: the gaps, the fixes, the documentation", "Response to Koard's review", 1)
+    d.begin("Response to Koard's workflow review | 8 October 2026", "The gaps, the fixes, the pages", "Koard's review marked six integration points and six items settled, partly or open. Each gap, the change that answers it and where it is written, as of 12 October 2026. Koard's split is unchanged.")
+    y = d.table(212, [112, 249, CONTENT - 361], ["GAP KOARD RAISED", "WHAT WAS BUILT, OR DECIDED", "WHERE IT IS WRITTEN"], [
+        ("Key trust: Koard's JWKS, not a key the bank pastes", "A Decionis provider directory entry for Koard (issuer id, JWKS URL, kid pinning, max age), admitted per bank; a bank may still pin a key itself; revocation covers both.", "Docs page: Key trust; the provider admission route"),
+        ("Escalation request and resolution: a card method, an event, a presenter", "verification_requirements names CARD_TAP with a provider. The handoff and authority.escalation_required carry provider, method and the opaque subject; authority.escalation_resolved reports the outcome with the proof's facts, never the proof. The issuer app's backend presents the tap as an operator (escalations.resume).", "Docs page: Escalation request, Escalation satisfied; webhooks page"),
+        ("Evidence out: carry the tap verbatim in the dossier", "Decided: the facts only. Binding and dossier record provider, method, approver role, attestation id, key id, digests and times; the signed tap stays with its issuer. The dossier records what was established, never the proof.", "Docs page: Evidence; AgentSafe card-authorization.md, section 3"),
+        ("Intent in: built from the ISO 8583 message; the burst across merchants", "@decionis/iso8583 0.3.0 is the gate on the wire: issuer packager profiles, tokenization in the bank's process, MATCH against held grants with no HTTP hop, evaluate-at-commit, per-message fail modes, BIN scoping, replay, simulate and serve. Holds are keyed by card and merchant, so a burst holds in parallel.", "Decionis repository, packages/interceptors/iso8583; AgentSafe card-authorization.md, section 6"),
+        ("Commit boundary: no latency figure, no SLA, one replica", "In process at p99: match under 50 µs, store under 1 ms. Budgets for the hook's answer: 150 ms in the same region, 300 ms across regions, 10 ms with a local claim at the edge. Replicas share a Postgres hold store and survive restarts.", "AgentSafe card-authorization.md: Latency, Replicas and restarts, A local claim"),
+        ("Three places a tap can wait; only one was built", "Before the authorization: built first. Fraud queue: a hold-less authorization is evaluated at commit, answered PENDING with the handoff, and resumed by the tap. After: evidence only. Tap to Authenticate: a signal policy can require; its producer signature is not verified yet.", "AgentSafe card-authorization.md: The three places a tap can wait; joint brief, page 4"),
+        ("Regulated deployment: where Presence, the authority and the keys live; a kill switch", "Three hosting tiers written once (hosted, dedicated single-tenant, self-managed under licence), where every signing key lives and the HSM-backed option; enforcement on one BIN range (binRanges) with the stop, POST /v1/control/halt.", "AgentSafe docs/gateway/deployment.md; bank brief, pages 7 to 9; docs page: Hosting"),
+    ], size=8.1)
+    d.text(MARGIN, y + 11, CONTENT, "<b>Still open:</b> the licence under which an issuer takes @decionis/iso8583, a commercial decision; signed producer signals for Tap to Authenticate. Nothing here claims SOC 2, a penetration test or a PCI assessment. AgentSafe stays Apache-2.0 at github.com/decionis/agent-safe-pipeline; the docs page is decionis.com/docs/card-authorization.", 8.4, MUTED)
+    return d.save()
+
+
 FONT_DIRS = (
     Path.home() / ".cache/codex-runtimes/codex-primary-runtime/dependencies/native/libreoffice-headless/libreoffice/LibreOfficeDev.app/Contents/Resources/fonts/truetype",
     Path("/Applications/LibreOffice.app/Contents/Resources/fonts/truetype"),
@@ -489,7 +505,7 @@ def default_font_dir():
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, default=ROOT / "output/pdf")
-    parser.add_argument("--only", choices=("all", "banks", "joint"), default="all")
+    parser.add_argument("--only", choices=("all", "banks", "joint", "response"), default="all")
     parser.add_argument("--font-dir", type=Path, default=default_font_dir())
     args = parser.parse_args()
     for name, filename in [("Decionis", "NotoSans-Regular.ttf"), ("DecionisBold", "NotoSans-Bold.ttf"), ("DecionisMono", "DejaVuSansMono.ttf")]:
@@ -503,9 +519,12 @@ def main():
         rebuilt.append(bank_brief(args.output))
     if args.only in ("all", "joint"):
         rebuilt.append(joint_brief(args.output))
+    if args.only in ("all", "response"):
+        rebuilt.append(response_brief(args.output))
     by_file = {entry["file"]: entry for entry in previous + rebuilt}
     results = [by_file[name] for name in (
-        "AgentSafe-for-banks.pdf", "Koard-and-Decionis-agentic-authorization-design-flow.pdf"
+        "AgentSafe-for-banks.pdf", "Koard-and-Decionis-agentic-authorization-design-flow.pdf",
+        "Koard-review-response.pdf",
     ) if name in by_file and (args.output / name).exists()]
     manifest = {
         "review_date": "2026-10-12", "baseline": "19453788", "gateway_revision": "19453788", "outputs": results,
