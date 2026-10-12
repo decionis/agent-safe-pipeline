@@ -72,12 +72,12 @@ then save its distinct connector and client credentials in separate files, each 
 Use the resource's exact gateway, route UUID, and target in both commands:
 
 ```sh
-npx @decionis/agentsafe@0.3.0 connector \
+npx @decionis/agentsafe@0.4.0 connector \
   --gateway https://acme.decionisedge.com \
   --route 00000000-0000-4000-8000-000000000123 \
   --credential-file ./connector.key --target 10.20.30.40:5432
 
-npx @decionis/agentsafe@0.3.0 tunnel \
+npx @decionis/agentsafe@0.4.0 tunnel \
   --gateway https://acme.decionisedge.com \
   --route 00000000-0000-4000-8000-000000000123 \
   --credential-file ./client.key --target 10.20.30.40:5432 --port 15432
