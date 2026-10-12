@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LocalAuthority, LocalPresence } from "@decionis/agent-safe-pipeline/testing";
@@ -10,7 +11,9 @@ import { HaltSwitch } from "../../src/incident/HaltSwitch.js";
 import { InMemoryExecutionJournal } from "../../src/journal/InMemoryExecutionJournal.js";
 import type { ActionResponse } from "../../src/service/Requests.js";
 import { ServiceError } from "../../src/service/ServiceError.js";
+import type { LoadPg, PgPool } from "../../src/edge/EdgeReplay.js";
 import { TrustedExecutorService } from "../../src/service/TrustedExecutorService.js";
+import { FakeCardHoldsSql } from "../support/FakeCardHoldsSql.js";
 import {
   APPROVER_ID,
   collectedEvents,
@@ -67,6 +70,7 @@ function build(
     readonly authority?: LocalAuthority;
     readonly presence?: LocalPresence;
     readonly escalation?: "NONE" | "DIRECT";
+    readonly loadPg?: LoadPg;
   } = {},
 ): Built {
   const env: Record<string, string> = {
@@ -100,6 +104,7 @@ function build(
       journal,
       halt,
       ...(options.posture === undefined ? {} : { posture: options.posture }),
+      ...(options.loadPg === undefined ? {} : { loadPg: options.loadPg }),
     },
   );
   return { service, halt, journal, lines, securityLines };
@@ -253,10 +258,11 @@ describe("a card purchase through the whole boundary", () => {
     expect([second.status, second.code]).toEqual([409, "CARD_GRANT_ALREADY_HELD"]);
     expect(requestsTo("enforce-and-bind").length).toBe(evaluations);
 
-    // A purchase on the card that does not match leaves the grant spendable.
+    // A purchase on the card that does not match leaves the grant spendable;
+    // holds are keyed by the merchant too, so another merchant finds none.
     for (const [overrides, code] of [
       [{ currency: "USD" }, "CURRENCY_MISMATCH"],
-      [{ merchant_id: "fixture_merchant_18" }, "MERCHANT_MISMATCH"],
+      [{ merchant_id: "fixture_merchant_18" }, "NO_GRANT"],
       [{ amount_minor: 4_251 }, "AMOUNT_EXCEEDS_GRANT"],
       [{ card_token_ref: "fixture_card_ref_none" }, "NO_GRANT"],
     ] as const) {
@@ -833,6 +839,268 @@ describe("a hold the policy sends to a presence provider", () => {
     };
     expect(second.context["card_velocity"]).toEqual({ window_seconds: 600, holds: 1, claims: 1 });
     expect(JSON.stringify(second.context)).not.toContain(parameters.cardTokenRef);
+    service.close();
+  });
+});
+
+/** A `pg` pool over the fake client, shared by every replica that loads it. */
+function sharedPg(sql: FakeCardHoldsSql): { load: LoadPg; pools: number } {
+  const state = { pools: 0 };
+  const load: LoadPg = async () => ({
+    Pool: class implements PgPool {
+      public constructor() {
+        state.pools += 1;
+      }
+      public async query(text: string, values: unknown[]): Promise<{ rowCount: number | null }> {
+        return await sql.query(text, values);
+      }
+      public on(): void {
+        return undefined;
+      }
+      public async end(): Promise<void> {
+        return undefined;
+      }
+    },
+  });
+  return {
+    load,
+    get pools() {
+      return state.pools;
+    },
+  };
+}
+
+const POSTGRES_HOLDS = (): Record<string, string> => ({
+  EXECUTOR_CARD_HOLDS_STORE: "postgres",
+  EXECUTOR_CARD_HOLDS_NAMESPACE: "org-synthetic",
+  EXECUTOR_CARD_HOLDS_DATABASE_URL: "postgres://executor@db.invalid/cards",
+  EXECUTOR_CARD_HOLDS_KEY: randomBytes(32).toString("hex"),
+});
+
+describe("holds keyed by the card and the merchant", () => {
+  it("holds the same card at two merchants in parallel, and matches each authorization to its merchant's hold", async () => {
+    const { service } = build();
+    const first = purchase(4_250);
+    const second = purchase(1_999, {
+      cardTokenRef: first.parameters.cardTokenRef,
+      merchantId: "fixture_merchant_18",
+    });
+    const heldFirst = await service.propose(first.body);
+    const heldSecond = await service.propose(second.body);
+    expect(heldFirst).toMatchObject({ outcome: "HELD_FOR_AUTHORIZATION" });
+    expect(heldSecond).toMatchObject({ outcome: "HELD_FOR_AUTHORIZATION" });
+    // The second hold's intent saw the first in the card's velocity.
+    const evaluated = requestsTo("enforce-and-bind").at(-1)?.body as {
+      context: { card_velocity: { holds: number; claims: number } };
+    };
+    expect(evaluated.context.card_velocity).toEqual({ window_seconds: 600, holds: 1, claims: 0 });
+    // A third purchase at either merchant waits; a third merchant does not.
+    const again = await refusal(
+      service.propose({ ...second.body, idempotency_key: "fixture-card-purchase-again" }),
+    );
+    expect([again.status, again.code]).toEqual([409, "CARD_GRANT_ALREADY_HELD"]);
+    expect(
+      await service.propose(
+        purchase(500, {
+          cardTokenRef: first.parameters.cardTokenRef,
+          merchantId: "fixture_merchant_19",
+        }).body,
+      ),
+    ).toMatchObject({ outcome: "HELD_FOR_AUTHORIZATION" });
+    // Each authorization finds its merchant's hold, and only that one.
+    const atSecond = await service.authorizeCard(
+      authorizationFor(second.parameters, { merchant_id: "fixture_merchant_18" }),
+      ISSUER,
+    );
+    expect(atSecond).toMatchObject({ decision: "APPROVE", intent_id: heldSecond.intent_id });
+    const atFirst = await service.authorizeCard(authorizationFor(first.parameters), ISSUER);
+    expect(atFirst).toMatchObject({ decision: "APPROVE", intent_id: heldFirst.intent_id });
+    expect(
+      await service.authorizeCard(
+        authorizationFor(first.parameters, { merchant_id: "fixture_merchant_20" }),
+        ISSUER,
+      ),
+    ).toEqual({ decision: "NO_MATCH", code: "NO_GRANT" });
+    service.close();
+  });
+
+  it("lets an issuer that may increment re-present the same authorization for more, within the ceiling and before the result", async () => {
+    const { service, securityLines } = build("ENFORCEMENT", {
+      env: { EXECUTOR_CARD_AUTHORIZATIONS: "incremental" },
+    });
+    const { parameters, body } = purchase(4_250);
+    const held = await service.propose(body);
+    const asked = authorizationFor(parameters, { amount_minor: 3_000 });
+    const approved = await service.authorizeCard(asked, ISSUER);
+    expect(approved).toMatchObject({ decision: "APPROVE", intent_id: held.intent_id });
+    const claims = requestsTo("claim-token").length;
+    // More, inside the ceiling: the same answer, no second claim.
+    expect(await service.authorizeCard({ ...asked, amount_minor: 4_000 }, ISSUER)).toEqual(
+      approved,
+    );
+    expect(requestsTo("claim-token").length).toBe(claims);
+    expect(parsed(securityLines).map((line) => line["event"])).toContain(
+      "CARD_AUTHORIZATION_INCREMENTED",
+    );
+    // Less than before, more than the ceiling, or another merchant: refused as a reuse.
+    for (const change of [
+      { amount_minor: 3_500 },
+      { amount_minor: 4_251 },
+      { amount_minor: 4_100, merchant_id: "fixture_merchant_18" },
+    ]) {
+      expect(await service.authorizeCard({ ...asked, ...change }, ISSUER)).toEqual({
+        decision: "NO_MATCH",
+        code: "AUTHORIZATION_ID_REUSED",
+      });
+    }
+    // The result records the final amount against the grant's ceiling.
+    const result = await service.settleCard(
+      asked.authorization_id,
+      { status: "APPROVED", approved_amount_minor: 4_000 },
+      ISSUER,
+    );
+    expect(result).toMatchObject({ outcome: "COMMITTED", effect: { comparison: "MATCH" } });
+    // After the result, nothing increments.
+    expect(await service.authorizeCard({ ...asked, amount_minor: 4_200 }, ISSUER)).toEqual({
+      decision: "NO_MATCH",
+      code: "AUTHORIZATION_ID_REUSED",
+    });
+    service.close();
+  });
+
+  it("keeps a single-claim issuer to one amount per authorization id", async () => {
+    const { service } = build();
+    const { parameters, body } = purchase(4_250);
+    await service.propose(body);
+    const asked = authorizationFor(parameters, { amount_minor: 3_000 });
+    await service.authorizeCard(asked, ISSUER);
+    expect(await service.authorizeCard({ ...asked, amount_minor: 4_000 }, ISSUER)).toEqual({
+      decision: "NO_MATCH",
+      code: "AUTHORIZATION_ID_REUSED",
+    });
+    service.close();
+  });
+});
+
+describe("holds shared across replicas through the Postgres store", () => {
+  it("holds on one replica, matches and claims on another, and settles on a third, each adopting what it did not make", async () => {
+    const sql = new FakeCardHoldsSql();
+    const pg = sharedPg(sql);
+    const env = POSTGRES_HOLDS();
+    const a = build("ENFORCEMENT", { env, loadPg: pg.load });
+    const b = build("ENFORCEMENT", { env, loadPg: pg.load });
+    await a.service.startCards();
+    await b.service.startCards();
+    const { parameters, body } = purchase(4_250);
+    const held = await a.service.propose(body);
+    expect(held).toMatchObject({ outcome: "HELD_FOR_AUTHORIZATION" });
+    expect(sql.holds.size).toBe(1);
+    // The row holds no token in clear.
+    for (const row of sql.holds.values()) expect(row.sealed).not.toMatch(/eyJ|token/);
+    // B never saw the purchase: the second purchase on the card waits there too.
+    const waits = await refusal(
+      b.service.propose({ ...body, idempotency_key: "fixture-card-purchase-on-b" }),
+    );
+    expect([waits.status, waits.code]).toEqual([409, "CARD_GRANT_ALREADY_HELD"]);
+    // The authorization reaches B, which admits A's hold through its own executor and claims it.
+    const claimsBefore = requestsTo("claim-token").length;
+    const asked = authorizationFor(parameters, { amount_minor: 4_000 });
+    const approved = await b.service.authorizeCard(asked, ISSUER);
+    expect(approved).toMatchObject({
+      decision: "APPROVE",
+      intent_id: held.intent_id,
+      decision_id: held.decision_id,
+    });
+    expect(requestsTo("claim-token").length).toBe(claimsBefore + 1);
+    // B's own record: the refused second purchase, then A's hold admitted
+    // here as adopted, then the claim.
+    expect(auditTypes(b.lines)).toEqual([
+      "EXECUTION_BLOCKED",
+      "INTENT_CAPTURED",
+      "AUTHORITY_DECISION",
+      "GRANT_HELD",
+      "GRANT_CONSUMED",
+      "EXECUTION_STARTED",
+    ]);
+    expect(parsed(b.lines)[3]).toMatchObject({ reason_codes: ["HOLD_ADOPTED"] });
+    // Spent for everyone: A's own handle is used, and a retry on A is the same answer.
+    expect(await a.service.authorizeCard(asked, ISSUER)).toEqual(approved);
+    expect(await a.service.authorizeCard(authorizationFor(parameters), ISSUER)).toEqual({
+      decision: "NO_MATCH",
+      code: "GRANT_ALREADY_USED",
+    });
+    expect(requestsTo("claim-token").length).toBe(claimsBefore + 1);
+    // The result lands on a third replica, started after the claim: it
+    // adopts the claim with the material B sealed and finalizes with the authority.
+    const c = build("ENFORCEMENT", { env, loadPg: pg.load });
+    const finalizedBefore = requestsTo("finalize-token").length;
+    const result = await c.service.settleCard(
+      asked.authorization_id,
+      { status: "APPROVED", approved_amount_minor: 4_000, auth_code: "A1B2C3" },
+      ISSUER,
+    );
+    expect(result).toMatchObject({
+      outcome: "COMMITTED",
+      executed: true,
+      finalization: "RECORDED",
+      effect: { comparison: "MATCH" },
+    });
+    // C finalized A's grant with the claim token B was given: every post names
+    // that grant, and the last is recorded. (This loopback authority trusts no
+    // effect observer, so the first post, with evidence, is refused and the
+    // verifier posts again without it, exactly as on one replica.)
+    const granted = (
+      requestsTo("enforce-and-bind").at(-1)?.response?.body as { execution_token: string }
+    ).execution_token;
+    const finalizations = requestsTo("finalize-token").slice(finalizedBefore);
+    expect(finalizations.length).toBeGreaterThanOrEqual(1);
+    for (const post of finalizations) {
+      expect((post.body as { execution_token: string }).execution_token).toBe(granted);
+    }
+    expect(finalizations.at(-1)?.response).toMatchObject({
+      status: 200,
+      body: { finalized: true },
+    });
+    expect(auditTypes(c.lines)).toEqual(["EXECUTION_COMPLETED"]);
+    // Settled once, for every replica.
+    for (const replica of [a, b, c]) {
+      const again = await refusal(
+        replica.service.settleCard(asked.authorization_id, { status: "APPROVED" }, ISSUER),
+      );
+      expect([again.status, again.code]).toEqual([409, "CARD_RESULT_ALREADY_RECORDED"]);
+    }
+    // No card reference, amount or merchant reaches any stream on any replica.
+    for (const replica of [a, b, c]) {
+      for (const line of [...replica.lines, ...replica.securityLines]) {
+        expect(line).not.toContain(parameters.cardTokenRef);
+        expect(line).not.toContain("fixture_merchant_17");
+      }
+      replica.service.close();
+    }
+  });
+
+  it("answers the hook with a code, and the result with 503, when the store cannot be reached", async () => {
+    const sql = new FakeCardHoldsSql();
+    const pg = sharedPg(sql);
+    const env = POSTGRES_HOLDS();
+    const { service, securityLines } = build("ENFORCEMENT", { env, loadPg: pg.load });
+    const { parameters, body } = purchase(4_250);
+    await service.propose(body);
+    sql.failAll = true;
+    expect(await service.authorizeCard(authorizationFor(parameters), ISSUER)).toEqual({
+      decision: "NO_MATCH",
+      code: "CARD_HOLDS_UNAVAILABLE",
+    });
+    const unavailable = await refusal(
+      service.settleCard("fixture_auth_none", { status: "APPROVED" }, ISSUER),
+    );
+    expect([unavailable.status, unavailable.code]).toEqual([503, "CARD_HOLDS_UNAVAILABLE"]);
+    sql.failAll = false;
+    sql.failProbe = true;
+    await expect(service.startCards()).rejects.toThrow("relation does not exist");
+    expect(parsed(securityLines).map((line) => line["event"])).toContain(
+      "CARD_AUTHORIZATION_NO_MATCH",
+    );
     service.close();
   });
 });

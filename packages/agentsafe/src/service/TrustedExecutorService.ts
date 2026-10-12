@@ -34,12 +34,18 @@ import {
   isCardActionName,
   isCardReference,
   type CardAuthorizationRequest,
+  type CardPurchase,
 } from "../adapters/cards/CardPurchase.js";
-import {
-  HeldCardGrants,
-  type CardApproval,
-  type HeldCardGrant,
-} from "../adapters/cards/HeldCardGrants.js";
+import { postgresCardHolds } from "../adapters/cards/CardHolds.js";
+import { CardHoldSeal } from "../adapters/cards/CardHoldSeal.js";
+import type {
+  CardApproval,
+  CardHoldStore,
+  CardVelocity,
+  ClaimedCardAuthorization,
+} from "../adapters/cards/CardHoldStore.js";
+import { HeldCardGrants } from "../adapters/cards/HeldCardGrants.js";
+import { CardHoldStoreError } from "../adapters/cards/PostgresCardHolds.js";
 import { jcsDigest } from "../adapters/JcsDigest.js";
 import { HashChain } from "../audit/HashChain.js";
 import { EVIDENCE_STREAM, HashChainedAuditSink } from "../audit/HashChainedAuditSink.js";
@@ -288,7 +294,9 @@ export class TrustedExecutorService {
     /** The effect observations the verifier finalizes with; the cards family registers into it. */
     private readonly effects: EffectEvidenceRegister,
     /** Card grants held for the issuer's authorization, and the authorizations that claimed one. */
-    private readonly cards: HeldCardGrants,
+    private readonly cards: CardHoldStore,
+    /** The shared hold store's hourly sweep, while it runs. */
+    private cardsTimer: ReturnType<typeof setInterval> | null = null,
     /** The edge evaluator, when the configuration asks for it. */
     private readonly edge: EdgeRuntime | null = null,
   ) {}
@@ -509,9 +517,61 @@ export class TrustedExecutorService {
         unsubscribeEvents();
       },
       effects,
-      new HeldCardGrants(),
+      TrustedExecutorService.cardHolds(config, secrets, clients, dependencies),
+      null,
       edge,
     );
+  }
+
+  /**
+   * Where card holds live: this process, or the store every replica shares,
+   * whose rows are sealed under the hold key. A hold or a claim another
+   * replica made is admitted here through the executor's own checks, with
+   * the claim material that replica sealed.
+   */
+  private static cardHolds(
+    config: ExecutorConfig,
+    secrets: SecretStore,
+    clients: AuthorityClients,
+    dependencies: ServiceDependencies,
+  ): CardHoldStore {
+    const clock = dependencies.clock;
+    if (config.cards.holds.store === "memory") {
+      return new HeldCardGrants(clock === undefined ? {} : { clock });
+    }
+    const { table, namespace } = config.cards.holds;
+    return postgresCardHolds({
+      databaseUrl: (): string =>
+        secrets
+          .get("EXECUTOR_CARD_HOLDS_DATABASE_URL")
+          .use((value) => value.toString("utf8").trim()),
+      seal: (): CardHoldSeal =>
+        secrets
+          .get("EXECUTOR_CARD_HOLDS_KEY")
+          .use((value) => CardHoldSeal.fromText(value.toString("utf8"))),
+      namespace,
+      table,
+      adopt: {
+        hold: async (captured, decision) => {
+          const { executor } = clients.current();
+          const outcome = await executor.adoptHold(captured, decision);
+          return outcome.outcome === "HELD" ? { held: outcome.held, executor } : null;
+        },
+        claim: (captured, decision, authorization, material) => {
+          const { executor } = clients.current();
+          try {
+            return {
+              held: executor.adoptClaim(captured, decision, authorization, material),
+              executor,
+            };
+          } catch {
+            return null;
+          }
+        },
+      },
+      ...(dependencies.loadPg === undefined ? {} : { load: dependencies.loadPg }),
+      ...(clock === undefined ? {} : { clock }),
+    });
   }
 
   /** The credential the configuration's kind names, over the secret store and the guarded fetch. */
@@ -614,6 +674,20 @@ export class TrustedExecutorService {
     await this.edge?.start();
   }
 
+  /**
+   * Probes the shared hold store, when there is one: a store that cannot be
+   * reached is a refusal to start, since no authorization could then match,
+   * and then sweeps it hourly for what lapsed.
+   */
+  public async startCards(): Promise<void> {
+    if (this.cards.kind === "memory") return;
+    await this.cards.ready();
+    this.cardsTimer ??= setInterval(() => {
+      void this.cards.cleanup().catch(() => undefined);
+    }, 60 * 60_000);
+    this.cardsTimer.unref();
+  }
+
   /** The actions this process can run, for `/ready`. */
   public get actions(): readonly string[] {
     return this.registered.filter((action) => this.registry.has(action));
@@ -622,6 +696,9 @@ export class TrustedExecutorService {
   /** Stops following credential rotation and closes every outbound connection; the service answers nothing new after this. */
   public close(): void {
     this.edge?.stop();
+    if (this.cardsTimer !== null) clearInterval(this.cardsTimer);
+    this.cardsTimer = null;
+    void this.cards.close().catch(() => undefined);
     this.clients.close();
     this.egress.close();
     this.jwt?.stop();
@@ -773,7 +850,8 @@ export class TrustedExecutorService {
       this.events.emit({ event: "SEPARATION_OF_DUTIES_VIOLATED", principal: proposer.id });
       throw new ServiceError(422, "SEPARATION_OF_DUTIES_VIOLATED");
     }
-    const captured = this.captureIntent(request, proposer);
+    const velocity = await this.cardVelocity(request);
+    const captured = this.captureIntent(request, proposer, velocity);
     // Every line this proposal causes names the proposer, whichever
     // transport asked; the door's own scope, when there is one, agrees.
     return await RequestContext.run({ principal: proposer.id }, async () => {
@@ -788,7 +866,7 @@ export class TrustedExecutorService {
       try {
         this.assertNotHalted(captured);
         this.assertWithinLimits(captured, "CHECK");
-        this.assertCardSpendable(captured);
+        await this.assertCardSpendable(captured);
       } catch (error) {
         if (error instanceof ServiceError) await this.recordRefusal(captured, error.code);
         throw error;
@@ -843,21 +921,23 @@ export class TrustedExecutorService {
   }
 
   /**
-   * One spendable hold per card: a purchase on a card that already has one
-   * waits until it is authorised or expires, refused before the authority is
-   * asked so the refusal costs no dossier and no grant.
+   * One spendable hold per card and merchant: a purchase at a merchant where
+   * the card already has one waits until it is authorised or expires,
+   * refused before the authority is asked so the refusal costs no dossier
+   * and no grant. The same card at another merchant holds in parallel.
    */
-  private assertCardSpendable(captured: CapturedIntent): void {
+  private async assertCardSpendable(captured: CapturedIntent): Promise<void> {
     if (!isCardActionName(captured.intent.action)) return;
     // An intent presented back is re-read here, so a card number written into
     // one after capture is refused like one in a proposal.
-    let cardTokenRef: string;
+    let purchase: CardPurchase;
     try {
-      cardTokenRef = cardPurchaseOf(captured.intent.parameters).cardTokenRef;
+      purchase = cardPurchaseOf(captured.intent.parameters);
     } catch (error) {
       throw new ServiceError(422, (error as CardActionError).code);
     }
-    if (this.cards.spendable(cardTokenRef)) {
+    const key = { cardTokenRef: purchase.cardTokenRef, merchantId: purchase.merchantId };
+    if (await this.cards.spendable(key)) {
       throw new ServiceError(409, "CARD_GRANT_ALREADY_HELD");
     }
   }
@@ -961,7 +1041,7 @@ export class TrustedExecutorService {
     return await RequestContext.run({ principal: presenter.id }, async () => {
       try {
         this.assertNotHalted(captured);
-        this.assertCardSpendable(captured);
+        await this.assertCardSpendable(captured);
       } catch (error) {
         if (error instanceof ServiceError) await this.recordRefusal(captured, error.code);
         throw error;
@@ -1119,12 +1199,29 @@ export class TrustedExecutorService {
     if (!own) throw new ServiceError(403, "INTENT_PRINCIPAL_MISMATCH");
   }
 
+  /**
+   * The burst on this card, counted before capture because the store may be
+   * shared and is asked asynchronously; a purchase the binder will refuse
+   * is not counted, and the binder's own refusal follows.
+   */
+  private async cardVelocity(request: ProposalRequest): Promise<CardVelocity | null> {
+    if (!isCardActionName(request.proposal.action)) return null;
+    let purchase: CardPurchase;
+    try {
+      purchase = cardPurchaseOf(request.proposal.parameters);
+    } catch {
+      return null;
+    }
+    return await this.cards.velocity(purchase.cardTokenRef);
+  }
+
   private captureIntent(
     request: ProposalRequest,
     proposer: Principal & {
       readonly tenantId: string;
       readonly actor: NonNullable<Principal["actor"]>;
     },
+    velocity: CardVelocity | null = null,
   ): CapturedIntent {
     // A BEAP action carries its own canonical form in the parameters, so the
     // transport's name and target are derived from it rather than trusted,
@@ -1142,7 +1239,7 @@ export class TrustedExecutorService {
     // The burst on this card, counted here because policy counts nothing over
     // time: how many purchases were held for it and claimed lately. Numbers
     // only; the card reference stays in the parameters.
-    if (card !== null) context["card_velocity"] = { ...this.cards.velocity(card.cardTokenRef) };
+    if (card !== null && velocity !== null) context["card_velocity"] = { ...velocity };
     const trusted: TrustedIntentContext = {
       tenantId: proposer.tenantId,
       actor: proposer.actor,
@@ -1447,7 +1544,8 @@ export class TrustedExecutorService {
 
   /**
    * Admits a card purchase's decision exactly as a run would and holds its
-   * grant for the issuer's authorization, keyed by the card. Nothing is
+   * grant for the issuer's authorization, keyed by the card and the
+   * merchant. Nothing is
    * claimed and nothing runs; the hard ceilings are committed now, because
    * this is the last moment this process decides anything about the amount.
    * A refusal comes back as the executor's own blocked result.
@@ -1466,7 +1564,7 @@ export class TrustedExecutorService {
       return outcome;
     }
     const purchase = cardPurchaseOf(captured.intent.parameters);
-    const stored = this.cards.hold({
+    const stored = await this.cards.hold({
       cardTokenRef: purchase.cardTokenRef,
       amountMinor: purchase.amountMinor,
       currency: purchase.currency,
@@ -1520,9 +1618,28 @@ export class TrustedExecutorService {
   public async authorizeCard(input: unknown, caller?: Principal): Promise<CardAuthorizationAnswer> {
     this.operator(caller, "cards.authorize");
     const request = TrustedExecutorService.cardRequest(() => cardAuthorizationOf(input));
-    const previous = this.cards.claimed(request.authorization_id);
+    let previous: ClaimedCardAuthorization | undefined;
+    try {
+      previous = await this.cards.claimed(request.authorization_id);
+    } catch {
+      return this.noMatch(null, "CARD_HOLDS_UNAVAILABLE");
+    }
     if (previous !== undefined) {
       if (jcsDigest(previous.request as JsonObject) === jcsDigest(request as JsonObject)) {
+        return previous.answer;
+      }
+      // An issuer that may present the same authorization for more, up to
+      // the ceiling and before its result, is answered from the same claim:
+      // nothing new is claimed, and the result records the final amount.
+      if (
+        this.config.cards.authorizations === "incremental" &&
+        TrustedExecutorService.incrementOf(previous, request) &&
+        (await this.cards.amend(request.authorization_id, request))
+      ) {
+        this.events.emit({
+          event: "CARD_AUTHORIZATION_INCREMENTED",
+          intent_id: previous.answer.intent_id,
+        });
         return previous.answer;
       }
       return this.noMatch(null, "AUTHORIZATION_ID_REUSED");
@@ -1551,20 +1668,41 @@ export class TrustedExecutorService {
   private async claimCard(request: CardAuthorizationRequest): Promise<CardAuthorizationAnswer> {
     if (this.haltSwitch.current.halted) return this.noMatch(null, "EXECUTOR_HALTED");
     if (this.posture.degraded) return this.noMatch(null, "POSTURE_DEGRADED");
-    const grant = this.cards.grant(request.card_token_ref);
+    let record;
+    try {
+      record = await this.cards.grant({
+        cardTokenRef: request.card_token_ref,
+        merchantId: request.merchant_id,
+      });
+    } catch {
+      return this.noMatch(null, "CARD_HOLDS_UNAVAILABLE");
+    }
+    if (record === undefined) return this.noMatch(null, "NO_GRANT");
     const match = matchCardAuthorization(
-      grant,
+      record,
       TrustedExecutorService.cardView(request),
       Date.now(),
     );
-    if (match.decision === "NO_MATCH") {
-      return this.noMatch(grant?.held.captured.intent.intentId ?? null, match.code);
+    if (match.decision === "NO_MATCH") return this.noMatch(record.intentId, match.code);
+    // The hold with a handle this process can claim; one another replica
+    // made is admitted here first, through the executor's own checks.
+    let matched;
+    try {
+      matched = await record.open();
+    } catch {
+      return this.noMatch(record.intentId, "CARD_HOLDS_UNAVAILABLE");
     }
-    // A match is only ever against a grant.
-    const matched = grant as HeldCardGrant;
-    // Spent before anything is awaited, so a concurrent authorization for the
-    // same grant finds it used rather than racing this one to the claim.
-    matched.used = true;
+    if (matched === null) return this.noMatch(record.intentId, "GRANT_CLAIM_REFUSED");
+    // Spent before anything else is awaited, by the one rule every replica
+    // shares, so a concurrent authorization for the same grant finds it used
+    // rather than racing this one to the claim.
+    let spent: boolean;
+    try {
+      spent = await this.cards.spend(matched);
+    } catch {
+      return this.noMatch(record.intentId, "CARD_HOLDS_UNAVAILABLE");
+    }
+    if (!spent) return this.noMatch(record.intentId, "GRANT_ALREADY_USED");
     const { captured, decision } = matched.held;
     const intentId = captured.intent.intentId;
     try {
@@ -1611,13 +1749,21 @@ export class TrustedExecutorService {
       grant_id: authorization.grantId,
       lease_expires_at: lease,
     };
-    this.cards.recordClaim(request.authorization_id, {
-      grant: matched,
-      request,
-      authorization,
-      leaseExpiresAtMs: Date.parse(lease),
-      answer,
-    });
+    try {
+      await this.cards.recordClaim(request.authorization_id, {
+        grant: matched,
+        request,
+        authorization,
+        leaseExpiresAtMs: Date.parse(lease),
+        answer,
+        material: matched.executor.claimMaterial(authorization),
+      });
+    } catch {
+      // The claim is journaled and the issuer is answered; a record the
+      // shared store could not keep is a result this replica alone can
+      // settle, which the journal's open attempt still shows.
+      this.events.emit({ event: "CARD_CLAIM_RECORD_FAILED", intent_id: intentId });
+    }
     this.metrics.executions.inc({ outcome: "CARD_AUTHORIZATION_MATCHED" });
     this.events.emit({ event: "CARD_AUTHORIZATION_MATCHED", intent_id: intentId });
     return answer;
@@ -1638,10 +1784,18 @@ export class TrustedExecutorService {
     this.operator(caller, "cards.authorize");
     if (!isCardReference(authorizationId)) throw new ServiceError(400, "REQUEST_INVALID");
     const result = TrustedExecutorService.cardRequest(() => cardAuthorizationResultOf(input));
-    const claim = this.cards.claimed(authorizationId);
+    let claim: ClaimedCardAuthorization | undefined;
+    try {
+      claim = await this.cards.claimed(authorizationId);
+    } catch (error) {
+      if (error instanceof CardHoldStoreError) throw new ServiceError(503, error.code);
+      throw new ServiceError(503, "CARD_HOLDS_UNAVAILABLE");
+    }
     if (claim === undefined) throw new ServiceError(404, "CARD_AUTHORIZATION_UNKNOWN");
-    if (claim.settled) throw new ServiceError(409, "CARD_RESULT_ALREADY_RECORDED");
-    claim.settled = true;
+    // Settled once, by the one rule every replica shares.
+    if (claim.settled || !(await this.cards.settle(authorizationId))) {
+      throw new ServiceError(409, "CARD_RESULT_ALREADY_RECORDED");
+    }
     const { grant, authorization } = claim;
     const { captured } = grant.held;
     const leaseExpired = Date.now() > claim.leaseExpiresAtMs;
@@ -1737,6 +1891,29 @@ export class TrustedExecutorService {
       const code = error instanceof CardActionError ? error.code : "REQUEST_INVALID";
       throw new ServiceError(code === "CARD_PAN_REFUSED" ? 422 : 400, code);
     }
+  }
+
+  /**
+   * Whether a re-presented authorization is an increment of the claim it
+   * names: the same card, currency, merchant and category, for more than
+   * before and no more than the grant's ceiling, while the claim is still
+   * open and inside its lease.
+   */
+  private static incrementOf(
+    previous: ClaimedCardAuthorization,
+    request: CardAuthorizationRequest,
+  ): boolean {
+    const before = previous.request;
+    return (
+      !previous.settled &&
+      Date.now() <= previous.leaseExpiresAtMs &&
+      request.card_token_ref === before.card_token_ref &&
+      request.currency === before.currency &&
+      request.merchant_id === before.merchant_id &&
+      (request.mcc ?? null) === (before.mcc ?? null) &&
+      request.amount_minor > before.amount_minor &&
+      request.amount_minor <= previous.grant.amountMinor
+    );
   }
 
   private static cardView(request: CardAuthorizationRequest): {

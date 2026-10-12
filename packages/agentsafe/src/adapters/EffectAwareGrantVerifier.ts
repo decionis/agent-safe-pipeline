@@ -3,6 +3,7 @@ import type {
   AuthorizationVerifier,
   CapturedIntent,
   DecisionGate,
+  JsonObject,
   VerifiedAuthorization,
 } from "@decionis/agent-safe-pipeline";
 import { authorityEffectEvidence } from "./EffectEvidenceBuilder.js";
@@ -35,6 +36,17 @@ export class EffectAwareGrantVerifier implements AuthorizationVerifier {
     decision: DecisionGate,
   ): Promise<VerifiedAuthorization | null> {
     return await this.options.verifier.verifyAndConsume(captured, decision);
+  }
+
+  /** Claim material is the delegate's: this wrapper holds nothing of a claim. */
+  public claimMaterial(authorization: VerifiedAuthorization): JsonObject | null {
+    const verifier = this.options.verifier;
+    return verifier.claimMaterial === undefined ? null : verifier.claimMaterial(authorization);
+  }
+
+  public adoptClaim(authorization: VerifiedAuthorization, material: JsonObject): boolean {
+    const verifier = this.options.verifier;
+    return verifier.adoptClaim === undefined ? false : verifier.adoptClaim(authorization, material);
   }
 
   public async finalize(input: AuthorizationFinalizationInput): Promise<"RECORDED" | "PENDING"> {

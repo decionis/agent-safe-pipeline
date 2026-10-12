@@ -909,3 +909,67 @@ describe("ExecutorConfigLoader", () => {
     for (const key of SECRET_KEYS) expect(CONFIG_KEYS).toContain(key);
   });
 });
+
+describe("the card hold store configuration", () => {
+  it("holds in memory by default, refuses the shared store's settings without it, and needs a namespace and two secrets with it", () => {
+    const base = offlineEnvironment();
+    expect(ExecutorConfigLoader.load(base).cards).toEqual({
+      holds: { store: "memory" },
+      authorizations: "single",
+    });
+    expect(refusal({ ...base, EXECUTOR_CARD_HOLDS_TABLE: "bank_cards" })).toBe(
+      "CONFIG_INVALID: EXECUTOR_CARD_HOLDS_STORE (memory with EXECUTOR_CARD_HOLDS_TABLE)",
+    );
+    expect(
+      refusal({
+        ...base,
+        EXECUTOR_CARD_HOLDS_STORE: "memory",
+        EXECUTOR_CARD_HOLDS_KEY_FILE: "/var/run/agent-safe/secrets/holds",
+      }),
+    ).toBe("CONFIG_INVALID: EXECUTOR_CARD_HOLDS_STORE (memory with EXECUTOR_CARD_HOLDS_KEY_FILE)");
+    expect(refusal({ ...base, EXECUTOR_CARD_HOLDS_STORE: "postgres" })).toBe(
+      "CONFIG_INVALID: EXECUTOR_CARD_HOLDS_NAMESPACE (required with the postgres store)",
+    );
+    const shared: Record<string, string> = {
+      ...base,
+      EXECUTOR_CARD_HOLDS_STORE: "postgres",
+      EXECUTOR_CARD_HOLDS_NAMESPACE: "org-synthetic",
+    };
+    expect(refusal(shared)).toBe("CONFIG_SECRET_MISSING: EXECUTOR_CARD_HOLDS_DATABASE_URL");
+    shared["EXECUTOR_CARD_HOLDS_DATABASE_URL"] = "postgres://executor@db.invalid/cards";
+    expect(refusal(shared)).toBe("CONFIG_SECRET_MISSING: EXECUTOR_CARD_HOLDS_KEY");
+    shared["EXECUTOR_CARD_HOLDS_KEY"] = "a".repeat(64);
+    const loaded = ExecutorConfigLoader.load(shared);
+    expect(loaded.cards).toEqual({
+      holds: { store: "postgres", table: "agentsafe_card", namespace: "org-synthetic" },
+      authorizations: "single",
+    });
+    expect(loaded.secrets.required).toEqual(
+      expect.arrayContaining(["EXECUTOR_CARD_HOLDS_DATABASE_URL", "EXECUTOR_CARD_HOLDS_KEY"]),
+    );
+    expect(
+      ExecutorConfigLoader.load({
+        ...shared,
+        EXECUTOR_CARD_HOLDS_TABLE: "bank.cards",
+        EXECUTOR_CARD_AUTHORIZATIONS: "incremental",
+      }).cards,
+    ).toEqual({
+      holds: { store: "postgres", table: "bank.cards", namespace: "org-synthetic" },
+      authorizations: "incremental",
+    });
+    for (const table of ["Cards", "cards;drop", "a.b.c", "x".repeat(60)]) {
+      expect(refusal({ ...shared, EXECUTOR_CARD_HOLDS_TABLE: table })).toBe(
+        "CONFIG_INVALID: EXECUTOR_CARD_HOLDS_TABLE",
+      );
+    }
+    expect(refusal({ ...shared, EXECUTOR_CARD_HOLDS_NAMESPACE: "bad name" })).toBe(
+      "CONFIG_INVALID: EXECUTOR_CARD_HOLDS_NAMESPACE",
+    );
+    expect(refusal({ ...base, EXECUTOR_CARD_AUTHORIZATIONS: "split" })).toBe(
+      "CONFIG_INVALID: EXECUTOR_CARD_AUTHORIZATIONS",
+    );
+    expect(refusal({ ...base, EXECUTOR_CARD_HOLDS_STORE: "redis" })).toBe(
+      "CONFIG_INVALID: EXECUTOR_CARD_HOLDS_STORE",
+    );
+  });
+});

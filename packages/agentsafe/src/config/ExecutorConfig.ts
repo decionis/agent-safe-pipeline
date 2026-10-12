@@ -179,6 +179,26 @@ export interface BankingConfig {
   readonly lookupByReferenceUrl: string | null;
 }
 
+/** Where card holds live, and how an issuer may re-present an authorization. */
+export interface CardsConfig {
+  /**
+   * `memory` holds within this process and is lost with it. `postgres` is
+   * shared by every replica and survives a restart: the connection string
+   * and the hold key come from the secret store, and what a row keeps of a
+   * grant is sealed under that key.
+   */
+  readonly holds:
+    | { readonly store: "memory" }
+    | { readonly store: "postgres"; readonly table: string; readonly namespace: string };
+  /**
+   * `single`: one authorization spends a hold, and the same authorization id
+   * re-presented for a different amount is refused. `incremental`: the same
+   * authorization id may be re-presented for a higher amount, up to the
+   * grant's ceiling and before its result, against the same claim.
+   */
+  readonly authorizations: "single" | "incremental";
+}
+
 /**
  * Who decides. `hosted` asks Decionis for every decision (`enforce-and-bind`),
  * which is how the executor has always worked. `edge` decides locally with the
@@ -251,6 +271,7 @@ export interface ExecutorConfig {
   readonly halt: HaltConfig;
   readonly limits: LimitsConfig;
   readonly banking: BankingConfig;
+  readonly cards: CardsConfig;
   /** The most the authority's clock may differ from this host's before the executor halts. */
   readonly maxClockSkewMs: number;
   readonly posture: PostureSettings;
@@ -293,6 +314,14 @@ const EDGE_KEYS = [
   "EXECUTOR_EDGE_USAGE_REPORT_DIR",
   "EXECUTOR_EDGE_ENTITLEMENT_FILE",
   "EXECUTOR_EDGE_JWKS_FILE",
+] as const;
+const CARD_HOLDS_POSTGRES_KEYS = [
+  "EXECUTOR_CARD_HOLDS_TABLE",
+  "EXECUTOR_CARD_HOLDS_NAMESPACE",
+  "EXECUTOR_CARD_HOLDS_DATABASE_URL",
+  "EXECUTOR_CARD_HOLDS_DATABASE_URL_FILE",
+  "EXECUTOR_CARD_HOLDS_KEY",
+  "EXECUTOR_CARD_HOLDS_KEY_FILE",
 ] as const;
 const TLS_KEYS = [
   "EXECUTOR_TLS_CERT_FILE",
@@ -416,6 +445,16 @@ const EnvironmentSchema = z.object({
   EXECUTOR_EDGE_USAGE_REPORT_DIR: absolutePath.optional(),
   EXECUTOR_EDGE_ENTITLEMENT_FILE: absolutePath.optional(),
   EXECUTOR_EDGE_JWKS_FILE: absolutePath.optional(),
+  EXECUTOR_CARD_HOLDS_STORE: z.enum(["memory", "postgres"]).optional(),
+  EXECUTOR_CARD_HOLDS_TABLE: z
+    .string()
+    .regex(/^[a-z_][a-z0-9_]{0,53}(?:\.[a-z_][a-z0-9_]{0,53})?$/)
+    .optional(),
+  EXECUTOR_CARD_HOLDS_NAMESPACE: z
+    .string()
+    .regex(/^[\w.:-]{1,200}$/)
+    .optional(),
+  EXECUTOR_CARD_AUTHORIZATIONS: z.enum(["single", "incremental"]).optional(),
   DECIONIS_API_URL: z.string().trim().min(1).max(500),
   DECIONIS_ALLOW_INSECURE_LOOPBACK: booleanFlag.optional(),
   DECIONIS_CA_FILE: absolutePath.optional(),
@@ -516,6 +555,7 @@ export class ExecutorConfigLoader {
     }
     const escalation = ExecutorConfigLoader.escalation(values, allowInsecureLoopback);
     const edge = ExecutorConfigLoader.edge(values, env);
+    const cards = ExecutorConfigLoader.cards(values, env);
     const listener = ExecutorConfigLoader.listener(values, env, production);
     const authorityUrl = ExecutorConfigLoader.serviceUrl(
       values.DECIONIS_API_URL,
@@ -561,6 +601,9 @@ export class ExecutorConfigLoader {
     if (listener.tls !== null) required.push("EXECUTOR_TLS_KEY");
     if (edge?.replay.store === "postgres") required.push("EXECUTOR_EDGE_REPLAY_DATABASE_URL");
     if (edge?.usage.signing === true) required.push("EXECUTOR_EDGE_USAGE_SIGNING_KEY");
+    if (cards.holds.store === "postgres") {
+      required.push("EXECUTOR_CARD_HOLDS_DATABASE_URL", "EXECUTOR_CARD_HOLDS_KEY");
+    }
     // A signing key for the bundle manifest is optional: without it a bundle
     // proves its own internal consistency and nothing about who made it, and
     // the verifier says which of the two it is holding.
@@ -665,6 +708,7 @@ export class ExecutorConfigLoader {
         onEffectMismatch: values.EXECUTOR_ON_EFFECT_MISMATCH ?? "HALT",
         lookupByReferenceUrl: byReferenceUrl,
       },
+      cards,
       maxClockSkewMs: values.EXECUTOR_MAX_CLOCK_SKEW_MS ?? 2_000,
       posture: {
         mode: postureMode,
@@ -766,6 +810,35 @@ export class ExecutorConfigLoader {
         values.EXECUTOR_AUTH_LOCKOUT ?? "10/60/300",
         "EXECUTOR_AUTH_LOCKOUT",
       ),
+    };
+  }
+
+  /**
+   * Where card holds live. The shared store needs its namespace by name, so
+   * two deployments on one database can never read each other's holds by
+   * accident, and its settings without it are a contradiction, refused.
+   */
+  private static cards(values: Environment, env: EnvironmentMap): CardsConfig {
+    const authorizations = values.EXECUTOR_CARD_AUTHORIZATIONS ?? "single";
+    const store = values.EXECUTOR_CARD_HOLDS_STORE ?? "memory";
+    if (store === "memory") {
+      const given = CARD_HOLDS_POSTGRES_KEYS.filter((key) => env[key] !== undefined);
+      if (given.length > 0) {
+        throw new Error(
+          `CONFIG_INVALID: EXECUTOR_CARD_HOLDS_STORE (memory with ${given.join(", ")})`,
+        );
+      }
+      return { holds: { store: "memory" }, authorizations };
+    }
+    const namespace = values.EXECUTOR_CARD_HOLDS_NAMESPACE;
+    if (namespace === undefined) {
+      throw new Error(
+        "CONFIG_INVALID: EXECUTOR_CARD_HOLDS_NAMESPACE (required with the postgres store)",
+      );
+    }
+    return {
+      holds: { store, table: values.EXECUTOR_CARD_HOLDS_TABLE ?? "agentsafe_card", namespace },
+      authorizations,
     };
   }
 

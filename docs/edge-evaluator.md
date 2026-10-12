@@ -157,6 +157,11 @@ CREATE TABLE IF NOT EXISTS agentsafe_edge_replay (
 CREATE INDEX IF NOT EXISTS agentsafe_edge_replay_expires_at ON agentsafe_edge_replay (expires_at);
 ```
 
+Card holds have a shared store of their own, `EXECUTOR_CARD_HOLDS_STORE=postgres`, so the
+issuer's authorization may reach any replica; a hold claimed locally on one replica is then settled
+on another, which records the finalization in its own chain. It is described in
+[the card authorization guide](banking/card-authorization.md#6-replicas-and-restarts).
+
 The connection string is a secret like any other (`EXECUTOR_EDGE_REPLAY_DATABASE_URL_FILE` in
 production; TLS through the URL's `sslmode`). The connection is direct TCP from the executor, not
 through the guarded HTTP fetch, so the network policy must allow it. At start the executor probes

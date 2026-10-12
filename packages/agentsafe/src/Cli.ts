@@ -21,6 +21,7 @@ import { join } from "node:path";
 import process from "node:process";
 import { nodeCliProcess } from "./cli/CliProcess.js";
 import { isGatewayCommand, runGatewayCommand } from "./cli/Commands.js";
+import { runCards } from "./cli/Cards.js";
 import { runEdge } from "./cli/Edge.js";
 import { usage } from "./cli/Help.js";
 import { runVerifyIntent } from "./cli/VerifyIntent.js";
@@ -53,6 +54,7 @@ const COMMANDS = [
   "verify-intent",
   "probe-containment",
   "edge",
+  "cards",
   "tcp-broker",
   "connector",
   "tunnel",
@@ -130,6 +132,8 @@ async function main(): Promise<void> {
     process.exit(report.ok ? 0 : 1);
   } else if (command === "edge") {
     await runEdge(nodeCliProcess(), rest);
+  } else if (command === "cards") {
+    await runCards(nodeCliProcess(), rest);
   } else if (command === "verify-intent") {
     runVerifyIntent(nodeCliProcess(), rest);
   } else if (command === "probe-containment") {
