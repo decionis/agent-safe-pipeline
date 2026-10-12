@@ -6,7 +6,7 @@ import { BoundedResponseBody } from "../http/BoundedResponseBody.js";
 import { CanonicalIntentHasher } from "../intent/CanonicalIntentHasher.js";
 import type { CapturedIntent } from "../intent/ExecutionIntent.js";
 import type { JsonObject, JsonValue } from "../intent/JsonValue.js";
-import type { GateDecision } from "../decision/DecisionAuthority.js";
+import type { DecisionGate } from "../decision/DecisionAuthority.js";
 
 export interface VerifiedAuthorization {
   readonly decisionId: string;
@@ -114,7 +114,7 @@ export interface AuthorityEffectReport {
 
 export interface AuthorizationFinalizationInput {
   readonly captured: CapturedIntent;
-  readonly decision: GateDecision;
+  readonly decision: DecisionGate;
   readonly authorization: VerifiedAuthorization;
   readonly outcome: ExecutionCommitOutcome;
   /**
@@ -142,7 +142,7 @@ export interface AuthorizationFinalizationInput {
 export interface AuthorizationVerifier {
   verifyAndConsume(
     captured: CapturedIntent,
-    decision: GateDecision,
+    decision: DecisionGate,
   ): Promise<VerifiedAuthorization | null>;
   /**
    * Reports the downstream attempt outcome for an authorization returned by
@@ -335,7 +335,7 @@ export class DecionisGrantVerifier implements AuthorizationVerifier {
 
   public async verifyAndConsume(
     captured: CapturedIntent,
-    decision: GateDecision,
+    decision: DecisionGate,
   ): Promise<VerifiedAuthorization | null> {
     if (
       decision.verdict !== "ALLOW" ||

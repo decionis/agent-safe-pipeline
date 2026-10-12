@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import type { GateDecision } from "../decision/DecisionAuthority.js";
+import type { DecisionGate } from "../decision/DecisionAuthority.js";
 import type { CapturedIntent } from "../intent/ExecutionIntent.js";
 import type {
   AuthorizationFinalizationInput,
@@ -92,7 +92,7 @@ export class LocalAuthorizationVerifier implements AuthorizationVerifier {
 
   public async verifyAndConsume(
     captured: CapturedIntent,
-    decision: GateDecision,
+    decision: DecisionGate,
   ): Promise<VerifiedAuthorization | null> {
     if (decision.authorization === null) return null;
     const grant = this.options.grants.take(decision.authorization.token);
@@ -148,7 +148,7 @@ export class LocalAuthorizationVerifier implements AuthorizationVerifier {
 
   private async delegated(
     captured: CapturedIntent,
-    decision: GateDecision,
+    decision: DecisionGate,
   ): Promise<VerifiedAuthorization | null> {
     const delegate = this.options.delegate;
     if (delegate === undefined) return null;

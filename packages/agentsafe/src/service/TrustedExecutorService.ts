@@ -7,7 +7,7 @@ import {
   type CapturedIntent,
   type EdgeModule,
   type ExecutionBlockedResult,
-  type GateDecision,
+  type DecisionGate,
   type JsonObject,
   type SafeExecutionResult,
   type SafeExecutor,
@@ -991,7 +991,7 @@ export class TrustedExecutorService {
    */
   private async decide(
     captured: CapturedIntent,
-    decision: GateDecision,
+    decision: DecisionGate,
     executor: SafeExecutor,
   ): Promise<ActionResponse> {
     if (isCardActionName(captured.intent.action)) {
@@ -1016,7 +1016,7 @@ export class TrustedExecutorService {
    * `EXECUTOR_JOURNAL_REQUIRED=false`, outside production, the refusal is
    * downgraded to an event so a developer can run without a volume.
    */
-  private async openAttempt(captured: CapturedIntent, decision: GateDecision): Promise<void> {
+  private async openAttempt(captured: CapturedIntent, decision: DecisionGate): Promise<void> {
     try {
       await this.journal.append({
         record: "ATTEMPT_OPENED",
@@ -1045,7 +1045,7 @@ export class TrustedExecutorService {
    */
   private async closeAttempt(
     captured: CapturedIntent,
-    decision: GateDecision,
+    decision: DecisionGate,
     outcome: SafeExecutionResult,
   ): Promise<void> {
     if (decision.verdict !== "ALLOW" || decision.failClosed) return;
@@ -1221,7 +1221,7 @@ export class TrustedExecutorService {
   }
 
   /** The hold's routing as the handoff carries it, from the decision when the authority said. */
-  private static attestationRequirement(decision: GateDecision): AttestationRequirement | null {
+  private static attestationRequirement(decision: DecisionGate): AttestationRequirement | null {
     const routing = decision.escalationRequirement;
     if (routing === undefined) return null;
     return {
@@ -1454,7 +1454,7 @@ export class TrustedExecutorService {
    */
   private async holdCard(
     captured: CapturedIntent,
-    decision: GateDecision,
+    decision: DecisionGate,
     executor: SafeExecutor,
   ): Promise<ActionResponse | ExecutionBlockedResult> {
     if (decision.verdict === "ALLOW" && !decision.failClosed) {
@@ -1757,7 +1757,7 @@ export class TrustedExecutorService {
 
   private response(
     captured: CapturedIntent,
-    decision: GateDecision,
+    decision: DecisionGate,
     outcome: SafeExecutionResult,
     handoff: EscalationHandoff | AttestationHandoff | null,
     extraReasonCodes: readonly string[] = [],

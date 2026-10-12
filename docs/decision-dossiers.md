@@ -19,7 +19,7 @@ The dossier and the grant are produced by the same evaluation and travel differe
 the sequence once and the difference stays put:
 
 1. `DecionisGate.evaluate` sends the captured intent to Decionis. Decionis records a Decision
-   Dossier for every evaluation, in every mode, and returns a `GateDecision` carrying
+   Dossier for every evaluation, in every mode, and returns a `DecisionGate` carrying
    `decisionId`, `dossierId`, `intentHash`, and `reasonCodes`.
 2. Only an `ALLOW` carries `authorization`: a short-lived, single-use grant bound to that intent
    hash, decision, audience, and expiry. `ESCALATE` and `BLOCK` carry `authorization: null`, and so

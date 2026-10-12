@@ -1,4 +1,4 @@
-import type { GateDecision, HostedEvaluation } from "../decision/DecisionAuthority.js";
+import type { DecisionGate, HostedEvaluation } from "../decision/DecisionAuthority.js";
 
 export interface DecisionReportOptions {
   /** Where the lines go. Defaults to `process.stdout`; a stdio MCP server passes `process.stderr`. */
@@ -18,7 +18,7 @@ export interface DecisionReportOptions {
  * JWKS, fetched by anyone; the signature check itself runs offline and needs
  * no account.
  */
-export function printDecision(decision: GateDecision, options: DecisionReportOptions = {}): void {
+export function printDecision(decision: DecisionGate, options: DecisionReportOptions = {}): void {
   const hosted = decision.hosted;
   if (hosted === undefined) return;
   const out = options.out ?? process.stdout;

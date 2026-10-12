@@ -7,7 +7,7 @@
  * proof: the thing the local path cannot produce.
  */
 import type { HostedGate } from "../decision/CreateGate.js";
-import type { GateDecision } from "../decision/DecisionAuthority.js";
+import type { DecisionGate } from "../decision/DecisionAuthority.js";
 import { printDecision, type DecisionReportOptions } from "./DecisionReport.js";
 import { DossierFetchError, printSignedDossier } from "./DossierReport.js";
 
@@ -21,7 +21,7 @@ export const HOSTED_HINT =
 
 export async function printHostedOutcome(
   gate: HostedGate,
-  decision: GateDecision,
+  decision: DecisionGate,
   options: HostedOutcomeOptions = {},
 ): Promise<void> {
   const out = options.out ?? process.stdout;

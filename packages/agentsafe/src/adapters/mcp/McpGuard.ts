@@ -7,7 +7,7 @@ import {
   type AuthorizationVerifier,
   type DecisionAuthority,
   type ExecutionSignals,
-  type GateDecision,
+  type DecisionGate,
   type IntentActor,
   type JsonObject,
   type SafeExecutionResult,
@@ -192,7 +192,7 @@ export class McpGuard {
 
   private outcomeOf<TResult>(
     intentHash: string,
-    decision: GateDecision,
+    decision: DecisionGate,
     execution: SafeExecutionResult<TResult>,
   ): McpOutcome<TResult> {
     if (execution.outcome === "COMPLETED") {

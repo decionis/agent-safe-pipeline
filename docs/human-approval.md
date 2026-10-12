@@ -64,7 +64,7 @@ the tap lands).
 Where a hold goes is the policy's to say. A rule's `verification_requirements` may name a method
 `CARD_TAP` and a `provider` (an admitted presence provider's id, `koard` for one); Decionis reads
 the decision's `escalation_requirement` for a runtime at 0.3.7 or later, and `DecionisGate`
-carries it as `GateDecision.escalationRequirement`: the selector (a kind and a role, never a
+carries it as `DecisionGate.escalationRequirement`: the selector (a kind and a role, never a
 person) and the verification (`provider`, `methods`, `level`). A provider other than `decionis`
 means no Presence ceremony is asked for; the executor hands the caller an `ATTESTATION` handoff
 with the routing in `requirement` and waits for that provider's attestation. Decionis also tells

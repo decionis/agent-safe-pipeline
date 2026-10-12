@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { GateDecision } from "../../src/decision/DecisionAuthority.js";
+import type { DecisionGate } from "../../src/decision/DecisionAuthority.js";
 import {
   DecionisGrantVerifier,
   type AuthorityEffectEvidence,
@@ -28,7 +28,7 @@ function setup(expectedEffectDigest?: string) {
     },
   );
   const expiresAtSeconds = Math.floor(Date.parse(captured.intent.expiresAt) / 1_000);
-  const decision: GateDecision = {
+  const decision: DecisionGate = {
     verdict: "ALLOW",
     decisionId: "decision-1",
     dossierId: "dossier-1",

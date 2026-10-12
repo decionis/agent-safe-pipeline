@@ -18,7 +18,7 @@ Events never include execution tokens, claim tokens, API keys, raw intent parame
 targets, or provider results.
 
 An observational event remains observational after JSON serialization. Its shape is an audit
-record, not a `GateDecision`, and `SafeExecutor` rejects it with `DECISION_NOT_AUTHORITATIVE` if
+record, not a `DecisionGate`, and `SafeExecutor` rejects it with `DECISION_NOT_AUTHORITATIVE` if
 application code attempts an unsafe cast. `ShadowPipeline` emits `SHADOW_EVALUATED`, which is
 always `OBSERVATIONAL`; the recorder refuses a shadow event with any other classification and
 refuses any observational event that references a grant. Presence events are `NON_AUTHORITATIVE`:

@@ -1,6 +1,6 @@
-import type { GateDecision } from "./DecisionAuthority.js";
+import type { DecisionGate } from "./DecisionAuthority.js";
 
-export function immutableGateDecision(decision: GateDecision): GateDecision {
+export function immutableDecisionGate(decision: DecisionGate): DecisionGate {
   return Object.freeze({
     ...decision,
     reasonCodes: Object.freeze([...decision.reasonCodes]),

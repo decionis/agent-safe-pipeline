@@ -7,7 +7,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { DecionisGate, type DecionisGateOptions } from "../../src/decision/DecionisGate.js";
-import type { GateDecision } from "../../src/decision/DecisionAuthority.js";
+import type { DecisionGate } from "../../src/decision/DecisionAuthority.js";
 import { ActionRegistry } from "../../src/execution/ActionRegistry.js";
 import { DecionisGrantVerifier } from "../../src/execution/AuthorizationVerifier.js";
 import { SafeExecutor } from "../../src/execution/SafeExecutor.js";
@@ -54,7 +54,7 @@ function hanging() {
 
 async function expectFailClosed(
   intent: CapturedIntent,
-  decision: GateDecision,
+  decision: DecisionGate,
   reasonCode?: string,
 ): Promise<void> {
   expect(decision).toMatchObject({

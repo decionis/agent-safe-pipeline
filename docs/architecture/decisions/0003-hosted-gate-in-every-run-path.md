@@ -85,7 +85,7 @@ documents them. The verification envelope is read where the contract declares it
 
 ## Compatibility impact
 
-`createGate` and `printDecision` are unchanged. `GateDecision` gains an optional
+`createGate` and `printDecision` are unchanged. `DecisionGate` gains an optional
 `verificationUrl`; `HostedEvaluation` gains `verificationUrl: string | null`. The credential file
 gains an optional `provisional` field the CLI's reader ignores. New exports are pinned in the
 packed-tarball consumer.

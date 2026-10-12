@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { GateDecision } from "../decision/DecisionAuthority.js";
+import type { DecisionGate } from "../decision/DecisionAuthority.js";
 import type { CapturedIntent } from "../intent/ExecutionIntent.js";
 import type { JsonObject, JsonValue } from "../intent/JsonValue.js";
 import type { VerifiedAuthorization } from "../execution/AuthorizationVerifier.js";
@@ -59,7 +59,7 @@ export interface AuditEventV1 {
     readonly policy: AuditPolicyRevision | null;
     readonly evidenceReference: string | null;
   } | null;
-  readonly verdict: GateDecision["verdict"] | null;
+  readonly verdict: DecisionGate["verdict"] | null;
   readonly reasonCodes: readonly string[];
   readonly durationMs: number | null;
   readonly metadata: Readonly<JsonObject>;
@@ -73,13 +73,13 @@ export interface AuditRecordInput {
   readonly eventType: AuditEventType;
   readonly captured: CapturedIntent;
   readonly authority?: AuditAuthority;
-  readonly decision?: GateDecision;
+  readonly decision?: DecisionGate;
   readonly authorization?: VerifiedAuthorization;
   readonly decisionId?: string;
   readonly dossierId?: string;
   readonly grantId?: string;
-  /** Verdict for events that carry no `GateDecision`, such as shadow observations. */
-  readonly verdict?: GateDecision["verdict"];
+  /** Verdict for events that carry no `DecisionGate`, such as shadow observations. */
+  readonly verdict?: DecisionGate["verdict"];
   readonly evaluation?: AuditEvaluationEvidence;
   readonly reasonCodes?: readonly string[];
   readonly durationMs?: number;
@@ -122,7 +122,7 @@ const AUDIT_AUTHORITIES = new Set<AuditAuthority>([
   "OBSERVATIONAL",
   "NON_AUTHORITATIVE",
 ]);
-const AUDIT_VERDICTS = new Set<GateDecision["verdict"]>(["ALLOW", "ESCALATE", "BLOCK"]);
+const AUDIT_VERDICTS = new Set<DecisionGate["verdict"]>(["ALLOW", "ESCALATE", "BLOCK"]);
 const RESTRICTED_METADATA_KEY =
   /authorization|credential|password|secret|token|parameters|context|provider[_-]?result/i;
 const MAX_METADATA_DEPTH = 4;
@@ -253,7 +253,7 @@ export class AuditRecorder {
 
   private evaluation(
     captured: CapturedIntent,
-    decision: GateDecision,
+    decision: DecisionGate,
     evidence?: AuditEvaluationEvidence,
   ): NonNullable<AuditEventV1["evaluation"]> {
     const evaluationId = evidence?.evaluationId ?? decision.decisionId;

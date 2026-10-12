@@ -11,9 +11,9 @@ import {
   type DecisionEvaluationOptions,
   type DecisionEvidence,
   type DecisionVerdict,
-  type GateDecision,
+  type DecisionGate,
 } from "../DecisionAuthority.js";
-import { immutableGateDecision } from "../ImmutableGateDecision.js";
+import { immutableDecisionGate } from "../ImmutableDecisionGate.js";
 import type { EdgeBundleManager, LoadedBundle } from "./EdgeBundleManager.js";
 import type { EdgeModule } from "./EdgeModule.js";
 
@@ -142,7 +142,7 @@ export class EdgeDecisionAuthority implements DecisionAuthority {
     captured: CapturedIntent,
     evidence?: DecisionEvidence,
     options: DecisionEvaluationOptions = {},
-  ): Promise<GateDecision> {
+  ): Promise<DecisionGate> {
     if (evidence !== undefined)
       return await this.options.hosted.evaluate(captured, evidence, options);
     const replayed = await this.replayed(captured);
@@ -201,9 +201,9 @@ export class EdgeDecisionAuthority implements DecisionAuthority {
     decisionId: string,
     bundle: LoadedBundle,
     now: number,
-  ): GateDecision {
+  ): DecisionGate {
     const dossierId = `edge:${result.evaluation_digest}`;
-    let authorization: GateDecision["authorization"] = null;
+    let authorization: DecisionGate["authorization"] = null;
     if (result.verdict === "ALLOW" && this.evaluationMode === "ENFORCEMENT") {
       // The authorization lives no longer than the intent or the bundle.
       const expiresAtMs = Math.min(Date.parse(captured.intent.expiresAt), bundle.expiresAtMs);
@@ -220,7 +220,7 @@ export class EdgeDecisionAuthority implements DecisionAuthority {
       });
       authorization = { token, expiresAt };
     }
-    return immutableGateDecision({
+    return immutableDecisionGate({
       verdict: result.verdict,
       decisionId,
       dossierId,
@@ -236,7 +236,7 @@ export class EdgeDecisionAuthority implements DecisionAuthority {
     reason: string,
     moduleCode: string | null,
     options: DecisionEvaluationOptions,
-  ): Promise<GateDecision> {
+  ): Promise<DecisionGate> {
     const fallback = this.onUnavailable === "hosted" ? "HOSTED" : "BLOCK";
     try {
       this.options.record?.({

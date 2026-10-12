@@ -2,7 +2,7 @@ import type {
   AuthorizationFinalizationInput,
   AuthorizationVerifier,
   CapturedIntent,
-  GateDecision,
+  DecisionGate,
   VerifiedAuthorization,
 } from "@decionis/agent-safe-pipeline";
 import { authorityEffectEvidence } from "./EffectEvidenceBuilder.js";
@@ -32,7 +32,7 @@ export class EffectAwareGrantVerifier implements AuthorizationVerifier {
 
   public async verifyAndConsume(
     captured: CapturedIntent,
-    decision: GateDecision,
+    decision: DecisionGate,
   ): Promise<VerifiedAuthorization | null> {
     return await this.options.verifier.verifyAndConsume(captured, decision);
   }

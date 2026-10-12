@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DecisionAuthority } from "../../../src/decision/DecisionAuthority.js";
-import { immutableGateDecision } from "../../../src/decision/ImmutableGateDecision.js";
+import { immutableDecisionGate } from "../../../src/decision/ImmutableDecisionGate.js";
 import { EdgeBundleManager } from "../../../src/decision/edge/EdgeBundleManager.js";
 import type { BundleRead, EdgeBundleSource } from "../../../src/decision/edge/EdgeBundleSource.js";
 import {
@@ -252,7 +252,7 @@ describe.skipIf(!available)(
         expect(await bundles.refresh()).toBeNull();
         const records: EdgeDecisionRecord[] = [];
         const hostedEvaluate = vi.fn(async (captured: { intentHash: string }) =>
-          immutableGateDecision({
+          immutableDecisionGate({
             verdict: "ESCALATE",
             decisionId: "hosted-1",
             dossierId: "hosted-dossier-1",

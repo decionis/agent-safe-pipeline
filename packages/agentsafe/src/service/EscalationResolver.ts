@@ -6,7 +6,7 @@ import {
   type CapturedIntent,
   type DecionisGate,
   type DecisionAuthority,
-  type GateDecision,
+  type DecisionGate,
   type ManagedEscalationState,
   type PresenceApprovalClient,
 } from "@decionis/agent-safe-pipeline";
@@ -117,7 +117,7 @@ export type EscalationState = DistributiveOmit<EscalationHandoff, "intent">;
 
 /** One step of a resumption: either a decision to run, or a state to report. */
 export type EscalationResolution =
-  | { readonly kind: "DECISION"; readonly decision: GateDecision }
+  | { readonly kind: "DECISION"; readonly decision: DecisionGate }
   | {
       readonly kind: "PENDING";
       readonly handoff: EscalationState;
@@ -190,7 +190,7 @@ export class EscalationResolver {
   }
 
   /** The first evaluation: in managed mode it also asks the authority to orchestrate. */
-  public async evaluate(captured: CapturedIntent): Promise<GateDecision> {
+  public async evaluate(captured: CapturedIntent): Promise<DecisionGate> {
     if (this.config.mode !== "MANAGED") return await this.first.evaluate(captured);
     return await this.first.evaluate(captured, undefined, {
       escalation: {
@@ -213,7 +213,7 @@ export class EscalationResolver {
    */
   public async handoff(
     captured: CapturedIntent,
-    decision: GateDecision,
+    decision: DecisionGate,
   ): Promise<EscalationState | null> {
     if (this.config.mode === "MANAGED") {
       return decision.managedEscalation === undefined
@@ -242,7 +242,7 @@ export class EscalationResolver {
    * orchestration: the authority verifies the attestation against the
    * intent hash and decides, and a refusal is a fail-closed `BLOCK`.
    */
-  public async attest(captured: CapturedIntent, attestation: string): Promise<GateDecision> {
+  public async attest(captured: CapturedIntent, attestation: string): Promise<DecisionGate> {
     return await this.gate.evaluate(captured, {
       humanApproval: { provider: "attestation", attestation },
     });

@@ -28,7 +28,7 @@ import {
   type AuditEventV1,
   type CapturedIntent,
   type DecisionEvidence,
-  type GateDecision,
+  type DecisionGate,
   type PresenceApprovalClient,
   type PresenceGateResult,
 } from "@decionis/agent-safe-pipeline";
@@ -207,7 +207,7 @@ function capture(
 }
 
 /** The legitimate path: escalate, verified ceremony, re-authorization, exact grant. */
-async function approveThroughPresence(captured: CapturedIntent): Promise<GateDecision> {
+async function approveThroughPresence(captured: CapturedIntent): Promise<DecisionGate> {
   const coordinator = new PresenceApprovalCoordinator(
     presence,
     pair.authority,
@@ -333,7 +333,7 @@ await attack(
   "Agent fabricates an ALLOW decision with its own token",
   "AUTHORIZATION_INVALID",
   async () => {
-    const forged: GateDecision = {
+    const forged: DecisionGate = {
       verdict: "ALLOW",
       decisionId: "synthetic-forged-decision",
       dossierId: "synthetic-forged-dossier",
@@ -417,7 +417,7 @@ await attack(
     const shadow = await new ShadowPipeline(pair.authority).compare(small, () => "legacy-path");
     const castObservation = await executor.run(
       small,
-      shadow.observation as unknown as GateDecision,
+      shadow.observation as unknown as DecisionGate,
     );
     const shortLived = capture(
       proposeWire("synthetic-vendor-7781", 25_000_000),

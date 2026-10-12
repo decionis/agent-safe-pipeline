@@ -7,7 +7,7 @@ import {
   type CapturedIntent,
   type EnforcementBoundarySignal,
   type ExecutionSignals,
-  type GateDecision,
+  type DecisionGate,
   type JsonObject,
   type WorkloadSignal,
 } from "@decionis/agent-safe-pipeline";
@@ -248,7 +248,7 @@ export async function runAuthorityAttacks(): Promise<AttackReport> {
     const { dispatched, registry, pair } = lane("BLOCK");
     const executor = new SafeExecutor(registry, pair.verifier);
     const proposed = capture(MUTATED_AMOUNT, BENEFICIARY);
-    const decision: GateDecision = await pair.authority.evaluate(proposed);
+    const decision: DecisionGate = await pair.authority.evaluate(proposed);
     results.push(
       outcome(
         "valid-identity-invalid-action",

@@ -40,7 +40,7 @@ import {
   type AuditEventV1,
   type CapturedIntent,
   type DecisionEvidence,
-  type GateDecision,
+  type DecisionGate,
   type PresenceApprovalClient,
   type PresenceGateResult,
 } from "@decionis/agent-safe-pipeline";
@@ -266,7 +266,7 @@ function capture(
 }
 
 /** The escalation path: hold, verified ceremony by the SRE on call, re-authorization, exact grant. */
-async function approveThroughPresence(captured: CapturedIntent): Promise<GateDecision> {
+async function approveThroughPresence(captured: CapturedIntent): Promise<DecisionGate> {
   const coordinator = new PresenceApprovalCoordinator(
     presence,
     pair.authority,

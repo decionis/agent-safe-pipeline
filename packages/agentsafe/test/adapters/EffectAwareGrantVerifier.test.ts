@@ -3,7 +3,7 @@ import {
   type AuthorizationFinalizationInput,
   type AuthorizationVerifier,
   type CapturedIntent,
-  type GateDecision,
+  type DecisionGate,
   type VerifiedAuthorization,
 } from "@decionis/agent-safe-pipeline";
 import { describe, expect, it } from "vitest";
@@ -35,7 +35,7 @@ const authorization: VerifiedAuthorization = Object.freeze({
   expiresAt: new Date(Date.now() + 60_000).toISOString(),
 });
 
-const decision: GateDecision = {
+const decision: DecisionGate = {
   verdict: "ALLOW",
   decisionId: "synthetic-decision-1",
   dossierId: "synthetic-dossier-1",

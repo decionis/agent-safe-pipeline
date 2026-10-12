@@ -1,4 +1,4 @@
-import type { GateDecision } from "../decision/DecisionAuthority.js";
+import type { DecisionGate } from "../decision/DecisionAuthority.js";
 import type { AuditAuthority, AuditEventType, AuditRecorder } from "../audit/AuditRecorder.js";
 import { CanonicalIntentHasher } from "../intent/CanonicalIntentHasher.js";
 import type { CapturedIntent } from "../intent/ExecutionIntent.js";
@@ -175,7 +175,7 @@ export type ExecutionReconciliationResult<TResult = unknown> =
  */
 export interface HeldExecution {
   readonly captured: CapturedIntent;
-  readonly decision: GateDecision;
+  readonly decision: DecisionGate;
   /** The grant's own expiry: after it there is nothing left to claim. */
   readonly expiresAt: string;
 }
@@ -194,8 +194,8 @@ export type HeldClaimResult =
   | Extract<SafeExecutionResult<never>, { outcome: "FAILED_BEFORE_DISPATCH" }>;
 
 /** A decision that passed every check before consumption, so its grant is present. */
-type AdmittedDecision = GateDecision & {
-  readonly authorization: NonNullable<GateDecision["authorization"]>;
+type AdmittedDecision = DecisionGate & {
+  readonly authorization: NonNullable<DecisionGate["authorization"]>;
 };
 
 export class SafeExecutor {
@@ -222,7 +222,7 @@ export class SafeExecutor {
 
   public async run<TResult = unknown>(
     captured: CapturedIntent,
-    decision: GateDecision,
+    decision: DecisionGate,
   ): Promise<SafeExecutionResult<TResult>> {
     const startedAt = Date.now();
     const refused = await this.admit(captured, decision, startedAt);
@@ -337,7 +337,7 @@ export class SafeExecutor {
    */
   private async admit(
     captured: CapturedIntent,
-    decision: GateDecision,
+    decision: DecisionGate,
     startedAt: number,
   ): Promise<ExecutionBlockedResult | null> {
     // Stryker disable next-line all: Audit payload mapping is covered by lifecycle event assertions.
@@ -466,7 +466,7 @@ export class SafeExecutor {
    */
   public async hold(
     captured: CapturedIntent,
-    decision: GateDecision,
+    decision: DecisionGate,
   ): Promise<ExecutionHeldResult | ExecutionBlockedResult> {
     const startedAt = Date.now();
     const refused = await this.admit(captured, decision, startedAt);
@@ -559,7 +559,7 @@ export class SafeExecutor {
    */
   private async finalize(
     captured: CapturedIntent,
-    decision: GateDecision,
+    decision: DecisionGate,
     authorization: VerifiedAuthorization,
     outcome: ExecutionCommitOutcome,
     receipt: string | null = null,
@@ -677,10 +677,10 @@ export class SafeExecutor {
 
   /**
    * Observational artifacts carry an explicit non-authoritative marker. They
-   * must never be interpreted as a `GateDecision`, even after an unsafe cast
+   * must never be interpreted as a `DecisionGate`, even after an unsafe cast
    * or a JSON round trip.
    */
-  private static isAuthoritativeDecision(decision: GateDecision): boolean {
+  private static isAuthoritativeDecision(decision: DecisionGate): boolean {
     const candidate = decision as unknown as {
       readonly authority?: unknown;
       readonly mode?: unknown;
@@ -726,7 +726,7 @@ export class SafeExecutor {
 
   private async block(
     captured: CapturedIntent,
-    decision: GateDecision | undefined,
+    decision: DecisionGate | undefined,
     reason: ExecutionBlockReason,
     startedAt: number,
   ): Promise<ExecutionBlockedResult> {
@@ -744,7 +744,7 @@ export class SafeExecutor {
 
   private async failedBeforeDispatch(
     captured: CapturedIntent,
-    decision: GateDecision,
+    decision: DecisionGate,
     authorization: VerifiedAuthorization,
     reason: ExecutionPreDispatchFailureReason,
     startedAt: number,

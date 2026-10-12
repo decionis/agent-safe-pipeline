@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { GateDecision, HostedEvaluation } from "../../src/decision/DecisionAuthority.js";
-import { immutableGateDecision } from "../../src/decision/ImmutableGateDecision.js";
+import type { DecisionGate, HostedEvaluation } from "../../src/decision/DecisionAuthority.js";
+import { immutableDecisionGate } from "../../src/decision/ImmutableDecisionGate.js";
 import { printDecision } from "../../src/report/DecisionReport.js";
 
 const INTENT_HASH = `sha256:${"b".repeat(64)}`;
 
-function decision(overrides: Partial<GateDecision> = {}): GateDecision {
-  return immutableGateDecision({
+function decision(overrides: Partial<DecisionGate> = {}): DecisionGate {
+  return immutableDecisionGate({
     verdict: "BLOCK",
     decisionId: "fixture_decision",
     dossierId: "fixture_dossier",

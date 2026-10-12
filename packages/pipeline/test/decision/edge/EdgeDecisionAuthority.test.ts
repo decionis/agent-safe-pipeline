@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { describe, expect, it, vi } from "vitest";
-import type { DecisionAuthority, GateDecision } from "../../../src/decision/DecisionAuthority.js";
+import type { DecisionAuthority, DecisionGate } from "../../../src/decision/DecisionAuthority.js";
 import { DecionisGate } from "../../../src/decision/DecionisGate.js";
 import { EdgeBundleManager } from "../../../src/decision/edge/EdgeBundleManager.js";
 import type { BundleRead, EdgeBundleSource } from "../../../src/decision/edge/EdgeBundleSource.js";
@@ -18,7 +18,7 @@ import {
 import { InMemoryReplayStore, type ReplayStore } from "../../../src/execution/ReplayStore.js";
 import { SafeExecutor } from "../../../src/execution/SafeExecutor.js";
 import { IntentCapture } from "../../../src/intent/IntentCapture.js";
-import { immutableGateDecision } from "../../../src/decision/ImmutableGateDecision.js";
+import { immutableDecisionGate } from "../../../src/decision/ImmutableDecisionGate.js";
 import {
   doubleClaims,
   edgeModuleDouble,
@@ -64,7 +64,7 @@ class FixedSource implements EdgeBundleSource {
 /** A hosted authority double: what DecionisGate would answer, without a network. */
 function hostedDouble(verdict: "ALLOW" | "ESCALATE" | "BLOCK" = "ESCALATE") {
   const evaluate = vi.fn(async (captured: { intentHash: string }) =>
-    immutableGateDecision({
+    immutableDecisionGate({
       verdict,
       decisionId: `hosted-${verdict.toLowerCase()}`,
       dossierId: "hosted-dossier",
@@ -528,7 +528,7 @@ describe("EdgeDecisionAuthority", () => {
       grants: new LocalGrants(),
       hosted: hostedDouble().authority,
     });
-    const decision: GateDecision = await authority.evaluate(intent("payment.block"));
+    const decision: DecisionGate = await authority.evaluate(intent("payment.block"));
     expect(decision.verdict).toBe("BLOCK");
     bundles.stop();
     expect((await authority.evaluate(intent("payment.block"))).decisionId).toBe("hosted-escalate");
