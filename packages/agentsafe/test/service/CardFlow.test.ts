@@ -1104,3 +1104,203 @@ describe("holds shared across replicas through the Postgres store", () => {
     service.close();
   });
 });
+
+/** The issuer app's backend, where a commit-boundary tap lands: it presents, and proposes nothing. */
+const PRESENTING_APP: Principal = {
+  ...ISSUER,
+  id: "synthetic-issuer-app-backend",
+  scopes: new Set(["escalations.resume"]),
+} as unknown as Principal;
+
+const EVALUATE = (): Record<string, string> => ({
+  EXECUTOR_CARD_NO_GRANT: "evaluate",
+  EXECUTOR_CARD_COMMIT_TENANT_ID: "00000000-0000-4000-8000-000000000002",
+  EXECUTOR_CARD_COMMIT_ACTOR_ID: "synthetic-issuer-commit",
+});
+
+describe("an authorization with no hold, evaluated at the commit boundary", () => {
+  it("answers NO_GRANT by default, and evaluates, holds and claims in one call when policy allows", async () => {
+    const plain = build();
+    const unevaluated = authorizationFor({
+      cardTokenRef: "fixture_card_ref_none",
+      amountMinor: 4_250,
+    });
+    expect(await plain.service.authorizeCard(unevaluated, ISSUER)).toEqual({
+      decision: "NO_MATCH",
+      code: "NO_GRANT",
+    });
+    plain.service.close();
+
+    const { service, lines, securityLines, journal } = build("ENFORCEMENT", { env: EVALUATE() });
+    const evaluations = requestsTo("enforce-and-bind").length;
+    const claims = requestsTo("claim-token").length;
+    const asked = authorizationFor({
+      cardTokenRef: "fixture_card_ref_commit_1",
+      amountMinor: 4_250,
+    });
+    const approved = await service.authorizeCard(asked, ISSUER);
+    expect(approved).toMatchObject({
+      decision: "APPROVE",
+      authorization_id: asked.authorization_id,
+    });
+    expect(requestsTo("enforce-and-bind").length).toBe(evaluations + 1);
+    expect(requestsTo("claim-token").length).toBe(claims + 1);
+    // The intent the authority saw: the authorization as a purchase, by the
+    // commit actor, with the hook's principal and the authorization's id in
+    // its context, and no card number anywhere.
+    const evaluated = requestsTo("enforce-and-bind").at(-1)?.body as {
+      actor: { id: string; type: string };
+      tenant_id: string;
+      action: { type: string; parameters: Record<string, unknown> };
+      context: Record<string, unknown>;
+    };
+    expect(evaluated.actor).toEqual({ id: "synthetic-issuer-commit", type: "SYSTEM" });
+    expect(evaluated.tenant_id).toBe("00000000-0000-4000-8000-000000000002");
+    expect(evaluated.action.type).toBe("card.purchase");
+    expect(evaluated.action.parameters).toEqual({
+      cardTokenRef: asked.card_token_ref,
+      amountMinor: 4_250,
+      currency: "EUR",
+      merchantId: "fixture_merchant_17",
+    });
+    expect(evaluated.context).toMatchObject({
+      caller_principal: ISSUER.id,
+      commit_boundary: "ISSUER_HOOK",
+      card_authorization: { authorization_id: asked.authorization_id },
+      card_velocity: { window_seconds: 600, holds: 0, claims: 0 },
+    });
+    expect(auditTypes(lines)).toEqual([
+      "INTENT_CAPTURED",
+      "AUTHORITY_DECISION",
+      "GRANT_HELD",
+      "GRANT_CONSUMED",
+      "EXECUTION_STARTED",
+    ]);
+    // A retry is the same answer; the result settles it like any claim.
+    expect(await service.authorizeCard(asked, ISSUER)).toEqual(approved);
+    expect(requestsTo("enforce-and-bind").length).toBe(evaluations + 1);
+    const result = await service.settleCard(asked.authorization_id, { status: "APPROVED" }, ISSUER);
+    expect(result).toMatchObject({
+      outcome: "COMMITTED",
+      executed: true,
+      finalization: "RECORDED",
+    });
+    expect(await journal.openAttempts()).toEqual([]);
+    for (const line of [...lines, ...securityLines]) {
+      expect(line).not.toContain(asked.card_token_ref);
+      expect(line).not.toContain("fixture_merchant_17");
+    }
+    service.close();
+  });
+
+  it("answers PENDING with the handoff when policy wants the cardholder, and matches once the tap has held the grant", async () => {
+    const { service, securityLines } = build("ENFORCEMENT", { env: EVALUATE() });
+    const asked = authorizationFor({
+      cardTokenRef: "fixture_card_ref_commit_2",
+      amountMinor: 50_000,
+    });
+    const evaluations = requestsTo("enforce-and-bind").length;
+    const pending = await service.authorizeCard(asked, ISSUER);
+    expect(pending).toMatchObject({
+      decision: "PENDING",
+      authorization_id: asked.authorization_id,
+      escalation: { mode: "ATTESTATION" },
+    });
+    if (pending.decision !== "PENDING") throw new Error("not pending");
+    expect(Date.parse(pending.expires_at)).toBeGreaterThan(Date.now());
+    expect(typeof pending.intent_id).toBe("string");
+    expect(parsed(securityLines).map((line) => line["event"])).toContain(
+      "CARD_AUTHORIZATION_PENDING",
+    );
+    // Re-presented before the tap: the same answer, and nothing evaluated twice.
+    expect(await service.authorizeCard(asked, ISSUER)).toEqual(pending);
+    expect(requestsTo("enforce-and-bind").length).toBe(evaluations + 1);
+    // The same id for something else is a reuse.
+    expect(await service.authorizeCard({ ...asked, amount_minor: 40_000 }, ISSUER)).toEqual({
+      decision: "NO_MATCH",
+      code: "AUTHORIZATION_ID_REUSED",
+    });
+    // No claim yet: a result for it is unknown.
+    const early = await refusal(
+      service.settleCard(asked.authorization_id, { status: "APPROVED" }, ISSUER),
+    );
+    expect([early.status, early.code]).toEqual([404, "CARD_AUTHORIZATION_UNKNOWN"]);
+    // The tap lands through the escalation route with the handoff's intent,
+    // and the hold it leaves is what the re-presented authorization matches.
+    // No agent proposed this intent, so the tap is presented by the issuer
+    // app's backend: an operator holding `escalations.resume`.
+    const intent = JSON.parse(JSON.stringify(pending.escalation.intent)) as Record<string, unknown>;
+    const resumed = await service.resume(
+      { mode: "ATTESTATION", intent, attestation: TAPPED },
+      PRESENTING_APP,
+    );
+    expect(resumed).toMatchObject({
+      intent_id: pending.intent_id,
+      verdict: "ALLOW",
+      outcome: "HELD_FOR_AUTHORIZATION",
+    });
+    const claims = requestsTo("claim-token").length;
+    const approved = await service.authorizeCard(asked, ISSUER);
+    expect(approved).toMatchObject({
+      decision: "APPROVE",
+      authorization_id: asked.authorization_id,
+      intent_id: pending.intent_id,
+    });
+    expect(requestsTo("claim-token").length).toBe(claims + 1);
+    expect(requestsTo("enforce-and-bind").length).toBe(evaluations + 2);
+    const result = await service.settleCard(
+      asked.authorization_id,
+      { status: "APPROVED", approved_amount_minor: 50_000 },
+      ISSUER,
+    );
+    expect(result).toMatchObject({ outcome: "COMMITTED", executed: true });
+    service.close();
+  });
+
+  it("answers a block, a halt and a shadow evaluation as no match with the reason, and forgets a pending answer past its intent", async () => {
+    const { service, halt } = build("ENFORCEMENT", { env: EVALUATE() });
+    expect(
+      await service.authorizeCard(
+        authorizationFor({ cardTokenRef: "fixture_card_ref_commit_3", amountMinor: 250_000 }),
+        ISSUER,
+      ),
+    ).toEqual({ decision: "NO_MATCH", code: "POLICY_BLOCK" });
+    halt.halt("OPERATOR", "fixture");
+    expect(
+      await service.authorizeCard(
+        authorizationFor({ cardTokenRef: "fixture_card_ref_commit_4", amountMinor: 4_250 }),
+        ISSUER,
+      ),
+    ).toEqual({ decision: "NO_MATCH", code: "EXECUTOR_HALTED" });
+    service.close();
+
+    const shadow = build("SHADOW", { env: EVALUATE() });
+    const observations = requestsTo("enforce-and-bind").length;
+    expect(
+      await shadow.service.authorizeCard(
+        authorizationFor({ cardTokenRef: "fixture_card_ref_commit_5", amountMinor: 4_250 }),
+        ISSUER,
+      ),
+    ).toEqual({ decision: "NO_MATCH", code: "SHADOW_OBSERVED" });
+    expect(requestsTo("enforce-and-bind").length).toBe(observations + 1);
+    shadow.service.close();
+
+    // A pending answer lives as long as its intent: past it, the authorization is evaluated afresh.
+    const short = build("ENFORCEMENT", {
+      env: { ...EVALUATE(), EXECUTOR_INTENT_TTL_SECONDS: "1" },
+    });
+    const asked = authorizationFor({
+      cardTokenRef: "fixture_card_ref_commit_6",
+      amountMinor: 50_000,
+    });
+    const first = await short.service.authorizeCard(asked, ISSUER);
+    expect(first.decision).toBe("PENDING");
+    const evaluations = requestsTo("enforce-and-bind").length;
+    await new Promise((resolve) => setTimeout(resolve, 1_100));
+    const again = await short.service.authorizeCard(asked, ISSUER);
+    expect(again.decision).toBe("PENDING");
+    expect(again).not.toEqual(first);
+    expect(requestsTo("enforce-and-bind").length).toBe(evaluations + 1);
+    short.service.close();
+  });
+});

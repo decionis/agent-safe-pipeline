@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   AuditRecorder,
   CanonicalIntentHasher,
@@ -33,6 +34,8 @@ import {
   cardPurchaseOf,
   isCardActionName,
   isCardReference,
+  CARD_PURCHASE_ACTION,
+  cardTarget,
   type CardAuthorizationRequest,
   type CardPurchase,
 } from "../adapters/cards/CardPurchase.js";
@@ -255,9 +258,27 @@ async function signBundle(secrets: SecretStore, payload: Uint8Array): Promise<st
 /** The provider id an escalation requirement names for Decionis Presence. */
 const DECIONIS_PRESENCE_PROVIDER = "decionis";
 
+/** Whose intent a capture is: the principal that asked, and the tenant and actor it carries. */
+interface CaptureIdentity {
+  readonly id: string;
+  readonly tenantId: string;
+  readonly actor: NonNullable<Principal["actor"]>;
+}
+
+type PendingCardAnswer = Extract<CardAuthorizationAnswer, { readonly decision: "PENDING" }>;
+
 export class TrustedExecutorService {
   private readonly hasher = new CanonicalIntentHasher();
   private recovery: RecoveryReport | null = null;
+  /**
+   * Authorizations evaluated at the commit boundary and escalated, by id:
+   * answered the same way until their intent expires, so a platform that
+   * re-presents one is told the same thing and nothing is evaluated twice.
+   */
+  private readonly pendingCommits = new Map<
+    string,
+    { readonly digest: string; readonly answer: PendingCardAnswer }
+  >();
   /** Bound before any await: one authorization id may claim only one request. */
   private readonly cardClaims = new Map<
     string,
@@ -1217,11 +1238,9 @@ export class TrustedExecutorService {
 
   private captureIntent(
     request: ProposalRequest,
-    proposer: Principal & {
-      readonly tenantId: string;
-      readonly actor: NonNullable<Principal["actor"]>;
-    },
+    proposer: CaptureIdentity,
     velocity: CardVelocity | null = null,
+    extra: JsonObject = {},
   ): CapturedIntent {
     // A BEAP action carries its own canonical form in the parameters, so the
     // transport's name and target are derived from it rather than trusted,
@@ -1235,6 +1254,7 @@ export class TrustedExecutorService {
     const context: JsonObject = {
       caller_principal: proposer.id,
       ...(bound === null ? {} : bound.context),
+      ...extra,
     };
     // The burst on this card, counted here because policy counts nothing over
     // time: how many purchases were held for it and claimed lately. Numbers
@@ -1272,7 +1292,7 @@ export class TrustedExecutorService {
    */
   private bindBanking(
     request: ProposalRequest,
-    proposer: Principal & { readonly actor: NonNullable<Principal["actor"]> },
+    proposer: { readonly actor: NonNullable<Principal["actor"]> },
   ): { readonly context: JsonObject; readonly expectedEffectDigest: string } {
     try {
       const bound = bindBankingAction(
@@ -1616,7 +1636,7 @@ export class TrustedExecutorService {
    * the issuer's policy, not this process's.
    */
   public async authorizeCard(input: unknown, caller?: Principal): Promise<CardAuthorizationAnswer> {
-    this.operator(caller, "cards.authorize");
+    const operator = this.operator(caller, "cards.authorize");
     const request = TrustedExecutorService.cardRequest(() => cardAuthorizationOf(input));
     let previous: ClaimedCardAuthorization | undefined;
     try {
@@ -1656,7 +1676,7 @@ export class TrustedExecutorService {
     }
     // Reserve the id synchronously, before journal/claim I/O can yield to a
     // conflicting request. Identical concurrent retries share the same result.
-    const answer = Promise.resolve().then(() => this.claimCard(request));
+    const answer = Promise.resolve().then(() => this.claimCard(request, operator.id));
     this.cardClaims.set(request.authorization_id, { digest, answer });
     try {
       return await answer;
@@ -1665,7 +1685,11 @@ export class TrustedExecutorService {
     }
   }
 
-  private async claimCard(request: CardAuthorizationRequest): Promise<CardAuthorizationAnswer> {
+  private async claimCard(
+    request: CardAuthorizationRequest,
+    callerId: string,
+    evaluated = false,
+  ): Promise<CardAuthorizationAnswer> {
     if (this.haltSwitch.current.halted) return this.noMatch(null, "EXECUTOR_HALTED");
     if (this.posture.degraded) return this.noMatch(null, "POSTURE_DEGRADED");
     let record;
@@ -1677,7 +1701,12 @@ export class TrustedExecutorService {
     } catch {
       return this.noMatch(null, "CARD_HOLDS_UNAVAILABLE");
     }
-    if (record === undefined) return this.noMatch(null, "NO_GRANT");
+    if (record === undefined) {
+      // A hold the commit-boundary evaluation just made and the store cannot
+      // show is not evaluated again: the answer says the hold was lost.
+      if (evaluated) return this.noMatch(null, "CARD_HOLD_UNAVAILABLE");
+      return await this.withoutGrant(request, callerId);
+    }
     const match = matchCardAuthorization(
       record,
       TrustedExecutorService.cardView(request),
@@ -1767,6 +1796,152 @@ export class TrustedExecutorService {
     this.metrics.executions.inc({ outcome: "CARD_AUTHORIZATION_MATCHED" });
     this.events.emit({ event: "CARD_AUTHORIZATION_MATCHED", intent_id: intentId });
     return answer;
+  }
+
+  /**
+   * An authorization with no hold. By default it is `NO_MATCH`: nothing was
+   * decided before the card was presented. A deployment that evaluates at
+   * the commit boundary answers it from an evaluation made now, and one
+   * already evaluated and escalated is answered the same way until its
+   * intent expires, so a platform that re-presents it is told the same thing
+   * and nothing is evaluated twice. Once the tap has resumed the hold, the
+   * re-presented authorization finds it before it gets here.
+   */
+  private async withoutGrant(
+    request: CardAuthorizationRequest,
+    callerId: string,
+  ): Promise<CardAuthorizationAnswer> {
+    if (this.config.cards.noGrant !== "evaluate") return this.noMatch(null, "NO_GRANT");
+    const pending = this.pendingCommits.get(request.authorization_id);
+    if (pending !== undefined) {
+      if (Date.parse(pending.answer.expires_at) <= Date.now()) {
+        this.pendingCommits.delete(request.authorization_id);
+      } else if (pending.digest === jcsDigest(request as JsonObject)) {
+        return pending.answer;
+      } else {
+        return this.noMatch(pending.answer.intent_id, "AUTHORIZATION_ID_REUSED");
+      }
+    }
+    return await this.evaluateAtCommit(request, callerId);
+  }
+
+  /**
+   * The commit boundary: the authorization becomes the intent, captured as
+   * the commit actor the deployment names and evaluated now, with the
+   * authorization's id in the intent's context so the dossier says what it
+   * decided about. An `ALLOW` is held and claimed in this same call. An
+   * `ESCALATE` is `PENDING`, with the handoff: a platform that can pend keeps
+   * the authorization waiting, the tap arrives through `POST /v1/escalations`
+   * with the handoff's intent, and the re-presented authorization matches the
+   * hold the tap left. A `BLOCK`, a refusal this host makes on its own, and
+   * an authority that did not answer are `NO_MATCH` with their code. In
+   * shadow the evaluation is observed and the authorization is `NO_MATCH`.
+   */
+  private async evaluateAtCommit(
+    request: CardAuthorizationRequest,
+    callerId: string,
+  ): Promise<CardAuthorizationAnswer> {
+    const commit = this.config.cards.commit;
+    if (commit === null) return this.noMatch(null, "NO_GRANT");
+    const parameters: JsonObject = {
+      cardTokenRef: request.card_token_ref,
+      amountMinor: request.amount_minor,
+      currency: request.currency,
+      merchantId: request.merchant_id,
+      ...(request.mcc === undefined ? {} : { mcc: request.mcc }),
+    };
+    const proposal: ProposalRequest = {
+      proposal: {
+        action: CARD_PURCHASE_ACTION,
+        target: cardTarget({ cardTokenRef: request.card_token_ref } as CardPurchase),
+        parameters,
+      },
+      idempotency_key: TrustedExecutorService.commitIdempotencyKey(request.authorization_id),
+    };
+    const identity: CaptureIdentity = {
+      id: callerId,
+      tenantId: commit.tenantId,
+      actor: commit.actor,
+    };
+    let captured: CapturedIntent;
+    try {
+      captured = this.captureIntent(
+        proposal,
+        identity,
+        await this.cards.velocity(request.card_token_ref),
+        {
+          commit_boundary: "ISSUER_HOOK",
+          card_authorization: { authorization_id: request.authorization_id },
+        },
+      );
+    } catch (error) {
+      return this.noMatch(null, error instanceof ServiceError ? error.code : "PROPOSAL_INVALID");
+    }
+    return await RequestContext.run({ principal: callerId }, async () => {
+      if (this.config.mode === "SHADOW") {
+        const observed = await this.observe(captured);
+        this.metrics.proposals.inc({ verdict: observed.verdict ?? "NONE" });
+        return this.noMatch(captured.intent.intentId, "SHADOW_OBSERVED");
+      }
+      try {
+        this.assertNotHalted(captured);
+        this.assertWithinLimits(captured, "CHECK");
+      } catch (error) {
+        if (!(error instanceof ServiceError)) throw error;
+        await this.recordRefusal(captured, error.code);
+        return this.noMatch(captured.intent.intentId, error.code);
+      }
+      let answer: ActionResponse;
+      try {
+        answer = await this.enforceAfterPosture(captured);
+      } catch (error) {
+        if (!(error instanceof ServiceError)) throw error;
+        return this.noMatch(captured.intent.intentId, error.code);
+      }
+      this.metrics.proposals.inc({ verdict: answer.verdict ?? "NONE" });
+      if (answer.outcome === "HELD_FOR_AUTHORIZATION") {
+        return await this.claimCard(request, callerId, true);
+      }
+      if (answer.verdict === "ESCALATE" && answer.escalation !== null) {
+        const pending: PendingCardAnswer = {
+          decision: "PENDING",
+          authorization_id: request.authorization_id,
+          intent_id: answer.intent_id,
+          intent_hash: answer.intent_hash,
+          decision_id: answer.decision_id,
+          dossier_id: answer.dossier_id,
+          expires_at: captured.intent.expiresAt,
+          escalation: answer.escalation,
+        };
+        this.rememberPending(request, pending);
+        this.metrics.executions.inc({ outcome: "CARD_AUTHORIZATION_PENDING" });
+        this.events.emit({ event: "CARD_AUTHORIZATION_PENDING", intent_id: answer.intent_id });
+        return pending;
+      }
+      return this.noMatch(
+        answer.intent_id,
+        answer.fail_closed ? "AUTHORITY_UNAVAILABLE" : "POLICY_BLOCK",
+      );
+    });
+  }
+
+  /** Bounded like the claims: a full map forgets its oldest, whose intent is nearest its expiry. */
+  private rememberPending(request: CardAuthorizationRequest, answer: PendingCardAnswer): void {
+    if (this.pendingCommits.size >= 10_000) {
+      const oldest = this.pendingCommits.keys().next().value as string;
+      this.pendingCommits.delete(oldest);
+    }
+    this.pendingCommits.set(request.authorization_id, {
+      digest: jcsDigest(request as JsonObject),
+      answer,
+    });
+  }
+
+  /** The intent's idempotency key names the authorization; one too long for the key is named by its digest. */
+  private static commitIdempotencyKey(authorizationId: string): string {
+    const key = `card-authorization:${authorizationId}`;
+    if (key.length <= 180) return key;
+    return `card-authorization:sha256:${createHash("sha256").update(authorizationId, "utf8").digest("hex")}`;
   }
 
   /**

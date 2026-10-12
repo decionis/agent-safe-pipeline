@@ -259,6 +259,50 @@ claimed and finalized once, so a second capture against it would have no finaliz
 and the dossier would not say what happened to it. An issuer that splits lets the first capture
 settle the grant and treats the rest as `NO_MATCH`, or the agent proposes one purchase per capture.
 
+## The three places a tap can wait
+
+An authorization lives on a clock measured in seconds, so where a held item waits while a person
+answers is a design decision per bank. Koard's paper names three places and three taps; this is
+what each is on AgentSafe.
+
+| Where the item waits                       | Koard's name                                   | What AgentSafe does                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ------------------------------------------ | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Before the authorization exists            | **Tap to Verify**, for a held purchase         | Sections 1 to 5 above: the agent proposes, policy holds the grant or asks for the cardholder, the tap resumes the hold, the authorization matches it in milliseconds. The cleanest path, and the one built first.                                                                                                                                                                                                                                                                         |
+| In the bank's fraud queue                  | **Tap to Verify**, for a flagged authorization | `EXECUTOR_CARD_NO_GRANT=evaluate`: an authorization with no hold is evaluated at the commit boundary, below. An `ALLOW` is held and claimed in the same call; an `ESCALATE` is answered `PENDING` with the handoff, the platform pends the authorization, the tap arrives through `POST /v1/escalations`, and the re-presented authorization matches the hold the tap left. Needs a platform that can pend.                                                                               |
+| After the authorization                    | **Tap to Confirm**, called by the platform     | Nothing can pend, so the authorization goes through and the cardholder confirms or rejects it afterwards in the issuer's app; a rejection is a reversal the bank's own rail carries. AgentSafe's part is evidence only: the same commit-boundary evaluation in `SHADOW` records what policy would have said (`NO_MATCH` with `SHADOW_OBSERVED`), and the `@decionis/iso8583` interceptor's shadow mode records it on the wire. The easiest to build and the weakest: the money has moved. |
+| A standing permission, no amount behind it | **Tap to Authenticate**                        | Not a purchase: the cardholder grants an agent permission to buy on their behalf, a new device, account recovery. It is a signal policy requires rather than an intent to hold, named in `required_signals` under the admission pattern; a producer's own signature on that signal is not verified today.                                                                                                                                                                                 |
+
+Soft decline and re-present is left off on purpose, as Koard's paper leaves it off: the step-up it
+invites assumes a person at a browser.
+
+### The fraud-queue contract
+
+With `EXECUTOR_CARD_NO_GRANT=evaluate`, the hook's answer gains a third shape. An authorization
+with no hold for its card and merchant is captured as a `card.purchase` intent of the commit
+actor the deployment names (`EXECUTOR_CARD_COMMIT_TENANT_ID`, `EXECUTOR_CARD_COMMIT_ACTOR_ID`,
+`EXECUTOR_CARD_COMMIT_ACTOR_TYPE`, `SYSTEM` by default), with the hook's principal, the
+authorization's id and the card's velocity in its context, and evaluated now:
+
+| Policy says | The hook answers                                                                                                                                                                                                                                                              |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ALLOW`     | `{ "decision": "APPROVE", ... }` as a match does: the grant is held and claimed in the same call, and the result settles it.                                                                                                                                                  |
+| `ESCALATE`  | `{ "decision": "PENDING", "authorization_id", "intent_id", "intent_hash", "decision_id", "dossier_id", "expires_at", "escalation": { "mode": "ATTESTATION", "intent", "requirement" } }`. Decionis tells the subscriber (`authority.escalation_required`) at the same moment. |
+| `BLOCK`     | `{ "decision": "NO_MATCH", "code": "POLICY_BLOCK" }`; a halt, a ceiling or an authority that did not answer name their own code.                                                                                                                                              |
+
+A `PENDING` authorization waits in the platform's pending state until `expires_at`, the intent's
+own expiry (`EXECUTOR_INTENT_TTL_SECONDS`). The issuer app's backend, an `OPERATOR` holding
+`escalations.resume`, presents the tap to `POST /v1/escalations` with the handoff's intent, exactly
+as in section 3; no agent proposed this intent, so there is no proposer to present it. Decionis
+tells the subscriber what became of it (`authority.escalation_resolved`). The platform then re-presents the
+same authorization: it finds the hold the tap left and is approved, claimed once, and settled by
+its result like any other. Re-presented before the tap, it is answered `PENDING` again, from the
+same intent, and nothing is evaluated twice; re-presented with a different amount under the same
+id, it is `AUTHORIZATION_ID_REUSED`; past `expires_at` it is evaluated afresh. A result posted
+for a `PENDING` authorization is `404 CARD_AUTHORIZATION_UNKNOWN`, since nothing was claimed.
+The pending answers are kept per replica; a re-presentation that reaches another replica before
+the tap is evaluated there too, and the tap resolves one of the two intents while the other
+expires with no effect.
+
 ## What this version does not do
 
 - Split authorizations, as above.

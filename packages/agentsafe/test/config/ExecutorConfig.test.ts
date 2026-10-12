@@ -913,7 +913,7 @@ describe("ExecutorConfigLoader", () => {
 describe("the card hold store configuration", () => {
   it("holds in memory by default, refuses the shared store's settings without it, and needs a namespace and two secrets with it", () => {
     const base = offlineEnvironment();
-    expect(ExecutorConfigLoader.load(base).cards).toEqual({
+    expect(ExecutorConfigLoader.load(base).cards).toMatchObject({
       holds: { store: "memory" },
       authorizations: "single",
     });
@@ -940,7 +940,7 @@ describe("the card hold store configuration", () => {
     expect(refusal(shared)).toBe("CONFIG_SECRET_MISSING: EXECUTOR_CARD_HOLDS_KEY");
     shared["EXECUTOR_CARD_HOLDS_KEY"] = "a".repeat(64);
     const loaded = ExecutorConfigLoader.load(shared);
-    expect(loaded.cards).toEqual({
+    expect(loaded.cards).toMatchObject({
       holds: { store: "postgres", table: "agentsafe_card", namespace: "org-synthetic" },
       authorizations: "single",
     });
@@ -953,7 +953,7 @@ describe("the card hold store configuration", () => {
         EXECUTOR_CARD_HOLDS_TABLE: "bank.cards",
         EXECUTOR_CARD_AUTHORIZATIONS: "incremental",
       }).cards,
-    ).toEqual({
+    ).toMatchObject({
       holds: { store: "postgres", table: "bank.cards", namespace: "org-synthetic" },
       authorizations: "incremental",
     });
@@ -970,6 +970,64 @@ describe("the card hold store configuration", () => {
     );
     expect(refusal({ ...base, EXECUTOR_CARD_HOLDS_STORE: "redis" })).toBe(
       "CONFIG_INVALID: EXECUTOR_CARD_HOLDS_STORE",
+    );
+  });
+});
+
+describe("the commit-boundary evaluation configuration", () => {
+  it("answers no grant by default, refuses the commit identity without it, and needs the identity with it", () => {
+    const base = offlineEnvironment();
+    expect(ExecutorConfigLoader.load(base).cards).toMatchObject({
+      noGrant: "no_match",
+      commit: null,
+    });
+    expect(refusal({ ...base, EXECUTOR_CARD_COMMIT_ACTOR_ID: "synthetic-commit" })).toBe(
+      "CONFIG_INVALID: EXECUTOR_CARD_NO_GRANT (no_match with EXECUTOR_CARD_COMMIT_ACTOR_ID)",
+    );
+    expect(refusal({ ...base, EXECUTOR_CARD_NO_GRANT: "evaluate" })).toBe(
+      "CONFIG_INVALID: EXECUTOR_CARD_COMMIT_TENANT_ID, EXECUTOR_CARD_COMMIT_ACTOR_ID (required to evaluate at the commit boundary)",
+    );
+    expect(
+      refusal({
+        ...base,
+        EXECUTOR_CARD_NO_GRANT: "evaluate",
+        EXECUTOR_CARD_COMMIT_TENANT_ID: "00000000-0000-4000-8000-000000000002",
+      }),
+    ).toBe(
+      "CONFIG_INVALID: EXECUTOR_CARD_COMMIT_ACTOR_ID (required to evaluate at the commit boundary)",
+    );
+    expect(
+      refusal({
+        ...base,
+        EXECUTOR_CARD_NO_GRANT: "evaluate",
+        EXECUTOR_CARD_COMMIT_TENANT_ID: "not-a-uuid",
+        EXECUTOR_CARD_COMMIT_ACTOR_ID: "synthetic-commit",
+      }),
+    ).toBe("CONFIG_INVALID: EXECUTOR_CARD_COMMIT_TENANT_ID");
+    const evaluate = ExecutorConfigLoader.load({
+      ...base,
+      EXECUTOR_CARD_NO_GRANT: "evaluate",
+      EXECUTOR_CARD_COMMIT_TENANT_ID: "00000000-0000-4000-8000-000000000002",
+      EXECUTOR_CARD_COMMIT_ACTOR_ID: "synthetic-commit",
+    });
+    expect(evaluate.cards).toMatchObject({
+      noGrant: "evaluate",
+      commit: {
+        tenantId: "00000000-0000-4000-8000-000000000002",
+        actor: { id: "synthetic-commit", type: "SYSTEM" },
+      },
+    });
+    expect(
+      ExecutorConfigLoader.load({
+        ...base,
+        EXECUTOR_CARD_NO_GRANT: "evaluate",
+        EXECUTOR_CARD_COMMIT_TENANT_ID: "00000000-0000-4000-8000-000000000002",
+        EXECUTOR_CARD_COMMIT_ACTOR_ID: "synthetic-commit",
+        EXECUTOR_CARD_COMMIT_ACTOR_TYPE: "ISSUER_HOOK",
+      }).cards.commit?.actor.type,
+    ).toBe("ISSUER_HOOK");
+    expect(refusal({ ...base, EXECUTOR_CARD_NO_GRANT: "decline" })).toBe(
+      "CONFIG_INVALID: EXECUTOR_CARD_NO_GRANT",
     );
   });
 });
