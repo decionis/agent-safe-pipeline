@@ -10,6 +10,7 @@ import {
   type SignedSignalClaims,
   type SignedSignalIntentView,
   type SignedSignalKey,
+  type SignedSignalRefusalCode,
 } from "../../src/testing/SignedSignals.js";
 
 const ORG = "00000000-0000-4000-8000-000000000001";
@@ -77,7 +78,9 @@ describe("verifySignedSignal", () => {
     expect(verification.signal.claims.limits).toEqual({ currency: "USD", amount_minor: 5000 });
   });
 
-  it.each([
+  const refusals: Array<
+    [string, Partial<Parameters<typeof mintSignedSignal>[0]>, SignedSignalRefusalCode]
+  > = [
     ["an unregistered key", { kid: "koard-signal-key-z" }, "SIGNED_SIGNAL_KEY_UNKNOWN"],
     [
       "another key under the registered kid",
@@ -110,7 +113,7 @@ describe("verifySignedSignal", () => {
     ],
     [
       "a signal the producer did not verify",
-      { signal: { ...DELEGATION, result: "FAILED" } },
+      { signal: { ...DELEGATION, result: "FAILED" as const } },
       "SIGNED_SIGNAL_NOT_VERIFIED",
     ],
     [
@@ -133,7 +136,8 @@ describe("verifySignedSignal", () => {
       { signal: { ...DELEGATION, limits: { currency: "USD", amount_minor: -1 } } },
       "SIGNED_SIGNAL_MALFORMED",
     ],
-  ])("refuses %s", (_, overrides, code) => {
+  ];
+  it.each(refusals)("refuses %s", (_, overrides, code) => {
     expect(verifySignedSignal(mint(overrides), { orgId: ORG, findKey, nowMs: NOW })).toEqual({
       ok: false,
       code,
