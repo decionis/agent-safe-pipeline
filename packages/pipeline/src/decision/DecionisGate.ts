@@ -276,13 +276,17 @@ const WAITING_STATUS_RANK: Readonly<Record<ManagedEscalationPendingStatus, numbe
 );
 /**
  * The two shapes `evidence.humanApproval` takes on `enforce-and-bind`: a
- * Presence receipt reference, or a presence provider's signed attestation.
+ * Presence receipt reference, or a presence provider's signed attestation;
+ * and `evidence.signals`, a producer's signed standing signals.
  * Both are mirrored strictly, and the parsed copy is what is sent, so a
  * caller object with a field the contract does not name cannot put it on an
  * authenticated request. The attestation is shaped and bounded here and
  * nothing more: verifying it is the authority's work, against the key the
  * organisation registered for its provider.
  */
+/** The refusals a 409 names before any evaluation: a proof the authority could not verify. */
+const PROOF_REFUSAL_CODE = /^(?:PRESENCE_ATTESTATION|SIGNED_SIGNAL)_[A-Z_]{3,80}$/;
+
 const DecisionEvidenceSchema = z.strictObject({
   humanApproval: z
     .discriminatedUnion("provider", [
@@ -299,6 +303,20 @@ const DecisionEvidenceSchema = z.strictObject({
           .regex(/^[\w-]+\.[\w-]+\.[\w-]+$/),
       }),
     ])
+    .optional(),
+  // At most eight producer-signed standing signals, shaped and bounded here;
+  // the authority verifies each against the producer's registered key.
+  signals: z
+    .array(
+      z.strictObject({
+        token: z
+          .string()
+          .max(20_000)
+          .regex(/^[\w-]+\.[\w-]+\.[\w-]+$/),
+      }),
+    )
+    .min(1)
+    .max(8)
     .optional(),
 });
 const MAX_RESPONSE_BYTES = 100 * 1024;
@@ -378,20 +396,37 @@ export class DecionisGate implements DecisionAuthority {
     if (escalation !== undefined && this.evaluationMode !== "ENFORCEMENT") {
       return FailClosedDecision.create(captured.intentHash, "MANAGED_ESCALATION_SHADOW_FORBIDDEN");
     }
-    if (escalation !== undefined && evidence !== undefined) {
+    // A managed escalation acquires the approval itself, so approval
+    // evidence beside it is a contradiction; a producer's signed signal is
+    // not an approval and rides with either shape.
+    if (escalation !== undefined && evidence?.humanApproval !== undefined) {
       return FailClosedDecision.create(
         captured.intentHash,
         "MANAGED_ESCALATION_EVIDENCE_FORBIDDEN",
       );
     }
     let sent: DecisionEvidence | undefined;
+    let retained: DecisionEvidence | undefined;
     if (evidence !== undefined) {
       const presented = DecisionEvidenceSchema.safeParse(evidence);
       if (!presented.success) {
-        return FailClosedDecision.create(captured.intentHash, "HUMAN_APPROVAL_EVIDENCE_INVALID");
+        return FailClosedDecision.create(
+          captured.intentHash,
+          presented.error.issues.some((issue) => issue.path[0] === "signals")
+            ? "SIGNED_SIGNAL_EVIDENCE_INVALID"
+            : "HUMAN_APPROVAL_EVIDENCE_INVALID",
+        );
       }
       const approval = presented.data.humanApproval;
-      sent = approval === undefined ? {} : { humanApproval: approval };
+      const signals = presented.data.signals;
+      sent = {
+        ...(approval === undefined ? {} : { humanApproval: approval }),
+        ...(signals === undefined ? {} : { signals }),
+      };
+      // The decision keeps the approval reference a claim re-presents, never
+      // a signed signal: the authority recorded its facts with the grant, and
+      // the token belongs to no record on this side of the boundary.
+      retained = approval === undefined ? {} : { humanApproval: approval };
     }
 
     const controller = new AbortController();
@@ -420,14 +455,14 @@ export class DecionisGate implements DecisionAuthority {
         return FailClosedDecision.create(captured.intentHash, "AUTHORITY_RESPONSE_TOO_LARGE");
       }
       if (!response.ok) {
-        return DecionisGate.failedResponse(captured, text);
+        return DecionisGate.failedResponse(captured, text, response.status);
       }
       const parsed = AuthorityResponseSchema.parse(JSON.parse(text));
       const managed = this.initialManagedState(captured, parsed, escalation);
       if (managed.reasonCode !== undefined) {
         return FailClosedDecision.create(captured.intentHash, managed.reasonCode);
       }
-      return this.decisionFromResponse(captured, parsed, sent, managed.state);
+      return this.decisionFromResponse(captured, parsed, retained, managed.state);
     } catch {
       return FailClosedDecision.create(captured.intentHash, "AUTHORITY_UNAVAILABLE");
     } finally {
@@ -1307,9 +1342,16 @@ export class DecionisGate implements DecisionAuthority {
 
   /**
    * The contract returns an `ERROR` decision body on 409 and 503 so the
-   * refusal is evidence-bearing. Anything else fails closed generically.
+   * refusal is evidence-bearing, or, for a proof it turned away before any
+   * evaluation (an attestation or a signed signal it could not verify), a
+   * 409 with a bare `{ "error": <code> }` whose code becomes the reason.
+   * Anything else fails closed generically, whatever the body says.
    */
-  private static failedResponse(captured: CapturedIntent, text: string): DecisionGate {
+  private static failedResponse(
+    captured: CapturedIntent,
+    text: string,
+    status?: number,
+  ): DecisionGate {
     try {
       const parsed = AuthorityResponseSchema.parse(JSON.parse(text));
       if (parsed.status !== "ERROR" || parsed.action_hash !== captured.intentHash) {
@@ -1326,7 +1368,26 @@ export class DecionisGate implements DecisionAuthority {
         failClosed: true,
       });
     } catch {
-      return FailClosedDecision.create(captured.intentHash, "AUTHORITY_REQUEST_FAILED");
+      return FailClosedDecision.create(
+        captured.intentHash,
+        (status === 409 ? DecionisGate.proofRefusalCode(text) : null) ?? "AUTHORITY_REQUEST_FAILED",
+      );
+    }
+  }
+
+  /** The code of a refused proof, when the body is exactly `{ "error": <code> }` and the code is one. */
+  private static proofRefusalCode(text: string): string | null {
+    try {
+      const parsed: unknown = JSON.parse(text);
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
+      const code = (parsed as { error?: unknown }).error;
+      return Object.keys(parsed).length === 1 &&
+        typeof code === "string" &&
+        PROOF_REFUSAL_CODE.test(code)
+        ? code
+        : null;
+    } catch {
+      return null;
     }
   }
 }

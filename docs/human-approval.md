@@ -61,6 +61,18 @@ executor accepts one on `/v1/escalations` as `{ mode: "ATTESTATION", intent, att
 the proposer or from an `OPERATOR` holding `escalations.resume` (the issuer app's backend, where
 the tap lands).
 
+A producer's signed standing signal is the other evidence a proposal can carry, and it is not an
+approval: `signals: [{ "token": "<compact JWS>" }]` on `POST /v1/actions`, at most eight, reaches
+Decionis as `evidence.signals` on the first evaluation (and with a managed escalation, which
+forbids approval evidence only). `DecisionGate` checks only the shape and fails closed with
+`SIGNED_SIGNAL_EVIDENCE_INVALID` otherwise; Decionis verifies each token under the key the
+organisation registered for its producer with purpose `signed_signal`, writes the facts under
+`agent_safe.signed_signals.<name>` for policy to name, and refuses one it cannot verify with a
+`SIGNED_SIGNAL_*` code the proposal then fails closed with. The token is kept on no decision, in
+no journal line and in no hold row; the card guide's
+[standing permission](./banking/card-authorization.md#a-standing-permission-tap-to-authenticate)
+is the worked example.
+
 Where a hold goes is the policy's to say. A rule's `verification_requirements` may name a method
 `CARD_TAP` and a `provider` (an admitted presence provider's id, `koard` for one); Decionis reads
 the decision's `escalation_requirement` for a runtime at 0.3.7 or later, and `DecionisGate`

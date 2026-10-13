@@ -81,8 +81,25 @@ export interface AttestedHumanApprovalEvidence {
   readonly attestation: string;
 }
 
+/**
+ * A producer's signed, standing signal about a subject (a compact Ed25519
+ * JWS, at most 20,000 characters): a cardholder's grant of permission to an
+ * agent, within limits and until a time, as Koard's "Tap to Authenticate"
+ * produces it. Evidence, never authority: the authority verifies it against
+ * the key the organisation registered for the producer (purpose
+ * `signed_signal`), writes the verified facts under
+ * `agent_safe.signed_signals.<name>` for policy to name, and records facts
+ * only. This package carries the token bounded and shaped, never reads it,
+ * and never writes it to a record: it is not kept on the decision.
+ */
+export interface SignedSignalEvidence {
+  readonly token: string;
+}
+
 export interface DecisionEvidence {
   readonly humanApproval?: HumanApprovalEvidence | AttestedHumanApprovalEvidence;
+  /** At most eight; verified before the evaluation, and only on the hosted authority. */
+  readonly signals?: readonly SignedSignalEvidence[];
 }
 
 /**

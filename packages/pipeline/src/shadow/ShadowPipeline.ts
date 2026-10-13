@@ -1,8 +1,9 @@
 import type { AuditRecorder } from "../audit/AuditRecorder.js";
 import type {
   DecisionAuthority,
-  DecisionVerdict,
+  DecisionEvidence,
   DecisionGate,
+  DecisionVerdict,
 } from "../decision/DecisionAuthority.js";
 import type { CapturedIntent } from "../intent/ExecutionIntent.js";
 
@@ -61,6 +62,8 @@ export interface ShadowPipelineOptions {
 export interface ShadowObserveOptions {
   /** Cancels the observation only; production execution is never cancelled by this pipeline. */
   readonly signal?: AbortSignal;
+  /** Evidence the proposal carried, such as a producer's signed signals, observed as the authority would see it. */
+  readonly evidence?: DecisionEvidence;
 }
 
 const DEFAULT_TIMEOUT_MS = 2_000;
@@ -109,7 +112,7 @@ export class ShadowPipeline {
     existingExecution: () => Promise<TResult> | TResult,
     options: ShadowObserveOptions = {},
   ): Promise<ShadowRun<TResult>> {
-    const observation = this.evaluate(captured, options.signal);
+    const observation = this.evaluate(captured, options.signal, options.evidence);
     let production: ShadowProductionOutcome<TResult>;
     try {
       production = { status: "COMPLETED", result: await existingExecution() };
@@ -133,7 +136,11 @@ export class ShadowPipeline {
     });
   }
 
-  private evaluate(captured: CapturedIntent, signal?: AbortSignal): Promise<ShadowObservation> {
+  private evaluate(
+    captured: CapturedIntent,
+    signal?: AbortSignal,
+    evidence?: DecisionEvidence,
+  ): Promise<ShadowObservation> {
     const startedAt = this.clock();
     const settled = new Promise<Classified>((resolve) => {
       let done = false;
@@ -153,7 +160,7 @@ export class ShadowPipeline {
       signal?.addEventListener("abort", onAbort, { once: true });
       // Promise.resolve().then isolates a synchronously throwing authority.
       void Promise.resolve()
-        .then(async () => await this.authority.evaluate(captured))
+        .then(async () => await this.authority.evaluate(captured, evidence))
         .then(
           (decision) => finish(ShadowPipeline.classify(captured, decision)),
           () => finish(ShadowPipeline.empty("UNAVAILABLE")),

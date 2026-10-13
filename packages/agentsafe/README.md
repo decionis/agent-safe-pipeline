@@ -212,7 +212,12 @@ refused under `NODE_ENV=production`. A refusal at the door is recorded on the se
 `proposal` is the agent's part and nothing else. Tenant, actor, downstream target and credentials
 come from the executor's configuration, and a request that tries to supply them is refused by the
 strict schema (`400 REQUEST_INVALID`). The idempotency key and correlation id are the caller's,
-derived from its own record of the work. An action the process has not registered is refused before
+derived from its own record of the work. An optional `signals` array, at most eight
+`{ "token": "<compact JWS>" }` entries, carries a producer's signed standing signals (a
+cardholder's permission to an agent, as Koard's Tap to Authenticate signs it) beside the intent:
+the authority verifies each against the producer's registered key and writes the facts for policy,
+and this process keeps nothing of the tokens
+([the standing permission](../../docs/banking/card-authorization.md#a-standing-permission-tap-to-authenticate)). An action the process has not registered is refused before
 any authority is asked (`422 ACTION_NOT_REGISTERED`): no dossier and no grant for something that
 could never execute.
 

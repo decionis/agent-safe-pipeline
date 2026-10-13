@@ -36,7 +36,7 @@ WHITE = "#FFFFFF"
 GREEN = "#13795B"
 RED = "#B4233A"
 AMBER = "#946200"
-DATE = "12 October 2026"
+DATE = "13 October 2026"
 LOGO = ROOT / "docs/banking/assets/Decionis.png"
 
 
@@ -425,7 +425,7 @@ def joint_brief(out):
         ("Before the authorization exists", "Tap to Verify, for a held purchase", "The agent proposes, policy holds the grant or asks for the cardholder, the tap resumes the hold, the authorization matches it in milliseconds. The cleanest path, and the one built first."),
         ("In the bank's fraud queue", "Tap to Verify, for a flagged authorization", "EXECUTOR_CARD_NO_GRANT=evaluate: an authorization with no hold is evaluated at the commit boundary. ALLOW is held and claimed in the same call; ESCALATE is answered PENDING with the handoff, the platform pends the authorization, the tap arrives through POST /v1/escalations, and the re-presented authorization matches the hold the tap left. Needs a platform that can pend."),
         ("After the authorization", "Tap to Confirm, called by the platform", "Nothing can pend, so the authorization goes through and the cardholder confirms or rejects it afterwards in the issuer's app; a rejection is a reversal the bank's own rail carries. AgentSafe's part is evidence only: the same evaluation in SHADOW records what policy would have said, and the ISO 8583 interceptor's shadow mode records it on the wire. The easiest to build and the weakest: the money has moved."),
-        ("A standing permission, no amount behind it", "Tap to Authenticate", "Not a purchase: the cardholder grants an agent permission to buy on their behalf, a new device, account recovery. A signal policy requires rather than an intent to hold, named in required_signals under the admission pattern; a producer's own signature on that signal is not verified today."),
+        ("A standing permission, no amount behind it", "Tap to Authenticate", "Not a purchase: the cardholder grants an agent permission to buy on their behalf, a new device, account recovery. The producer signs it as a standing signal the agent presents with each purchase; the authority verifies it against the producer's key and policy names its facts with required_signals."),
     ], size=8.6)
     h = d.note(y + 14, "The fraud-queue contract", "A PENDING answer carries the authorization id, the intent id and hash, the decision and dossier ids, expires_at and the escalation handoff; Decionis tells the subscriber at the same moment. The issuer app's backend, an operator holding escalations.resume, presents the tap; the platform then re-presents the same authorization, which is approved, claimed once and settled by its result. Re-presented before the tap it is PENDING again from the same intent; past expires_at it is evaluated afresh; a result for a PENDING authorization is refused as unknown.")
     d.text(MARGIN, y + 26 + h, CONTENT, "Soft decline and re-present is left off on purpose, as Koard's paper leaves it off: the step-up it invites assumes a person at a browser.", 9, MUTED)
@@ -465,26 +465,26 @@ def joint_brief(out):
         ("Bank platform", "Separate identities, restrict bypass paths, require durable evidence, share the hold store across replicas, exercise restart, recovery and the stop."),
         ("Joint validation", "Run normal purchase, BLOCK, ESCALATE, PENDING in the fraud queue, changed amount/merchant, expired grant, duplicate claim, identifier collision and unknown outcome end to end."),
     ], size=9.4)
-    h = d.note(y + 21, "Limits that shape the rollout", "One pending purchase per card per merchant. Split authorizations are not offered; incremental ones are, per deployment, from the same claim within the ceiling. Rotating the hold key drains holds rather than re-sealing them. Velocity is counted by AgentSafe per card; a producer's own signature on a standing signal (Tap to Authenticate) is not verified today.")
+    h = d.note(y + 21, "Limits that shape the rollout", "One pending purchase per card per merchant. Split authorizations are not offered; incremental ones are, per deployment, from the same claim within the ceiling. Rotating the hold key drains holds rather than re-sealing them. Velocity is counted by AgentSafe per card.")
     y += 21 + h + 14
     h = d.text(MARGIN, y, CONTENT, "Where the authority and Presence run per hosting tier, and whose custody each key is in, is written once: docs/gateway/deployment.md in the AgentSafe repository and decionis.com/docs/card-authorization. A local claim at the edge removes the hook's network call when the replay store is the shared Postgres one, the evidence chain is retained and signed, and the bundle and usage-report keys live in the bank's key vault.", 9.2, MUTED)
-    d.text(MARGIN, y + h + 12, CONTENT, "Review basis: Koard's workflow review of 8 October, the design-partner context and AgentSafe at its 12 October revision (holds by card and merchant, the shared hold store, the commit-boundary evaluation and the hosting answers). Decionis-side attestation, admission and managed-escalation contracts were checked in source; live service availability and issuer integration were not tested.", 8.3, MUTED)
+    d.text(MARGIN, y + h + 12, CONTENT, "Review basis: Koard's workflow review of 8 October, the design-partner context and AgentSafe at its 13 October revision (holds by card and merchant, the shared hold store, the commit-boundary evaluation and the hosting answers). Decionis-side attestation, admission and managed-escalation contracts were checked in source; live service availability and issuer integration were not tested.", 8.3, MUTED)
     return d.save()
 
 
 def response_brief(out):
     d = Brief(out / "Koard-review-response.pdf", "Koard review: the gaps, the fixes, the documentation", "Response to Koard's review", 1)
-    d.begin("Response to Koard's workflow review | 8 October 2026", "The gaps, the fixes, the pages", "Koard's review marked six integration points and six items settled, partly or open. Each gap, the change that answers it and where it is written, as of 12 October 2026. Koard's split is unchanged.")
+    d.begin("Response to Koard's workflow review | 8 October 2026", "The gaps, the fixes, the pages", "Koard's review marked six integration points and six items settled, partly or open. Each gap, the change that answers it and where it is written, as of 13 October 2026. Koard's split is unchanged.")
     y = d.table(212, [112, 249, CONTENT - 361], ["GAP KOARD RAISED", "WHAT WAS BUILT, OR DECIDED", "WHERE IT IS WRITTEN"], [
         ("Key trust: Koard's JWKS, not a key the bank pastes", "A Decionis provider directory entry for Koard (issuer id, JWKS URL, kid pinning, max age), admitted per bank; a bank may still pin a key itself; revocation covers both.", "Docs page: Key trust; the provider admission route"),
         ("Escalation request and resolution: a card method, an event, a presenter", "verification_requirements names CARD_TAP with a provider. The handoff and authority.escalation_required carry provider, method and the opaque subject; authority.escalation_resolved reports the outcome with the proof's facts, never the proof. The issuer app's backend presents the tap as an operator (escalations.resume).", "Docs page: Escalation request, Escalation satisfied; webhooks page"),
         ("Evidence out: carry the tap verbatim in the dossier", "Decided: the facts only. Binding and dossier record provider, method, approver role, attestation id, key id, digests and times; the signed tap stays with its issuer. The dossier records what was established, never the proof.", "Docs page: Evidence; AgentSafe card-authorization.md, section 3"),
         ("Intent in: built from the ISO 8583 message; the burst across merchants", "@decionis/iso8583 0.3.0 is the gate on the wire: issuer packager profiles, tokenization in the bank's process, MATCH against held grants with no HTTP hop, evaluate-at-commit, per-message fail modes, BIN scoping, replay, simulate and serve. Holds are keyed by card and merchant, so a burst holds in parallel.", "@decionis/iso8583 0.3.0 on npm, its README; AgentSafe card-authorization.md, section 6"),
         ("Commit boundary: no latency figure, no SLA, one replica", "In process at p99: match under 50 µs, store under 1 ms. Budgets for the hook's answer: 150 ms in the same region, 300 ms across regions, 10 ms with a local claim at the edge. Replicas share a Postgres hold store and survive restarts.", "AgentSafe card-authorization.md: Latency, Replicas and restarts, A local claim"),
-        ("Three places a tap can wait; only one was built", "Before the authorization: built first. Fraud queue: a hold-less authorization is evaluated at commit, answered PENDING with the handoff, and resumed by the tap. After: evidence only. Tap to Authenticate: a signal policy can require; its producer signature is not verified yet.", "AgentSafe card-authorization.md: The three places a tap can wait; joint brief, page 4"),
+        ("Three places a tap can wait; only one was built", "Before the authorization: built first. Fraud queue: a hold-less authorization is evaluated at commit, answered PENDING with the handoff, and resumed by the tap. After: evidence only. Tap to Authenticate: a signal the producer signs, verified by the authority and named by policy.", "AgentSafe card-authorization.md: The three places a tap can wait; joint brief, page 4"),
         ("Regulated deployment: where Presence, the authority and the keys live; a kill switch", "Three hosting tiers written once (hosted, dedicated single-tenant, self-managed under licence), where every signing key lives and the HSM-backed option; enforcement on one BIN range (binRanges) with the stop, POST /v1/control/halt.", "AgentSafe docs/gateway/deployment.md; bank brief, pages 7 to 9; docs page: Hosting"),
     ], size=8.1)
-    d.text(MARGIN, y + 11, CONTENT, "<b>Licences and limits.</b> @decionis/iso8583 is proprietary, taken under a written licence from Decionis; AgentSafe stays Apache-2.0 at github.com/decionis/agent-safe-pipeline. Not built: signed producer signals for Tap to Authenticate. The docs page is decionis.com/docs/card-authorization.", 8.4, MUTED)
+    d.text(MARGIN, y + 11, CONTENT, "<b>Licences.</b> @decionis/iso8583 is proprietary, taken under a written licence from Decionis; AgentSafe stays Apache-2.0 at github.com/decionis/agent-safe-pipeline. The docs page is decionis.com/docs/card-authorization.", 8.4, MUTED)
     return d.save()
 
 
@@ -527,7 +527,7 @@ def main():
         "Koard-review-response.pdf",
     ) if name in by_file and (args.output / name).exists()]
     manifest = {
-        "review_date": "2026-10-12", "baseline": "19453788", "gateway_revision": "19453788", "outputs": results,
+        "review_date": "2026-10-13", "baseline": "19453788", "gateway_revision": "19453788", "outputs": results,
         "brand": {"navy": NAVY, "audit_purple": PURPLE, "trust_blue": BLUE, "logo": "docs/banking/assets/Decionis.png"},
         "renderer": "ReportLab; embedded fonts; vector flow diagrams",
     }

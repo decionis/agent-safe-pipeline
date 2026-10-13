@@ -605,3 +605,100 @@ describe("where an ESCALATE goes", () => {
     }
   });
 });
+
+describe("DecionisGate with a producer's signed signals", () => {
+  const TOKEN = `eyJhbGciOiJFZERTQSIsInR5cCI6ImRlY2lvbmlzLXNpZ25lZC1zaWduYWwrand0Iiwia2lkIjoia29hcmQtc2lnbmFsLWtleS1hIn0.${"c".repeat(40)}.${"d".repeat(86)}`;
+
+  it("sends the tokens as evidence and keeps them off the decision", async () => {
+    const intent = captured();
+    const bodies: Record<string, unknown>[] = [];
+    const gate = gateWith(async (_, init) => {
+      bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return json(decisionBody(intent));
+    });
+    const decision = await gate.evaluate(intent, { signals: [{ token: TOKEN }] });
+    expect(decision.verdict).toBe("ALLOW");
+    expect(bodies[0]?.["evidence"]).toEqual({ signals: [{ token: TOKEN }] });
+    expect(decision.evidence).toEqual({});
+    expect(JSON.stringify(decision)).not.toContain(TOKEN);
+  });
+
+  it("sends a signal beside an approval and keeps only the approval reference", async () => {
+    const intent = captured();
+    const bodies: Record<string, unknown>[] = [];
+    const gate = gateWith(async (_, init) => {
+      bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return json(decisionBody(intent));
+    });
+    const humanApproval = {
+      provider: "presence" as const,
+      requestId: "req-1",
+      receiptDossierId: "receipt-1",
+    };
+    const decision = await gate.evaluate(intent, { humanApproval, signals: [{ token: TOKEN }] });
+    expect(bodies[0]?.["evidence"]).toEqual({ humanApproval, signals: [{ token: TOKEN }] });
+    expect(decision.evidence).toEqual({ humanApproval });
+  });
+
+  it("refuses malformed signals before any request, with their own reason", async () => {
+    const intent = captured();
+    const calls: number[] = [];
+    const gate = gateWith(async () => {
+      calls.push(1);
+      return json(decisionBody(intent));
+    });
+    for (const signals of [
+      [{ token: "not-a-jws" }],
+      [],
+      Array.from({ length: 9 }, () => ({ token: TOKEN })),
+    ]) {
+      const decision = await gate.evaluate(intent, { signals });
+      expect(decision).toMatchObject({
+        verdict: "BLOCK",
+        failClosed: true,
+        reasonCodes: ["SIGNED_SIGNAL_EVIDENCE_INVALID"],
+      });
+    }
+    expect(calls).toHaveLength(0);
+  });
+
+  it("rides with a managed escalation, which forbids approval evidence only", async () => {
+    const intent = captured();
+    const bodies: Record<string, unknown>[] = [];
+    const gate = gateWith(async (_, init) => {
+      bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return json(decisionBody(intent));
+    });
+    const escalation = {
+      mode: "MANAGED" as const,
+      approver: { principal_id: "synthetic-approver-1" },
+      verification_requirements: { methods: ["WEBAUTHN" as const], level: "STANDARD" as const },
+    };
+    const withSignal = await gate.evaluate(intent, { signals: [{ token: TOKEN }] }, { escalation });
+    expect(withSignal.reasonCodes).not.toContain("MANAGED_ESCALATION_EVIDENCE_FORBIDDEN");
+    expect(bodies[0]?.["evidence"]).toEqual({ signals: [{ token: TOKEN }] });
+    expect(bodies[0]?.["escalation"]).toMatchObject({ mode: "MANAGED" });
+    const withApproval = await gate.evaluate(
+      intent,
+      {
+        humanApproval: { provider: "presence", requestId: "req-1", receiptDossierId: "receipt-1" },
+      },
+      { escalation },
+    );
+    expect(withApproval.reasonCodes).toEqual(["MANAGED_ESCALATION_EVIDENCE_FORBIDDEN"]);
+  });
+
+  it("turns the authority's refusal of a signal into a fail-closed decision naming the code", async () => {
+    const intent = captured();
+    const gate = gateWith(async () => json({ error: "SIGNED_SIGNAL_KEY_UNKNOWN" }, 409));
+    const decision = await gate.evaluate(intent, { signals: [{ token: TOKEN }] });
+    expect(decision).toMatchObject({
+      verdict: "BLOCK",
+      failClosed: true,
+      authorization: null,
+      reasonCodes: ["SIGNED_SIGNAL_KEY_UNKNOWN"],
+    });
+    const generic = gateWith(async () => json({ error: "nope", detail: 1 }, 409));
+    expect((await generic.evaluate(intent)).reasonCodes).toEqual(["AUTHORITY_REQUEST_FAILED"]);
+  });
+});
