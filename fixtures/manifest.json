@@ -699,6 +699,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/cli/Records.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/cli/Status.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
