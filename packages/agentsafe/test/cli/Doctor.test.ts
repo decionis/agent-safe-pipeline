@@ -15,12 +15,12 @@ function network(answers: {
     const url = String(input);
     const pick = url.includes("/v1/health")
       ? answers.health
-      : url.includes("/enforce-and-bind")
+      : url.includes("/v1/authority/grants")
         ? answers.probe
         : answers.upstream;
     if (pick === "down" || pick === undefined)
       throw Object.assign(new Error("fetch failed"), { cause: { code: "ECONNREFUSED" } });
-    if (url.includes("/enforce-and-bind")) {
+    if (url.includes("/v1/authority/grants")) {
       expect(init?.method).toBe("POST");
       expect((init?.headers as Record<string, string>)["authorization"]).toMatch(
         /^Bearer synthetic-/,

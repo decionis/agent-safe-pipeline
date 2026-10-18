@@ -2,7 +2,11 @@ export default {
   packageManager: "pnpm",
   testRunner: "vitest",
   plugins: ["@stryker-mutator/vitest-runner"],
-  // SafeExecutor is the boundary. The bundle window decides when an edge
+  // GovernedExecutionRunner is the boundary: SafeExecutor is its registry
+  // face, the registry executor is how the runtime reaches it, the journal's
+  // folds decide which attempts are open and what a recovery is held against,
+  // and the Postgres journal is the durable claim and the single-use
+  // idempotency key replicas share. The bundle window decides when an edge
   // bundle may be evaluated and when the next one is fetched, and the local
   // authorization verifier decides whether an edge ALLOW runs, and only once:
   // a mutant in either is an execution on a lapsed bundle or a replay. The
@@ -10,6 +14,10 @@ export default {
   // the same intent claimed twice, on two replicas.
   mutate: [
     "src/execution/SafeExecutor.ts",
+    "src/execution/GovernedExecutionRunner.ts",
+    "src/execution/RegistryExecutor.ts",
+    "src/execution/ExecutionJournal.ts",
+    "src/execution/PostgresExecutionJournal.ts",
     "src/decision/edge/BundleWindow.ts",
     "src/execution/LocalAuthorizationVerifier.ts",
     "src/execution/PostgresReplayStore.ts",

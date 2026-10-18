@@ -1,0 +1,33 @@
+{
+  "description": "A permit is single-use. Presenting it a second time is refused without reaching the authority, and the first claim stands.",
+  "contract": "agent-safe.executors.native/1",
+  "style": "permit",
+  "posture": "STRICT",
+  "decision": {
+    "verdict": "ALLOW",
+    "fail_closed": false
+  },
+  "steps": [
+    {
+      "op": "hold",
+      "expect": {
+        "outcome": "HELD",
+        "permit": true
+      }
+    },
+    {
+      "op": "present",
+      "expect": {
+        "outcome": "CLAIMED",
+        "permit": true
+      }
+    },
+    {
+      "op": "present",
+      "expect": {
+        "outcome": "BLOCKED",
+        "reason": "AUTHORIZATION_INVALID"
+      }
+    }
+  ]
+}

@@ -1578,3 +1578,56 @@ describe("SafeExecutor held grants", () => {
     }
   });
 });
+
+describe("SafeExecutor as the runner's registry face", () => {
+  it("leaves the dispatch window to its handlers, exactly as before the runner", async () => {
+    const { execute, pair, registry } = setup();
+    // A claim lease that has already closed: the runner itself would refuse to
+    // dispatch, but behind this face the handler bounds its own dispatch.
+    const verifier: AuthorizationVerifier = {
+      verifyAndConsume: async (captured, decision) => {
+        const authorization = await pair.verifier.verifyAndConsume(captured, decision);
+        return authorization === null
+          ? null
+          : Object.freeze({ ...authorization, leaseExpiresAt: "2000-01-01T00:00:00.000Z" });
+      },
+      finalize: async (input) => await pair.verifier.finalize(input),
+    };
+    const intent = captured();
+    const result = await new SafeExecutor(registry, verifier).run(
+      intent,
+      await pair.authority.evaluate(intent),
+    );
+    expect(result.outcome).toBe("COMPLETED");
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it("makes no reconciliation report to the authority, exactly as before the runner", async () => {
+    const registry = new ActionRegistry()
+      .register("refund_order", {
+        parametersSchema: z.object({ amount: z.number(), currency: z.string() }),
+        execute: async ({ dispatch }) =>
+          await dispatch.run(async () => {
+            throw new Error("response lost");
+          }),
+        reconcile: () => ({ status: "COMPLETED", result: { refundId: "provider-1" } }),
+      })
+      .seal();
+    const pair = createFixtureAuthorityPair(() => "ALLOW", {
+      unsafeAllowDevelopmentFixture: true,
+    });
+    const reconcile = vi.fn(async () => "RECORDED" as const);
+    const verifier: AuthorizationVerifier = {
+      verifyAndConsume: async (captured, decision) =>
+        await pair.verifier.verifyAndConsume(captured, decision),
+      finalize: async (input) => await pair.verifier.finalize(input),
+      reconcile,
+    };
+    const intent = captured();
+    const executor = new SafeExecutor(registry, verifier);
+    const attempt = await executor.run(intent, await pair.authority.evaluate(intent));
+    if (attempt.outcome !== "UNKNOWN_AFTER_DISPATCH") throw new Error("TEST_EXPECTED_UNKNOWN");
+    expect((await executor.reconcile(intent, attempt.recovery)).outcome).toBe("COMPLETED");
+    expect(reconcile).not.toHaveBeenCalled();
+  });
+});

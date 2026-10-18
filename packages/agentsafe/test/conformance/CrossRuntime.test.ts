@@ -128,7 +128,7 @@ describe("the same intent and policy across runtimes", () => {
             .at(-1);
           const call = authority.requests
             .slice(before)
-            .find((seen) => seen.path.endsWith("/enforce-and-bind"));
+            .find((seen) => seen.path === "/v1/authority/grants");
           const body = call?.body as {
             intent_hash: string;
             action: unknown;

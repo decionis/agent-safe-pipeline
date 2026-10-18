@@ -1,0 +1,22 @@
+{
+  "description": "Strict posture: when the authority cannot be reached the action does not run, and the evidence says it was not forwarded.",
+  "contract": "agent-safe.executors.native/1",
+  "style": "dispatch",
+  "posture": "STRICT",
+  "decision": {
+    "verdict": "BLOCK",
+    "fail_closed": true
+  },
+  "steps": [
+    {
+      "op": "run",
+      "write": "COMMIT",
+      "expect": {
+        "outcome": "BLOCKED",
+        "reason": "DECISION_NOT_ALLOW",
+        "disposition": "NOT_FORWARDED",
+        "writes": 0
+      }
+    }
+  ]
+}

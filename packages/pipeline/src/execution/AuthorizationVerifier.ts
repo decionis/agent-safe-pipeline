@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { AuthorityBaseUrl } from "../http/AuthorityBaseUrl.js";
+import { AuthorityPaths } from "../http/AuthorityPaths.js";
 import { credentialReader, type Credential } from "../http/Credential.js";
 import { BoundedResponseBody } from "../http/BoundedResponseBody.js";
 import { CanonicalIntentHasher } from "../intent/CanonicalIntentHasher.js";
@@ -163,6 +164,23 @@ export interface AuthorizationVerifier {
    * process. False when the material is not this verifier's.
    */
   adoptClaim?(authorization: VerifiedAuthorization, material: JsonObject): boolean;
+  /**
+   * Reports how an attempt finalized `INDETERMINATE` resolved, once a
+   * reconciliation proved it. Like finalization it is evidence, never
+   * authority: it must not retry a side effect, must not throw, and never
+   * reopens the grant. Absent on a verifier with no reconciliation contract.
+   */
+  reconcile?(input: AuthorizationReconciliationInput): Promise<"RECORDED" | "PENDING">;
+}
+
+/** What a proven reconciliation reports for an authorization finalized `INDETERMINATE`. */
+export interface AuthorizationReconciliationInput {
+  readonly captured: CapturedIntent;
+  readonly authorization: VerifiedAuthorization;
+  /** `COMMITTED` when the provider effected it, `FAILED` when it proved nothing happened. */
+  readonly outcome: Exclude<ExecutionCommitOutcome, "INDETERMINATE">;
+  /** The observation that proved it, when the executor made one. */
+  readonly effectEvidence?: AuthorityEffectEvidence;
 }
 
 const boundedIdentifier = z
@@ -299,6 +317,8 @@ const FinalizeResponseSchema = z.looseObject({
 const MAX_RECEIPT_LENGTH = 20_000;
 
 const MAX_RESPONSE_BYTES = 100 * 1024;
+/** How many claims finalized `INDETERMINATE` a verifier keeps for their reconciliation. */
+const MAX_INDETERMINATE_CLAIMS = 1_000;
 
 interface ClaimRecord {
   readonly executionToken: string;
@@ -318,10 +338,12 @@ export interface DecionisGrantVerifierOptions {
 }
 
 /**
- * Claims a Decionis execution grant through `/v1/execution/claim-token`
- * immediately before dispatch and finalizes the attempt through
- * `/v1/execution/finalize-token` afterwards, so commit evidence joins the
- * Decision Dossier chain.
+ * Claims a Decionis execution grant through its claims resource
+ * (`POST /v1/authority/grants/{grantId}/claims`) immediately before dispatch,
+ * records the attempt through its receipts resource afterwards, and reports a
+ * proven reconciliation through its reconciliations resource, so commit
+ * evidence joins the Decision Dossier chain. A token whose grant id cannot be
+ * read falls back to the deprecated verb routes (`AuthorityPaths.LEGACY`).
  */
 export class DecionisGrantVerifier implements AuthorizationVerifier {
   private readonly baseUrl: string;
@@ -332,6 +354,8 @@ export class DecionisGrantVerifier implements AuthorizationVerifier {
   private readonly claims = new WeakMap<VerifiedAuthorization, ClaimRecord>();
   /** The authority's own answer about an observation, keyed by the frozen authorization. */
   private readonly reports = new WeakMap<VerifiedAuthorization, AuthorityEffectReport>();
+  /** Claims finalized `INDETERMINATE`, by grant id, for the reconciliation that resolves them. */
+  private readonly indeterminate = new Map<string, ClaimRecord>();
 
   /**
    * The digest the authority binds over the action parameters: SHA-256 of
@@ -371,29 +395,32 @@ export class DecionisGrantVerifier implements AuthorizationVerifier {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
-      const response = await this.fetchImpl(`${this.baseUrl}/v1/execution/claim-token`, {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${this.apiKey()}`,
-          "content-type": "application/json",
+      const response = await this.fetchImpl(
+        `${this.baseUrl}${AuthorityPaths.claimFor(decision.authorization.token)}`,
+        {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${this.apiKey()}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            execution_token: decision.authorization.token,
+            intent_hash: captured.intentHash,
+            intent: CanonicalIntentHasher.bindingOf(captured.intent),
+            // A Presence-bound decision is re-verified by the authority at claim
+            // time, so the same evidence must accompany the claim. A presence
+            // attestation is verified once, at evaluation, where the authority
+            // records it with the grant; the claim contract carries Presence
+            // evidence only, so an attestation is not sent again here.
+            ...(decision.evidence?.humanApproval?.provider === "presence"
+              ? { evidence: decision.evidence }
+              : {}),
+            consumed_by: captured.intent.actor.id,
+            commit_correlation_id: commitCorrelationId,
+          }),
+          signal: controller.signal,
         },
-        body: JSON.stringify({
-          execution_token: decision.authorization.token,
-          intent_hash: captured.intentHash,
-          intent: CanonicalIntentHasher.bindingOf(captured.intent),
-          // A Presence-bound decision is re-verified by the authority at claim
-          // time, so the same evidence must accompany the claim. A presence
-          // attestation is verified once, at evaluation, where the authority
-          // records it with the grant; the claim contract carries Presence
-          // evidence only, so an attestation is not sent again here.
-          ...(decision.evidence?.humanApproval?.provider === "presence"
-            ? { evidence: decision.evidence }
-            : {}),
-          consumed_by: captured.intent.actor.id,
-          commit_correlation_id: commitCorrelationId,
-        }),
-        signal: controller.signal,
-      });
+      );
       if (!response.ok) return null;
       const text = await BoundedResponseBody.read(response, MAX_RESPONSE_BYTES);
       if (text === null) return null;
@@ -493,7 +520,7 @@ export class DecionisGrantVerifier implements AuthorizationVerifier {
   public async finalize(input: AuthorizationFinalizationInput): Promise<"RECORDED" | "PENDING"> {
     const claim = this.claims.get(input.authorization);
     if (claim === undefined) return "PENDING";
-    const evidence = DecionisGrantVerifier.bindableEffectEvidence(input, claim);
+    const evidence = DecionisGrantVerifier.bindableEffectEvidence(input.effectEvidence, claim);
     const receipt = DecionisGrantVerifier.bindableEffectReceipt(input);
     const first = await this.post(input, claim, evidence, receipt, false);
     if (first === "RECORDED") return "RECORDED";
@@ -506,6 +533,59 @@ export class DecionisGrantVerifier implements AuthorizationVerifier {
     // The receipt stays, because the authority never refuses for a receipt.
     const second = await this.post(input, claim, undefined, receipt, true);
     return second === "RECORDED" ? "RECORDED" : "PENDING";
+  }
+
+  /**
+   * Reports a proven reconciliation of an attempt this verifier finalized
+   * `INDETERMINATE`, to the grant's reconciliations resource. Evidence, never
+   * authority: nothing is retried, a transport failure or refusal is
+   * `PENDING`, and an attempt whose claim this process no longer holds (a
+   * restart, an eviction) is `PENDING` without a request.
+   */
+  public async reconcile(input: AuthorizationReconciliationInput): Promise<"RECORDED" | "PENDING"> {
+    const claim = this.indeterminate.get(input.authorization.grantId);
+    const grantId = AuthorityPaths.grantIdOf(claim?.executionToken ?? "");
+    if (claim === undefined || grantId === null || grantId !== input.authorization.grantId) {
+      return "PENDING";
+    }
+    const evidence = DecionisGrantVerifier.bindableEffectEvidence(input.effectEvidence, claim);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    try {
+      const response = await this.fetchImpl(
+        `${this.baseUrl}${AuthorityPaths.reconciliations(grantId)}`,
+        {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${this.apiKey()}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            execution_token: claim.executionToken,
+            claim_token: claim.claimToken,
+            commit_correlation_id: claim.commitCorrelationId,
+            outcome: input.outcome,
+            ...(evidence === undefined ? {} : { effect_evidence: evidence }),
+          }),
+          signal: controller.signal,
+        },
+      );
+      if (!response.ok) return "PENDING";
+      this.indeterminate.delete(grantId);
+      return "RECORDED";
+    } catch {
+      return "PENDING";
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  private rememberIndeterminate(authorization: VerifiedAuthorization, claim: ClaimRecord): void {
+    if (this.indeterminate.size >= MAX_INDETERMINATE_CLAIMS) {
+      const oldest = this.indeterminate.keys().next().value as string;
+      this.indeterminate.delete(oldest);
+    }
+    this.indeterminate.set(authorization.grantId, claim);
   }
 
   /**
@@ -533,22 +613,25 @@ export class DecionisGrantVerifier implements AuthorizationVerifier {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
-      const response = await this.fetchImpl(`${this.baseUrl}/v1/execution/finalize-token`, {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${this.apiKey()}`,
-          "content-type": "application/json",
+      const response = await this.fetchImpl(
+        `${this.baseUrl}${AuthorityPaths.receiptFor(claim.executionToken)}`,
+        {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${this.apiKey()}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            execution_token: claim.executionToken,
+            claim_token: claim.claimToken,
+            outcome: input.outcome,
+            commit_correlation_id: claim.commitCorrelationId,
+            ...(evidence === undefined ? {} : { effect_evidence: evidence }),
+            ...(receipt === undefined ? {} : { effect_receipt: receipt }),
+          }),
+          signal: controller.signal,
         },
-        body: JSON.stringify({
-          execution_token: claim.executionToken,
-          claim_token: claim.claimToken,
-          outcome: input.outcome,
-          commit_correlation_id: claim.commitCorrelationId,
-          ...(evidence === undefined ? {} : { effect_evidence: evidence }),
-          ...(receipt === undefined ? {} : { effect_receipt: receipt }),
-        }),
-        signal: controller.signal,
-      });
+      );
       if (!response.ok) return response.status === 409 ? "REFUSED" : "PENDING";
       const text = await BoundedResponseBody.read(response, MAX_RESPONSE_BYTES);
       if (text === null) return "PENDING";
@@ -572,6 +655,11 @@ export class DecionisGrantVerifier implements AuthorizationVerifier {
           : null,
       });
       this.claims.delete(input.authorization);
+      // An attempt nobody can yet account for keeps its claim, by grant, so
+      // the reconciliation that later proves it can be reported against the
+      // same claim. Bounded: the oldest is forgotten first, and a forgotten
+      // claim only means its reconciliation is reported as pending.
+      if (input.outcome === "INDETERMINATE") this.rememberIndeterminate(input.authorization, claim);
       return "RECORDED";
     } catch {
       return "PENDING";
@@ -594,13 +682,13 @@ export class DecionisGrantVerifier implements AuthorizationVerifier {
    * the drop rule and another to the wire.
    */
   private static bindableEffectEvidence(
-    input: AuthorizationFinalizationInput,
+    effectEvidence: AuthorityEffectEvidence | undefined,
     claim: ClaimRecord,
   ): AuthorityEffectEvidence | undefined {
-    if (input.effectEvidence === undefined || claim.expectedEffectDigest === undefined) {
+    if (effectEvidence === undefined || claim.expectedEffectDigest === undefined) {
       return undefined;
     }
-    const parsed = EffectEvidenceSchema.safeParse(input.effectEvidence);
+    const parsed = EffectEvidenceSchema.safeParse(effectEvidence);
     if (!parsed.success) return undefined;
     const evidence: AuthorityEffectEvidence = parsed.data;
     if (evidence.expected_effect_digest !== claim.expectedEffectDigest) return undefined;

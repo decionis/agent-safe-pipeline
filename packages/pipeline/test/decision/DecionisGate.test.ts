@@ -149,7 +149,7 @@ describe("DecionisGate", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
     const [url, request] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("http://127.0.0.1:3001/v1/authority/enforce-and-bind");
+    expect(url).toBe("http://127.0.0.1:3001/v1/authority/grants");
     const headers = request.headers as Record<string, string>;
     // The contract requires Idempotency-Key to equal the signed intent_id.
     expect(headers["idempotency-key"]).toBe(intent.intent.intentId);

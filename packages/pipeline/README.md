@@ -181,6 +181,10 @@ outcome.
 | `DEFINITELY_NOT_EXECUTED` | The provider was called and refused deterministically. `reason` is its own code. Nothing was effected and there is nothing to reconcile.                                                  |
 | `UNKNOWN_AFTER_DISPATCH`  | The provider was called and its outcome is unknown. A `recovery` reference supports reconciliation.                                                                                       |
 
+`SafeExecutor.hold` returns a sixth outcome, `HELD`: admitted, with the grant waiting unclaimed for
+a native boundary that performs the effect itself (`claimHeld` claims it once, `settleHeld` records
+how it ended).
+
 A handler reports that last-but-one case by throwing `ProviderRefusal` from inside `dispatch.run`,
 with the provider's own reason code. Only a deterministic refusal belongs in it: a timeout, a 5xx
 or an unreadable answer is not a refusal, and reporting one as a refusal would turn "nobody knows"
@@ -190,6 +194,31 @@ Every outcome that consumed a grant also reports `finalization` (`RECORDED`, `PE
 `UNSUPPORTED`). The executor records `COMMITTED`, `FAILED`, or `INDETERMINATE` with Decionis after
 the attempt so commit evidence joins the Decision Dossier chain. Finalization is evidence, never
 authority: it cannot change `outcome` or `executed`.
+
+## Native executors
+
+`SafeExecutor` is the registry-shaped face of `GovernedExecutionRunner`, the one implementation of
+everything around a native write: admission, the claim, the journal's durable claim and single-use
+idempotency key, the dispatch deadline, failure posture, finalization, reconciliation, the
+`agent-safe.executor-evidence/1` line and the six outcomes. Every write to a system of record runs
+through it, by way of one interface,
+[`agent-safe.executors.native/1`](https://github.com/decionis/agent-safe-pipeline/blob/master/spec/executors/native/v1/README.md):
+
+```ts
+import { GovernedExecutionRunner, type NativeExecutor } from "@decionis/agent-safe-pipeline";
+
+const runner = new GovernedExecutionRunner({ authority, verifier, journal, evidence });
+// dispatch style: prepare, decide, claim, write once, observe, finalize
+const { result } = await runner.submit(paymentExecutor, { action, scope, actor });
+// permit style: the result is HELD with a permit the platform presents with its write
+const presented = await runner.present(held);
+const settled = await runner.settle(held, { receipt: postingEntry });
+```
+
+An executor states its `platform`, `version`, `style` (`dispatch` or `permit`) and `actionTypes`,
+and implements `capabilities`, `prepare`, `execute`, `observe` and `reconcile`. It never calls the
+authority, maps a verdict, retries, or decides an outcome. `EffectAdapter` is the dispatch style
+under its earlier name and stays, deprecated, for the adapters written against it.
 
 ### What each record establishes
 
@@ -415,6 +444,8 @@ them from the testing entry. See
 | Selection      | `createGate`, `ShadowGate`, `SelectedGate`, `HostedEvaluation`, `printDecision`                   | Choose local, shadow, or enforcement from the environment; combine and report the two verdicts |
 | Human approval | `PresenceApprovalCoordinator`, `ManagedEscalationRequest`, `HumanApprovalEvidence`                | Coordinate DIRECT Presence ceremonies or request MANAGED orchestration by Decionis             |
 | Execution      | `SafeExecutor`, `ActionRegistry`, `DecionisGrantVerifier`, `AuthorizationVerifier`, `ReplayStore` | Claim the single-use grant, validate parameters, invoke a sealed handler, finalize the attempt |
+| Native write   | `GovernedExecutionRunner`, `NativeExecutor`, `ExecutionJournal`, `PostgresExecutionJournal`       | Run every executor through one admission, claim, journal, posture and outcome implementation   |
+| Paths          | `AuthorityPaths`                                                                                  | The execution-authority REST resources (`/v1/authority/grants/{grantId}/…`) in one place       |
 | Effect         | `AuthorityEffectEvidence`, `AuthorityEffectReport`, `DecionisGrantVerifier.effectReport`          | Forward a trusted runtime's downstream observation on finalize and read the authority's answer |
 | Observation    | `ShadowPipeline`, `ShadowObservation`                                                             | Record what the authority would have decided without granting execution                        |
 | Audit          | `AuditRecorder`, `AuditEventV1`, `AuditSink`                                                      | Emit immutable, redacted lifecycle records through one bounded sink call                       |

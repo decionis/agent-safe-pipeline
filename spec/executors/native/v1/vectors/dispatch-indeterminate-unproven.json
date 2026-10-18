@@ -1,0 +1,40 @@
+{
+  "description": "An error after the dispatch began is an outcome nobody knows. A platform that cannot say keeps it unknown; one that proves nothing happened makes it definitely not executed, and the grant stays spent either way.",
+  "contract": "agent-safe.executors.native/1",
+  "style": "dispatch",
+  "posture": "STRICT",
+  "decision": {
+    "verdict": "ALLOW",
+    "fail_closed": false
+  },
+  "steps": [
+    {
+      "op": "run",
+      "write": "THROW_AFTER_DISPATCH",
+      "expect": {
+        "outcome": "UNKNOWN_AFTER_DISPATCH",
+        "executed": null,
+        "finalized": "INDETERMINATE",
+        "writes": 1
+      }
+    },
+    {
+      "op": "reconcile",
+      "answer": "UNKNOWN",
+      "expect": {
+        "outcome": "UNKNOWN_AFTER_DISPATCH",
+        "executed": null,
+        "writes": 1
+      }
+    },
+    {
+      "op": "reconcile",
+      "answer": "NOT_EXECUTED",
+      "expect": {
+        "outcome": "DEFINITELY_NOT_EXECUTED",
+        "executed": false,
+        "writes": 1
+      }
+    }
+  ]
+}

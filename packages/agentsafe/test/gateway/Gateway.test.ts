@@ -711,7 +711,7 @@ describe("what a hosted call says about where the runtime came from", () => {
     expect(named.status().surface).toBe("homebrew");
     await named.govern(request("POST", "/payments", { amount: 5 }), "http.post");
     await settle();
-    const call = authority.requests.find((seen) => seen.path.endsWith("/enforce-and-bind"));
+    const call = authority.requests.find((seen) => seen.path === "/v1/authority/grants");
     expect(call?.headers["user-agent"]).toMatch(
       /^agent-safe-pipeline\/[\w.-]+ \(example=agentsafe-gateway@9\.9\.9; surface=homebrew\)$/,
     );
@@ -729,7 +729,7 @@ describe("what a hosted call says about where the runtime came from", () => {
     await settle();
     const later = authority.requests
       .slice(before)
-      .find((seen) => seen.path.endsWith("/enforce-and-bind"));
+      .find((seen) => seen.path === "/v1/authority/grants");
     expect(later?.headers["user-agent"]).toBe(
       `${String(call?.headers["user-agent"]).split(" (")[0]} (example=agentsafe-gateway@9.9.9)`,
     );
@@ -784,7 +784,7 @@ describe("which enforcement boundary admitted the effect", () => {
 
     await gateway.govern(request("POST", "/payments", { amount: 5 }), "http.post");
     await settle();
-    const call = authority.requests.find((seen) => seen.path.endsWith("/enforce-and-bind"));
+    const call = authority.requests.find((seen) => seen.path === "/v1/authority/grants");
     const context = (call?.body as { context: Record<string, unknown> }).context;
     expect(context["enforcement_boundary"]).toEqual({
       boundary_id: "prod-payments-eu",
@@ -823,7 +823,7 @@ describe("which enforcement boundary admitted the effect", () => {
     await settle();
     const call = authority.requests
       .slice(before)
-      .find((seen) => seen.path.endsWith("/enforce-and-bind"));
+      .find((seen) => seen.path === "/v1/authority/grants");
     expect((call?.body as { context: Record<string, unknown> }).context["workload"]).toEqual({
       runtime: "docker",
       artifact_type: "oci",
@@ -849,7 +849,7 @@ describe("which enforcement boundary admitted the effect", () => {
     await settle();
     const quiet = authority.requests
       .slice(before)
-      .find((seen) => seen.path.endsWith("/enforce-and-bind"));
+      .find((seen) => seen.path === "/v1/authority/grants");
     const context = (quiet?.body as { context: Record<string, unknown> }).context;
     expect(Object.hasOwn(context, "workload")).toBe(false);
     expect(Object.hasOwn(context, "enforcement_boundary")).toBe(true);
@@ -881,7 +881,7 @@ describe("which enforcement boundary admitted the effect", () => {
       await settle();
       const call = authority.requests
         .slice(before)
-        .find((seen) => seen.path.endsWith("/enforce-and-bind"));
+        .find((seen) => seen.path === "/v1/authority/grants");
       hashes.push((call?.body as { intent_hash: string }).intent_hash);
       await gateway.close();
     }

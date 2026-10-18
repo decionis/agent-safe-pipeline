@@ -1,7 +1,8 @@
 import type { HandlerRegistration } from "../../handlers/HandlerRegistration.js";
-import { adapterActionHandler } from "../AdapterActionHandler.js";
+import { executorActionHandler } from "../AdapterActionHandler.js";
 import { BankingActionWireSchema, type BankingAction } from "./BankingAction.js";
 import { BankingAdapter } from "./BankingAdapter.js";
+import { BankingExecutor } from "./BankingExecutor.js";
 import { CoreBankingHttpAdapter } from "./CoreBankingHttpAdapter.js";
 import { REGISTERED_ACTIONS } from "./EffectProjections.js";
 
@@ -42,8 +43,10 @@ export function bankingHandlers(options: BankingHandlerOptions = {}): HandlerReg
         source: "CORE_BANKING_RESPONSE",
       }),
     });
-    const handler = adapterActionHandler<BankingAction>({
-      adapter,
+    // The family runs as its native executor: the registry reaches it through
+    // the runner, and the adapter's arithmetic, projection and evidence are
+    // exactly what they were.
+    const handler = executorActionHandler<BankingAction>(new BankingExecutor({ adapter }), {
       schema: BankingActionWireSchema,
       register,
       timeoutMs: context.downstream.timeoutMs,

@@ -41,7 +41,7 @@ import {
 const TENANT_ID = "00000000-0000-4000-8000-000000000003";
 const ACTOR_ID = "synthetic-contract-agent";
 const TEST_OPTIONS = { timeout: 15_000 };
-const ENFORCE_PATH = "/v1/authority/enforce-and-bind";
+const ENFORCE_PATH = "/v1/authority/grants";
 const CLAIM_PATH = "/v1/execution/claim-token";
 const FINALIZE_PATH = "/v1/execution/finalize-token";
 const REQUEST_KEYS = [

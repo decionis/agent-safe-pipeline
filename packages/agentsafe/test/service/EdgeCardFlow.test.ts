@@ -94,8 +94,7 @@ function purchase(amountMinor = 4_250) {
 const hosted = (): number =>
   authority.requests.filter(
     (request) =>
-      request.path === "/v1/authority/enforce-and-bind" ||
-      request.path.startsWith("/v1/execution/"),
+      request.path === "/v1/authority/grants" || request.path.startsWith("/v1/execution/"),
   ).length;
 
 const events = (lines: readonly string[]): string[] =>

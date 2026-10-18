@@ -264,7 +264,7 @@ describe("the wire payload", () => {
     expect(requests).toHaveLength(2);
 
     for (const { url, init } of requests) {
-      expect(url).toBe(`${BASE_URL}/v1/authority/enforce-and-bind`);
+      expect(url).toBe(`${BASE_URL}/v1/authority/grants`);
       expect(init.method).toBe("POST");
       const headers = init.headers as Record<string, string>;
       expect(headers.authorization).toBe(`Bearer ${API_KEY}`);

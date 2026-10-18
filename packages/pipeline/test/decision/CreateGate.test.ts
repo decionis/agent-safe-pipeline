@@ -89,7 +89,7 @@ describe("createGate", () => {
     expect(result.outcome).toBe("COMPLETED");
 
     const [url, request] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("http://127.0.0.1:3001/v1/authority/enforce-and-bind");
+    expect(url).toBe("http://127.0.0.1:3001/v1/authority/grants");
     expect((request.headers as Record<string, string>).authorization).toBe("Bearer org-key");
     expect(JSON.parse(request.body as string)).toMatchObject({ mode: "SHADOW" });
   });
@@ -185,7 +185,7 @@ describe("createGate", () => {
     const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
     // The production host stays in the source; a test names no real domain.
     expect(url.startsWith("https://")).toBe(true);
-    expect(url.endsWith("/v1/authority/enforce-and-bind")).toBe(true);
+    expect(url.endsWith("/v1/authority/grants")).toBe(true);
   });
 
   it("carries the source in the User-Agent of hosted calls, and sends nothing without a key", async () => {

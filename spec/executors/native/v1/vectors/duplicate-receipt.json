@@ -1,0 +1,44 @@
+{
+  "description": "A receipt is accepted once. A second receipt for the same execution is refused and changes nothing the authority recorded.",
+  "contract": "agent-safe.executors.native/1",
+  "style": "permit",
+  "posture": "STRICT",
+  "decision": {
+    "verdict": "ALLOW",
+    "fail_closed": false
+  },
+  "steps": [
+    {
+      "op": "hold",
+      "expect": {
+        "outcome": "HELD",
+        "permit": true
+      }
+    },
+    {
+      "op": "present",
+      "expect": {
+        "outcome": "CLAIMED",
+        "permit": true
+      }
+    },
+    {
+      "op": "receipt",
+      "status": "POSTED",
+      "expect": {
+        "outcome": "COMPLETED",
+        "executed": true,
+        "finalized": "COMMITTED"
+      }
+    },
+    {
+      "op": "receipt",
+      "status": "REJECTED",
+      "expect": {
+        "outcome": "REFUSED",
+        "reason": "RECEIPT_DUPLICATE",
+        "finalized": "COMMITTED"
+      }
+    }
+  ]
+}

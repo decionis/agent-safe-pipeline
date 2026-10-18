@@ -1,0 +1,31 @@
+{
+  "description": "INDETERMINATE dispatch: the write left and the platform's answer was lost. The outcome is unknown, never a failure; reconciliation asks the platform read-only, proves the effect, and the write is never attempted again.",
+  "contract": "agent-safe.executors.native/1",
+  "style": "dispatch",
+  "posture": "STRICT",
+  "decision": {
+    "verdict": "ALLOW",
+    "fail_closed": false
+  },
+  "steps": [
+    {
+      "op": "run",
+      "write": "INDETERMINATE",
+      "expect": {
+        "outcome": "UNKNOWN_AFTER_DISPATCH",
+        "executed": null,
+        "finalized": "INDETERMINATE",
+        "writes": 1
+      }
+    },
+    {
+      "op": "reconcile",
+      "answer": "COMPLETED",
+      "expect": {
+        "outcome": "COMPLETED",
+        "executed": true,
+        "writes": 1
+      }
+    }
+  ]
+}

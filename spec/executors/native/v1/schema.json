@@ -1,0 +1,1222 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/decionis/agent-safe-pipeline/blob/master/spec/executors/native/v1/schema.json",
+  "title": "agent-safe.executors.native/1",
+  "$defs": {
+    "ExecutionOutcome": {
+      "type": "string",
+      "enum": [
+        "BLOCKED",
+        "HELD",
+        "FAILED_BEFORE_DISPATCH",
+        "COMPLETED",
+        "DEFINITELY_NOT_EXECUTED",
+        "UNKNOWN_AFTER_DISPATCH"
+      ]
+    },
+    "ExecutorIdentity": {
+      "type": "object",
+      "properties": {
+        "platform": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$"
+        },
+        "style": {
+          "type": "string",
+          "enum": [
+            "dispatch",
+            "permit"
+          ]
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[^\\W_][\\w.+-]*$"
+        }
+      },
+      "required": [
+        "platform",
+        "style",
+        "version"
+      ],
+      "additionalProperties": false
+    },
+    "ExecutionCapability": {
+      "type": "object",
+      "properties": {
+        "platform": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "action_type": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "pattern": "^[a-z][a-z0-9._:-]*$"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "scope_granted": {
+          "type": "boolean"
+        },
+        "connected": {
+          "type": "boolean"
+        },
+        "requirement": {
+          "type": "string",
+          "maxLength": 500
+        }
+      },
+      "required": [
+        "platform",
+        "action_type",
+        "enabled",
+        "scope_granted",
+        "connected",
+        "requirement"
+      ],
+      "additionalProperties": false
+    },
+    "ExecutionRequest": {
+      "type": "object",
+      "properties": {
+        "executor": {
+          "type": "object",
+          "properties": {
+            "platform": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[a-z0-9][a-z0-9._-]*$"
+            },
+            "style": {
+              "type": "string",
+              "enum": [
+                "dispatch",
+                "permit"
+              ]
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[^\\W_][\\w.+-]*$"
+            }
+          },
+          "required": [
+            "platform",
+            "style",
+            "version"
+          ],
+          "additionalProperties": false
+        },
+        "action_type": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "pattern": "^[a-z][a-z0-9._:-]*$"
+        },
+        "action": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {}
+        },
+        "correlation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "required": [
+        "executor",
+        "action_type",
+        "action"
+      ],
+      "additionalProperties": false
+    },
+    "ExecutionResponse": {
+      "type": "object",
+      "properties": {
+        "execution_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "HELD",
+            "BLOCKED"
+          ]
+        },
+        "decision": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]{1,63}$"
+        },
+        "reason_codes": {
+          "maxItems": 32,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]{1,63}$"
+          }
+        },
+        "dossier_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "permit_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "intent_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "execution_id",
+        "outcome",
+        "decision",
+        "reason_codes",
+        "dossier_id",
+        "permit_id",
+        "intent_sha256",
+        "expires_at"
+      ],
+      "additionalProperties": false
+    },
+    "NativeReceipt": {
+      "type": "object",
+      "properties": {
+        "permit_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "native_receipt": {
+          "type": "object",
+          "properties": {
+            "platform": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[a-z0-9][a-z0-9._-]*$"
+            },
+            "kind": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[a-z][a-z0-9._-]*$"
+            },
+            "reference": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            },
+            "status": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[^\\W\\d_][\\w.-]*$"
+            },
+            "observed_at": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            }
+          },
+          "required": [
+            "platform",
+            "kind",
+            "reference",
+            "status",
+            "observed_at"
+          ],
+          "additionalProperties": false
+        },
+        "signed_receipt": {
+          "type": "string",
+          "maxLength": 20000,
+          "pattern": "^[\\w-]+\\.[\\w-]+\\.[\\w-]+$"
+        }
+      },
+      "required": [
+        "permit_id",
+        "native_receipt"
+      ],
+      "additionalProperties": false
+    },
+    "ReceiptResponse": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "execution_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "status": {
+              "type": "string",
+              "const": "SETTLED"
+            },
+            "outcome": {
+              "type": "string",
+              "enum": [
+                "COMPLETED",
+                "DEFINITELY_NOT_EXECUTED",
+                "UNKNOWN_AFTER_DISPATCH"
+              ]
+            },
+            "finalization": {
+              "type": "string",
+              "enum": [
+                "RECORDED",
+                "PENDING",
+                "UNSUPPORTED"
+              ]
+            }
+          },
+          "required": [
+            "execution_id",
+            "status",
+            "outcome",
+            "finalization"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "execution_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "status": {
+              "type": "string",
+              "const": "REFUSED"
+            },
+            "reason": {
+              "type": "string",
+              "enum": [
+                "RECEIPT_DUPLICATE",
+                "PERMIT_NOT_PRESENTED"
+              ]
+            }
+          },
+          "required": [
+            "execution_id",
+            "status",
+            "reason"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ReconciliationRequest": {
+      "type": "object",
+      "properties": {
+        "permit_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "required": [
+        "permit_id"
+      ],
+      "additionalProperties": false
+    },
+    "ReconciliationResponse": {
+      "type": "object",
+      "properties": {
+        "execution_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "COMPLETED",
+            "DEFINITELY_NOT_EXECUTED",
+            "UNKNOWN_AFTER_DISPATCH",
+            "BLOCKED"
+          ]
+        }
+      },
+      "required": [
+        "execution_id",
+        "outcome"
+      ],
+      "additionalProperties": false
+    },
+    "ExecutorEvidenceLine": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "string",
+          "const": "agent-safe.executor-evidence/1"
+        },
+        "contract": {
+          "type": "string",
+          "const": "agent-safe.executors.native/1"
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+        },
+        "stage": {
+          "type": "string",
+          "enum": [
+            "RUN",
+            "PRESENTATION",
+            "SETTLEMENT",
+            "RECONCILIATION"
+          ]
+        },
+        "executor": {
+          "type": "object",
+          "properties": {
+            "platform": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[a-z0-9][a-z0-9._-]*$"
+            },
+            "style": {
+              "type": "string",
+              "enum": [
+                "dispatch",
+                "permit"
+              ]
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[^\\W_][\\w.+-]*$"
+            }
+          },
+          "required": [
+            "platform",
+            "style",
+            "version"
+          ],
+          "additionalProperties": false
+        },
+        "action_type": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "pattern": "^[a-z][a-z0-9._:-]*$"
+        },
+        "intent_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "intent_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "decision_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "dossier_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "verdict": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9_]{1,63}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "grant_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "BLOCKED",
+            "HELD",
+            "FAILED_BEFORE_DISPATCH",
+            "COMPLETED",
+            "DEFINITELY_NOT_EXECUTED",
+            "UNKNOWN_AFTER_DISPATCH",
+            "CLAIMED"
+          ]
+        },
+        "executed": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9_]{1,63}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "code": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9_]{1,63}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "governed": {
+          "type": "boolean"
+        },
+        "authority_state": {
+          "type": "string",
+          "enum": [
+            "DECIDED",
+            "AUTHORITY_UNAVAILABLE"
+          ]
+        },
+        "posture": {
+          "type": "string",
+          "enum": [
+            "STRICT",
+            "BOUNDED_CONTINUITY",
+            "CUSTOM"
+          ]
+        },
+        "disposition": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "NOT_FORWARDED",
+                "HELD",
+                "FORWARDED_UNGOVERNED"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "finalization": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "RECORDED",
+                "PENDING",
+                "UNSUPPORTED"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "duration_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "scope": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "org_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "workspace_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "connection_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "connection_revision": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "environment": {
+                  "type": "string",
+                  "enum": [
+                    "sandbox",
+                    "production"
+                  ]
+                }
+              },
+              "required": [
+                "org_id",
+                "workspace_id",
+                "connection_id",
+                "connection_revision",
+                "environment"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "version",
+        "contract",
+        "at",
+        "stage",
+        "executor",
+        "action_type",
+        "intent_id",
+        "intent_hash",
+        "decision_id",
+        "dossier_id",
+        "verdict",
+        "grant_id",
+        "outcome",
+        "executed",
+        "reason",
+        "code",
+        "governed",
+        "authority_state",
+        "posture",
+        "disposition",
+        "finalization",
+        "duration_ms",
+        "scope"
+      ],
+      "additionalProperties": false
+    },
+    "ExecutorVector": {
+      "type": "object",
+      "properties": {
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "contract": {
+          "type": "string",
+          "const": "agent-safe.executors.native/1"
+        },
+        "style": {
+          "type": "string",
+          "enum": [
+            "dispatch",
+            "permit"
+          ]
+        },
+        "posture": {
+          "type": "string",
+          "enum": [
+            "STRICT",
+            "BOUNDED_CONTINUITY",
+            "CUSTOM"
+          ]
+        },
+        "custom_disposition": {
+          "type": "string",
+          "enum": [
+            "NOT_FORWARDED",
+            "HELD",
+            "FORWARDED_UNGOVERNED"
+          ]
+        },
+        "decision": {
+          "type": "object",
+          "properties": {
+            "verdict": {
+              "type": "string",
+              "enum": [
+                "ALLOW",
+                "ESCALATE",
+                "BLOCK"
+              ]
+            },
+            "fail_closed": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verdict",
+            "fail_closed"
+          ],
+          "additionalProperties": false
+        },
+        "steps": {
+          "minItems": 1,
+          "maxItems": 16,
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "op": {
+                    "type": "string",
+                    "const": "run"
+                  },
+                  "write": {
+                    "type": "string",
+                    "enum": [
+                      "COMMIT",
+                      "REFUSE",
+                      "INDETERMINATE",
+                      "FAIL_BEFORE_DISPATCH",
+                      "THROW_AFTER_DISPATCH"
+                    ]
+                  },
+                  "expect": {
+                    "type": "object",
+                    "properties": {
+                      "outcome": {
+                        "type": "string",
+                        "enum": [
+                          "BLOCKED",
+                          "HELD",
+                          "FAILED_BEFORE_DISPATCH",
+                          "COMPLETED",
+                          "DEFINITELY_NOT_EXECUTED",
+                          "UNKNOWN_AFTER_DISPATCH",
+                          "CLAIMED",
+                          "REFUSED"
+                        ]
+                      },
+                      "executed": {
+                        "type": [
+                          "boolean",
+                          "null"
+                        ]
+                      },
+                      "reason": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      },
+                      "code": {
+                        "type": "string",
+                        "pattern": "^[A-Z][A-Z0-9_]{1,63}$"
+                      },
+                      "finalized": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "COMMITTED",
+                              "FAILED",
+                              "INDETERMINATE"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "permit": {
+                        "type": "boolean"
+                      },
+                      "disposition": {
+                        "type": "string",
+                        "enum": [
+                          "NOT_FORWARDED",
+                          "HELD",
+                          "FORWARDED_UNGOVERNED"
+                        ]
+                      },
+                      "writes": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "outcome"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "op",
+                  "write",
+                  "expect"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "op": {
+                    "type": "string",
+                    "const": "hold"
+                  },
+                  "expect": {
+                    "type": "object",
+                    "properties": {
+                      "outcome": {
+                        "type": "string",
+                        "enum": [
+                          "BLOCKED",
+                          "HELD",
+                          "FAILED_BEFORE_DISPATCH",
+                          "COMPLETED",
+                          "DEFINITELY_NOT_EXECUTED",
+                          "UNKNOWN_AFTER_DISPATCH",
+                          "CLAIMED",
+                          "REFUSED"
+                        ]
+                      },
+                      "executed": {
+                        "type": [
+                          "boolean",
+                          "null"
+                        ]
+                      },
+                      "reason": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      },
+                      "code": {
+                        "type": "string",
+                        "pattern": "^[A-Z][A-Z0-9_]{1,63}$"
+                      },
+                      "finalized": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "COMMITTED",
+                              "FAILED",
+                              "INDETERMINATE"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "permit": {
+                        "type": "boolean"
+                      },
+                      "disposition": {
+                        "type": "string",
+                        "enum": [
+                          "NOT_FORWARDED",
+                          "HELD",
+                          "FORWARDED_UNGOVERNED"
+                        ]
+                      },
+                      "writes": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "outcome"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "op",
+                  "expect"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "op": {
+                    "type": "string",
+                    "const": "present"
+                  },
+                  "expect": {
+                    "type": "object",
+                    "properties": {
+                      "outcome": {
+                        "type": "string",
+                        "enum": [
+                          "BLOCKED",
+                          "HELD",
+                          "FAILED_BEFORE_DISPATCH",
+                          "COMPLETED",
+                          "DEFINITELY_NOT_EXECUTED",
+                          "UNKNOWN_AFTER_DISPATCH",
+                          "CLAIMED",
+                          "REFUSED"
+                        ]
+                      },
+                      "executed": {
+                        "type": [
+                          "boolean",
+                          "null"
+                        ]
+                      },
+                      "reason": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      },
+                      "code": {
+                        "type": "string",
+                        "pattern": "^[A-Z][A-Z0-9_]{1,63}$"
+                      },
+                      "finalized": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "COMMITTED",
+                              "FAILED",
+                              "INDETERMINATE"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "permit": {
+                        "type": "boolean"
+                      },
+                      "disposition": {
+                        "type": "string",
+                        "enum": [
+                          "NOT_FORWARDED",
+                          "HELD",
+                          "FORWARDED_UNGOVERNED"
+                        ]
+                      },
+                      "writes": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "outcome"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "op",
+                  "expect"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "op": {
+                    "type": "string",
+                    "const": "receipt"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "POSTED",
+                      "REJECTED",
+                      "UNREADABLE"
+                    ]
+                  },
+                  "expect": {
+                    "type": "object",
+                    "properties": {
+                      "outcome": {
+                        "type": "string",
+                        "enum": [
+                          "BLOCKED",
+                          "HELD",
+                          "FAILED_BEFORE_DISPATCH",
+                          "COMPLETED",
+                          "DEFINITELY_NOT_EXECUTED",
+                          "UNKNOWN_AFTER_DISPATCH",
+                          "CLAIMED",
+                          "REFUSED"
+                        ]
+                      },
+                      "executed": {
+                        "type": [
+                          "boolean",
+                          "null"
+                        ]
+                      },
+                      "reason": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      },
+                      "code": {
+                        "type": "string",
+                        "pattern": "^[A-Z][A-Z0-9_]{1,63}$"
+                      },
+                      "finalized": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "COMMITTED",
+                              "FAILED",
+                              "INDETERMINATE"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "permit": {
+                        "type": "boolean"
+                      },
+                      "disposition": {
+                        "type": "string",
+                        "enum": [
+                          "NOT_FORWARDED",
+                          "HELD",
+                          "FORWARDED_UNGOVERNED"
+                        ]
+                      },
+                      "writes": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "outcome"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "op",
+                  "status",
+                  "expect"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "op": {
+                    "type": "string",
+                    "const": "reconcile"
+                  },
+                  "answer": {
+                    "type": "string",
+                    "enum": [
+                      "COMPLETED",
+                      "NOT_EXECUTED",
+                      "UNKNOWN"
+                    ]
+                  },
+                  "expect": {
+                    "type": "object",
+                    "properties": {
+                      "outcome": {
+                        "type": "string",
+                        "enum": [
+                          "BLOCKED",
+                          "HELD",
+                          "FAILED_BEFORE_DISPATCH",
+                          "COMPLETED",
+                          "DEFINITELY_NOT_EXECUTED",
+                          "UNKNOWN_AFTER_DISPATCH",
+                          "CLAIMED",
+                          "REFUSED"
+                        ]
+                      },
+                      "executed": {
+                        "type": [
+                          "boolean",
+                          "null"
+                        ]
+                      },
+                      "reason": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      },
+                      "code": {
+                        "type": "string",
+                        "pattern": "^[A-Z][A-Z0-9_]{1,63}$"
+                      },
+                      "finalized": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "COMMITTED",
+                              "FAILED",
+                              "INDETERMINATE"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "permit": {
+                        "type": "boolean"
+                      },
+                      "disposition": {
+                        "type": "string",
+                        "enum": [
+                          "NOT_FORWARDED",
+                          "HELD",
+                          "FORWARDED_UNGOVERNED"
+                        ]
+                      },
+                      "writes": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "outcome"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "op",
+                  "answer",
+                  "expect"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "op": {
+                    "type": "string",
+                    "const": "advance"
+                  },
+                  "ms": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "op",
+                  "ms"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        }
+      },
+      "required": [
+        "description",
+        "contract",
+        "style",
+        "posture",
+        "decision",
+        "steps"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

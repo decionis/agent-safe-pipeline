@@ -1,0 +1,21 @@
+{
+  "description": "A permit-style execution whose authority cannot be reached is refused before a permit exists, whatever the posture: a permit without an evaluation would be an authorization.",
+  "contract": "agent-safe.executors.native/1",
+  "style": "permit",
+  "posture": "BOUNDED_CONTINUITY",
+  "decision": {
+    "verdict": "BLOCK",
+    "fail_closed": true
+  },
+  "steps": [
+    {
+      "op": "hold",
+      "expect": {
+        "outcome": "BLOCKED",
+        "reason": "DECISION_NOT_ALLOW",
+        "disposition": "FORWARDED_UNGOVERNED",
+        "permit": false
+      }
+    }
+  ]
+}

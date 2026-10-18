@@ -1,0 +1,23 @@
+{
+  "description": "The executor refuses before anything is sent: the grant was spent, nothing left the process, and the authority is told the attempt failed.",
+  "contract": "agent-safe.executors.native/1",
+  "style": "dispatch",
+  "posture": "STRICT",
+  "decision": {
+    "verdict": "ALLOW",
+    "fail_closed": false
+  },
+  "steps": [
+    {
+      "op": "run",
+      "write": "FAIL_BEFORE_DISPATCH",
+      "expect": {
+        "outcome": "FAILED_BEFORE_DISPATCH",
+        "executed": false,
+        "code": "VECTOR_PAYLOAD_INVALID",
+        "finalized": "FAILED",
+        "writes": 0
+      }
+    }
+  ]
+}

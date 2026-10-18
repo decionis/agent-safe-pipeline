@@ -1,0 +1,23 @@
+{
+  "description": "The platform was reached and refused deterministically: nothing was effected, so the outcome is a fact, finalized FAILED, with nothing to reconcile.",
+  "contract": "agent-safe.executors.native/1",
+  "style": "dispatch",
+  "posture": "STRICT",
+  "decision": {
+    "verdict": "ALLOW",
+    "fail_closed": false
+  },
+  "steps": [
+    {
+      "op": "run",
+      "write": "REFUSE",
+      "expect": {
+        "outcome": "DEFINITELY_NOT_EXECUTED",
+        "executed": false,
+        "reason": "VECTOR_PLATFORM_REFUSED",
+        "finalized": "FAILED",
+        "writes": 1
+      }
+    }
+  ]
+}

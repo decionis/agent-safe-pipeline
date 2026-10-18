@@ -1,0 +1,22 @@
+{
+  "description": "Bounded continuity: the surface may continue without an evaluation, ungoverned and never approved. The runner itself still writes nothing without a grant, and reports the continuation as a coverage gap.",
+  "contract": "agent-safe.executors.native/1",
+  "style": "dispatch",
+  "posture": "BOUNDED_CONTINUITY",
+  "decision": {
+    "verdict": "BLOCK",
+    "fail_closed": true
+  },
+  "steps": [
+    {
+      "op": "run",
+      "write": "COMMIT",
+      "expect": {
+        "outcome": "BLOCKED",
+        "reason": "DECISION_NOT_ALLOW",
+        "disposition": "FORWARDED_UNGOVERNED",
+        "writes": 0
+      }
+    }
+  ]
+}

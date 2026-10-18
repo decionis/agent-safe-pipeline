@@ -1,5 +1,6 @@
 import {
   authorizationsFrom,
+  dispatchedUnderFrom,
   openAttemptsFrom,
   type ExecutionJournal,
   type JournalRecord,
@@ -52,6 +53,12 @@ export class InMemoryExecutionJournal implements ExecutionJournal {
 
   public async authorizationsOf(intentId: string): Promise<ReturnType<typeof authorizationsFrom>> {
     return await Promise.resolve(authorizationsFrom(this.records, intentId));
+  }
+
+  public async dispatchedUnder(
+    idempotencyKey: string,
+  ): Promise<ReturnType<typeof dispatchedUnderFrom>> {
+    return await Promise.resolve(dispatchedUnderFrom(this.records, idempotencyKey));
   }
 
   public close(): void {

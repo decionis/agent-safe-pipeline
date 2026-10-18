@@ -1,3 +1,4 @@
+import { AuthorityPaths } from "@decionis/agent-safe-pipeline";
 import type { GatewayConfig } from "../gateway/GatewayConfig.js";
 import { packageVersion } from "../Version.js";
 import { parseArguments, ArgumentError } from "./Arguments.js";
@@ -158,7 +159,7 @@ export async function runDoctor(
       } else {
         const auth = await probe(
           io.fetch,
-          `${config.authority.endpoint}/v1/authority/enforce-and-bind`,
+          `${config.authority.endpoint}${AuthorityPaths.GRANTS}`,
           {
             method: "POST",
             headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },

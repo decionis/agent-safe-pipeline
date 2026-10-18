@@ -1,0 +1,38 @@
+{
+  "description": "A permit-style execution: the grant is held at admission with a permit, claimed once when the native boundary presents it, and settled by the boundary's posting receipt.",
+  "contract": "agent-safe.executors.native/1",
+  "style": "permit",
+  "posture": "STRICT",
+  "decision": {
+    "verdict": "ALLOW",
+    "fail_closed": false
+  },
+  "steps": [
+    {
+      "op": "hold",
+      "expect": {
+        "outcome": "HELD",
+        "permit": true,
+        "finalized": null,
+        "writes": 0
+      }
+    },
+    {
+      "op": "present",
+      "expect": {
+        "outcome": "CLAIMED",
+        "permit": true,
+        "finalized": null
+      }
+    },
+    {
+      "op": "receipt",
+      "status": "POSTED",
+      "expect": {
+        "outcome": "COMPLETED",
+        "executed": true,
+        "finalized": "COMMITTED"
+      }
+    }
+  ]
+}

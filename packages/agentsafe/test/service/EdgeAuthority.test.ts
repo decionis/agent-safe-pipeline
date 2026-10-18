@@ -82,7 +82,7 @@ function build(
 }
 
 const enforceAndBind = (): number =>
-  authority.requests.filter((request) => request.path === "/v1/authority/enforce-and-bind").length;
+  authority.requests.filter((request) => request.path === "/v1/authority/grants").length;
 
 const claimed = (): number =>
   authority.requests.filter((request) => request.path.startsWith("/v1/execution/")).length;

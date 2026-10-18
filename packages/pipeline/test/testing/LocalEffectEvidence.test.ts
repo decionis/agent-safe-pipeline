@@ -116,9 +116,7 @@ describe("LocalAuthority effect commitment and evidence", () => {
     const decision = await gate().evaluate(captured);
 
     expect(decision.verdict).toBe("ALLOW");
-    const enforce = authority.requests.filter(
-      (request) => request.path === "/v1/authority/enforce-and-bind",
-    );
+    const enforce = authority.requests.filter((request) => request.path === "/v1/authority/grants");
     const last = enforce[enforce.length - 1];
     // The double's independent canonicalizer reproduced the same hash from a
     // binding that carries the commitment.
