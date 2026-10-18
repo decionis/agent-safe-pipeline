@@ -14,6 +14,7 @@ import {
   JournalError,
   JournalRecordSchema,
   authorizationsFrom,
+  dispatchedUnderFrom,
   openAttemptsFrom,
   type DispatchedAuthorization,
   type ExecutionJournal,
@@ -83,6 +84,12 @@ export class FileExecutionJournal implements ExecutionJournal {
 
   public async authorizationsOf(intentId: string): Promise<readonly DispatchedAuthorization[]> {
     return await Promise.resolve(authorizationsFrom(this.records(), intentId));
+  }
+
+  public async dispatchedUnder(
+    idempotencyKey: string,
+  ): Promise<readonly DispatchedAuthorization[]> {
+    return await Promise.resolve(dispatchedUnderFrom(this.records(), idempotencyKey));
   }
 
   public close(): void {

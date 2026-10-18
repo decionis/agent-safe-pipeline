@@ -4,18 +4,50 @@ Grant consumption and provider execution are separate boundaries. A single-use g
 before a handler runs, but a provider may accept a side effect and lose the response. Treating that
 case as an ordinary failure invites a duplicate retry.
 
-`SafeExecutor.run` therefore returns one of five outcomes:
+Every governed execution runs through one runner, `GovernedExecutionRunner`, whatever executor
+performs the write ([Native Executor v1](../spec/executors/native/v1/README.md)). `SafeExecutor` is
+its registry-shaped face and keeps its signatures. Every run ends in one of six outcomes:
 
 | Outcome                   | Meaning                                                                          | May the caller retry the side effect? |
 | ------------------------- | -------------------------------------------------------------------------------- | ------------------------------------- |
 | `BLOCKED`                 | No valid execution authority reached the handler                                 | Obtain or correct authority first     |
+| `HELD`                    | Admitted; the grant waits, unclaimed, for the native boundary to present it      | No; the boundary presents the permit  |
 | `FAILED_BEFORE_DISPATCH`  | A grant was consumed, but the trusted provider-dispatch boundary was not crossed | Only with a fresh decision and grant  |
 | `COMPLETED`               | The trusted handler returned a provider result                                   | No; return or persist that result     |
 | `DEFINITELY_NOT_EXECUTED` | Dispatch began and the provider refused it; nothing was effected                 | Only with a fresh decision and grant  |
 | `UNKNOWN_AFTER_DISPATCH`  | Dispatch began, but completion could not be proved                               | No; reconcile first                   |
 
-`executed` is `true`, `false`, `false`, or `null` respectively so an unknown outcome cannot be
-mistaken for a definite failure, and a definite failure cannot be mistaken for an unknown one.
+`executed` is `true` only for `COMPLETED`, `null` for `UNKNOWN_AFTER_DISPATCH`, and `false`
+otherwise, so an unknown outcome cannot be mistaken for a definite failure, and a definite failure
+cannot be mistaken for an unknown one.
+
+## Held executions and permits
+
+`HELD` is the permit style's first outcome: the platform performs the write (a Business Central
+posting, a card issuer's authorization) at a moment this process does not choose. The runner admits
+the decision exactly as a run would, holds the grant without consuming it, and returns the permit
+the boundary presents: `{permitId, intentHash, expiresAt}`, never the token. Presentation claims the
+grant once (`present`, or `SafeExecutor.claimHeld`); a second presentation, or one after the grant
+expired, is `BLOCKED`. The boundary's receipt settles it (`settle`, or `SafeExecutor.settleHeld`)
+into `COMPLETED`, `DEFINITELY_NOT_EXECUTED` or `UNKNOWN_AFTER_DISPATCH`, once: a second receipt is
+refused with `RECEIPT_DUPLICATE`, and a receipt for a permit nobody presented with
+`PERMIT_NOT_PRESENTED`. An unclaimed hold expires with its grant and effects nothing.
+
+## Admission
+
+Before anything is consumed the runner requires an authoritative `ALLOW` (or Commerce's `PROCEED`)
+that did not fail closed, a dossier (`DOSSIER_MISSING` otherwise), the decided intent, a grant, the
+boundary and workload that captured the intent, an executor whose description of the action is the
+decided intent, and, when a connection scope is given, a capability that is connected,
+scope-granted and enabled (`CAPABILITY_UNAVAILABLE`, with the missing piece as `code`). With a
+journal, a key already claimed is refused as `IDEMPOTENCY_KEY_DISPATCHED`, and the claim is written
+durably before dispatch; a journal that cannot take it fails the attempt before dispatch
+(`JOURNAL_UNAVAILABLE`).
+
+When the authority cannot be reached the decision fails closed and the run is `BLOCKED` under every
+posture. `STRICT` reports the action not forwarded; `BOUNDED_CONTINUITY` and `CUSTOM` add an
+`unavailable` block saying what the surface may do (`FORWARDED_UNGOVERNED`, `HELD`), which the
+evidence line reports as a coverage gap. The runner itself never writes without a grant.
 
 ## Telling a refusal from an unknown
 
@@ -65,12 +97,15 @@ unknown.
 
 ## Finalization
 
-Every outcome that consumed a grant also reports `finalization`. After the attempt, `SafeExecutor`
+Every outcome that consumed a grant also reports `finalization`. After the attempt, the runner
 asks the verifier to record the commit outcome with the authority: `COMMITTED` for `COMPLETED`,
 `FAILED` for `FAILED_BEFORE_DISPATCH` and for `DEFINITELY_NOT_EXECUTED`, and `INDETERMINATE` for
 `UNKNOWN_AFTER_DISPATCH`.
-`DecionisGrantVerifier` claims the grant through `/v1/execution/claim-token` and finalizes it through
-`/v1/execution/finalize-token`, so commit evidence joins the Decision Dossier chain.
+`DecionisGrantVerifier` claims the grant through `POST /v1/authority/grants/{grantId}/claims` and
+records the attempt through `POST /v1/authority/grants/{grantId}/receipts`, so commit evidence joins
+the Decision Dossier chain. `grantId` is the grant's `jti`, read from the execution token; a token
+that names none falls back to the deprecated `/v1/execution/claim-token` and
+`/v1/execution/finalize-token`, which the authority keeps as aliases on the same handlers.
 
 | `finalization` | Meaning                                                                                                                                   |
 | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
@@ -107,9 +142,9 @@ and it has certainly closed by the time anyone presents a recovery reference bac
 `AuthorityEffectEvidence` record, an observation of what actually happened downstream. The pipeline is
 domain-free, so it never constructs, interprets, upgrades, or downgrades an observation; only the
 trusted runtime that watched the provider knows what the effect was. `DecionisGrantVerifier` forwards
-the record verbatim as `effect_evidence` on the finalize request. `SafeExecutor` never supplies one,
-because it cannot: a caller that wants effect evidence recorded calls the verifier's `finalize`
-directly with it.
+the record verbatim as `effect_evidence` on the finalize request. The runner forwards the one a
+native executor's `observe` returned; `SafeExecutor` never supplies one, because a registry handler
+returns none, so the runtime registers its handlers' observations with its verifier instead.
 
 ### The drop rule
 
@@ -258,7 +293,8 @@ credentials.
 
 An unknown result includes an immutable `agent-safe.recovery/1` reference containing only the bound
 intent, decision, dossier, grant, expiry, and idempotency identifiers. Pass that reference and the
-original captured intent to `SafeExecutor.reconcile`.
+original captured intent to `GovernedExecutionRunner.reconcile` (or `SafeExecutor.reconcile`). A
+permit-style settlement whose receipt left the outcome unknown carries the same reference.
 
 The reference comes back from the caller, so its decision, dossier, grant and expiry are a claim.
 Give `SafeExecutor` the attempts it dispatched as `attempts` (a `DispatchedAttempts`) and it holds
@@ -266,7 +302,13 @@ the reference against them before the provider is asked: a binding it did not re
 `BLOCKED` with `RECOVERY_BINDING_MISMATCH`, and an intent it never dispatched is `BLOCKED` with
 `RECOVERY_ATTEMPT_UNKNOWN`. Without `attempts`, the lookup still runs, and the reconciliation
 events are recorded `NON_AUTHORITATIVE`, because nothing vouches for the binding. The trusted
-executor passes its attempt journal.
+executor passes its attempt journal, and a runner given a journal holds the reference against it.
+
+A proven answer (`COMPLETED`, or proof that nothing happened) is reported to the authority through
+`POST /v1/authority/grants/{grantId}/reconciliations`, as evidence: the report never changes the
+result, and one that cannot be delivered is `PENDING`. `DecionisGrantVerifier` keeps the claim of
+an attempt it finalized `INDETERMINATE` (bounded, oldest first) so the report can name it;
+`SafeExecutor` makes no report, exactly as before the runner.
 
 Reconciliation is a provider lookup, not authorization. It may return the original completed
 result, prove that no action occurred, or remain unknown. Concurrent reconciliation calls for the

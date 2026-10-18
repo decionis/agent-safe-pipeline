@@ -1,0 +1,28 @@
+{
+  "description": "A receipt for a permit nobody presented settles nothing: the grant was never claimed, so there is no attempt to settle.",
+  "contract": "agent-safe.executors.native/1",
+  "style": "permit",
+  "posture": "STRICT",
+  "decision": {
+    "verdict": "ALLOW",
+    "fail_closed": false
+  },
+  "steps": [
+    {
+      "op": "hold",
+      "expect": {
+        "outcome": "HELD",
+        "permit": true
+      }
+    },
+    {
+      "op": "receipt",
+      "status": "POSTED",
+      "expect": {
+        "outcome": "REFUSED",
+        "reason": "PERMIT_NOT_PRESENTED",
+        "finalized": null
+      }
+    }
+  ]
+}

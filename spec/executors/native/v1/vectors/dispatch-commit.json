@@ -1,0 +1,22 @@
+{
+  "description": "A dispatch-style write that commits: the grant is claimed once, the platform effects the action, and the authority records COMMITTED.",
+  "contract": "agent-safe.executors.native/1",
+  "style": "dispatch",
+  "posture": "STRICT",
+  "decision": {
+    "verdict": "ALLOW",
+    "fail_closed": false
+  },
+  "steps": [
+    {
+      "op": "run",
+      "write": "COMMIT",
+      "expect": {
+        "outcome": "COMPLETED",
+        "executed": true,
+        "finalized": "COMMITTED",
+        "writes": 1
+      }
+    }
+  ]
+}

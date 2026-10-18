@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AuthorityBaseUrl } from "../http/AuthorityBaseUrl.js";
+import { AuthorityPaths } from "../http/AuthorityPaths.js";
 import { credentialReader, type Credential } from "../http/Credential.js";
 import { BoundedResponseBody } from "../http/BoundedResponseBody.js";
 import { userAgent, type ClientSource } from "../http/ClientIdentification.js";
@@ -432,7 +433,7 @@ export class DecionisGate implements DecisionAuthority {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
-      const response = await this.fetchImpl(`${this.baseUrl}/v1/authority/enforce-and-bind`, {
+      const response = await this.fetchImpl(`${this.baseUrl}${AuthorityPaths.GRANTS}`, {
         method: "POST",
         headers: {
           authorization: `Bearer ${this.apiKey()}`,
@@ -524,7 +525,7 @@ export class DecionisGate implements DecisionAuthority {
     );
     try {
       const response = await this.fetchImpl(
-        `${this.baseUrl}/v1/authority/escalations/${encodeURIComponent(escalation.escalationId)}`,
+        `${this.baseUrl}${AuthorityPaths.escalation(escalation.escalationId)}`,
         {
           method: "GET",
           headers: { authorization: `Bearer ${this.apiKey()}`, "user-agent": this.userAgent },

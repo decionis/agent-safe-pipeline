@@ -1,0 +1,35 @@
+{
+  "description": "The boundary presented the permit and its posting was rejected: nothing was effected, and the settlement says so.",
+  "contract": "agent-safe.executors.native/1",
+  "style": "permit",
+  "posture": "STRICT",
+  "decision": {
+    "verdict": "ALLOW",
+    "fail_closed": false
+  },
+  "steps": [
+    {
+      "op": "hold",
+      "expect": {
+        "outcome": "HELD",
+        "permit": true
+      }
+    },
+    {
+      "op": "present",
+      "expect": {
+        "outcome": "CLAIMED",
+        "permit": true
+      }
+    },
+    {
+      "op": "receipt",
+      "status": "REJECTED",
+      "expect": {
+        "outcome": "DEFINITELY_NOT_EXECUTED",
+        "executed": false,
+        "finalized": "FAILED"
+      }
+    }
+  ]
+}

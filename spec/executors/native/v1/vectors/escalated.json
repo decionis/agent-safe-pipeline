@@ -1,0 +1,21 @@
+{
+  "description": "An ESCALATE is a hold the authority resolves, not an authorization: nothing is claimed and nothing is written.",
+  "contract": "agent-safe.executors.native/1",
+  "style": "dispatch",
+  "posture": "STRICT",
+  "decision": {
+    "verdict": "ESCALATE",
+    "fail_closed": false
+  },
+  "steps": [
+    {
+      "op": "run",
+      "write": "COMMIT",
+      "expect": {
+        "outcome": "BLOCKED",
+        "reason": "DECISION_NOT_ALLOW",
+        "writes": 0
+      }
+    }
+  ]
+}

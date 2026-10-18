@@ -195,7 +195,7 @@ describe("DecionisGate managed escalation", () => {
     expect(intent.canonicalIntent).toBe(beforeCanonical);
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url.endsWith("/v1/authority/enforce-and-bind")).toBe(true);
+    expect(url.endsWith("/v1/authority/grants")).toBe(true);
     const body = JSON.parse(init.body as string) as Record<string, unknown>;
     expect(body.escalation).toEqual({
       mode: "MANAGED",

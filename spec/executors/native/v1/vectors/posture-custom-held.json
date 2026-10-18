@@ -1,0 +1,23 @@
+{
+  "description": "Custom posture: the institution's rule holds the action for review when the authority cannot be reached. Holding is not an authorization: no grant, no write.",
+  "contract": "agent-safe.executors.native/1",
+  "style": "dispatch",
+  "posture": "CUSTOM",
+  "custom_disposition": "HELD",
+  "decision": {
+    "verdict": "BLOCK",
+    "fail_closed": true
+  },
+  "steps": [
+    {
+      "op": "run",
+      "write": "COMMIT",
+      "expect": {
+        "outcome": "BLOCKED",
+        "reason": "DECISION_NOT_ALLOW",
+        "disposition": "HELD",
+        "writes": 0
+      }
+    }
+  ]
+}

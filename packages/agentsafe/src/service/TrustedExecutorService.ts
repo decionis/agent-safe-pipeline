@@ -21,12 +21,9 @@ import { effectBlock } from "../adapters/AdapterActionHandler.js";
 import { bindBankingAction, BindingError } from "../adapters/banking/BankingIntentBinder.js";
 import { BankingAdapter, BankingActionError } from "../adapters/banking/BankingAdapter.js";
 import { isBankingActionName, type BankingAction } from "../adapters/banking/BankingAction.js";
+import { CardAuthorizationExecutor } from "../adapters/cards/CardAuthorizationExecutor.js";
 import { matchCardAuthorization } from "../adapters/cards/CardAuthorizationMatcher.js";
-import {
-  cardExecutionResult,
-  cardResultRecord,
-  prepareCardPurchase,
-} from "../adapters/cards/CardEffect.js";
+import { cardExecutionResult, prepareCardPurchase } from "../adapters/cards/CardEffect.js";
 import {
   bindCardPurchase,
   CardActionError,
@@ -1993,17 +1990,24 @@ export class TrustedExecutorService {
     const { grant, authorization } = claim;
     const { captured } = grant.held;
     const leaseExpired = Date.now() > claim.leaseExpiresAtMs;
-    const record = cardResultRecord({
-      purchase: grant.purchase,
-      prepared: grant.prepared,
-      authorization: claim.request,
-      result,
-      leaseExpired,
+    // The issuer's result is the permit's receipt, read by the cards family's
+    // native executor into the effect record it settles with.
+    const observation = await new CardAuthorizationExecutor({
       observer: { id: this.config.banking.adapterId, version: this.config.banking.adapterVersion },
-      correlationId: captured.intent.intentId,
-      idempotencyKey: captured.intent.idempotencyKey,
-      observedAt: new Date().toISOString(),
+    }).observe({
+      kind: "RECEIPT",
+      receipt: {
+        purchase: grant.purchase,
+        prepared: grant.prepared,
+        request: claim.request,
+        result,
+        leaseExpired,
+        correlationId: captured.intent.intentId,
+        idempotencyKey: captured.intent.idempotencyKey,
+      },
     });
+    const record = observation.result;
+    if (record === null) throw new ServiceError(503, "CARD_RESULT_UNREADABLE");
     // The verifier finalizes with exactly this observation, by the
     // authorization it belongs to.
     this.effects.attach(authorization, record);

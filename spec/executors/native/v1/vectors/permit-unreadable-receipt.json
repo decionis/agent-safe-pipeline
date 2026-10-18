@@ -1,0 +1,43 @@
+{
+  "description": "A receipt the executor cannot read is an outcome nobody knows, never a success; a platform with no read path keeps it unknown on reconciliation.",
+  "contract": "agent-safe.executors.native/1",
+  "style": "permit",
+  "posture": "STRICT",
+  "decision": {
+    "verdict": "ALLOW",
+    "fail_closed": false
+  },
+  "steps": [
+    {
+      "op": "hold",
+      "expect": {
+        "outcome": "HELD",
+        "permit": true
+      }
+    },
+    {
+      "op": "present",
+      "expect": {
+        "outcome": "CLAIMED",
+        "permit": true
+      }
+    },
+    {
+      "op": "receipt",
+      "status": "UNREADABLE",
+      "expect": {
+        "outcome": "UNKNOWN_AFTER_DISPATCH",
+        "executed": null,
+        "finalized": "INDETERMINATE"
+      }
+    },
+    {
+      "op": "reconcile",
+      "answer": "UNKNOWN",
+      "expect": {
+        "outcome": "UNKNOWN_AFTER_DISPATCH",
+        "executed": null
+      }
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "description": "A permit presented after its grant expired is refused: there is nothing left to claim, and nothing is recorded as executed.",
+  "contract": "agent-safe.executors.native/1",
+  "style": "permit",
+  "posture": "STRICT",
+  "decision": {
+    "verdict": "ALLOW",
+    "fail_closed": false
+  },
+  "steps": [
+    {
+      "op": "hold",
+      "expect": {
+        "outcome": "HELD",
+        "permit": true
+      }
+    },
+    {
+      "op": "advance",
+      "ms": 61000
+    },
+    {
+      "op": "present",
+      "expect": {
+        "outcome": "BLOCKED",
+        "reason": "AUTHORIZATION_INVALID",
+        "finalized": null
+      }
+    }
+  ]
+}

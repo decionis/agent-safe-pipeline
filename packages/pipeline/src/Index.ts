@@ -23,10 +23,28 @@ export * from "./decision/Provision.js";
 export * from "./decision/ShadowGate.js";
 export * from "./execution/ActionRegistry.js";
 export * from "./execution/AuthorizationVerifier.js";
+export * from "./execution/EffectAdapter.js";
+export * from "./execution/ExecutionDeadline.js";
+export * from "./execution/ExecutionJournal.js";
+export {
+  type ExecutionOutcome,
+  type ExecutionSettlement,
+  type FailedBeforeDispatchResult,
+  type PermitHeldResult,
+  type PermitPresentationResult,
+} from "./execution/ExecutionOutcome.js";
+export * from "./execution/ExecutionPosture.js";
+export * from "./execution/ExecutorEvidence.js";
+export * from "./execution/GovernedExecutionRunner.js";
 export * from "./execution/LocalAuthorizationVerifier.js";
+export * from "./execution/NativeExecutor.js";
+export * from "./execution/NativeExecutorSchema.js";
+export * from "./execution/PostgresExecutionJournal.js";
 export * from "./execution/PostgresReplayStore.js";
+export * from "./execution/RegistryExecutor.js";
 export * from "./execution/ReplayStore.js";
 export * from "./execution/SafeExecutor.js";
+export * from "./http/AuthorityPaths.js";
 export type { ClientSource } from "./http/ClientIdentification.js";
 export * from "./http/StoredCredentials.js";
 export * from "./intent/CanonicalIntentHasher.js";

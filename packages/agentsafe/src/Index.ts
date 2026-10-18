@@ -18,10 +18,20 @@ export {
 } from "./verify/VerifyEvidenceBundle.js";
 export {
   adapterActionHandler,
+  describeByEffect,
   effectBlock,
+  executorActionHandler,
   type AdapterExecutionResult,
   type AdapterHandlerOptions,
+  type ExecutorHandlerOptions,
 } from "./adapters/AdapterActionHandler.js";
+export {
+  EffectAdapterExecutor,
+  type ActionDescription,
+  type AdapterDispatchReceipt,
+  type AdapterObservation,
+  type EffectAdapterExecutorOptions,
+} from "./adapters/EffectAdapterExecutor.js";
 export {
   IndeterminateOutcome,
   type AdapterExecution,
@@ -84,6 +94,12 @@ export {
   type BankingAdapterOptions,
   type BankingTransport,
 } from "./adapters/banking/BankingAdapter.js";
+export {
+  BankingExecutor,
+  CORE_BANKING_PLATFORM,
+  describeBankingAction,
+  type BankingExecutorOptions,
+} from "./adapters/banking/BankingExecutor.js";
 export { bankingHandlers, type BankingHandlerOptions } from "./adapters/banking/BankingHandlers.js";
 export {
   bindBankingAction,
@@ -113,6 +129,12 @@ export {
 } from "./adapters/banking/EffectProjections.js";
 export { ibanFromReference, isValidIban, referenceIsValid } from "./adapters/banking/Iban.js";
 export { Money, MoneyError } from "./adapters/banking/Money.js";
+export {
+  CARD_ISSUER_PLATFORM,
+  CardAuthorizationExecutor,
+  type CardAuthorizationExecutorOptions,
+  type CardAuthorizationReceipt,
+} from "./adapters/cards/CardAuthorizationExecutor.js";
 export {
   matchCardAuthorization,
   type CardAuthorizationView,

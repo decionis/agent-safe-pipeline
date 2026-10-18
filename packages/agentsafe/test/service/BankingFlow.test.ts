@@ -161,9 +161,7 @@ describe("a BEAP action through the whole boundary", () => {
     expect(response.finalization).toBe("RECORDED");
     // The trusted context the executor computed reaches the authority inside
     // the hashed intent, and the authority recomputes that hash itself.
-    const evaluated = authority.requests.find((request) =>
-      request.path.includes("enforce-and-bind"),
-    );
+    const evaluated = authority.requests.find((request) => request.path === "/v1/authority/grants");
     const binding = evaluated?.body as Record<string, unknown> | undefined;
     expect(binding?.["context"]).toMatchObject({
       beap_profile: "decionis.beap/v1.0",

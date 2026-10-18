@@ -237,6 +237,16 @@ const FinalizeRequestSchema = z.strictObject({
   effect_receipt: z.string().min(1).max(20_000).regex(COMPACT_JWS).optional(),
 });
 
+const ReconcileRequestSchema = z.strictObject({
+  execution_token: z.string().min(1).max(20_000),
+  claim_token: z.string().regex(/^[\w-]{43,128}$/),
+  commit_correlation_id: boundedId,
+  outcome: z.enum(["COMMITTED", "FAILED"]),
+  reconciliation_note: z.string().min(1).max(2_000).optional(),
+  downstream_evidence: z.record(z.string(), z.unknown()).optional(),
+  effect_evidence: z.unknown().optional(),
+});
+
 /** What a registered key may sign, as the hosted `ExecutionProviderKeyPurpose` names it. */
 export const PROVIDER_KEY_PURPOSES = [
   "effect_receipt",
@@ -921,9 +931,27 @@ export class LocalAuthority {
       return this.send(res, record, 415, { error: "UNSUPPORTED_MEDIA_TYPE" });
     }
 
+    // The grant's REST resources, as the hosted authority serves them: the
+    // path names the grant by its id, which must be the presented token's.
+    const grantResource = url.pathname.match(
+      /^\/v1\/authority\/grants\/([^/]+)\/(claims|receipts|reconciliations)$/,
+    );
+    if (grantResource !== null) {
+      const mismatch = this.grantIdMismatch(record, decodeURIComponent(grantResource[1] ?? ""));
+      if (mismatch !== null) return this.send(res, record, 409, mismatch);
+      if (grantResource[2] === "claims") {
+        return this.respond(res, record, "claim", this.claim(record));
+      }
+      if (grantResource[2] === "receipts") {
+        return this.respond(res, record, "finalize", this.finalize(record));
+      }
+      return this.send(res, record, ...this.reconcile(record));
+    }
+
     switch (url.pathname) {
       case "/v1/execution/provider-keys":
         return this.send(res, record, ...this.registerProviderKeyRoute(record));
+      case "/v1/authority/grants":
       case "/v1/authority/enforce-and-bind":
         return this.respond(res, record, "enforce", this.enforceAndBind(record));
       case "/v1/execution/claim-token":
@@ -934,6 +962,49 @@ export class LocalAuthority {
       default:
         return this.send(res, record, 404, { error: "NOT_FOUND" });
     }
+  }
+
+  /** A grant resource addressed by an id that is not the presented token's grant: refused, as hosted. */
+  private grantIdMismatch(
+    record: LocalAuthorityRequestRecord,
+    grantId: string,
+  ): { readonly valid: false; readonly reason_codes: readonly string[] } | null {
+    const token = (record.body as { readonly execution_token?: unknown } | null)?.execution_token;
+    const grant = typeof token === "string" ? this.grants.get(token) : undefined;
+    if (grant === undefined || grant.jti === grantId) return null;
+    return { valid: false, reason_codes: ["GRANT_ID_MISMATCH"] };
+  }
+
+  /**
+   * `POST /v1/authority/grants/{grantId}/reconciliations`: how an attempt
+   * finalized `INDETERMINATE` resolved, from the executor that claimed it.
+   * Recorded once; the grant is never reopened.
+   */
+  private reconcile(record: LocalAuthorityRequestRecord): [number, unknown] {
+    const parsed = ReconcileRequestSchema.safeParse(record.body);
+    if (!parsed.success) return [400, { error: "REQUEST_INVALID" }];
+    const refused = (reasonCode: string): [number, unknown] => [
+      409,
+      { reconciled: false, reason_codes: [reasonCode] },
+    ];
+    const grant = this.grants.get(parsed.data.execution_token);
+    if (grant === undefined) return refused("GRANT_INVALID");
+    if (!grant.claimed || grant.claimToken !== parsed.data.claim_token) {
+      return refused("NONCE_REPLAY_DETECTED");
+    }
+    if (grant.correlationId !== parsed.data.commit_correlation_id) {
+      return refused("EXECUTION_CORRELATION_MISMATCH");
+    }
+    if (grant.finalized !== "INDETERMINATE") return refused("EXECUTION_NOT_INDETERMINATE");
+    grant.finalized = parsed.data.outcome;
+    return [
+      200,
+      {
+        reconciled: true,
+        resolution: parsed.data.outcome === "COMMITTED" ? "FINALIZED" : "FAILED",
+        reason_codes: [],
+      },
+    ];
   }
 
   /** `POST /v1/execution/provider-keys`: the public half only, or a 400 naming why. */

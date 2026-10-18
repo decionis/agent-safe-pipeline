@@ -246,7 +246,7 @@ describe("a card purchase through the whole boundary", () => {
     // Nothing is claimed until the issuer asks.
     expect(requestsTo("claim-token").length).toBe(claimsBefore);
     // The grant is bound to the purchase's expected effect.
-    const evaluated = requestsTo("enforce-and-bind").at(-1)?.body as Record<string, unknown>;
+    const evaluated = requestsTo("/v1/authority/grants").at(-1)?.body as Record<string, unknown>;
     expect(evaluated["expected_effect_digest"]).toBe(
       prepareCardPurchase(parameters).expectedEffectDigest,
     );
@@ -254,7 +254,7 @@ describe("a card purchase through the whole boundary", () => {
     expect(await journal.openAttempts()).toEqual([]);
 
     // A second purchase on the same card waits, before the authority is asked.
-    const evaluations = requestsTo("enforce-and-bind").length;
+    const evaluations = requestsTo("/v1/authority/grants").length;
     const second = await refusal(
       service.propose({
         ...body,
@@ -262,7 +262,7 @@ describe("a card purchase through the whole boundary", () => {
       }),
     );
     expect([second.status, second.code]).toEqual([409, "CARD_GRANT_ALREADY_HELD"]);
-    expect(requestsTo("enforce-and-bind").length).toBe(evaluations);
+    expect(requestsTo("/v1/authority/grants").length).toBe(evaluations);
 
     // A purchase on the card that does not match leaves the grant spendable;
     // holds are keyed by the merchant too, so another merchant finds none.
@@ -449,7 +449,7 @@ describe("a card purchase through the whole boundary", () => {
 
   it("refuses a card number before anything is asked or recorded", async () => {
     const { service, lines, securityLines } = build();
-    const evaluations = requestsTo("enforce-and-bind").length;
+    const evaluations = requestsTo("/v1/authority/grants").length;
     const pan = "4111111111111111";
     const refused = await refusal(service.propose(purchase(4_250, { cardTokenRef: pan }).body));
     expect([refused.status, refused.code]).toEqual([422, "CARD_PAN_REFUSED"]);
@@ -470,7 +470,7 @@ describe("a card purchase through the whole boundary", () => {
     expect([issuer.status, issuer.code]).toEqual([422, "CARD_PAN_REFUSED"]);
     const malformed = await refusal(service.authorizeCard({ authorization_id: "x" }, ISSUER));
     expect([malformed.status, malformed.code]).toEqual([400, "CARD_AUTHORIZATION_INVALID"]);
-    expect(requestsTo("enforce-and-bind").length).toBe(evaluations);
+    expect(requestsTo("/v1/authority/grants").length).toBe(evaluations);
     expect([...lines, ...securityLines].join("\n")).not.toContain(pan);
     service.close();
   });
@@ -638,12 +638,12 @@ describe("a cardholder's tap resumes an escalated purchase", () => {
     expect([pan.status, pan.code]).toEqual([422, "CARD_PAN_REFUSED"]);
 
     // A malformed attestation never reaches the authority.
-    const evaluations = requestsTo("enforce-and-bind").length;
+    const evaluations = requestsTo("/v1/authority/grants").length;
     for (const attestation of ["not-a-jws", `a.b.${"c".repeat(20_000)}`]) {
       const refused = await refusal(service.resume({ mode: "ATTESTATION", intent, attestation }));
       expect([refused.status, refused.code]).toEqual([400, "REQUEST_INVALID"]);
     }
-    expect(requestsTo("enforce-and-bind").length).toBe(evaluations);
+    expect(requestsTo("/v1/authority/grants").length).toBe(evaluations);
 
     // One the authority cannot verify is a fail-closed refusal.
     const forged = await service.resume({ mode: "ATTESTATION", intent, attestation: FORGED });
@@ -658,7 +658,7 @@ describe("a cardholder's tap resumes an escalated purchase", () => {
       outcome: "HELD_FOR_AUTHORIZATION",
       reason_codes: ["PRESENCE_ATTESTATION_VERIFIED"],
     });
-    const evaluated = requestsTo("enforce-and-bind").at(-1)?.body as Record<string, unknown>;
+    const evaluated = requestsTo("/v1/authority/grants").at(-1)?.body as Record<string, unknown>;
     expect(evaluated["evidence"]).toEqual({
       humanApproval: { provider: "attestation", attestation: TAPPED },
     });
@@ -807,7 +807,7 @@ describe("a hold the policy sends to a presence provider", () => {
     expect([pan.status, pan.code]).toEqual([422, "CARD_PAN_REFUSED"]);
 
     // The handoff presented whole, with the tap, by the operator: a fresh evaluation.
-    const evaluations = routedRequests("enforce-and-bind").length;
+    const evaluations = routedRequests("/v1/authority/grants").length;
     const resumed = await service.resume({ ...handoff, attestation: TAPPED }, PRESENTER);
     expect(resumed).toMatchObject({
       intent_id: escalated.intent_id,
@@ -816,8 +816,8 @@ describe("a hold the policy sends to a presence provider", () => {
       outcome: "HELD_FOR_AUTHORIZATION",
       reason_codes: ["PRESENCE_ATTESTATION_VERIFIED"],
     });
-    expect(routedRequests("enforce-and-bind")).toHaveLength(evaluations + 1);
-    expect(routedRequests("enforce-and-bind").at(-1)?.body).toMatchObject({
+    expect(routedRequests("/v1/authority/grants")).toHaveLength(evaluations + 1);
+    expect(routedRequests("/v1/authority/grants").at(-1)?.body).toMatchObject({
       intent_id: escalated.intent_id,
       evidence: { humanApproval: { provider: "attestation", attestation: TAPPED } },
     });
@@ -832,7 +832,7 @@ describe("a hold the policy sends to a presence provider", () => {
     const { service } = build("ENFORCEMENT", { authority: routed });
     const { parameters, body } = purchase();
     await service.propose(body);
-    const first = routedRequests("enforce-and-bind").at(-1)?.body as {
+    const first = routedRequests("/v1/authority/grants").at(-1)?.body as {
       context: Record<string, unknown>;
     };
     expect(first.context["card_velocity"]).toEqual({ window_seconds: 600, holds: 0, claims: 0 });
@@ -840,7 +840,7 @@ describe("a hold the policy sends to a presence provider", () => {
       decision: "APPROVE",
     });
     await service.propose({ ...body, idempotency_key: "fixture-card-purchase-velocity" });
-    const second = routedRequests("enforce-and-bind").at(-1)?.body as {
+    const second = routedRequests("/v1/authority/grants").at(-1)?.body as {
       context: Record<string, unknown>;
     };
     expect(second.context["card_velocity"]).toEqual({ window_seconds: 600, holds: 1, claims: 1 });
@@ -896,7 +896,7 @@ describe("holds keyed by the card and the merchant", () => {
     expect(heldFirst).toMatchObject({ outcome: "HELD_FOR_AUTHORIZATION" });
     expect(heldSecond).toMatchObject({ outcome: "HELD_FOR_AUTHORIZATION" });
     // The second hold's intent saw the first in the card's velocity.
-    const evaluated = requestsTo("enforce-and-bind").at(-1)?.body as {
+    const evaluated = requestsTo("/v1/authority/grants").at(-1)?.body as {
       context: { card_velocity: { holds: number; claims: number } };
     };
     expect(evaluated.context.card_velocity).toEqual({ window_seconds: 600, holds: 1, claims: 0 });
@@ -1060,7 +1060,7 @@ describe("holds shared across replicas through the Postgres store", () => {
     // effect observer, so the first post, with evidence, is refused and the
     // verifier posts again without it, exactly as on one replica.)
     const granted = (
-      requestsTo("enforce-and-bind").at(-1)?.response?.body as { execution_token: string }
+      requestsTo("/v1/authority/grants").at(-1)?.response?.body as { execution_token: string }
     ).execution_token;
     const finalizations = requestsTo("finalize-token").slice(finalizedBefore);
     expect(finalizations.length).toBeGreaterThanOrEqual(1);
@@ -1142,7 +1142,7 @@ describe("an authorization with no hold, evaluated at the commit boundary", () =
     plain.service.close();
 
     const { service, lines, securityLines, journal } = build("ENFORCEMENT", { env: EVALUATE() });
-    const evaluations = requestsTo("enforce-and-bind").length;
+    const evaluations = requestsTo("/v1/authority/grants").length;
     const claims = requestsTo("claim-token").length;
     const asked = authorizationFor({
       cardTokenRef: "fixture_card_ref_commit_1",
@@ -1153,12 +1153,12 @@ describe("an authorization with no hold, evaluated at the commit boundary", () =
       decision: "APPROVE",
       authorization_id: asked.authorization_id,
     });
-    expect(requestsTo("enforce-and-bind").length).toBe(evaluations + 1);
+    expect(requestsTo("/v1/authority/grants").length).toBe(evaluations + 1);
     expect(requestsTo("claim-token").length).toBe(claims + 1);
     // The intent the authority saw: the authorization as a purchase, by the
     // commit actor, with the hook's principal and the authorization's id in
     // its context, and no card number anywhere.
-    const evaluated = requestsTo("enforce-and-bind").at(-1)?.body as {
+    const evaluated = requestsTo("/v1/authority/grants").at(-1)?.body as {
       actor: { id: string; type: string };
       tenant_id: string;
       action: { type: string; parameters: Record<string, unknown> };
@@ -1188,7 +1188,7 @@ describe("an authorization with no hold, evaluated at the commit boundary", () =
     ]);
     // A retry is the same answer; the result settles it like any claim.
     expect(await service.authorizeCard(asked, ISSUER)).toEqual(approved);
-    expect(requestsTo("enforce-and-bind").length).toBe(evaluations + 1);
+    expect(requestsTo("/v1/authority/grants").length).toBe(evaluations + 1);
     const result = await service.settleCard(asked.authorization_id, { status: "APPROVED" }, ISSUER);
     expect(result).toMatchObject({
       outcome: "COMMITTED",
@@ -1209,7 +1209,7 @@ describe("an authorization with no hold, evaluated at the commit boundary", () =
       cardTokenRef: "fixture_card_ref_commit_2",
       amountMinor: 50_000,
     });
-    const evaluations = requestsTo("enforce-and-bind").length;
+    const evaluations = requestsTo("/v1/authority/grants").length;
     const pending = await service.authorizeCard(asked, ISSUER);
     expect(pending).toMatchObject({
       decision: "PENDING",
@@ -1224,7 +1224,7 @@ describe("an authorization with no hold, evaluated at the commit boundary", () =
     );
     // Re-presented before the tap: the same answer, and nothing evaluated twice.
     expect(await service.authorizeCard(asked, ISSUER)).toEqual(pending);
-    expect(requestsTo("enforce-and-bind").length).toBe(evaluations + 1);
+    expect(requestsTo("/v1/authority/grants").length).toBe(evaluations + 1);
     // The same id for something else is a reuse.
     expect(await service.authorizeCard({ ...asked, amount_minor: 40_000 }, ISSUER)).toEqual({
       decision: "NO_MATCH",
@@ -1257,7 +1257,7 @@ describe("an authorization with no hold, evaluated at the commit boundary", () =
       intent_id: pending.intent_id,
     });
     expect(requestsTo("claim-token").length).toBe(claims + 1);
-    expect(requestsTo("enforce-and-bind").length).toBe(evaluations + 2);
+    expect(requestsTo("/v1/authority/grants").length).toBe(evaluations + 2);
     const result = await service.settleCard(
       asked.authorization_id,
       { status: "APPROVED", approved_amount_minor: 50_000 },
@@ -1285,14 +1285,14 @@ describe("an authorization with no hold, evaluated at the commit boundary", () =
     service.close();
 
     const shadow = build("SHADOW", { env: EVALUATE() });
-    const observations = requestsTo("enforce-and-bind").length;
+    const observations = requestsTo("/v1/authority/grants").length;
     expect(
       await shadow.service.authorizeCard(
         authorizationFor({ cardTokenRef: "fixture_card_ref_commit_5", amountMinor: 4_250 }),
         ISSUER,
       ),
     ).toEqual({ decision: "NO_MATCH", code: "SHADOW_OBSERVED" });
-    expect(requestsTo("enforce-and-bind").length).toBe(observations + 1);
+    expect(requestsTo("/v1/authority/grants").length).toBe(observations + 1);
     shadow.service.close();
 
     // A pending answer lives as long as its intent: past it, the authorization is evaluated afresh.
@@ -1305,12 +1305,12 @@ describe("an authorization with no hold, evaluated at the commit boundary", () =
     });
     const first = await short.service.authorizeCard(asked, ISSUER);
     expect(first.decision).toBe("PENDING");
-    const evaluations = requestsTo("enforce-and-bind").length;
+    const evaluations = requestsTo("/v1/authority/grants").length;
     await new Promise((resolve) => setTimeout(resolve, 1_100));
     const again = await short.service.authorizeCard(asked, ISSUER);
     expect(again.decision).toBe("PENDING");
     expect(again).not.toEqual(first);
-    expect(requestsTo("enforce-and-bind").length).toBe(evaluations + 1);
+    expect(requestsTo("/v1/authority/grants").length).toBe(evaluations + 1);
     short.service.close();
   });
 });
@@ -1385,7 +1385,10 @@ describe("a standing permission: Tap to Authenticate", () => {
     });
     // The authority saw the token as evidence, beside the intent, and the
     // facts it verified: who signed, how, what it covers.
-    const evaluated = delegatedRequests("enforce-and-bind").at(-1)?.body as Record<string, unknown>;
+    const evaluated = delegatedRequests("/v1/authority/grants").at(-1)?.body as Record<
+      string,
+      unknown
+    >;
     expect(evaluated["evidence"]).toEqual({ signals: [{ token }] });
     expect(JSON.stringify(evaluated["context"])).not.toContain(token);
     expect(seen[0]).toMatchObject({
@@ -1471,7 +1474,7 @@ describe("a standing permission: Tap to Authenticate", () => {
 
   it("never sends a malformed signal, or more than eight, to the authority", async () => {
     const { service } = build("ENFORCEMENT", { authority: delegated });
-    const evaluations = delegatedRequests("enforce-and-bind").length;
+    const evaluations = delegatedRequests("/v1/authority/grants").length;
     for (const signals of [
       [{ token: "not-a-jws" }],
       [],
@@ -1481,7 +1484,7 @@ describe("a standing permission: Tap to Authenticate", () => {
       const refused = await refusal(service.propose({ ...purchase(4_250).body, signals }));
       expect([refused.status, refused.code]).toEqual([400, "REQUEST_INVALID"]);
     }
-    expect(delegatedRequests("enforce-and-bind").length).toBe(evaluations);
+    expect(delegatedRequests("/v1/authority/grants").length).toBe(evaluations);
     service.close();
   });
 
@@ -1495,7 +1498,10 @@ describe("a standing permission: Tap to Authenticate", () => {
       executed: false,
       authorization: null,
     });
-    const evaluated = delegatedRequests("enforce-and-bind").at(-1)?.body as Record<string, unknown>;
+    const evaluated = delegatedRequests("/v1/authority/grants").at(-1)?.body as Record<
+      string,
+      unknown
+    >;
     expect(evaluated["mode"]).toBe("SHADOW");
     expect(evaluated["evidence"]).toEqual({ signals: [{ token }] });
     service.close();

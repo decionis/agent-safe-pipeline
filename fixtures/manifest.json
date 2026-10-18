@@ -459,6 +459,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/adapters/NativeExecutors.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/adapters/banking/BankingAction.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
@@ -1503,7 +1509,25 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/pipeline/test/execution/ExecutionDeadline.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/pipeline/test/execution/ExecutionJournal.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/pipeline/test/execution/FixtureFinalization.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/pipeline/test/execution/GovernedExecutionRunner.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false
@@ -1516,6 +1540,12 @@
     },
     {
       "path": "packages/pipeline/test/execution/LocalAuthorizationVerifier.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/pipeline/test/execution/NativeExecutorVectors.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false
@@ -1546,6 +1576,12 @@
     },
     {
       "path": "packages/pipeline/test/http/AuthorityBaseUrl.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/pipeline/test/http/AuthorityPaths.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false

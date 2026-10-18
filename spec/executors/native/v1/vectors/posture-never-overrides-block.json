@@ -1,0 +1,21 @@
+{
+  "description": "Posture applies only when the authority could not be reached. An authority that answered BLOCK was reached, and no posture overrides it.",
+  "contract": "agent-safe.executors.native/1",
+  "style": "dispatch",
+  "posture": "BOUNDED_CONTINUITY",
+  "decision": {
+    "verdict": "BLOCK",
+    "fail_closed": false
+  },
+  "steps": [
+    {
+      "op": "run",
+      "write": "COMMIT",
+      "expect": {
+        "outcome": "BLOCKED",
+        "reason": "DECISION_NOT_ALLOW",
+        "writes": 0
+      }
+    }
+  ]
+}
