@@ -481,6 +481,8 @@ describe("the evidence line of a dispatched run", () => {
       outcome: "DEFINITELY_NOT_EXECUTED",
       executed: false,
       reason: "PROVIDER_REFUSED",
+      governed: true,
+      finalization: "RECORDED",
     });
     const lost = capture({ idempotencyKey: "evidence-key-9" });
     await instance.run(
@@ -495,6 +497,8 @@ describe("the evidence line of a dispatched run", () => {
       executed: null,
       reason: "PROVIDER_OUTCOME_UNKNOWN",
       code: null,
+      governed: true,
+      finalization: "RECORDED",
     });
   });
 
@@ -821,7 +825,17 @@ describe("the evidence of a permit", () => {
     const { runner: instance, verifier } = runner();
     verifier.extra = { claimAttestation: "authority.claim.jws" };
     const captured = capture();
-    const held = await instance.hold(permitExecutor(), {
+    // An executor may read the key its permit is bound to; it may not write.
+    const reading = permitExecutor({
+      execute: async (run) =>
+        run.dispatch.idempotencyKey === run.idempotencyKey
+          ? {
+              kind: "PERMIT",
+              permit: { permitId: null, intentHash: run.intent.intentHash, expiresAt: "x" },
+            }
+          : { kind: "NOT_DISPATCHED" },
+    });
+    const held = await instance.hold(reading, {
       captured,
       decision: allow(captured),
       action: ACTION,
@@ -924,6 +938,19 @@ describe("the evidence of a permit", () => {
         executed: expected.executed,
       });
     }
+  });
+
+  it("writes a presentation line for a held dispatch, whose caller performs the effect", async () => {
+    const { runner: instance, lines } = runner();
+    const captured = capture();
+    const held = await instance.hold(new Executor("dispatch"), {
+      captured,
+      decision: allow(captured),
+      action: ACTION,
+    });
+    if (held.outcome !== "HELD") throw new Error("not held");
+    expect(await instance.present(held.held)).toMatchObject({ outcome: "CLAIMED" });
+    expect(line(lines)).toMatchObject({ stage: "PRESENTATION", outcome: "CLAIMED" });
   });
 
   it("settles an adopted claim with the scope it was adopted under", async () => {

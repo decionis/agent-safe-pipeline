@@ -96,18 +96,34 @@ describe("RegistryExecutor", () => {
         kind: "DISPATCHED",
         receipt: { status: "FAILED_BEFORE_DISPATCH" },
       }),
-    ).toEqual({ status: "INDETERMINATE", reason: null, result: null });
+    ).toStrictEqual({ status: "INDETERMINATE", reason: null, result: null });
     expect(
       await executor.observe({
         kind: "DISPATCHED",
         receipt: { status: "UNKNOWN_AFTER_DISPATCH", receipt: "r.e.c" },
       }),
-    ).toEqual({ status: "INDETERMINATE", reason: null, result: null, signedReceipt: "r.e.c" });
+    ).toStrictEqual({
+      status: "INDETERMINATE",
+      reason: null,
+      result: null,
+      signedReceipt: "r.e.c",
+    });
     expect(
       await executor.observe({
         kind: "DISPATCHED",
         receipt: { status: "REFUSED_AFTER_DISPATCH", reason: "NO", receipt: null },
       }),
-    ).toEqual({ status: "FAILED", reason: "NO", result: null, signedReceipt: null });
+    ).toStrictEqual({ status: "FAILED", reason: "NO", result: null, signedReceipt: null });
+    expect(
+      await executor.observe({
+        kind: "DISPATCHED",
+        receipt: { status: "COMPLETED", result: { refundId: "r-1" }, receipt: null },
+      }),
+    ).toStrictEqual({
+      status: "COMMITTED",
+      reason: null,
+      result: { refundId: "r-1" },
+      signedReceipt: null,
+    });
   });
 });

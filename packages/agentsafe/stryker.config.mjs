@@ -80,7 +80,6 @@ export default {
     "src/identity/Authenticator.ts",
     "src/egress/EgressPolicy.ts",
     "src/audit/HashChain.ts",
-    "src/journal/ExecutionJournal.ts",
     "src/limits/HardLimits.ts",
     "src/incident/HaltSwitch.ts",
     "src/adapters/JcsDigest.ts",

@@ -238,6 +238,8 @@ describe("PostgresExecutionJournal", () => {
     const refusal = await second.append(claimed("b")).catch((error: unknown) => error);
     expect(refusal).toBeInstanceOf(JournalError);
     expect((refusal as JournalError).code).toBe(IDEMPOTENCY_KEY_DISPATCHED);
+    // The code is a wire value the runner and its callers read, not just a constant.
+    expect(IDEMPOTENCY_KEY_DISPATCHED).toBe("IDEMPOTENCY_KEY_DISPATCHED");
   });
 
   it("throws rather than lose a record, and never writes one outside the contract", async () => {

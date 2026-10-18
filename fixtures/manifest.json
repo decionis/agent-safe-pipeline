@@ -1545,6 +1545,18 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/pipeline/test/execution/JournalRecord.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/pipeline/test/execution/JournalSchema.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/pipeline/test/execution/LocalAuthorizationVerifier.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",

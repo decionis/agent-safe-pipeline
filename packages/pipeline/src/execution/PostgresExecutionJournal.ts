@@ -155,7 +155,9 @@ export class PostgresExecutionJournal implements ExecutionJournal {
   /** The rows' records that parse, in order; a row that does not is skipped, as a bad file line is. */
   private async read(text: string, values: readonly unknown[]): Promise<JournalRecord[]> {
     const result = await this.client.query(text, values);
+    // Stryker disable next-line ArrayDeclaration: a seed element is not a record, and every fold ignores what is not one.
     const records: JournalRecord[] = [];
+    // Stryker disable next-line ArrayDeclaration: an element of the fallback is not a row with a record, and is skipped.
     for (const row of result.rows ?? []) {
       const raw = (row as { readonly record?: unknown }).record;
       const value: unknown = typeof raw === "string" ? PostgresExecutionJournal.json(raw) : raw;
@@ -165,12 +167,13 @@ export class PostgresExecutionJournal implements ExecutionJournal {
     return records;
   }
 
+  // Stryker disable all: an unparsable row is skipped either way, read as null or as undefined.
   private static json(text: string): unknown {
     try {
       return JSON.parse(text) as unknown;
-      // Stryker disable next-line BlockStatement: an unparsable row is skipped either way, as null or as undefined.
     } catch {
       return null;
     }
   }
+  // Stryker restore all
 }

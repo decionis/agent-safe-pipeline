@@ -283,6 +283,7 @@ export class GovernedExecutionRunner {
       ...(prepared.expectedEffectDigest === null
         ? {}
         : { expectedEffectDigest: prepared.expectedEffectDigest }),
+      // Stryker disable next-line ConditionalExpression: the capture drops an undefined correlation itself; the condition only satisfies the strict optional type.
       ...(request.correlationId === undefined ? {} : { correlationId: request.correlationId }),
     });
     let decision: DecisionGate;
@@ -1448,11 +1449,13 @@ export class GovernedExecutionRunner {
   private preparedMatches(prepared: PreparedAction, captured: CapturedIntent): boolean {
     const intent = captured.intent;
     let parameters: string;
+    // Stryker disable BlockStatement: parameters that cannot be canonicalized never match the intent; the explicit false only names that.
     try {
       parameters = CanonicalIntentHasher.stringify(prepared.proposal.parameters as JsonValue);
     } catch {
       return false;
     }
+    // Stryker restore BlockStatement
     return (
       prepared.actionType === intent.action &&
       prepared.proposal.action === intent.action &&

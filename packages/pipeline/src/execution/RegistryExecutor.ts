@@ -65,7 +65,7 @@ export class RegistryExecutor implements NativeExecutor<
         intent.expectedEffectDigest === undefined
           ? null
           : (intent.expectedEffectDigest as `sha256:${string}`),
-      requestDigest: `sha256:${createHash("sha256").update(canonical, "utf8").digest("hex")}`,
+      requestDigest: `sha256:${createHash("sha256").update(canonical).digest("hex")}`,
       facts: {},
     });
   }
