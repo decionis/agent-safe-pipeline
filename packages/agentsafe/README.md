@@ -899,6 +899,24 @@ text through `executor.metrics.registry.render()` and on `GET /metrics` to an op
 `metrics` scope; a proposer is not the party that should read them, and every operator action is
 recorded as `OPERATOR_ACTION` with the principal and the action.
 
+## Records for policy authoring
+
+`agentsafe records upload <file.jsonl>` sends records to Decionis's central policy intake
+(`decionis.assessments.records/1`) with this machine's Decionis key: `DECIONIS_API_KEY`, then
+`DECIONIS_API_KEY_FILE`, then the `agentsafe login` store. Decionis finds the exposures in the
+records, signs the findings and hands them to the desk, who proposes the policy; nothing changes in
+any policy. Name the read window with `--from` and `--to`, the kind with
+`--kind transaction|event|audit` and the source platform with `--platform`; `--policy <id>` keeps
+the findings with that policy, and `--json` prints Decionis's answer as is. The same file for the
+same window is the same assessment, so a repeated upload returns the findings signed the first
+time. The file is checked line by line before anything is sent, and Decionis names the record it
+refuses.
+
+Each line is one record in Decionis's shape for the domain; for `--domain commerce` (the default)
+that is the commerce-preflight-v2 action with its facts, its time and its money. The evidence
+stream above is not such a file: it is redacted by design and carries no action or facts. Card and
+agent records are refused by Decionis until it has an assessor for them.
+
 ## Incident response
 
 Three things are for the moment something has gone wrong.
