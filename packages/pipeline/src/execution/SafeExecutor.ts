@@ -94,7 +94,7 @@ export class SafeExecutor {
     this.executor = new RegistryExecutor(registry);
     this.runner = new GovernedExecutionRunner({
       verifier,
-      ...(audit === undefined ? {} : { audit }),
+      audit,
       ...(options?.boundaryId === undefined ? {} : { boundaryId: options.boundaryId }),
       ...(options?.workloadDigest === undefined ? {} : { workloadDigest: options.workloadDigest }),
       ...(options?.attempts === undefined ? {} : { attempts: options.attempts }),

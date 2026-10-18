@@ -265,3 +265,120 @@ describe("PostgresExecutionJournal", () => {
     expect(await journal(client).authorizationsOf("a")).toEqual([]);
   });
 });
+
+describe("PostgresExecutionJournal statements", () => {
+  /** A client that records each statement and answers with the rows it is given. */
+  class StatementLog implements SqlClient {
+    public readonly statements: { readonly text: string; readonly values: readonly unknown[] }[] =
+      [];
+    public rows: readonly unknown[] | undefined = [];
+
+    public async query(
+      text: string,
+      values: readonly unknown[],
+    ): Promise<{ readonly rowCount: number | null; readonly rows?: readonly unknown[] }> {
+      this.statements.push({ text, values });
+      return this.rows === undefined
+        ? { rowCount: 0 }
+        : { rowCount: this.rows.length, rows: this.rows };
+    }
+  }
+
+  it("publishes exactly this DDL", () => {
+    expect(PostgresExecutionJournal.schema()).toBe(
+      [
+        "CREATE TABLE IF NOT EXISTS agentsafe_execution_journal (",
+        "  seq bigserial PRIMARY KEY,",
+        "  namespace text NOT NULL,",
+        "  intent_id text NOT NULL,",
+        "  record_kind text NOT NULL,",
+        "  idempotency_key text,",
+        "  record jsonb NOT NULL,",
+        "  recorded_at timestamptz NOT NULL DEFAULT now()",
+        ");",
+        "CREATE INDEX IF NOT EXISTS agentsafe_execution_journal_intent ON agentsafe_execution_journal (namespace, intent_id, seq);",
+        "CREATE UNIQUE INDEX IF NOT EXISTS agentsafe_execution_journal_claim_once ON agentsafe_execution_journal (namespace, idempotency_key) WHERE record_kind = 'GRANT_CLAIMED';",
+        "",
+      ].join("\n"),
+    );
+  });
+
+  it("issues exactly these statements, in its own namespace and table", async () => {
+    const client = new StatementLog();
+    const journal = new PostgresExecutionJournal({
+      client,
+      namespace: "n".repeat(200),
+      table: "ops.journal",
+    });
+    await journal.append(claimed("a"));
+    await journal.append(opened("a"));
+    await journal.openAttempts();
+    await journal.authorizationsOf("a");
+    await journal.dispatchedUnder("payout-1");
+    await journal.probe();
+    const n = "n".repeat(200);
+    expect(client.statements).toEqual([
+      {
+        text: "INSERT INTO ops.journal (namespace, intent_id, record_kind, idempotency_key, record) VALUES ($1, $2, $3, $4, $5)",
+        values: [n, "a", "GRANT_CLAIMED", "payout-1", JSON.stringify(claimed("a"))],
+      },
+      {
+        text: "INSERT INTO ops.journal (namespace, intent_id, record_kind, idempotency_key, record) VALUES ($1, $2, $3, $4, $5)",
+        values: [n, "a", "ATTEMPT_OPENED", null, JSON.stringify(opened("a"))],
+      },
+      {
+        text:
+          "SELECT record FROM ops.journal WHERE namespace = $1 AND intent_id IN (" +
+          "SELECT intent_id FROM ops.journal WHERE namespace = $1 AND record_kind = 'ATTEMPT_OPENED' " +
+          "EXCEPT SELECT intent_id FROM ops.journal WHERE namespace = $1 AND record_kind IN ('ATTEMPT_CLOSED', 'RECONCILED')" +
+          ") ORDER BY seq",
+        values: [n],
+      },
+      {
+        text: "SELECT record FROM ops.journal WHERE namespace = $1 AND intent_id = $2 ORDER BY seq",
+        values: [n, "a"],
+      },
+      {
+        text:
+          "SELECT record FROM ops.journal WHERE namespace = $1 AND intent_id IN (" +
+          "SELECT intent_id FROM ops.journal WHERE namespace = $1 AND record_kind = 'GRANT_CLAIMED' AND idempotency_key = $2" +
+          ") ORDER BY seq",
+        values: [n, "payout-1"],
+      },
+      {
+        text: "SELECT seq, namespace, intent_id, record_kind, idempotency_key, record FROM ops.journal LIMIT 0",
+        values: [],
+      },
+    ]);
+  });
+
+  it("reads a result with no rows as no records, and reads only what parses", async () => {
+    const client = new StatementLog();
+    const journal = new PostgresExecutionJournal({ client, namespace: "org" });
+    client.rows = undefined;
+    expect(await journal.authorizationsOf("a")).toEqual([]);
+    client.rows = [{ record: opened("a") }, { record: claimed("a") }];
+    expect((await journal.authorizationsOf("a")).map((entry) => entry.grantId)).toEqual([
+      "grant-a",
+    ]);
+  });
+
+  it("refuses a thrown null as a write failure, never as a used key", async () => {
+    const client: SqlClient = {
+      query: async () => {
+        throw null;
+      },
+    };
+    await expect(
+      new PostgresExecutionJournal({ client, namespace: "org" }).append(opened("a")),
+    ).rejects.toMatchObject({ code: "JOURNAL_WRITE_FAILED" });
+    const numeric: SqlClient = {
+      query: async () => {
+        throw Object.assign(new Error("duplicate"), { code: 23505 });
+      },
+    };
+    await expect(
+      new PostgresExecutionJournal({ client: numeric, namespace: "org" }).append(claimed("a")),
+    ).rejects.toMatchObject({ code: "JOURNAL_WRITE_FAILED" });
+  });
+});

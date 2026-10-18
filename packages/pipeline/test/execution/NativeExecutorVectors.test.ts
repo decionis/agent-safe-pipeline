@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DecisionAuthority } from "../../src/decision/DecisionAuthority.js";
@@ -29,8 +30,24 @@ import {
 import type { CapturedIntent } from "../../src/intent/ExecutionIntent.js";
 import type { JsonObject } from "../../src/intent/JsonValue.js";
 
-const VECTORS = new URL("../../../../spec/executors/native/v1/vectors/", import.meta.url);
-const PUBLISHED = new URL("../../../../spec/executors/native/v1/schema.json", import.meta.url);
+/**
+ * The published specification, found by walking up from this file to the
+ * repository root, so the test reads the same files from a mutation-testing
+ * sandbox (which runs it from a copy of the package) as from the package.
+ */
+function specification(): URL {
+  let directory = new URL("./", import.meta.url);
+  for (let depth = 0; depth < 8; depth += 1) {
+    const candidate = new URL("spec/executors/native/v1/", directory);
+    if (existsSync(candidate)) return candidate;
+    directory = new URL("../", directory);
+  }
+  throw new Error("spec/executors/native/v1 not found above the test");
+}
+
+const SPEC = specification();
+const VECTORS = new URL("vectors/", SPEC);
+const PUBLISHED = new URL("schema.json", SPEC);
 
 const SCOPE: ExecutorScope = {
   orgId: "00000000-0000-4000-8000-000000000005",

@@ -629,10 +629,13 @@ describe("GovernedExecutionRunner permits", () => {
     if (result.outcome !== "HELD" || !("permit" in result)) throw new Error("not held");
     expect(result.permit.permitId).toMatch(/^[0-9a-f-]{36}$/);
     const presented = await runner.present(result.held);
+    // The executor's own attestation is not the authority's, so it is not carried.
     expect(presented).toMatchObject({
       outcome: "CLAIMED",
-      permit: { permitId: result.permit.permitId, claimAttestation: "a.b.c" },
+      permit: { permitId: result.permit.permitId },
     });
+    if (presented.outcome !== "CLAIMED" || !("permit" in presented)) throw new Error("not claimed");
+    expect(Object.keys(presented.permit)).not.toContain("claimAttestation");
     const settlement = await runner.settle(result.held, { receipt: { ok: true } });
     expect(settlement).toMatchObject({ status: "SETTLED", outcome: "COMPLETED", executed: true });
     expect(verifier.ledger()[0]?.outcome).toBe("COMMITTED");

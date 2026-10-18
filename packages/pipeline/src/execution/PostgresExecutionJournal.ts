@@ -100,7 +100,7 @@ export class PostgresExecutionJournal implements ExecutionJournal {
         [this.namespace, value.intent_id, value.record, key, JSON.stringify(value)],
       );
     } catch (error) {
-      if (PostgresExecutionJournal.sqlState(error) === UNIQUE_VIOLATION) {
+      if ((error as { readonly code?: unknown } | null)?.code === UNIQUE_VIOLATION) {
         throw new JournalError(IDEMPOTENCY_KEY_DISPATCHED);
       }
       throw new JournalError("JOURNAL_WRITE_FAILED");
@@ -150,9 +150,7 @@ export class PostgresExecutionJournal implements ExecutionJournal {
   }
 
   /** The client belongs to the caller, who opened it and closes it. */
-  public close(): void {
-    return undefined;
-  }
+  public close(): void {}
 
   /** The rows' records that parse, in order; a row that does not is skipped, as a bad file line is. */
   private async read(text: string, values: readonly unknown[]): Promise<JournalRecord[]> {
@@ -170,14 +168,9 @@ export class PostgresExecutionJournal implements ExecutionJournal {
   private static json(text: string): unknown {
     try {
       return JSON.parse(text) as unknown;
+      // Stryker disable next-line BlockStatement: an unparsable row is skipped either way, as null or as undefined.
     } catch {
       return null;
     }
-  }
-
-  private static sqlState(error: unknown): string | null {
-    if (typeof error !== "object" || error === null) return null;
-    const code = (error as { readonly code?: unknown }).code;
-    return typeof code === "string" ? code : null;
   }
 }

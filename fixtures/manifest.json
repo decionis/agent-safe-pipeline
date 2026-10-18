@@ -1533,6 +1533,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/pipeline/test/execution/GovernedExecutionRunnerEvidence.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/pipeline/test/execution/HoldAdoption.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
@@ -1552,6 +1558,12 @@
     },
     {
       "path": "packages/pipeline/test/execution/PostgresReplayStore.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/pipeline/test/execution/RegistryExecutor.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false

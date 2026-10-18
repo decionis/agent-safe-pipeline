@@ -155,7 +155,7 @@ export type ExecutionEffect<TReceipt = JsonObject> =
       readonly receipt: TReceipt | null;
       readonly signedReceipt?: string | null;
     }
-  | { readonly kind: "NOT_DISPATCHED"; readonly code?: string }
+  | { readonly kind: "NOT_DISPATCHED"; readonly code?: string | undefined }
   | { readonly kind: "PERMIT"; readonly permit: ExecutionPermit }
   | {
       /** A permit-style receipt reported by the boundary after its write. */

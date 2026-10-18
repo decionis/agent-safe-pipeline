@@ -76,9 +76,7 @@ export class RegistryExecutor implements NativeExecutor<
   ): Promise<ExecutionEffect<ActionExecutionAttempt>> {
     const attempt = await this.registry.executeTracked(run.action, run.authorization);
     if (attempt.status === "FAILED_BEFORE_DISPATCH") {
-      return attempt.code === undefined
-        ? { kind: "NOT_DISPATCHED" }
-        : { kind: "NOT_DISPATCHED", code: attempt.code };
+      return { kind: "NOT_DISPATCHED", code: attempt.code };
     }
     return { kind: "DISPATCHED", receipt: attempt, signedReceipt: attempt.receipt };
   }

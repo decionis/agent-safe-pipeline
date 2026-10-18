@@ -66,7 +66,7 @@ type AnyExecutor = NativeExecutor<unknown, unknown, unknown>;
 export interface GovernedExecutionRunnerOptions {
   /** Claims, finalization and reconciliation reports: the authority, through its verifier. */
   readonly verifier: AuthorizationVerifier;
-  readonly audit?: AuditRecorder;
+  readonly audit?: AuditRecorder | undefined;
   /** Who decides, for `submit`; a run handed a decision never asks it. */
   readonly authority?: DecisionAuthority;
   /** How `submit` captures intents; a fresh `IntentCapture` by default. */
@@ -169,6 +169,30 @@ interface ClaimState extends Omit<ExecutionContext, "prepared"> {
   readonly authorization: VerifiedAuthorization;
 }
 
+/** What admission hands the rest of a run: the executor's preparation and the dossier it was decided under. */
+interface Admission {
+  readonly prepared: PreparedAction;
+  readonly dossierId: string;
+}
+
+/** Every result a step can end in, as the journal and the evidence line summarize it. */
+type Concluded = SafeExecutionResult<unknown> | Exclude<HeldClaimResult, { outcome: "CLAIMED" }>;
+
+interface StepSummary {
+  readonly outcome: ExecutionOutcome | "CLAIMED";
+  readonly executed: boolean | null;
+  readonly reason: string | null;
+  readonly code: string | null;
+  readonly grantId: string | null;
+  readonly governed: boolean;
+  readonly finalization: ExecutionFinalization | null;
+}
+
+/** A write that never left the process, and why, when the executor said. */
+class NotDispatched {
+  public constructor(public readonly code: string | undefined) {}
+}
+
 /** The verdicts that admit an execution: ALLOW, and Commerce's PROCEED, which means the same. */
 const ADMITTED_VERDICTS: ReadonlySet<string> = new Set(["ALLOW", "PROCEED"]);
 
@@ -267,9 +291,12 @@ export class GovernedExecutionRunner {
     } catch {
       decision = FailClosedDecision.create(captured.intentHash, "AUTHORITY_UNAVAILABLE");
     }
-    const run = { captured, decision, action: request.action, scope: request.scope };
-    const result =
-      executor.style === "permit" ? await this.hold(executor, run) : await this.run(executor, run);
+    const result = await this.run(executor, {
+      captured,
+      decision,
+      action: request.action,
+      scope: request.scope,
+    });
     return { captured, decision, result };
   }
 
@@ -295,17 +322,18 @@ export class GovernedExecutionRunner {
     const { captured, decision } = request;
     const scope = request.scope ?? null;
     const admitted = await this.admit(executor, request, startedAt, "RUN");
-    if (admitted.outcome === "BLOCKED") return admitted;
+    if ("outcome" in admitted) return admitted;
     const context: ExecutionContext = {
       executor,
       action: request.action,
       scope,
       prepared: admitted.prepared,
     };
-    const opened = await this.openAttempt(executor, request, admitted.prepared, startedAt);
+    const opened = await this.openAttempt(executor, request, admitted, startedAt);
     if (opened !== null) return opened;
     const claim = await this.consume(context, captured, decision as AdmittedDecision, startedAt);
     if (claim.outcome !== "CLAIMED") {
+      await this.close(captured, claim);
       await this.emit(executor, context, "RUN", captured, decision, claim, startedAt);
       return claim;
     }
@@ -326,7 +354,7 @@ export class GovernedExecutionRunner {
     }
     const observed = await this.write(executor, context, captured, authorization, deadline);
     const result =
-      observed.kind === "NOT_DISPATCHED"
+      observed instanceof NotDispatched
         ? await this.failedBeforeDispatch(
             captured,
             decision,
@@ -339,7 +367,7 @@ export class GovernedExecutionRunner {
             captured,
             decision,
             authorization,
-            observed.observation as EffectObservation<TResult>,
+            observed as EffectObservation<TResult>,
             startedAt,
           );
     await this.close(captured, result);
@@ -729,7 +757,7 @@ export class GovernedExecutionRunner {
     const startedAt = this.clock();
     const { captured, decision } = request;
     const admittedRun = await this.admit(executor, request, startedAt, "RUN");
-    if (admittedRun.outcome === "BLOCKED") return admittedRun;
+    if ("outcome" in admittedRun) return admittedRun;
     const admitted = decision as AdmittedDecision;
     const context: ExecutionContext = {
       executor,
@@ -739,7 +767,7 @@ export class GovernedExecutionRunner {
     };
     // The attempt is open before the hold is recorded, so a journal that
     // refuses it leaves no hold behind in the record either.
-    const opened = await this.openAttempt(executor, request, admittedRun.prepared, startedAt);
+    const opened = await this.openAttempt(executor, request, admittedRun, startedAt);
     if (opened !== null) return opened;
     // Stryker disable all: Audit payload mapping is covered by lifecycle event assertions.
     const heldRecorded = await this.record({
@@ -791,9 +819,7 @@ export class GovernedExecutionRunner {
     request: RunRequest<TAction>,
     startedAt: number,
     stage: EvidenceStage,
-  ): Promise<
-    ExecutionBlockedResult | { readonly outcome: "ADMITTED"; readonly prepared: PreparedAction }
-  > {
+  ): Promise<ExecutionBlockedResult | Admission> {
     const { captured, decision } = request;
     const scope = request.scope ?? null;
     // Stryker disable next-line all: Audit payload mapping is covered by lifecycle event assertions.
@@ -827,7 +853,8 @@ export class GovernedExecutionRunner {
     if (!ADMITTED_VERDICTS.has(decision.verdict) || decision.failClosed) {
       return await this.notAllowed(executor, request, stage, startedAt);
     }
-    if (decision.dossierId === null) return await refuse("DOSSIER_MISSING");
+    const dossierId = decision.dossierId;
+    if (dossierId === null) return await refuse("DOSSIER_MISSING");
     if (decision.intentHash !== captured.intentHash) return await refuse("INTENT_BINDING_MISMATCH");
     if (decision.authorization === null || typeof decision.authorization !== "object") {
       return await refuse("AUTHORIZATION_MISSING");
@@ -846,7 +873,7 @@ export class GovernedExecutionRunner {
       const gap = await GovernedExecutionRunner.capabilityGap(executor, scope, prepared);
       if (gap !== null) return await refuse("CAPABILITY_UNAVAILABLE", gap);
     }
-    return { outcome: "ADMITTED", prepared };
+    return { prepared, dossierId };
   }
 
   /**
@@ -883,7 +910,7 @@ export class GovernedExecutionRunner {
   private async openAttempt<TAction>(
     executor: NativeExecutor<TAction, unknown, unknown>,
     request: RunRequest<TAction>,
-    prepared: PreparedAction,
+    admission: Admission,
     startedAt: number,
   ): Promise<ExecutionBlockedResult | null> {
     const journal = this.journal;
@@ -899,7 +926,7 @@ export class GovernedExecutionRunner {
     };
     try {
       if (journal.dispatchedUnder !== undefined) {
-        const earlier = await journal.dispatchedUnder(prepared.idempotencyKey);
+        const earlier = await journal.dispatchedUnder(admission.prepared.idempotencyKey);
         if (earlier.length > 0) return await refuse("IDEMPOTENCY_KEY_DISPATCHED");
       }
       await journal.append({
@@ -909,7 +936,7 @@ export class GovernedExecutionRunner {
         intent_hash: captured.intentHash,
         idempotency_key: captured.intent.idempotencyKey,
         decision_id: decision.decisionId,
-        dossier_id: decision.dossierId ?? "",
+        dossier_id: admission.dossierId,
         caller_principal: null,
         intent: { ...captured.intent } as Record<string, unknown>,
       });
@@ -1033,28 +1060,29 @@ export class GovernedExecutionRunner {
     captured: CapturedIntent,
     authorization: VerifiedAuthorization,
     deadline: MonotonicDeadline,
-  ): Promise<
-    | { readonly kind: "NOT_DISPATCHED"; readonly code?: string }
-    | { readonly kind: "OBSERVED"; readonly observation: EffectObservation<unknown> }
-  > {
+  ): Promise<EffectObservation<unknown> | NotDispatched> {
     const idempotencyKey = captured.intent.idempotencyKey;
     let dispatched = false;
     let signedReceipt: string | null = null;
     const dispatch: ProviderDispatch = Object.freeze({
       idempotencyKey,
       run: async <T>(operation: (key: string) => Promise<T> | T): Promise<T> => {
+        // Stryker disable next-line StringLiteral: caught below as an error after the dispatch began; its text is never read.
         if (dispatched) throw new Error("PROVIDER_DISPATCH_ALREADY_STARTED");
         dispatched = true;
         return await operation(idempotencyKey);
       },
       receipt: (token: string): void => {
+        // Stryker disable next-line StringLiteral: caught below as an error before the dispatch; its text is never read.
         if (!dispatched) throw new Error("PROVIDER_RECEIPT_BEFORE_DISPATCH");
         signedReceipt = token;
       },
     });
-    const unknown = (): { readonly kind: "OBSERVED"; readonly observation: EffectObservation } => ({
-      kind: "OBSERVED",
-      observation: { status: "INDETERMINATE", reason: null, result: null, signedReceipt },
+    const unknown = (): EffectObservation => ({
+      status: "INDETERMINATE",
+      reason: null,
+      result: null,
+      signedReceipt,
     });
     let effect: Awaited<ReturnType<AnyExecutor["execute"]>>;
     try {
@@ -1070,34 +1098,28 @@ export class GovernedExecutionRunner {
       });
     } catch (error) {
       if (dispatched && error instanceof ProviderRefusal) {
-        return {
-          kind: "OBSERVED",
-          observation: { status: "FAILED", reason: error.reason, result: null, signedReceipt },
-        };
+        return { status: "FAILED", reason: error.reason, result: null, signedReceipt };
       }
       if (dispatched) return unknown();
-      return error instanceof PreDispatchRefusal
-        ? { kind: "NOT_DISPATCHED", code: error.code }
-        : { kind: "NOT_DISPATCHED" };
+      return new NotDispatched(error instanceof PreDispatchRefusal ? error.code : undefined);
     }
     if (effect.kind === "NOT_DISPATCHED") {
       if (dispatched) return unknown();
-      return effect.code === undefined
-        ? { kind: "NOT_DISPATCHED" }
-        : { kind: "NOT_DISPATCHED", code: new PreDispatchRefusal(effect.code).code };
+      return new NotDispatched(
+        effect.code === undefined ? undefined : new PreDispatchRefusal(effect.code).code,
+      );
     }
     if (effect.kind === "PERMIT") {
       // A dispatch never yields a permit; one that does broke the contract,
       // and what it did is unknown once its dispatch began.
       if (dispatched) return unknown();
-      return { kind: "NOT_DISPATCHED", code: "EXECUTOR_CONTRACT_VIOLATION" };
+      return new NotDispatched("EXECUTOR_CONTRACT_VIOLATION");
     }
     try {
       const observation = await executor.observe(effect, context.prepared);
-      const receipt = observation.signedReceipt ?? effect.signedReceipt ?? signedReceipt;
       return {
-        kind: "OBSERVED",
-        observation: { ...observation, signedReceipt: receipt ?? null },
+        ...observation,
+        signedReceipt: observation.signedReceipt ?? effect.signedReceipt ?? signedReceipt,
       };
     } catch {
       return unknown();
@@ -1111,16 +1133,12 @@ export class GovernedExecutionRunner {
     authorization: VerifiedAuthorization,
   ): Promise<ExecutionPermit | null> {
     const deadline = MonotonicDeadline.after(dispatchBudgetMs(this.timeoutMs, authorization));
-    const dispatch: ProviderDispatch = Object.freeze({
-      idempotencyKey: held.captured.intent.idempotencyKey,
-      run: (): never => {
-        // A permit-style executor never writes: the boundary does.
-        throw new Error("PERMIT_EXECUTOR_CANNOT_DISPATCH");
-      },
-      receipt: (): never => {
-        throw new Error("PERMIT_EXECUTOR_CANNOT_DISPATCH");
-      },
-    });
+    // A permit-style executor never writes: the boundary does. Either half of
+    // the dispatch refuses, so an executor that tries is not issuing a permit.
+    const refuse = (): never => {
+      // Stryker disable next-line StringLiteral: caught below as no permit issued; its text is never read.
+      throw new Error("PERMIT_EXECUTOR_CANNOT_DISPATCH");
+    };
     try {
       const effect = await state.executor.execute({
         action: state.action,
@@ -1130,10 +1148,15 @@ export class GovernedExecutionRunner {
         authorization,
         idempotencyKey: held.captured.intent.idempotencyKey,
         deadline,
-        dispatch,
+        dispatch: Object.freeze({
+          idempotencyKey: held.captured.intent.idempotencyKey,
+          run: refuse,
+          receipt: refuse,
+        }),
       });
       if (effect.kind !== "PERMIT") return null;
-      // The permit names this grant and this intent, whatever else it says.
+      // The permit names this grant, this intent and the authority's proof of
+      // the claim, whatever the executor's own description of it says.
       return Object.freeze({
         permitId: authorization.grantId,
         intentHash: held.captured.intentHash,
@@ -1141,9 +1164,6 @@ export class GovernedExecutionRunner {
         ...(authorization.claimAttestation === undefined
           ? {}
           : { claimAttestation: authorization.claimAttestation }),
-        ...(effect.permit.claimAttestation === undefined
-          ? {}
-          : { claimAttestation: effect.permit.claimAttestation }),
       });
     } catch {
       return null;
@@ -1306,7 +1326,7 @@ export class GovernedExecutionRunner {
     context: ExecutionContext,
     captured: CapturedIntent,
     authorization: VerifiedAuthorization,
-    result: ExecutionReconciliationResult<unknown>,
+    result: Exclude<ExecutionReconciliationResult<unknown>, ExecutionBlockedResult>,
     proven: "COMMITTED" | "FAILED" | null,
     evidence: AuthorityEffectEvidence | undefined,
     startedAt: number,
@@ -1316,12 +1336,7 @@ export class GovernedExecutionRunner {
       at: new Date(this.clock()).toISOString(),
       intent_id: captured.intent.intentId,
       intent_hash: captured.intentHash,
-      status:
-        result.outcome === "COMPLETED"
-          ? "COMPLETED"
-          : result.outcome === "DEFINITELY_NOT_EXECUTED"
-            ? "DEFINITELY_NOT_EXECUTED"
-            : "UNKNOWN_AFTER_DISPATCH",
+      status: result.outcome,
       source: "CALLER",
     });
     let finalization: ExecutionFinalization | null = null;
@@ -1349,12 +1364,7 @@ export class GovernedExecutionRunner {
       stage: "RECONCILIATION",
       captured,
       decision: null,
-      outcome: result.outcome,
-      executed: result.executed,
-      reason: "reason" in result ? result.reason : null,
-      code: null,
-      grantId: authorization.grantId,
-      governed: true,
+      ...GovernedExecutionRunner.summaryOf(result),
       disposition: null,
       finalization,
       startedAt,
@@ -1551,27 +1561,21 @@ export class GovernedExecutionRunner {
   }
 
   /** Closes the attempt in the journal; the outcome is already final, so a failure is left to the reconciler. */
-  private async close(
-    captured: CapturedIntent,
-    result: {
-      readonly outcome: string;
-      readonly executed: boolean | null;
-      readonly finalization?: ExecutionFinalization;
-    },
-  ): Promise<void> {
-    if (result.outcome === "BLOCKED" || result.outcome === "HELD") return;
+  private async close(captured: CapturedIntent, result: Concluded): Promise<void> {
+    const summary = GovernedExecutionRunner.summaryOf(result);
     await this.appendQuietly({
       record: "ATTEMPT_CLOSED",
       at: new Date(this.clock()).toISOString(),
       intent_id: captured.intent.intentId,
       intent_hash: captured.intentHash,
       outcome: result.outcome,
-      executed: result.executed,
-      finalization: result.finalization ?? null,
+      executed: summary.executed,
+      finalization: summary.finalization,
     });
   }
 
   private async appendQuietly(record: JournalRecord): Promise<void> {
+    // Stryker disable next-line ConditionalExpression: without a journal the append below throws inside the try and is ignored; the guard only saves the attempt.
     if (this.journal === null) return;
     try {
       await this.journal.append(record);
@@ -1589,19 +1593,12 @@ export class GovernedExecutionRunner {
     startedAt: number,
     disposition: UnavailableDisposition | null = null,
   ): Promise<void> {
-    if (this.evidence === null) return;
     await this.emitLine(executor, null, {
       stage,
       captured: request.captured,
       decision: request.decision,
-      outcome: blocked.outcome,
-      executed: false,
-      reason: blocked.reason,
-      code: blocked.code ?? null,
-      grantId: null,
-      governed: false,
+      ...GovernedExecutionRunner.summaryOf(blocked),
       disposition: disposition ?? (request.decision.failClosed ? "NOT_FORWARDED" : null),
-      finalization: null,
       startedAt,
       scope: request.scope ?? null,
     });
@@ -1613,30 +1610,104 @@ export class GovernedExecutionRunner {
     stage: EvidenceStage,
     captured: CapturedIntent,
     decision: DecisionGate,
-    result:
-      | SafeExecutionResult<unknown>
-      | HeldClaimResult
-      | ExecutionHeldResult
-      | PermitPresentationResult,
+    result: Concluded | ExecutionHeldResult | PermitPresentationResult | HeldClaimResult,
     startedAt: number,
   ): Promise<void> {
-    if (this.evidence === null) return;
-    const authorization =
-      "authorization" in result && result.authorization !== null ? result.authorization : null;
     await this.emitLine(executor, context, {
       stage,
       captured,
       decision,
-      outcome: result.outcome,
-      executed: "executed" in result ? result.executed : null,
-      reason: "reason" in result && typeof result.reason === "string" ? result.reason : null,
-      code: "code" in result && typeof result.code === "string" ? result.code : null,
-      grantId: authorization?.grantId ?? null,
-      governed: result.outcome !== "BLOCKED",
+      ...GovernedExecutionRunner.summaryOf(result),
       disposition: null,
-      finalization: "finalization" in result ? result.finalization : null,
       startedAt,
     });
+  }
+
+  /**
+   * What a step's result says, in the fields an evidence line and a closing
+   * journal record carry: one case per outcome, so no outcome is described by
+   * another's fields.
+   */
+  private static summaryOf(
+    result:
+      | Concluded
+      | ExecutionHeldResult
+      | PermitPresentationResult
+      | HeldClaimResult
+      | Exclude<ExecutionReconciliationResult<unknown>, ExecutionBlockedResult>,
+  ): StepSummary {
+    switch (result.outcome) {
+      case "CLAIMED":
+        return {
+          outcome: "CLAIMED",
+          executed: null,
+          reason: null,
+          code: null,
+          grantId: result.authorization.grantId,
+          governed: true,
+          finalization: null,
+        };
+      case "HELD":
+        return {
+          outcome: "HELD",
+          executed: false,
+          reason: null,
+          code: null,
+          grantId: null,
+          governed: true,
+          finalization: null,
+        };
+      case "BLOCKED":
+        return {
+          outcome: "BLOCKED",
+          executed: false,
+          reason: result.reason,
+          code: result.code ?? null,
+          grantId: null,
+          governed: false,
+          finalization: null,
+        };
+      case "FAILED_BEFORE_DISPATCH":
+        return {
+          outcome: "FAILED_BEFORE_DISPATCH",
+          executed: false,
+          reason: result.reason,
+          code: result.code ?? null,
+          grantId: result.authorization.grantId,
+          governed: true,
+          finalization: result.finalization,
+        };
+      case "COMPLETED":
+        return {
+          outcome: "COMPLETED",
+          executed: true,
+          reason: null,
+          code: null,
+          grantId: result.authorization.grantId,
+          governed: true,
+          finalization: "finalization" in result ? result.finalization : null,
+        };
+      case "DEFINITELY_NOT_EXECUTED":
+        return {
+          outcome: "DEFINITELY_NOT_EXECUTED",
+          executed: false,
+          reason: result.reason,
+          code: null,
+          grantId: result.authorization.grantId,
+          governed: true,
+          finalization: "finalization" in result ? result.finalization : null,
+        };
+      case "UNKNOWN_AFTER_DISPATCH":
+        return {
+          outcome: "UNKNOWN_AFTER_DISPATCH",
+          executed: null,
+          reason: result.reason,
+          code: null,
+          grantId: result.authorization.grantId,
+          governed: true,
+          finalization: "finalization" in result ? result.finalization : null,
+        };
+    }
   }
 
   private async emitLine(
@@ -1659,6 +1730,7 @@ export class GovernedExecutionRunner {
     },
   ): Promise<void> {
     const sink = this.evidence;
+    // Stryker disable next-line ConditionalExpression: without a sink the line is built and the emit below throws inside the try; the guard only saves the work.
     if (sink === null) return;
     const decision = line.decision;
     const evidence: ExecutorEvidenceLine = {
