@@ -1,0 +1,37 @@
+{
+  "description": "A placeholder takes one segment's text inside literal parentheses, percent-decoded, OData quotes removed; prefixes are tried in order.",
+  "definition": {
+    "profile": "agent-safe.profile.api/1",
+    "id": "example/api/v1",
+    "platform": "example",
+    "title": "Example API",
+    "prefixes": ["/t/{tenant}", ""],
+    "operations": [
+      {
+        "id": "things.post",
+        "method": "POST",
+        "path": "/things({thingId})/post",
+        "action": "thing.post",
+        "summary": "An example operation.",
+        "facts": {
+          "thing_id": "/path/thingId",
+          "tenant": "/path/tenant"
+        },
+        "policy_projection": null
+      }
+    ]
+  },
+  "request": {
+    "method": "POST",
+    "path": "/t/acme/things('red%20box')/post"
+  },
+  "expected": {
+    "operation": "things.post",
+    "action": "thing.post",
+    "facts": {
+      "thing_id": "red box",
+      "tenant": "acme"
+    },
+    "policy_projection": null
+  }
+}

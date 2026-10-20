@@ -199,7 +199,7 @@ export class GatewayHttpServer {
       ) {
         throw new GuardError(400, "HTTP_METHOD_OVERRIDE_REFUSED");
       }
-      const plan = gateway.plan(method, url.pathname);
+      const plan = gateway.plan(method, url.pathname, url.search);
       if (plan.kind === "REFUSE") {
         if (plan.code === "HTTP_PATH_AMBIGUOUS") throw new GuardError(400, plan.code);
         throw new GuardError(405, plan.code, {

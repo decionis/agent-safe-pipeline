@@ -1,0 +1,141 @@
+{
+  "profile": "agent-safe.profile.api/1",
+  "id": "walmart/api/v3",
+  "platform": "walmart-marketplace",
+  "title": "Walmart Marketplace API v3: the seller writes an agent can make",
+  "prefixes": [""],
+  "operations": [
+    {
+      "id": "orders.acknowledge",
+      "method": "POST",
+      "path": "/v3/orders/{purchaseOrderId}/acknowledge",
+      "action": "order.acknowledge",
+      "summary": "Acknowledge a purchase order: its release to fulfilment.",
+      "facts": {
+        "purchase_order_id": "/path/purchaseOrderId"
+      },
+      "policy_projection": {
+        "decision_type": "ORDER_ACCEPTANCE",
+        "transaction_type": "order_acceptance",
+        "workflow_key": "commerce_order_acceptance",
+        "channel": null
+      }
+    },
+    {
+      "id": "orders.cancel",
+      "method": "POST",
+      "path": "/v3/orders/{purchaseOrderId}/cancel",
+      "action": "order.cancel",
+      "summary": "Cancel order lines, each by a quantity and a reason.",
+      "facts": {
+        "purchase_order_id": "/path/purchaseOrderId",
+        "line_numbers": "/body/orderCancellation/orderLines/orderLine/*/lineNumber",
+        "cancellation_reasons": "/body/orderCancellation/orderLines/orderLine/*/orderLineStatuses/orderLineStatus/0/cancellationReason"
+      },
+      "policy_projection": {
+        "decision_type": "ORDER_CANCELLATION",
+        "transaction_type": "order_cancellation",
+        "workflow_key": "commerce",
+        "channel": null
+      }
+    },
+    {
+      "id": "orders.refund",
+      "method": "POST",
+      "path": "/v3/orders/{purchaseOrderId}/refund",
+      "action": "order.refund",
+      "summary": "Refund order lines.",
+      "facts": {
+        "purchase_order_id": "/path/purchaseOrderId",
+        "line_numbers": "/body/orderRefund/orderLines/orderLine/*/lineNumber"
+      },
+      "policy_projection": {
+        "decision_type": "REFUND_REQUEST",
+        "transaction_type": "refund_request",
+        "workflow_key": "commerce_refund_request",
+        "channel": null
+      }
+    },
+    {
+      "id": "orders.ship",
+      "method": "POST",
+      "path": "/v3/orders/{purchaseOrderId}/shipping",
+      "action": "order.ship",
+      "summary": "Mark order lines shipped, with tracking.",
+      "facts": {
+        "purchase_order_id": "/path/purchaseOrderId",
+        "line_numbers": "/body/orderShipment/orderLines/orderLine/*/lineNumber"
+      },
+      "policy_projection": null
+    },
+    {
+      "id": "prices.promotion",
+      "method": "PUT",
+      "path": "/v3/price",
+      "query": {
+        "promo": "true"
+      },
+      "action": "promotion.change",
+      "summary": "Set a promotional price for one SKU.",
+      "facts": {
+        "sku": "/body/sku",
+        "price_amount": "/body/pricing/0/currentPrice/amount",
+        "price_currency": "/body/pricing/0/currentPrice/currency",
+        "price_type": "/body/pricing/0/currentPriceType"
+      },
+      "policy_projection": {
+        "decision_type": "PROMOTION_CHANGE",
+        "transaction_type": "promotion_change",
+        "workflow_key": "commerce_promotion_change",
+        "channel": null
+      }
+    },
+    {
+      "id": "prices.update",
+      "method": "PUT",
+      "path": "/v3/price",
+      "action": "price.change",
+      "summary": "Set the base price of one SKU.",
+      "facts": {
+        "sku": "/body/sku",
+        "price_amount": "/body/pricing/0/currentPrice/amount",
+        "price_currency": "/body/pricing/0/currentPrice/currency"
+      },
+      "policy_projection": {
+        "decision_type": "PRICE_CHANGE",
+        "transaction_type": "price_change",
+        "workflow_key": "commerce_price_change",
+        "channel": null
+      }
+    },
+    {
+      "id": "inventory.update",
+      "method": "PUT",
+      "path": "/v3/inventory",
+      "action": "inventory.update",
+      "summary": "Set the available quantity of one SKU.",
+      "facts": {
+        "sku": "/query/sku",
+        "quantity": "/body/quantity/amount",
+        "quantity_unit": "/body/quantity/unit"
+      },
+      "policy_projection": {
+        "decision_type": "INVENTORY_MUTATION",
+        "transaction_type": "inventory_mutation",
+        "workflow_key": "commerce_inventory_mutation",
+        "channel": null
+      }
+    },
+    {
+      "id": "feeds.submit",
+      "method": "POST",
+      "path": "/v3/feeds",
+      "action": "feed.submit",
+      "summary": "Submit a bulk feed (items, prices, inventory, promotions).",
+      "facts": {
+        "feed_type": "/query/feedType"
+      },
+      "policy_projection": null
+    }
+  ]
+}

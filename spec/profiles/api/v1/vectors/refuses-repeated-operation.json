@@ -1,0 +1,31 @@
+{
+  "description": "Two operations may not share method, path and query.",
+  "definition": {
+    "profile": "agent-safe.profile.api/1",
+    "id": "example/api/v1",
+    "platform": "example",
+    "title": "Example API",
+    "prefixes": [""],
+    "operations": [
+      {
+        "id": "a.one",
+        "method": "POST",
+        "path": "/x/{id}",
+        "action": "a.one",
+        "summary": "An example operation.",
+        "facts": {},
+        "policy_projection": null
+      },
+      {
+        "id": "a.two",
+        "method": "POST",
+        "path": "/x/{other}",
+        "action": "a.two",
+        "summary": "An example operation.",
+        "facts": {},
+        "policy_projection": null
+      }
+    ]
+  },
+  "error": "API_PROFILE_INVALID"
+}

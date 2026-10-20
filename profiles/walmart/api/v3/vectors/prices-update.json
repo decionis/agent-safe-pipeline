@@ -1,0 +1,36 @@
+{
+  "description": "A base price for one SKU.",
+  "profile": "walmart/api/v3",
+  "request": {
+    "method": "PUT",
+    "path": "/v3/price",
+    "query": {},
+    "body": {
+      "sku": "SKU-RED-12",
+      "pricing": [
+        {
+          "currentPriceType": "BASE",
+          "currentPrice": {
+            "currency": "USD",
+            "amount": 18.49
+          }
+        }
+      ]
+    }
+  },
+  "expected": {
+    "operation": "prices.update",
+    "action": "price.change",
+    "facts": {
+      "sku": "SKU-RED-12",
+      "price_amount": 18.49,
+      "price_currency": "USD"
+    },
+    "policy_projection": {
+      "decision_type": "PRICE_CHANGE",
+      "transaction_type": "price_change",
+      "workflow_key": "commerce_price_change",
+      "channel": null
+    }
+  }
+}

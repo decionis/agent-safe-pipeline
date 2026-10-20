@@ -1,0 +1,186 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/decionis/agent-safe-pipeline/blob/master/spec/profiles/api/v1/schema.json",
+  "title": "agent-safe.profile.api/1",
+  "type": "object",
+  "properties": {
+    "profile": {
+      "type": "string",
+      "const": "agent-safe.profile.api/1"
+    },
+    "id": {
+      "type": "string",
+      "maxLength": 120,
+      "pattern": "^[a-z][a-z0-9]*\\/[a-z][a-z0-9]*\\/v\\d+(\\.\\d+)?$"
+    },
+    "platform": {
+      "type": "string",
+      "maxLength": 80,
+      "pattern": "^[a-z][a-z0-9-]*$"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "prefixes": {
+      "minItems": 1,
+      "maxItems": 8,
+      "type": "array",
+      "items": {
+        "anyOf": [
+          {
+            "type": "string",
+            "const": ""
+          },
+          {
+            "type": "string",
+            "maxLength": 300,
+            "pattern": "^(\\/[^/?#%\\\\\\s]+)+$"
+          }
+        ]
+      }
+    },
+    "operations": {
+      "minItems": 1,
+      "maxItems": 200,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 120,
+            "pattern": "^[a-z][A-Za-z0-9]*(\\.[a-z][A-Za-z0-9]*)*$"
+          },
+          "method": {
+            "type": "string",
+            "enum": [
+              "POST",
+              "PUT",
+              "PATCH",
+              "DELETE"
+            ]
+          },
+          "path": {
+            "type": "string",
+            "maxLength": 500,
+            "pattern": "^(\\/[^/?#%\\\\\\s]+)+$"
+          },
+          "query": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "pattern": "^[a-z][\\w.-]{0,63}$"
+            },
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 200
+            }
+          },
+          "action": {
+            "type": "string",
+            "maxLength": 120,
+            "pattern": "^[a-z][a-z0-9._:-]*$"
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "facts": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]{0,63}$"
+            },
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 300,
+              "pattern": "^\\/(path|query|body)(\\/.*)?$"
+            }
+          },
+          "policy_projection": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "decision_type": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120
+                  },
+                  "transaction_type": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 120
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "workflow_key": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 120
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "channel": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 120
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "decision_type",
+                  "transaction_type",
+                  "workflow_key",
+                  "channel"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "method",
+          "path",
+          "action",
+          "summary",
+          "facts",
+          "policy_projection"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "profile",
+    "id",
+    "platform",
+    "title",
+    "prefixes",
+    "operations"
+  ],
+  "additionalProperties": false
+}

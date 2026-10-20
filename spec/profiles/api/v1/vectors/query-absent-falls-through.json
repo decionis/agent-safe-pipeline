@@ -1,0 +1,46 @@
+{
+  "description": "Without the query value the next operation matches; a repeated query value is not an exact one.",
+  "definition": {
+    "profile": "agent-safe.profile.api/1",
+    "id": "example/api/v1",
+    "platform": "example",
+    "title": "Example API",
+    "prefixes": [""],
+    "operations": [
+      {
+        "id": "prices.promotion",
+        "method": "PUT",
+        "path": "/prices",
+        "action": "promotion.change",
+        "summary": "An example operation.",
+        "facts": {},
+        "policy_projection": null,
+        "query": {
+          "promo": "true"
+        }
+      },
+      {
+        "id": "prices.update",
+        "method": "PUT",
+        "path": "/prices",
+        "action": "price.change",
+        "summary": "An example operation.",
+        "facts": {},
+        "policy_projection": null
+      }
+    ]
+  },
+  "request": {
+    "method": "PUT",
+    "path": "/prices",
+    "query": {
+      "promo": ["true", "true"]
+    }
+  },
+  "expected": {
+    "operation": "prices.update",
+    "action": "price.change",
+    "facts": {},
+    "policy_projection": null
+  }
+}

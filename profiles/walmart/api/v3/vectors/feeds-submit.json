@@ -1,0 +1,19 @@
+{
+  "description": "A bulk feed names its type in the query.",
+  "profile": "walmart/api/v3",
+  "request": {
+    "method": "POST",
+    "path": "/v3/feeds",
+    "query": {
+      "feedType": "PRICE_AND_PROMOTION"
+    }
+  },
+  "expected": {
+    "operation": "feeds.submit",
+    "action": "feed.submit",
+    "facts": {
+      "feed_type": "PRICE_AND_PROMOTION"
+    },
+    "policy_projection": null
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "description": "An acknowledgement is the order's release to fulfilment.",
+  "profile": "walmart/api/v3",
+  "request": {
+    "method": "POST",
+    "path": "/v3/orders/1796277083022/acknowledge",
+    "query": {},
+    "body": {}
+  },
+  "expected": {
+    "operation": "orders.acknowledge",
+    "action": "order.acknowledge",
+    "facts": {
+      "purchase_order_id": "1796277083022"
+    },
+    "policy_projection": {
+      "decision_type": "ORDER_ACCEPTANCE",
+      "transaction_type": "order_acceptance",
+      "workflow_key": "commerce_order_acceptance",
+      "channel": null
+    }
+  }
+}

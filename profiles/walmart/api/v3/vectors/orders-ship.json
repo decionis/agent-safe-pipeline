@@ -1,0 +1,32 @@
+{
+  "description": "A shipment names its lines; it is decided under no policy path of its own.",
+  "profile": "walmart/api/v3",
+  "request": {
+    "method": "POST",
+    "path": "/v3/orders/1796277083022/shipping",
+    "query": {},
+    "body": {
+      "orderShipment": {
+        "orderLines": {
+          "orderLine": [
+            {
+              "lineNumber": "1"
+            },
+            {
+              "lineNumber": "2"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "expected": {
+    "operation": "orders.ship",
+    "action": "order.ship",
+    "facts": {
+      "purchase_order_id": "1796277083022",
+      "line_numbers": ["1", "2"]
+    },
+    "policy_projection": null
+  }
+}

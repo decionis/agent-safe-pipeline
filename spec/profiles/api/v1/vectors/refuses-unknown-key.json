@@ -1,0 +1,23 @@
+{
+  "description": "The definition is closed: an unknown key is refused.",
+  "definition": {
+    "profile": "agent-safe.profile.api/1",
+    "id": "example/api/v1",
+    "platform": "example",
+    "title": "Example API",
+    "prefixes": [""],
+    "operations": [
+      {
+        "id": "a.one",
+        "method": "POST",
+        "path": "/x",
+        "action": "a.one",
+        "summary": "An example operation.",
+        "facts": {},
+        "policy_projection": null
+      }
+    ],
+    "extra": true
+  },
+  "error": "API_PROFILE_INVALID"
+}
