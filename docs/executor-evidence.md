@@ -139,4 +139,5 @@ The chain is unkeyed. Anyone who can rewrite the whole log can rewrite the whole
 verifier cannot tell a log truncated and re-chained from genesis from a process that restarted.
 Compare the start count with the process's restarts, keep the lines somewhere the process cannot
 write, and treat the chain as an integrity and continuity check over what was kept, not as proof
-of origin.
+of origin. How it compares with the SCITT execution profile's chain, which signs every record, is in
+[SCITT statement profiles](./authority/scitt.md#integrity-and-custody).

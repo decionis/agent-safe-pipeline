@@ -303,7 +303,8 @@ An `ESCALATE` is never turned into an `ALLOW` locally, and a Presence approval i
 without Decionis reauthorization. The pages under [docs/authority](./docs/authority/execution-binding.md)
 map each step onto the protocol: [ExecutionBinding](./docs/authority/execution-binding.md),
 [claim and finalize](./docs/authority/claim-finalize.md), [Presence](./docs/authority/presence.md),
-[evidence](./docs/authority/evidence.md). The provider's half, the procedure by which a system of
+[evidence](./docs/authority/evidence.md), and how those records relate to the SCITT drafts for agent
+actions, [SCITT statement profiles](./docs/authority/scitt.md). The provider's half, the procedure by which a system of
 record or the hop in front of it refuses what the authority never claimed, is the
 [Verifying Provider Profile](./docs/authority/verifying-provider.md), with
 [vectors](./conformance/provider/README.md) any implementation can run and independent verifiers

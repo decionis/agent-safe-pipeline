@@ -34,3 +34,8 @@ biometric, or a secret's digest. Evidence carries identifiers, digests of the in
 body, verdicts, codes and durations; metric labels carry verdicts, codes and configured action
 names; the key is read through a handle and redacted from every line by digest. The
 [telemetry reference](../reference/telemetry.md) lists every metric and every milestone.
+
+## SCITT statement profiles
+
+How the lines and the dossier relate to the two SCITT drafts for agent actions, and how a capsule
+Decionis exports from a dossier joins the lines, is in [SCITT statement profiles](./scitt.md).
