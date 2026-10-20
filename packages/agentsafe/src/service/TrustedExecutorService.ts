@@ -84,6 +84,9 @@ import {
   type EvidenceBundle,
 } from "../incident/EvidenceExport.js";
 import { RequestContext } from "../http/RequestContext.js";
+import { CardOutcomes } from "../outcomes/CardOutcomes.js";
+import type { CardOutcomeLedger } from "../outcomes/CardOutcomeLedger.js";
+import type { OutcomeEvidenceSink } from "../outcomes/CoreOutcomeEvidenceClient.js";
 import type { PostureReport, PostureState } from "../posture/HostPosture.js";
 import type { ReloadReport, SecretName, SecretStore } from "../secrets/SecretStore.js";
 import { AuthorityClients } from "./AuthorityClients.js";
@@ -138,6 +141,10 @@ export interface ServiceDependencies extends Omit<EscalationDependencies, "fetch
   readonly loadEdgeModule?: (path: string) => EdgeModule;
   /** Loads `pg` for the shared replay store; the installed package unless a test hands in its own. */
   readonly loadPg?: LoadPg;
+  /** Where card outcome facts are kept; the configured directory unless a test hands in its own. */
+  readonly cardOutcomeLedger?: CardOutcomeLedger;
+  /** Core's outcome evidence resource; the authority's, with the producer token, unless a test hands in its own. */
+  readonly outcomeSink?: OutcomeEvidenceSink;
 }
 
 /** What `/v1/control/status` reports: identifiers, counts, and heads, never a value. */
@@ -318,6 +325,8 @@ export class TrustedExecutorService {
     private cardsTimer: ReturnType<typeof setInterval> | null = null,
     /** The edge evaluator, when the configuration asks for it. */
     private readonly edge: EdgeRuntime | null = null,
+    /** The card purchases' outcome evidence, recorded and stated after the fact; null when off. */
+    private readonly outcomes: CardOutcomes | null = null,
   ) {}
 
   /**
@@ -539,6 +548,18 @@ export class TrustedExecutorService {
       TrustedExecutorService.cardHolds(config, secrets, clients, dependencies),
       null,
       edge,
+      CardOutcomes.create({
+        config: config.cards.outcomes,
+        authorityUrl: config.authority.baseUrl,
+        token: (): string =>
+          secrets.get("DECIONIS_PRODUCER_TOKEN").use((value) => value.toString("utf8")),
+        fetch: egress.fetch,
+        events,
+        ...(dependencies.cardOutcomeLedger === undefined
+          ? {}
+          : { ledger: dependencies.cardOutcomeLedger }),
+        ...(dependencies.outcomeSink === undefined ? {} : { sink: dependencies.outcomeSink }),
+      }),
     );
   }
 
@@ -699,12 +720,23 @@ export class TrustedExecutorService {
    * and then sweeps it hourly for what lapsed.
    */
   public async startCards(): Promise<void> {
-    if (this.cards.kind === "memory") return;
-    await this.cards.ready();
-    this.cardsTimer ??= setInterval(() => {
-      void this.cards.cleanup().catch(() => undefined);
-    }, 60 * 60_000);
-    this.cardsTimer.unref();
+    if (this.cards.kind !== "memory") {
+      await this.cards.ready();
+      this.cardsTimer ??= setInterval(() => {
+        void this.cards.cleanup().catch(() => undefined);
+      }, 60 * 60_000);
+      this.cardsTimer.unref();
+    }
+    // The card purchases' outcome evidence, on its own timer, when this deployment publishes it.
+    this.outcomes?.start();
+  }
+
+  /**
+   * The card purchases' outcome evidence, when it is on: what it has recorded is written, and
+   * `publish` states it to Decionis now rather than at the next interval.
+   */
+  public get cardOutcomes(): CardOutcomes | null {
+    return this.outcomes;
   }
 
   /** The actions this process can run, for `/ready`. */
@@ -717,6 +749,7 @@ export class TrustedExecutorService {
     this.edge?.stop();
     if (this.cardsTimer !== null) clearInterval(this.cardsTimer);
     this.cardsTimer = null;
+    this.outcomes?.stop();
     void this.cards.close().catch(() => undefined);
     this.clients.close();
     this.egress.close();
@@ -882,6 +915,7 @@ export class TrustedExecutorService {
       if (this.config.mode === "SHADOW") {
         const observed = await this.observe(captured, evidence);
         this.metrics.proposals.inc({ verdict: observed.verdict ?? "NONE" });
+        this.outcomes?.decided(captured, observed);
         return observed;
       }
       // A halt and a ceiling are refusals this host makes on its own. Both
@@ -897,6 +931,7 @@ export class TrustedExecutorService {
       }
       const answer = await this.enforceAfterPosture(captured, evidence);
       this.metrics.proposals.inc({ verdict: answer.verdict ?? "NONE" });
+      this.outcomes?.decided(captured, answer);
       return answer;
     });
   }
@@ -1065,7 +1100,7 @@ export class TrustedExecutorService {
       throw new ServiceError(422, "ACTION_NOT_REGISTERED");
     }
     this.assertPosture();
-    return await RequestContext.run({ principal: presenter.id }, async () => {
+    const answer = await RequestContext.run({ principal: presenter.id }, async () => {
       try {
         this.assertNotHalted(captured);
         await this.assertCardSpendable(captured);
@@ -1090,6 +1125,8 @@ export class TrustedExecutorService {
       }
       return this.held(captured, "BLOCK", resolution.reasonCodes, resolution.failClosed, null);
     });
+    this.outcomes?.resumed(captured, answer, attested ? "ATTESTATION" : "PRESENCE");
+    return answer;
   }
 
   /**
@@ -1811,6 +1848,7 @@ export class TrustedExecutorService {
     }
     this.metrics.executions.inc({ outcome: "CARD_AUTHORIZATION_MATCHED" });
     this.events.emit({ event: "CARD_AUTHORIZATION_MATCHED", intent_id: intentId });
+    this.outcomes?.claimed(intentId, authorization.grantId);
     return answer;
   }
 
@@ -1897,6 +1935,7 @@ export class TrustedExecutorService {
       if (this.config.mode === "SHADOW") {
         const observed = await this.observe(captured);
         this.metrics.proposals.inc({ verdict: observed.verdict ?? "NONE" });
+        this.outcomes?.decided(captured, observed);
         return this.noMatch(captured.intent.intentId, "SHADOW_OBSERVED");
       }
       try {
@@ -1915,6 +1954,7 @@ export class TrustedExecutorService {
         return this.noMatch(captured.intent.intentId, error.code);
       }
       this.metrics.proposals.inc({ verdict: answer.verdict ?? "NONE" });
+      this.outcomes?.decided(captured, answer);
       if (answer.outcome === "HELD_FOR_AUTHORIZATION") {
         return await this.claimCard(request, callerId, true);
       }
@@ -2038,6 +2078,7 @@ export class TrustedExecutorService {
       intent_id: captured.intent.intentId,
       outcome: record.outcome,
     });
+    this.outcomes?.settled(captured.intent.intentId, record.outcome, record.evidenceDigest);
     const effect = this.effect(captured, cardExecutionResult(record));
     return {
       authorization_id: authorizationId,

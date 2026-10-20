@@ -393,6 +393,111 @@ built:
   does on the wire (`onUnavailable`: forward or decline). The [incident response
   guide](../incident-response.md) has the rest of the stop and the evidence it leaves.
 
+## Outcome evidence for the Decionis meter
+
+The Decionis outcome meter measures what the card path held, released and let through, against an
+agreement the bank signs, and closes each month in a signed statement. AgentSafe states the facts
+of each card purchase as `decionis.outcomes.evidence/1`; Decionis's `OutcomeCalculator` classifies
+them, and nothing in AgentSafe does. Evidence is off unless the deployment turns it on, and turning
+it on changes no authorization: each fact is recorded after its answer has been given, and the
+evidence goes to Decionis on a timer, never on the request path.
+
+### Turning it on
+
+| Variable                                  | What it is                                                                                                |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `EXECUTOR_CARD_OUTCOMES`                  | `off` (the default), `record` (keep the facts) or `publish` (keep them and send the evidence to Decionis) |
+| `EXECUTOR_CARD_OUTCOMES_DIR`              | `record` and `publish`: where the facts and the publisher's state live; absolute, private to the process  |
+| `EXECUTOR_CARD_OUTCOMES_ORG_ID`           | `publish`: the Decionis organization the evidence is about                                                |
+| `EXECUTOR_CARD_OUTCOMES_INTERVAL_SECONDS` | `publish`: how often a run starts, one minute to a day; an hour by default                                |
+| `DECIONIS_PRODUCER_TOKEN`, `_FILE`        | `publish`: the producer token Decionis registered for this deployment; a secret, a file in production     |
+
+Decionis takes outcome evidence from a registered producer only. The token has to be the one its
+`DECIONIS_DELIVERY_PRODUCERS_JSON` entry names with `outcomes: "agentsafe"`, and Decionis has to
+run with `DECIONIS_OUTCOMES_ENABLED=1`. The bank's own `DECIONIS_API_KEY` is never a producer, so
+the bank's key cannot feed the meter that measures the bank. The evidence goes to
+`POST {DECIONIS_API_URL}/v1/outcomes/evidence` through the same guarded egress, CA bundle and pins
+as every other call to the authority.
+
+Each purchase is stated under the platform module id **`card-authorization`**, with the action type
+`CARD_PURCHASE`. An agreement counts card evidence only when its scope names that platform and that
+action type, and names no connection ids: card evidence carries none. (The executor that answers
+the issuer's hook runs as the `card-issuer` platform; `card-authorization` names what is measured.)
+
+With several replicas, every replica's `EXECUTOR_CARD_OUTCOMES_DIR` points at one volume they all
+mount. Each replica writes its own files (`card-outcomes-<day>.<replica>.jsonl`), exactly one
+replica runs `publish`, and the rest run `record`. The publisher reads every replica's facts, so a
+purchase held on one replica and claimed on another is stated as one purchase. A volume per
+replica would state only what that replica saw, as differing evidence for the same purchase.
+
+### What it states
+
+One subject per purchase: the digest of the tenant and the purchase's intent id. Every stated
+purchase carried a decision, so its coverage is `GOVERNED`. Its amount is what the purchase named
+at decision time, in its own currency and minor units, never converted. The decision's `mode` says
+whether it was enforced or only evaluated in shadow.
+
+| What happened                                                                       | Decision                              | Review                                  | Execution                                                     |
+| ----------------------------------------------------------------------------------- | ------------------------------------- | --------------------------------------- | ------------------------------------------------------------- |
+| Allowed; the issuer's authorization claimed the grant and the issuer approved       | `PROCEED`                             | none                                    | `COMMITTED`, with the grant id and the effect record's digest |
+| Allowed, claimed, and declined by the issuer                                        | `PROCEED`                             | none                                    | `FAILED`                                                      |
+| Allowed, claimed, and the result came after the claim's lease or has not come       | `PROCEED`                             | none                                    | `UNKNOWN`                                                     |
+| Allowed, and the grant expired unspent, or no grant could be kept for the issuer    | `PROCEED`                             | none                                    | `NOT_EXECUTED`                                                |
+| Escalated, and released by the cardholder's tap or a Presence approval              | `HOLD`                                | `RELEASED`, `LEGITIMATE`, by `CUSTOMER` | as the claim and the issuer's result say                      |
+| Escalated, and refused through Presence (`PRESENCE_DENIED`, `PRESENCE_REJECTED`)    | `HOLD`                                | `REJECTED`, `UNCONFIRMED`               | `NOT_EXECUTED` once the intent has expired                    |
+| Escalated, and nobody answered (a forged or expired attestation is no one's answer) | `HOLD`                                | none                                    | `NOT_EXECUTED` once the intent has expired                    |
+| Blocked by policy                                                                   | `BLOCK`                               | none                                    | `NOT_EXECUTED` once the intent has expired                    |
+| Evaluated in shadow, at the proposal or at the issuer's hook                        | what policy would have said, `SHADOW` | none                                    | none                                                          |
+
+How the meter reads that, under the agreement's own terms: an allowed and committed purchase is
+governed value; a hold the cardholder released is a false hold; a refused or blocked hold that
+nobody confirmed as a problem is exposure, held but unconfirmed; a hold nobody answered is pending;
+a shadow result is an estimate, never summed with realized ones. When a purchase's facts change
+after it was stated (the issuer's result arrives, a grant lapses), it is stated again under the
+next revision, and Decionis appends that as a correction.
+
+What card evidence never states:
+
+- **A prevented loss.** The meter counts a hold as prevented only when a person confirmed that the
+  purchase was a real problem and nothing was paid. AgentSafe records no such confirmation: a tap
+  approves a purchase, and a Presence refusal refuses one without establishing that it was a
+  problem. So card evidence never says `CONFIRMED_PROBLEM`, and nothing it states is counted as
+  prevented.
+- **The issuer's money.** Clearing, settlement and reversals are the issuer's, outside this
+  boundary; `financial` is always null.
+- **What had no decision.** An authorization with no hold answered `NO_GRANT`, which the issuer's
+  own policy then decides; a decision the authority never took because it did not answer; and a
+  refusal the host made before asking (a halt, a ceiling, a card already held).
+- **Card data.** The facts kept for this carry the intent id, the tenant, the decision, dossier and
+  grant ids, codes, times, and the purchase's amount and currency. They never carry a card
+  reference, a merchant, an authorization id, an approval code or a tap, and the subject is a
+  digest. The security stream still carries none of the amounts: only counts and codes
+  (`CARD_OUTCOMES_DROPPED`, `CARD_OUTCOMES_PUBLISHED`, `CARD_OUTCOMES_REFUSED`).
+
+### How it is sent
+
+A run reads the last three days of facts, states each purchase, and records a subject at a new
+revision only when its evidence changed, then sends what Decionis has not accepted, at most a
+thousand subjects per request. Nothing unchanged is sent again, so a restart resends nothing
+Decionis already holds. Decionis takes a batch whole or refuses it:
+
+- a revision conflict (Decionis holds that revision with other content) moves the subject to its
+  next revision and the batch goes again;
+- a refusal the same batch cannot pass (`403` for a token Decionis does not allow to submit, `401`,
+  `400`, `404`, `413`, `422`) stops the run until the next interval, with the evidence still owed,
+  and is reported as `CARD_OUTCOMES_REFUSED`;
+- an outage or `503` (`outcomes_disabled`) is retried after thirty seconds, then four times longer
+  each time, never longer than the interval.
+
+A fact that cannot be kept (a full queue, a directory that refuses the write) is dropped and counted
+as `CARD_OUTCOMES_DROPPED`; the purchase's evidence then stays at what the kept facts establish.
+
+The wire contract is Decionis's, vendored byte for byte at
+`packages/agentsafe/contracts/OutcomeEvidence.v1.json` with its SHA-256 pinned in the source; a
+test fails when the copy drifts, and holds every submission the producer builds to that schema.
+When Decionis regenerates the contract (`pnpm --filter @decionis/shared outcomes:generate`), copy
+the file and update the pinned digest together.
+
 ## What this version does not do
 
 - Split authorizations, as above.
@@ -402,6 +507,8 @@ built:
   does that on the wire, in its match mode, through this hook.
 - Rotating the hold key re-seals nothing: a hold sealed under the previous key is read as absent,
   and expires with no effect. Rotate between bursts, or let the holds drain first.
+- A person's confirmation that a held purchase was a real problem. Without one, the outcome
+  meter counts no card purchase as prevented, as above.
 
 The evidence boundary is unchanged: the security stream carries intent ids and codes, never a card
 reference, an amount, a merchant or a token.

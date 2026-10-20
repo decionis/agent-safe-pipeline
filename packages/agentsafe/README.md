@@ -402,9 +402,13 @@ network path has a default.
 | `EXECUTOR_CARD_AUTHORIZATIONS`                                | `single` (the default): one amount per authorization id. `incremental`: the same id may be re-presented for more, up to the ceiling                                                   |
 | `EXECUTOR_CARD_NO_GRANT`                                      | `no_match` (the default): an authorization with no hold is `NO_GRANT`. `evaluate`: it is evaluated at the commit boundary, held and claimed on an `ALLOW`, `PENDING` on an `ESCALATE` |
 | `EXECUTOR_CARD_COMMIT_TENANT_ID`, `_ACTOR_ID`, `_ACTOR_TYPE`  | `evaluate` only, the first two required: the tenant and actor (`SYSTEM` by default) a commit-boundary evaluation is captured as                                                       |
+| `EXECUTOR_CARD_OUTCOMES`                                      | `off` (the default), `record` or `publish`: the card purchases' outcome evidence for the Decionis meter, kept and stated after the fact; no authorization changes                     |
+| `EXECUTOR_CARD_OUTCOMES_DIR`                                  | `record` and `publish`: where the outcome facts and the publisher's state live, absolute                                                                                              |
+| `EXECUTOR_CARD_OUTCOMES_ORG_ID`, `_INTERVAL_SECONDS`          | `publish` only: the Decionis organization the evidence is about (required), and how often it is sent, an hour by default                                                              |
 | `EXECUTOR_EDGE_ENTITLEMENT_FILE`, `EXECUTOR_EDGE_JWKS_FILE`   | `file` source only: the signed entitlement and the pinned Decionis JWKS it is verified against                                                                                        |
 | `DECIONIS_API_URL`                                            | The authority, HTTPS                                                                                                                                                                  |
 | `DECIONIS_API_KEY`                                            | The server-side Decionis credential; secret                                                                                                                                           |
+| `DECIONIS_PRODUCER_TOKEN`                                     | `EXECUTOR_CARD_OUTCOMES=publish` only: the producer token Decionis registered for this deployment's outcome evidence; secret                                                          |
 | `DECIONIS_ALLOW_INSECURE_LOOPBACK`                            | `true` permits plain HTTP to loopback for local doubles; refused under `NODE_ENV=production`                                                                                          |
 | `DECIONIS_CA_FILE`, `DECIONIS_SPKI_PINS`                      | Optional: the PEM bundle the authority is verified against, and two or more `sha256/<base64>` SPKI pins                                                                               |
 | `PRESENCE_APPROVER_ID`                                        | The person who must approve (`DIRECT` and `MANAGED`); `PRESENCE_APPROVER_ROLE` is optional in `MANAGED`                                                                               |
@@ -1108,6 +1112,18 @@ executor has no read path into the issuer's ledger. The security stream carries
 never a card reference, an amount or a merchant. The card path's own cost is measured in
 `test/performance`; what the hook's latency is in a deployment is in
 [the card authorization guide](../../docs/banking/card-authorization.md#latency).
+
+With `EXECUTOR_CARD_OUTCOMES=record` or `publish`, each card purchase's decision, a person's answer
+to its escalation, the claim and the issuer's result are kept as facts in
+`EXECUTOR_CARD_OUTCOMES_DIR` once each answer has been given, and `publish` states them on a timer
+to Decionis's outcome meter (`POST /v1/outcomes/evidence`, `decionis.outcomes.evidence/1`) as the
+`agentsafe` producer, under the platform module id `card-authorization`. The facts carry ids,
+codes, times and the purchase's amount, never a card reference, a merchant, an authorization id or
+a tap; Decionis classifies, and nothing here does. A refused or held purchase nobody confirmed as a
+problem is stated as exactly that, so no card purchase is counted as prevented. The security
+stream carries `CARD_OUTCOMES_DROPPED`, `CARD_OUTCOMES_PUBLISHED` and `CARD_OUTCOMES_REFUSED`,
+counts and codes only. What each purchase is stated as, and how a bank turns it on, is in
+[the card authorization guide](../../docs/banking/card-authorization.md#outcome-evidence-for-the-decionis-meter).
 
 ## The image
 
