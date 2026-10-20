@@ -72,8 +72,8 @@ importers:
         specifier: ^6.0.3
         version: 6.0.3
       yaml:
-        specifier: ^2.9.0
-        version: 2.9.0
+        specifier: ^2.9.1
+        version: 2.9.1
 
   examples/basic-agent:
     dependencies:
@@ -81,8 +81,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/pipeline
       zod:
-        specifier: ^4.5.4
-        version: 4.5.4
+        specifier: ^4.6.7
+        version: 4.6.7
 
   examples/crm-outreach-demo:
     dependencies:
@@ -90,8 +90,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/pipeline
       zod:
-        specifier: ^4.5.4
-        version: 4.5.4
+        specifier: ^4.6.7
+        version: 4.6.7
 
   examples/github-deploy-agent:
     dependencies:
@@ -99,8 +99,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/pipeline
       zod:
-        specifier: ^4.5.4
-        version: 4.5.4
+        specifier: ^4.6.7
+        version: 4.6.7
 
   examples/golden-adversarial-demo:
     dependencies:
@@ -108,8 +108,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/pipeline
       zod:
-        specifier: ^4.5.4
-        version: 4.5.4
+        specifier: ^4.6.7
+        version: 4.6.7
 
   examples/infra-scale-demo:
     dependencies:
@@ -117,8 +117,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/pipeline
       zod:
-        specifier: ^4.5.4
-        version: 4.5.4
+        specifier: ^4.6.7
+        version: 4.6.7
 
   examples/local-escalation:
     dependencies:
@@ -129,8 +129,8 @@ importers:
         specifier: ^0.2.0
         version: 0.2.0
       zod:
-        specifier: ^4.5.4
-        version: 4.5.4
+        specifier: ^4.6.7
+        version: 4.6.7
 
   examples/mcp-tool-gate:
     dependencies:
@@ -141,11 +141,11 @@ importers:
         specifier: workspace:*
         version: link:../../packages/agentsafe
       '@modelcontextprotocol/sdk':
-        specifier: 1.31.0
-        version: 1.31.0(zod@4.5.4)
+        specifier: 1.32.1
+        version: 1.32.1(zod@4.6.7)
       zod:
-        specifier: ^4.5.4
-        version: 4.5.4
+        specifier: ^4.6.7
+        version: 4.6.7
 
   examples/presence-live-approval:
     dependencies:
@@ -156,8 +156,8 @@ importers:
         specifier: ^0.2.0
         version: 0.2.0
       zod:
-        specifier: ^4.5.4
-        version: 4.5.4
+        specifier: ^4.6.7
+        version: 4.6.7
 
   examples/presence-managed-approval:
     dependencies:
@@ -165,8 +165,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/pipeline
       zod:
-        specifier: ^4.5.4
-        version: 4.5.4
+        specifier: ^4.6.7
+        version: 4.6.7
 
   examples/procurement-agent:
     dependencies:
@@ -174,8 +174,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/pipeline
       zod:
-        specifier: ^4.5.4
-        version: 4.5.4
+        specifier: ^4.6.7
+        version: 4.6.7
 
   examples/shopify-refund-agent:
     dependencies:
@@ -183,8 +183,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/pipeline
       zod:
-        specifier: ^4.5.4
-        version: 4.5.4
+        specifier: ^4.6.7
+        version: 4.6.7
 
   examples/trusted-executor:
     dependencies:
@@ -195,8 +195,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/agentsafe
       jose:
-        specifier: ^6.2.10
-        version: 6.2.10
+        specifier: ^6.2.12
+        version: 6.2.12
 
   examples/whisper-boundary-demo:
     dependencies:
@@ -204,8 +204,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/pipeline
       zod:
-        specifier: ^4.5.4
-        version: 4.5.4
+        specifier: ^4.6.7
+        version: 4.6.7
 
   govern:
     devDependencies:
@@ -222,14 +222,14 @@ importers:
         specifier: ^0.2.0
         version: 0.2.0
       jose:
-        specifier: ^6.2.10
-        version: 6.2.10
+        specifier: ^6.2.12
+        version: 6.2.12
       yaml:
-        specifier: ^2.9.0
-        version: 2.9.0
+        specifier: ^2.9.1
+        version: 2.9.1
       zod:
-        specifier: ^4.5.4
-        version: 4.5.4
+        specifier: ^4.6.7
+        version: 4.6.7
     optionalDependencies:
       pg:
         specifier: ^8.23.1
@@ -249,7 +249,7 @@ importers:
         version: 4.1.12(vitest@4.1.12)
       vitest:
         specifier: ^4.1.12
-        version: 4.1.12(@types/node@26.6.5)(@vitest/coverage-v8@4.1.12)(vite@6.4.3(@types/node@26.6.5)(tsx@4.23.15)(yaml@2.9.0))
+        version: 4.1.12(@types/node@26.6.5)(@vitest/coverage-v8@4.1.12)(vite@6.4.3(@types/node@26.6.5)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/pipeline:
     dependencies:
@@ -257,11 +257,11 @@ importers:
         specifier: ^0.2.0
         version: 0.2.0
       jose:
-        specifier: ^6.2.10
-        version: 6.2.10
+        specifier: ^6.2.12
+        version: 6.2.12
       zod:
-        specifier: ^4.5.4
-        version: 4.5.4
+        specifier: ^4.6.7
+        version: 4.6.7
     devDependencies:
       '@stryker-mutator/core':
         specifier: 10.0.0
@@ -277,7 +277,7 @@ importers:
         version: 4.10.2
       vitest:
         specifier: ^4.1.12
-        version: 4.1.12(@types/node@26.6.5)(@vitest/coverage-v8@4.1.12)(vite@6.4.3(@types/node@26.6.5)(tsx@4.23.15)(yaml@2.9.0))
+        version: 4.1.12(@types/node@26.6.5)(@vitest/coverage-v8@4.1.12)(vite@6.4.3(@types/node@26.6.5)(tsx@4.23.15)(yaml@2.9.1))
 
   tests/integration/contract:
     dependencies:
@@ -288,8 +288,8 @@ importers:
         specifier: ^0.2.0
         version: 0.2.0
       zod:
-        specifier: ^4.5.4
-        version: 4.5.4
+        specifier: ^4.6.7
+        version: 4.6.7
 
 packages:
 
@@ -871,8 +871,8 @@ packages:
     resolution: {integrity: sha512-43/qtrDUokr7LJqoF2c3+RInu/t4zfrpYdoSDfYyhg52rwLV6TnOvdG4fXm7IkSB3wErkcmJS9iEhjVtOSEjjA==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
 
-  '@hono/node-server@2.1.0':
-    resolution: {integrity: sha512-XovyyCCnBzW+zKu+z/zq8hwNs4KOR5rEMAOxo2f40Q5xoOI37IMm6MIg2COOUtUApo0i6850MTBKH2u4QLGIqg==}
+  '@hono/node-server@2.1.5':
+    resolution: {integrity: sha512-MgP/I06GdvsilDspMk/qmRzpk8LOUStP6jFAbSRi40W09DhoyUn+Mj7eyKICPqeYKybOjVFLVIAQzvu1bfIa7Q==}
     engines: {node: '>=20'}
     peerDependencies:
       hono: 4.13.7
@@ -1044,8 +1044,8 @@ packages:
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
 
-  '@modelcontextprotocol/sdk@1.31.0':
-    resolution: {integrity: sha512-UvTMgnNlnIBO/22ob2RcVGDlcvOslQs8T59+FTGdA0L27a39fdGF/EDETNtDVK4DZGpwomlsYpRdA8UXcVL/pw==}
+  '@modelcontextprotocol/sdk@1.32.1':
+    resolution: {integrity: sha512-2DdE+SJDtzLEEWzY1ZjY7Q+VcPhcV1KisD3zI4u0XZyktsjHum1mwbMI+JaulUBi2OZk+KJAi2uPXzxichPkdw==}
     engines: {node: '>=18'}
     peerDependencies:
       '@cfworker/json-schema': ^4.1.1
@@ -1667,8 +1667,8 @@ packages:
   concat-map@0.0.1:
     resolution: {integrity: sha512-/Srv4dswyQNBfohGpz9o6Yb3Gz3SrUDqBH5rTuhGR7ahtlbYKnVxw2bCFMRljaA7EXHaXZ8wsHdodFvbkhKmqg==}
 
-  content-disposition@1.1.0:
-    resolution: {integrity: sha512-5jRCH9Z/+DRP7rkvY83B+yGIGX96OYdJmzngqnw2SBSxqCFPd0w2km3s5iawpGX8krnwSGmF0FW5Nhr0Hfai3g==}
+  content-disposition@2.0.1:
+    resolution: {integrity: sha512-e+H0ZXHSWYrENhQzw1LPuP4oF5MzVKmDU6d3hxlvaPEYLLg62MxtQNPRx4SYSuYJSBUgnQIG4HIN2tEtNv7Dog==}
     engines: {node: '>=18'}
 
   content-type@1.0.5:
@@ -1971,14 +1971,14 @@ packages:
     resolution: {integrity: sha512-KfYbmpRm0VbLjEvVa9yGwCi9GI34xvi7A/HXYWQO65CSD2u3MczUJSuwXKFIxlGsgBQizV9q5J9NHj4VG0n+pA==}
     engines: {node: '>=12.0.0'}
 
-  express-rate-limit@8.6.2:
-    resolution: {integrity: sha512-YH4ru+eOJxQABscKFfRCy9R7x9QFGdezclVMwwgFFndzS2Xnm0uo6B0ABZsLhcpeptGv2qvuJVWlQr9gQZoC3A==}
+  express-rate-limit@8.7.1:
+    resolution: {integrity: sha512-2FXbqkygil3mZiXzEtM0IjE/UBmBNot0J1GEVrJT4JbrvwOSoEtqtO+wHbiMQELWe1eNvHoYRg2dkjOid+6JkA==}
     engines: {node: '>= 16'}
     peerDependencies:
       express: '>= 4.11'
 
-  express@5.2.1:
-    resolution: {integrity: sha512-hIS4idWWai69NezIdRt2xFVofaF4j+6INOpJlVOLDO8zXGpUVEVzIYk12UUi2JzjEzWL3IOAxcTubgz9Po0yXw==}
+  express@5.3.0:
+    resolution: {integrity: sha512-qCqy1xSoaugxOD4IVHb1ZWdkvCF2W3aE2okKouWj8VwJ+ztskSiXoBnCSJqfKT+cVPJhuJqe9YLbY425+Zh00g==}
     engines: {node: '>= 18'}
 
   fast-check@4.10.2:
@@ -2344,8 +2344,11 @@ packages:
     resolution: {integrity: sha512-HGYWWS/ehqTV3xN10i23tkPkpH46MLCIMFNCaaKNavAXTF1RkqxawEPtnjnGZ6XKSInBKkiOA5BKS+aZiY3AvA==}
     engines: {node: '>=8'}
 
-  jose@6.2.10:
-    resolution: {integrity: sha512-iiW7J9qRFlGxvCOIBDBDxFePQSn7ZMAnrYGhrrOo6siO/MIqwfyilLR27pkfDgUk+raLuzADS8A3S/KLBisc0g==}
+  jose@6.2.12:
+    resolution: {integrity: sha512-9NiFmJEex0sy2Dk58j2UGBSHgUs2ypF9eZSu4L6vjOX3Dp96Sw1F3uL+H+D1sx02jZZdzUT0HgvCy59CuvXcWw==}
+
+  jose@6.2.13:
+    resolution: {integrity: sha512-7TIg10ZE1x82YediN+lcrPNvGMKge9yFHQD+Qho/b8y2adfugU3AsvvHfxV0fzyFllT6l9xCjf4RWY9g/Z9PJQ==}
 
   js-md4@0.3.2:
     resolution: {integrity: sha512-/GDnfQYsltsjRswQhN9fhv3EMw2sCpUdrdxyWDOUK7eyD++r3gRhzgiQgc/x4MAv2i1iuQ4lxO5mvqM3vj4bwA==}
@@ -2576,9 +2579,9 @@ packages:
   natural-compare@1.4.0:
     resolution: {integrity: sha512-OWND8ei3VtNC9h7V60qff3SVobHr996CTwgxubgyQYEpg290h9J0buyECNNJexkFm5sOajh5G116RYA1c8ZMSw==}
 
-  negotiator@1.0.0:
-    resolution: {integrity: sha512-8Ofs/AUQh8MaEcrlq5xOX0CQ9ypTF5dl78mjlMNfOK08fzpgTHQRQPBxcPlEtIw0yRpws+Zo/3r+5WRby7u3Gg==}
-    engines: {node: '>= 0.6'}
+  negotiator@1.1.0:
+    resolution: {integrity: sha512-NMPBRMJgiQHjbd8phG3Vebdx4kZ1H121rbl5IkMqeOsahptB9BKo/d7oJ3zTXqTgagn2bWlNSXkh0QUGM31RYg==}
+    engines: {node: '>=18'}
 
   node-exports-info@1.6.2:
     resolution: {integrity: sha512-kXs9Go0cah0qHVV2v389IXQLdLCeE1xfFtjOAF+iobu0OIoG1pje8At2vMHyaPMiPMnG/LWP50twML21eMcAag==}
@@ -3244,8 +3247,8 @@ packages:
     resolution: {integrity: sha512-LKYU1iAXJXUgAXn9URjiu+MWhyUXHsvfp7mcuYm9dSUKK0/CjtrUwFAxD82/mCWbtLsGjFIad0wIsod4zrTAEQ==}
     engines: {node: '>=0.4'}
 
-  yaml@2.9.0:
-    resolution: {integrity: sha512-2AvhNX3mb8zd6Zy7INTtSpl1F15HW6Wnqj0srWlkKLcpYl/gMIMJiyuGq2KeI2YFxUPjdlB+3Lc10seMLtL4cA==}
+  yaml@2.9.1:
+    resolution: {integrity: sha512-3NxN8+78OdzbT7C/WjGsyfPAtJaN3FNDsWxv7Y7mcDsT/oOmgW8BpyQQFFBnvZE3j9Y2Sdz1ULFLezL7Eb2yFw==}
     engines: {node: '>= 14.6'}
     hasBin: true
 
@@ -3265,8 +3268,8 @@ packages:
   zod@3.25.76:
     resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
 
-  zod@4.5.4:
-    resolution: {integrity: sha512-sC95tT5iHHH9gtpj6A81kh+NEaRAUFN+qlUPDUbRfOMvNf5QCBqsb3WgvnpVtK5Y+4UfA6KqufotuTvMGiTlsA==}
+  zod@4.6.7:
+    resolution: {integrity: sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg==}
 
 snapshots:
 
@@ -3737,7 +3740,7 @@ snapshots:
       '@eslint/core': 0.17.0
       levn: 0.4.1
 
-  '@hono/node-server@2.1.0(hono@4.13.7)':
+  '@hono/node-server@2.1.5(hono@4.13.7)':
     dependencies:
       hono: 4.13.7
 
@@ -3890,9 +3893,9 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.6.0
 
-  '@modelcontextprotocol/sdk@1.31.0(zod@4.5.4)':
+  '@modelcontextprotocol/sdk@1.32.1(zod@4.6.7)':
     dependencies:
-      '@hono/node-server': 2.1.0(hono@4.13.7)
+      '@hono/node-server': 2.1.5(hono@4.13.7)
       ajv: 8.20.0
       ajv-formats: 3.0.1(ajv@8.20.0)
       content-type: 1.0.5
@@ -3900,15 +3903,15 @@ snapshots:
       cross-spawn: 7.0.6
       eventsource: 3.0.7
       eventsource-parser: 3.1.1
-      express: 5.2.1
-      express-rate-limit: 8.6.2(express@5.2.1)
+      express: 5.3.0
+      express-rate-limit: 8.7.1(express@5.3.0)
       hono: 4.13.7
-      jose: 6.2.10
+      jose: 6.2.13
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
       raw-body: 3.0.2
-      zod: 4.5.4
-      zod-to-json-schema: 3.25.2(zod@4.5.4)
+      zod: 4.6.7
+      zod-to-json-schema: 3.25.2(zod@4.6.7)
     transitivePeerDependencies:
       - supports-color
 
@@ -4069,7 +4072,7 @@ snapshots:
       '@stryker-mutator/util': 10.0.0
       semver: 7.8.5
       tslib: 2.8.1
-      vitest: 4.1.12(@types/node@26.6.5)(@vitest/coverage-v8@4.1.12)(vite@6.4.3(@types/node@26.6.5)(tsx@4.23.15)(yaml@2.9.0))
+      vitest: 4.1.12(@types/node@26.6.5)(@vitest/coverage-v8@4.1.12)(vite@6.4.3(@types/node@26.6.5)(tsx@4.23.15)(yaml@2.9.1))
 
   '@tybys/wasm-util@0.10.3':
     dependencies:
@@ -4290,7 +4293,7 @@ snapshots:
       obug: 2.2.1
       std-env: 4.3.0
       tinyrainbow: 3.2.0
-      vitest: 4.1.12(@types/node@26.6.5)(@vitest/coverage-v8@4.1.12)(vite@6.4.3(@types/node@26.6.5)(tsx@4.23.15)(yaml@2.9.0))
+      vitest: 4.1.12(@types/node@26.6.5)(@vitest/coverage-v8@4.1.12)(vite@6.4.3(@types/node@26.6.5)(tsx@4.23.15)(yaml@2.9.1))
 
   '@vitest/expect@4.1.12':
     dependencies:
@@ -4301,13 +4304,13 @@ snapshots:
       chai: 6.3.0
       tinyrainbow: 3.2.0
 
-  '@vitest/mocker@4.1.12(vite@6.4.3(@types/node@26.6.5)(tsx@4.23.15)(yaml@2.9.0))':
+  '@vitest/mocker@4.1.12(vite@6.4.3(@types/node@26.6.5)(tsx@4.23.15)(yaml@2.9.1))':
     dependencies:
       '@vitest/spy': 4.1.12
       estree-walker: 3.0.3
       magic-string: 0.30.21
     optionalDependencies:
-      vite: 6.4.3(@types/node@26.6.5)(tsx@4.23.15)(yaml@2.9.0)
+      vite: 6.4.3(@types/node@26.6.5)(tsx@4.23.15)(yaml@2.9.1)
 
   '@vitest/pretty-format@4.1.12':
     dependencies:
@@ -4336,7 +4339,7 @@ snapshots:
   accepts@2.0.0:
     dependencies:
       mime-types: 3.0.2
-      negotiator: 1.0.0
+      negotiator: 1.1.0
 
   acorn-jsx@5.3.2(acorn@8.18.0):
     dependencies:
@@ -4531,7 +4534,7 @@ snapshots:
 
   concat-map@0.0.1: {}
 
-  content-disposition@1.1.0: {}
+  content-disposition@2.0.1: {}
 
   content-type@1.0.5: {}
 
@@ -4969,20 +4972,20 @@ snapshots:
 
   expect-type@1.4.0: {}
 
-  express-rate-limit@8.6.2(express@5.2.1):
+  express-rate-limit@8.7.1(express@5.3.0):
     dependencies:
       debug: 4.4.3
-      express: 5.2.1
+      express: 5.3.0
       ip-address: 10.7.1
     transitivePeerDependencies:
       - supports-color
 
-  express@5.2.1:
+  express@5.3.0:
     dependencies:
       accepts: 2.0.0
       body-parser: 2.3.0
-      content-disposition: 1.1.0
-      content-type: 1.0.5
+      content-disposition: 2.0.1
+      content-type: 2.1.0
       cookie: 0.7.2
       cookie-signature: 1.2.2
       debug: 4.4.3
@@ -5363,7 +5366,9 @@ snapshots:
       html-escaper: 2.0.2
       istanbul-lib-report: 3.0.1
 
-  jose@6.2.10: {}
+  jose@6.2.12: {}
+
+  jose@6.2.13: {}
 
   js-md4@0.3.2: {}
 
@@ -5656,7 +5661,7 @@ snapshots:
 
   mutation-server-protocol@0.4.1:
     dependencies:
-      zod: 4.5.4
+      zod: 4.6.7
 
   mutation-testing-elements@3.8.4: {}
 
@@ -5674,7 +5679,9 @@ snapshots:
 
   natural-compare@1.4.0: {}
 
-  negotiator@1.0.0: {}
+  negotiator@1.1.0:
+    dependencies:
+      content-type: 2.1.0
 
   node-exports-info@1.6.2:
     dependencies:
@@ -6321,7 +6328,7 @@ snapshots:
 
   vary@1.1.2: {}
 
-  vite@6.4.3(@types/node@26.6.5)(tsx@4.23.15)(yaml@2.9.0):
+  vite@6.4.3(@types/node@26.6.5)(tsx@4.23.15)(yaml@2.9.1):
     dependencies:
       esbuild: 0.25.12
       fdir: 6.5.0(picomatch@4.0.7)
@@ -6333,12 +6340,12 @@ snapshots:
       '@types/node': 26.6.5
       fsevents: 2.3.3
       tsx: 4.23.15
-      yaml: 2.9.0
+      yaml: 2.9.1
 
-  vitest@4.1.12(@types/node@26.6.5)(@vitest/coverage-v8@4.1.12)(vite@6.4.3(@types/node@26.6.5)(tsx@4.23.15)(yaml@2.9.0)):
+  vitest@4.1.12(@types/node@26.6.5)(@vitest/coverage-v8@4.1.12)(vite@6.4.3(@types/node@26.6.5)(tsx@4.23.15)(yaml@2.9.1)):
     dependencies:
       '@vitest/expect': 4.1.12
-      '@vitest/mocker': 4.1.12(vite@6.4.3(@types/node@26.6.5)(tsx@4.23.15)(yaml@2.9.0))
+      '@vitest/mocker': 4.1.12(vite@6.4.3(@types/node@26.6.5)(tsx@4.23.15)(yaml@2.9.1))
       '@vitest/pretty-format': 4.1.12
       '@vitest/runner': 4.1.12
       '@vitest/snapshot': 4.1.12
@@ -6355,7 +6362,7 @@ snapshots:
       tinyexec: 1.3.1
       tinyglobby: 0.2.17
       tinyrainbow: 3.2.0
-      vite: 6.4.3(@types/node@26.6.5)(tsx@4.23.15)(yaml@2.9.0)
+      vite: 6.4.3(@types/node@26.6.5)(tsx@4.23.15)(yaml@2.9.1)
       why-is-node-running: 2.3.0
     optionalDependencies:
       '@types/node': 26.6.5
@@ -6421,16 +6428,16 @@ snapshots:
 
   xtend@4.0.2: {}
 
-  yaml@2.9.0: {}
+  yaml@2.9.1: {}
 
   yocto-queue@0.1.0: {}
 
   yoctocolors@2.2.0: {}
 
-  zod-to-json-schema@3.25.2(zod@4.5.4):
+  zod-to-json-schema@3.25.2(zod@4.6.7):
     dependencies:
-      zod: 4.5.4
+      zod: 4.6.7
 
   zod@3.25.76: {}
 
-  zod@4.5.4: {}
+  zod@4.6.7: {}
