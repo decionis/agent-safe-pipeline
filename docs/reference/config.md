@@ -36,6 +36,7 @@ interception:
   maxBodyBytes: 1048576 # a governed body above this is refused with 413; at most 16 MiB
   maxEmbeddedBodyBytes: 65536 # JSON up to this is visible to policy; larger is digest-only; 0 embeds none
   principalHeader: null # a request header whose value is carried as claimed_principal
+  profile: null # an API intent profile, e.g. walmart/api/v3; its operations follow any route
   routes:
     - path: /payments/**
       action: payment.create

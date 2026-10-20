@@ -1,0 +1,146 @@
+{
+  "profile": "agent-safe.profile.api/1",
+  "id": "businesscentral/api/v2",
+  "platform": "business-central",
+  "title": "Business Central API v2.0: the postings and master-data writes an agent can make",
+  "prefixes": ["/v2.0/{tenantId}/{environment}/api/v2.0", "/v2.0/{environment}/api/v2.0", ""],
+  "operations": [
+    {
+      "id": "salesInvoices.post",
+      "method": "POST",
+      "path": "/companies({companyId})/salesInvoices({salesInvoiceId})/Microsoft.NAV.post",
+      "action": "sales.post",
+      "summary": "Post a sales invoice.",
+      "facts": {
+        "company_id": "/path/companyId",
+        "environment": "/path/environment",
+        "document_id": "/path/salesInvoiceId"
+      },
+      "policy_projection": null
+    },
+    {
+      "id": "salesInvoices.postAndSend",
+      "method": "POST",
+      "path": "/companies({companyId})/salesInvoices({salesInvoiceId})/Microsoft.NAV.postAndSend",
+      "action": "sales.post",
+      "summary": "Post a sales invoice and send it to the customer.",
+      "facts": {
+        "company_id": "/path/companyId",
+        "environment": "/path/environment",
+        "document_id": "/path/salesInvoiceId"
+      },
+      "policy_projection": null
+    },
+    {
+      "id": "salesInvoices.cancel",
+      "method": "POST",
+      "path": "/companies({companyId})/salesInvoices({salesInvoiceId})/Microsoft.NAV.cancel",
+      "action": "sales.cancel",
+      "summary": "Cancel a posted sales invoice with a corrective credit memo.",
+      "facts": {
+        "company_id": "/path/companyId",
+        "environment": "/path/environment",
+        "document_id": "/path/salesInvoiceId"
+      },
+      "policy_projection": null
+    },
+    {
+      "id": "salesOrders.shipAndInvoice",
+      "method": "POST",
+      "path": "/companies({companyId})/salesOrders({salesOrderId})/Microsoft.NAV.shipAndInvoice",
+      "action": "sales.post",
+      "summary": "Ship and invoice a sales order: its posting.",
+      "facts": {
+        "company_id": "/path/companyId",
+        "environment": "/path/environment",
+        "document_id": "/path/salesOrderId"
+      },
+      "policy_projection": null
+    },
+    {
+      "id": "salesOrders.create",
+      "method": "POST",
+      "path": "/companies({companyId})/salesOrders",
+      "action": "sales.create",
+      "summary": "Create a sales order.",
+      "facts": {
+        "company_id": "/path/companyId",
+        "environment": "/path/environment",
+        "customer_number": "/body/customerNumber",
+        "currency_code": "/body/currencyCode",
+        "external_document_number": "/body/externalDocumentNumber"
+      },
+      "policy_projection": null
+    },
+    {
+      "id": "purchaseInvoices.post",
+      "method": "POST",
+      "path": "/companies({companyId})/purchaseInvoices({purchaseInvoiceId})/Microsoft.NAV.post",
+      "action": "purchase.post",
+      "summary": "Post a purchase invoice: a payable is recorded.",
+      "facts": {
+        "company_id": "/path/companyId",
+        "environment": "/path/environment",
+        "document_id": "/path/purchaseInvoiceId"
+      },
+      "policy_projection": null
+    },
+    {
+      "id": "journals.post",
+      "method": "POST",
+      "path": "/companies({companyId})/journals({journalId})/Microsoft.NAV.post",
+      "action": "journal.post",
+      "summary": "Post a general journal batch.",
+      "facts": {
+        "company_id": "/path/companyId",
+        "environment": "/path/environment",
+        "journal_id": "/path/journalId"
+      },
+      "policy_projection": null
+    },
+    {
+      "id": "vendorPayments.create",
+      "method": "POST",
+      "path": "/companies({companyId})/vendorPaymentJournals({journalId})/vendorPayments",
+      "action": "payment.create",
+      "summary": "Add a vendor payment line to a payment journal.",
+      "facts": {
+        "company_id": "/path/companyId",
+        "environment": "/path/environment",
+        "journal_id": "/path/journalId",
+        "vendor_number": "/body/vendorNumber",
+        "payment_amount": "/body/amount",
+        "posting_date": "/body/postingDate",
+        "document_number": "/body/documentNumber"
+      },
+      "policy_projection": null
+    },
+    {
+      "id": "vendors.update",
+      "method": "PATCH",
+      "path": "/companies({companyId})/vendors({vendorId})",
+      "action": "vendor.update",
+      "summary": "Change a vendor's master data.",
+      "facts": {
+        "company_id": "/path/companyId",
+        "environment": "/path/environment",
+        "vendor_id": "/path/vendorId"
+      },
+      "policy_projection": null
+    },
+    {
+      "id": "customers.update",
+      "method": "PATCH",
+      "path": "/companies({companyId})/customers({customerId})",
+      "action": "customer.update",
+      "summary": "Change a customer's master data, a block included.",
+      "facts": {
+        "company_id": "/path/companyId",
+        "environment": "/path/environment",
+        "customer_id": "/path/customerId",
+        "blocked": "/body/blocked"
+      },
+      "policy_projection": null
+    }
+  ]
+}

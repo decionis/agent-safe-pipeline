@@ -1,3 +1,4 @@
+import type { ApiProfile } from "@decionis/agent-safe-pipeline";
 import {
   CONSEQUENTIAL_METHODS,
   type ConsequentialMethod,
@@ -9,7 +10,16 @@ import {
 export type RoutePlan =
   | { readonly kind: "PASSTHROUGH"; readonly reason: "SAFE_METHOD" | "UNMATCHED" | "DISABLED" }
   | { readonly kind: "REFUSE"; readonly code: "HTTP_METHOD_UNSUPPORTED" | "HTTP_PATH_AMBIGUOUS" }
-  | { readonly kind: "GOVERN"; readonly action: string; readonly route: RouteConfig | null };
+  | {
+      readonly kind: "GOVERN";
+      readonly action: string;
+      readonly route: RouteConfig | null;
+      /** The API profile operation that named the action, when a profile did. */
+      readonly operation?: string;
+    };
+
+/** A request's query, as the gateway reads it for planning: each name to one value or a list. */
+export type PlanQuery = { readonly [key: string]: string | readonly string[] };
 
 const SEGMENT_WILDCARD = "*";
 const TREE_WILDCARD = "**";
@@ -74,9 +84,11 @@ export function derivedAction(method: ConsequentialMethod): string {
 
 /**
  * The route table: which requests are consequential, and what each is
- * called. A safe method is never consequential. An unsafe request the table
- * does not name is governed under a derived name unless the configuration
- * chose passthrough, so narrowing what is governed is an explicit act.
+ * called. A safe method is never consequential. An explicit route is tried
+ * first, then the API profile's operations, when the gateway governs by one
+ * (`agent-safe.profile.api/1`). An unsafe request neither names is governed
+ * under a derived name unless the configuration chose passthrough, so
+ * narrowing what is governed is an explicit act.
  */
 export class RouteTable {
   private readonly routes: readonly CompiledRoute[];
@@ -85,6 +97,7 @@ export class RouteTable {
     routes: readonly RouteConfig[],
     private readonly unmatched: UnmatchedPolicy,
     private readonly enabled: boolean = true,
+    private readonly profile: ApiProfile | null = null,
   ) {
     this.routes = routes.map((config) => {
       const segments = routingSegments(config.path);
@@ -99,10 +112,11 @@ export class RouteTable {
   public actions(): readonly string[] {
     const names = new Set<string>(CONSEQUENTIAL_METHODS.map((method) => derivedAction(method)));
     for (const route of this.routes) names.add(route.config.action);
+    for (const action of this.profile?.actions() ?? []) names.add(action);
     return [...names];
   }
 
-  public plan(method: string, pathname: string): RoutePlan {
+  public plan(method: string, pathname: string, query: PlanQuery = {}): RoutePlan {
     if (!this.enabled) return { kind: "PASSTHROUGH", reason: "DISABLED" };
     const upper = method.toUpperCase();
     if (SAFE_METHODS.has(upper)) {
@@ -120,6 +134,10 @@ export class RouteTable {
       if (route.methods.has(consequential) && matches(route.segments, path)) {
         return { kind: "GOVERN", action: route.config.action, route: route.config };
       }
+    }
+    const operation = this.profile?.operationFor(consequential, pathname, query) ?? null;
+    if (operation !== null) {
+      return { kind: "GOVERN", action: operation.action, route: null, operation: operation.id };
     }
     if (this.unmatched === "PASSTHROUGH") return { kind: "PASSTHROUGH", reason: "UNMATCHED" };
     return { kind: "GOVERN", action: derivedAction(consequential), route: null };

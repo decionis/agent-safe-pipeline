@@ -693,6 +693,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/cli/Profile.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/cli/Proxy.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
@@ -862,6 +868,12 @@
     },
     {
       "path": "packages/agentsafe/test/gateway/Activation.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/gateway/ApiProfileGateway.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false
@@ -1666,6 +1678,12 @@
     },
     {
       "path": "packages/pipeline/test/performance/IntentCapturePerformance.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/pipeline/test/profile/ApiProfileVectors.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false

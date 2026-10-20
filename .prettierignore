@@ -19,5 +19,7 @@ verifiers/dotnet/**/packages.lock.json
 spec/intent/v1/schema.json
 # Generated from the pipeline by scripts/GenerateExecutorSchema.mjs; a test holds it byte for byte
 spec/executors/native/v1/schema.json
+# Generated from the pipeline by scripts/GenerateProfileSchema.mjs; a test holds it byte for byte
+spec/profiles/api/v1/schema.json
 # Templates `govern init` renders: the placeholders are not YAML until rendered
 govern/internal/scaffold/templates

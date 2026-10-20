@@ -1,0 +1,19 @@
+{
+  "description": "Posting a sales invoice through the online endpoint, tenant and environment in the path.",
+  "profile": "businesscentral/api/v2",
+  "request": {
+    "method": "POST",
+    "path": "/v2.0/4b1e8a62-6f0e-4c5b-9a7d-2c3e4f5a6b7c/production/api/v2.0/companies(6f3c1a52-1d2e-4f5a-8b9c-0d1e2f3a4b5c)/salesInvoices(9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d)/Microsoft.NAV.post",
+    "query": {}
+  },
+  "expected": {
+    "operation": "salesInvoices.post",
+    "action": "sales.post",
+    "facts": {
+      "company_id": "6f3c1a52-1d2e-4f5a-8b9c-0d1e2f3a4b5c",
+      "environment": "production",
+      "document_id": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d"
+    },
+    "policy_projection": null
+  }
+}

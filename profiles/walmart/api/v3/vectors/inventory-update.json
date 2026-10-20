@@ -1,0 +1,33 @@
+{
+  "description": "Inventory names its SKU in the query and its quantity in the body.",
+  "profile": "walmart/api/v3",
+  "request": {
+    "method": "PUT",
+    "path": "/v3/inventory",
+    "query": {
+      "sku": "SKU-RED-12"
+    },
+    "body": {
+      "sku": "SKU-RED-12",
+      "quantity": {
+        "unit": "EACH",
+        "amount": 40
+      }
+    }
+  },
+  "expected": {
+    "operation": "inventory.update",
+    "action": "inventory.update",
+    "facts": {
+      "sku": "SKU-RED-12",
+      "quantity": 40,
+      "quantity_unit": "EACH"
+    },
+    "policy_projection": {
+      "decision_type": "INVENTORY_MUTATION",
+      "transaction_type": "inventory_mutation",
+      "workflow_key": "commerce_inventory_mutation",
+      "channel": null
+    }
+  }
+}

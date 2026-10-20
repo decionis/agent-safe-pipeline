@@ -1,0 +1,24 @@
+{
+  "description": "A fact may not take a name the gateway or the authority states itself.",
+  "definition": {
+    "profile": "agent-safe.profile.api/1",
+    "id": "example/api/v1",
+    "platform": "example",
+    "title": "Example API",
+    "prefixes": [""],
+    "operations": [
+      {
+        "id": "things.post",
+        "method": "POST",
+        "path": "/things",
+        "action": "thing.create",
+        "summary": "An example operation.",
+        "facts": {
+          "amount": "/body/amount"
+        },
+        "policy_projection": null
+      }
+    ]
+  },
+  "error": "API_PROFILE_INVALID"
+}

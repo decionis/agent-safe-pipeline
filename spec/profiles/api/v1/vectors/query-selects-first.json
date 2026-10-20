@@ -1,0 +1,46 @@
+{
+  "description": "Operations are tried in order; an exact query value selects the overloaded one.",
+  "definition": {
+    "profile": "agent-safe.profile.api/1",
+    "id": "example/api/v1",
+    "platform": "example",
+    "title": "Example API",
+    "prefixes": [""],
+    "operations": [
+      {
+        "id": "prices.promotion",
+        "method": "PUT",
+        "path": "/prices",
+        "action": "promotion.change",
+        "summary": "An example operation.",
+        "facts": {},
+        "policy_projection": null,
+        "query": {
+          "promo": "true"
+        }
+      },
+      {
+        "id": "prices.update",
+        "method": "PUT",
+        "path": "/prices",
+        "action": "price.change",
+        "summary": "An example operation.",
+        "facts": {},
+        "policy_projection": null
+      }
+    ]
+  },
+  "request": {
+    "method": "put",
+    "path": "/prices",
+    "query": {
+      "promo": "true"
+    }
+  },
+  "expected": {
+    "operation": "prices.promotion",
+    "action": "promotion.change",
+    "facts": {},
+    "policy_projection": null
+  }
+}

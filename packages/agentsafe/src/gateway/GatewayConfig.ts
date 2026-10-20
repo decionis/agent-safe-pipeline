@@ -1,3 +1,4 @@
+import { ApiProfiles } from "@decionis/agent-safe-pipeline";
 import { z } from "zod";
 import {
   ExecutorConfigLoader,
@@ -124,6 +125,11 @@ export interface GatewayConfig {
     readonly maxEmbeddedBodyBytes: number;
     /** A request header whose value names the calling principal; carried, never verified. */
     readonly principalHeader: string | null;
+    /**
+     * The API intent profile (`agent-safe.profile.api/1`) the gateway governs by, after any
+     * explicit route: its operations name the action and the facts. Null governs by routes only.
+     */
+    readonly profile: string | null;
   };
   readonly actor: { readonly id: string; readonly type: string; readonly runtime: string };
   /**
@@ -225,6 +231,7 @@ export const GatewayFileSchema = z.strictObject({
         .max(128)
         .regex(/^[\w!#$%&'*+.^`|~-]+$/)
         .optional(),
+      profile: z.string().trim().min(1).max(120).optional(),
     })
     .optional(),
   actor: z
@@ -338,6 +345,7 @@ const ENVIRONMENT = {
   actorType: "AGENTSAFE_ACTOR_TYPE",
   boundaryId: "AGENTSAFE_BOUNDARY_ID",
   principalHeader: "AGENTSAFE_PRINCIPAL_HEADER",
+  profile: "AGENTSAFE_PROFILE",
   presenceApproverId: "PRESENCE_APPROVER_ID",
   presenceApproverRole: "PRESENCE_APPROVER_ROLE",
   presenceLevel: "PRESENCE_VERIFICATION_LEVEL",
@@ -806,6 +814,22 @@ export class GatewayConfigLoader {
       null,
     );
 
+    const profile = resolve<string | null>(
+      "interception.profile",
+      [
+        { source: "environment", raw: env[ENVIRONMENT.profile]?.trim() || undefined },
+        { source: "file", raw: file?.interception?.profile },
+      ],
+      null,
+    );
+    if (profile !== null && ApiProfiles.get(profile) === null) {
+      throw new GatewayConfigError(
+        "CONFIG_INVALID",
+        "interception.profile",
+        `one of ${ApiProfiles.ids().join(", ")}`,
+      );
+    }
+
     // The tenant key is the gateway's own credential: it is stripped before
     // forwarding, so it can never be the header that names a principal.
     if (principalHeader?.toLowerCase() === TENANT_KEY_HEADER) {
@@ -994,6 +1018,7 @@ export class GatewayConfigLoader {
         maxBodyBytes,
         maxEmbeddedBodyBytes,
         principalHeader: principalHeader === null ? null : principalHeader.toLowerCase(),
+        profile,
       },
       actor: {
         id: resolve(

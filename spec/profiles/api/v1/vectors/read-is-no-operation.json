@@ -1,0 +1,26 @@
+{
+  "description": "A read is never an operation, and neither is a path with a query or fragment in it.",
+  "definition": {
+    "profile": "agent-safe.profile.api/1",
+    "id": "example/api/v1",
+    "platform": "example",
+    "title": "Example API",
+    "prefixes": [""],
+    "operations": [
+      {
+        "id": "things.post",
+        "method": "POST",
+        "path": "/things",
+        "action": "thing.create",
+        "summary": "An example operation.",
+        "facts": {},
+        "policy_projection": null
+      }
+    ]
+  },
+  "request": {
+    "method": "GET",
+    "path": "/things"
+  },
+  "expected": null
+}

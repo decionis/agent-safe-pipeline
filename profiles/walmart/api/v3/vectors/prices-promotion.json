@@ -1,0 +1,39 @@
+{
+  "description": "The same path with promo=true is a promotion, decided as one.",
+  "profile": "walmart/api/v3",
+  "request": {
+    "method": "PUT",
+    "path": "/v3/price",
+    "query": {
+      "promo": "true"
+    },
+    "body": {
+      "sku": "SKU-RED-12",
+      "pricing": [
+        {
+          "currentPriceType": "REDUCED",
+          "currentPrice": {
+            "currency": "USD",
+            "amount": 15.99
+          }
+        }
+      ]
+    }
+  },
+  "expected": {
+    "operation": "prices.promotion",
+    "action": "promotion.change",
+    "facts": {
+      "sku": "SKU-RED-12",
+      "price_amount": 15.99,
+      "price_currency": "USD",
+      "price_type": "REDUCED"
+    },
+    "policy_projection": {
+      "decision_type": "PROMOTION_CHANGE",
+      "transaction_type": "promotion_change",
+      "workflow_key": "commerce_promotion_change",
+      "channel": null
+    }
+  }
+}
