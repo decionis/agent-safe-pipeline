@@ -153,6 +153,18 @@ export const SecurityEventSchema = z.discriminatedUnion("event", [
     intent_id: identifier,
     outcome: code,
   }),
+  // The card purchases' outcome evidence, kept and stated after the fact:
+  // facts that could not be kept, what a run stated to Decionis, and a run
+  // Decionis, the store or the ledger refused. Counts and codes only.
+  z.strictObject({ event: z.literal("CARD_OUTCOMES_DROPPED"), count, code }),
+  z.strictObject({
+    event: z.literal("CARD_OUTCOMES_PUBLISHED"),
+    submitted: count,
+    accepted: count,
+    duplicates: count,
+    conflicts: count,
+  }),
+  z.strictObject({ event: z.literal("CARD_OUTCOMES_REFUSED"), code, retry: z.boolean() }),
   z.strictObject({
     // The edge evaluator verified and loaded a signed policy bundle.
     event: z.literal("EDGE_BUNDLE_LOADED"),

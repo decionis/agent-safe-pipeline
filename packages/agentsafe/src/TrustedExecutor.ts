@@ -211,6 +211,8 @@ export async function createTrustedExecutor(
       stopRotation();
       await server.close();
       service.close();
+      // The outcome facts the last requests recorded are written before the process goes.
+      await service.cardOutcomes?.flush();
       for (const stop of following) stop();
       attempts.close();
       options.secrets.close();

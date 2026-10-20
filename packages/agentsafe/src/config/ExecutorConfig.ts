@@ -211,7 +211,27 @@ export interface CardsConfig {
     readonly tenantId: string;
     readonly actor: { readonly id: string; readonly type: string };
   } | null;
+  readonly outcomes: CardOutcomesConfig;
 }
+
+/**
+ * The card purchases' outcome evidence, for the meter Decionis keeps
+ * (`decionis.outcomes.evidence/1`). `off`, the default, records and sends
+ * nothing. `record` keeps what each purchase came to in `dir`, after its
+ * answer was given. `publish` also states it to Decionis as the `agentsafe`
+ * producer, on a timer and never on the request path. Neither changes what
+ * any authorization is answered.
+ */
+export type CardOutcomesConfig =
+  | { readonly mode: "off" }
+  | { readonly mode: "record"; readonly dir: string }
+  | {
+      readonly mode: "publish";
+      readonly dir: string;
+      /** The Decionis organization the evidence is about. */
+      readonly orgId: string;
+      readonly intervalSeconds: number;
+    };
 
 /**
  * Who decides. `hosted` asks Decionis for every decision (`enforce-and-bind`),
@@ -341,6 +361,12 @@ const CARD_COMMIT_KEYS = [
   "EXECUTOR_CARD_COMMIT_TENANT_ID",
   "EXECUTOR_CARD_COMMIT_ACTOR_ID",
   "EXECUTOR_CARD_COMMIT_ACTOR_TYPE",
+] as const;
+const CARD_OUTCOMES_PUBLISH_KEYS = [
+  "EXECUTOR_CARD_OUTCOMES_ORG_ID",
+  "EXECUTOR_CARD_OUTCOMES_INTERVAL_SECONDS",
+  "DECIONIS_PRODUCER_TOKEN",
+  "DECIONIS_PRODUCER_TOKEN_FILE",
 ] as const;
 const TLS_KEYS = [
   "EXECUTOR_TLS_CERT_FILE",
@@ -478,6 +504,10 @@ const EnvironmentSchema = z.object({
   EXECUTOR_CARD_COMMIT_TENANT_ID: z.string().uuid().optional(),
   EXECUTOR_CARD_COMMIT_ACTOR_ID: identifier.optional(),
   EXECUTOR_CARD_COMMIT_ACTOR_TYPE: identifier.optional(),
+  EXECUTOR_CARD_OUTCOMES: z.enum(["off", "record", "publish"]).optional(),
+  EXECUTOR_CARD_OUTCOMES_DIR: absolutePath.optional(),
+  EXECUTOR_CARD_OUTCOMES_ORG_ID: z.string().uuid().optional(),
+  EXECUTOR_CARD_OUTCOMES_INTERVAL_SECONDS: z.coerce.number().int().min(60).max(86_400).optional(),
   DECIONIS_API_URL: z.string().trim().min(1).max(500),
   DECIONIS_ALLOW_INSECURE_LOOPBACK: booleanFlag.optional(),
   DECIONIS_CA_FILE: absolutePath.optional(),
@@ -627,6 +657,7 @@ export class ExecutorConfigLoader {
     if (cards.holds.store === "postgres") {
       required.push("EXECUTOR_CARD_HOLDS_DATABASE_URL", "EXECUTOR_CARD_HOLDS_KEY");
     }
+    if (cards.outcomes.mode === "publish") required.push("DECIONIS_PRODUCER_TOKEN");
     // A signing key for the bundle manifest is optional: without it a bundle
     // proves its own internal consistency and nothing about who made it, and
     // the verifier says which of the two it is holding.
@@ -844,6 +875,7 @@ export class ExecutorConfigLoader {
   private static cards(values: Environment, env: EnvironmentMap): CardsConfig {
     const authorizations = values.EXECUTOR_CARD_AUTHORIZATIONS ?? "single";
     const { noGrant, commit } = ExecutorConfigLoader.cardCommit(values, env);
+    const outcomes = ExecutorConfigLoader.cardOutcomes(values, env);
     const store = values.EXECUTOR_CARD_HOLDS_STORE ?? "memory";
     if (store === "memory") {
       const given = CARD_HOLDS_POSTGRES_KEYS.filter((key) => env[key] !== undefined);
@@ -852,7 +884,7 @@ export class ExecutorConfigLoader {
           `CONFIG_INVALID: EXECUTOR_CARD_HOLDS_STORE (memory with ${given.join(", ")})`,
         );
       }
-      return { holds: { store: "memory" }, authorizations, noGrant, commit };
+      return { holds: { store: "memory" }, authorizations, noGrant, commit, outcomes };
     }
     const namespace = values.EXECUTOR_CARD_HOLDS_NAMESPACE;
     if (namespace === undefined) {
@@ -865,6 +897,52 @@ export class ExecutorConfigLoader {
       authorizations,
       noGrant,
       commit,
+      outcomes,
+    };
+  }
+
+  /**
+   * The outcome evidence is off unless the deployment names a mode. Recording
+   * needs the directory the facts are kept in; publishing also needs the
+   * organization the evidence is about and the producer token Decionis
+   * registered for this deployment. A setting a mode does not use is a
+   * contradiction, refused rather than ignored.
+   */
+  private static cardOutcomes(values: Environment, env: EnvironmentMap): CardOutcomesConfig {
+    const mode = values.EXECUTOR_CARD_OUTCOMES ?? "off";
+    if (mode === "off") {
+      const given = ["EXECUTOR_CARD_OUTCOMES_DIR", ...CARD_OUTCOMES_PUBLISH_KEYS].filter(
+        (key) => env[key] !== undefined,
+      );
+      if (given.length > 0) {
+        throw new Error(`CONFIG_INVALID: EXECUTOR_CARD_OUTCOMES (off with ${given.join(", ")})`);
+      }
+      return { mode };
+    }
+    const dir = values.EXECUTOR_CARD_OUTCOMES_DIR;
+    if (dir === undefined) {
+      throw new Error(
+        `CONFIG_INVALID: EXECUTOR_CARD_OUTCOMES_DIR (required to ${mode} card outcomes)`,
+      );
+    }
+    if (mode === "record") {
+      const given = CARD_OUTCOMES_PUBLISH_KEYS.filter((key) => env[key] !== undefined);
+      if (given.length > 0) {
+        throw new Error(`CONFIG_INVALID: EXECUTOR_CARD_OUTCOMES (record with ${given.join(", ")})`);
+      }
+      return { mode, dir };
+    }
+    const orgId = values.EXECUTOR_CARD_OUTCOMES_ORG_ID;
+    if (orgId === undefined) {
+      throw new Error(
+        "CONFIG_INVALID: EXECUTOR_CARD_OUTCOMES_ORG_ID (required to publish card outcomes)",
+      );
+    }
+    return {
+      mode,
+      dir,
+      orgId,
+      intervalSeconds: values.EXECUTOR_CARD_OUTCOMES_INTERVAL_SECONDS ?? 3_600,
     };
   }
 

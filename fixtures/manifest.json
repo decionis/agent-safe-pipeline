@@ -753,6 +753,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/config/CardOutcomesConfig.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/config/ExecutorConfig.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
@@ -1215,6 +1221,54 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/outcomes/CardOutcomeEvidence.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/outcomes/CardOutcomeLedger.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/outcomes/CardOutcomeRecorder.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/outcomes/CardOutcomes.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/outcomes/CoreOutcomeEvidenceClient.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/outcomes/OutcomeEvidenceContract.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/outcomes/OutcomeEvidencePublisher.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/outcomes/OutcomeEvidenceStore.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/performance/CardAuthorizationPerformance.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
@@ -1275,6 +1329,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/service/CardOutcomes.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/service/EdgeAuthority.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
@@ -1318,6 +1378,12 @@
     },
     {
       "path": "packages/agentsafe/test/support/BankingFixtures.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/support/CardOutcomeFacts.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false

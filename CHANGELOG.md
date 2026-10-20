@@ -3,6 +3,34 @@
 Releases of `@decionis/agent-safe-pipeline` (the library) and `@decionis/agentsafe` (the runtime).
 Each entry names what an adopter can rely on and what they must do, if anything.
 
+## Runtime (unreleased): card authorization outcome evidence
+
+The card purchases' outcome evidence for the Decionis meter (`decionis.outcomes.evidence/1`), kept
+and stated after the fact.
+
+**Nothing to do** to keep things as they are: `EXECUTOR_CARD_OUTCOMES` is `off` by default, and no
+authorization is answered differently with it on. To send evidence, Decionis registers the
+deployment as a producer (`outcomes: "agentsafe"` in `DECIONIS_DELIVERY_PRODUCERS_JSON`) and runs
+the meter (`DECIONIS_OUTCOMES_ENABLED=1`); the bank sets `EXECUTOR_CARD_OUTCOMES=publish`,
+`EXECUTOR_CARD_OUTCOMES_DIR`, `EXECUTOR_CARD_OUTCOMES_ORG_ID` and `DECIONIS_PRODUCER_TOKEN_FILE`,
+and its agreement's scope names the platform `card-authorization` and the action `CARD_PURCHASE`.
+
+- `record` keeps each purchase's decision, a person's answer to its escalation, the claim and the
+  issuer's result as facts (`agent-safe.card-outcome/1`, JSONL per day and replica) once each
+  answer has been given; a full queue or a refused write is dropped and counted
+  (`CARD_OUTCOMES_DROPPED`), never retried into the request.
+- `publish` also states each purchase as one digest-only subject and sends what Decionis has not
+  accepted to `POST /v1/outcomes/evidence` with the producer token, on a timer (hourly by default):
+  revisions rise only when a purchase's evidence changes, a revision conflict restates the subject
+  under its next revision, a refusal keeps the evidence owed (`CARD_OUTCOMES_REFUSED`), an outage
+  is retried with backoff.
+- What is stated, and never: no card reference, merchant, authorization id or tap; no issuer
+  settlement or reversal (`financial` is null); and no `CONFIRMED_PROBLEM`, since AgentSafe
+  records no person's confirmation, so no card purchase is counted as prevented. The guide has the
+  full table: [card authorization](docs/banking/card-authorization.md#outcome-evidence-for-the-decionis-meter).
+- Core's contract is vendored byte for byte at `packages/agentsafe/contracts/OutcomeEvidence.v1.json`
+  (owner revision e264bfbf5) with its digest pinned in the source and held by a test.
+
 ## Library 0.4.1 (unreleased)
 
 The policy projection, first class: an intent states the policy path Decionis decides it under, and
