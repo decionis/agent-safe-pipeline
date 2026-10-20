@@ -61,6 +61,21 @@ executor accepts one on `/v1/escalations` as `{ mode: "ATTESTATION", intent, att
 the proposer or from an `OPERATOR` holding `escalations.resume` (the issuer app's backend, where
 the tap lands).
 
+An identity wallet that signs for a person enters the same way and in no other shape. Proof's
+[x401](https://x401.proof.com/spec/) (specification 0.2.0, a draft, read on 21 October 2026) asks
+an agent for an OpenID4VP presentation of a verified identity; it defines no object that signs a
+transaction's terms. A deployment that wants such an approval to admit an action runs the x401
+exchange itself, as the verifier, and issues an attestation from what it verified: its claims
+`intent_id` and `intent_hash` name the intent the person approved, and it is signed with the key
+the organisation registered for that provider. Decionis refuses it for any other intent, so a
+changed amount or recipient is a different intent and the approval does not follow it. The
+attestation proves that the organisation's verifier accepted the presentation; the person's own
+signature stays with that verifier, and whether an x401 request can carry the intent hash as
+OpenID4VP `transaction_data`, so that the person's key signs over it, the specification does not
+yet say. An OpenID4VP presentation, an SD-JWT or mdoc credential, or a WebAuthn assertion is not
+an `attestation`: `DecionisGate` refuses what is not a compact JWS with
+`HUMAN_APPROVAL_EVIDENCE_INVALID`, and Decionis refuses a JWS of any other `typ`.
+
 A producer's signed standing signal is the other evidence a proposal can carry, and it is not an
 approval: `signals: [{ "token": "<compact JWS>" }]` on `POST /v1/actions`, at most eight, reaches
 Decionis as `evidence.signals` on the first evaluation (and with a managed escalation, which

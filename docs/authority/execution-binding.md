@@ -24,9 +24,11 @@ guarantees on the way out.
 | `expires_at`                                                       | `intentTtlSeconds` after capture, at most 300 seconds                                                                                        |
 
 Request headers are not bound: a credential to the upstream is the client's business with the
-upstream and never reaches the authority or the evidence. The canonical form is RFC 8785 over the
-binding, hashed with SHA-256 by `CanonicalIntentHasher`; the [conformance vectors](../../conformance)
-pin it, and the intent hash is what every later record names.
+upstream and never reaches the authority or the evidence. The binding is hashed with SHA-256 over
+its canonical form by `CanonicalIntentHasher`; the [conformance vectors](../../conformance) pin it,
+and the intent hash is what every later record names. The canonical form is the intent
+specification's ([§4](../../spec/intent/v1/README.md#4-canonical-form)): for every I-JSON value it
+is the bytes RFC 8785 produces, and it also encodes a lone surrogate, which RFC 8785 refuses.
 
 ## What the binding guarantees
 
