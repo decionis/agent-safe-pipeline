@@ -1,0 +1,18 @@
+{
+  "description": "The same posting when the upstream already carries the API base; an OData-quoted key is the same key.",
+  "profile": "businesscentral/api/v2",
+  "request": {
+    "method": "POST",
+    "path": "/companies('6f3c1a52-1d2e-4f5a-8b9c-0d1e2f3a4b5c')/salesInvoices(9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d)/Microsoft.NAV.post",
+    "query": {}
+  },
+  "expected": {
+    "operation": "salesInvoices.post",
+    "action": "sales.post",
+    "facts": {
+      "company_id": "6f3c1a52-1d2e-4f5a-8b9c-0d1e2f3a4b5c",
+      "document_id": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d"
+    },
+    "policy_projection": null
+  }
+}

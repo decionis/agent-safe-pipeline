@@ -1,0 +1,45 @@
+{
+  "description": "A refund names its lines.",
+  "profile": "walmart/api/v3",
+  "request": {
+    "method": "POST",
+    "path": "/v3/orders/1796277083022/refund",
+    "query": {},
+    "body": {
+      "orderRefund": {
+        "purchaseOrderId": "1796277083022",
+        "orderLines": {
+          "orderLine": [
+            {
+              "lineNumber": "2",
+              "refunds": {
+                "refund": [
+                  {
+                    "refundComments": "Damaged",
+                    "refundCharges": {
+                      "refundCharge": []
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "expected": {
+    "operation": "orders.refund",
+    "action": "order.refund",
+    "facts": {
+      "purchase_order_id": "1796277083022",
+      "line_numbers": ["2"]
+    },
+    "policy_projection": {
+      "decision_type": "REFUND_REQUEST",
+      "transaction_type": "refund_request",
+      "workflow_key": "commerce_refund_request",
+      "channel": null
+    }
+  }
+}

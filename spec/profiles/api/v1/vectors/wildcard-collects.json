@@ -1,0 +1,59 @@
+{
+  "description": "One * collects a statable value from every element; an element without one leaves the whole fact absent, as does an object or an over-long string.",
+  "definition": {
+    "profile": "agent-safe.profile.api/1",
+    "id": "example/api/v1",
+    "platform": "example",
+    "title": "Example API",
+    "prefixes": [""],
+    "operations": [
+      {
+        "id": "orders.cancel",
+        "method": "POST",
+        "path": "/orders/{orderId}/cancel",
+        "action": "order.cancel",
+        "summary": "An example operation.",
+        "facts": {
+          "line_numbers": "/body/lines/*/number",
+          "line_notes": "/body/lines/*/note",
+          "order": "/body/order",
+          "memo": "/body/memo",
+          "first_quantity": "/body/lines/0/quantity",
+          "order_id": "/path/orderId"
+        },
+        "policy_projection": null
+      }
+    ]
+  },
+  "request": {
+    "method": "POST",
+    "path": "/orders/77/cancel",
+    "body": {
+      "order": {
+        "total": 5
+      },
+      "memo": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "lines": [
+        {
+          "number": "1",
+          "quantity": 2,
+          "note": "short"
+        },
+        {
+          "number": "2",
+          "quantity": 1
+        }
+      ]
+    }
+  },
+  "expected": {
+    "operation": "orders.cancel",
+    "action": "order.cancel",
+    "facts": {
+      "line_numbers": ["1", "2"],
+      "first_quantity": 2,
+      "order_id": "77"
+    },
+    "policy_projection": null
+  }
+}

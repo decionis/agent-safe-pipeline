@@ -1,0 +1,62 @@
+{
+  "description": "A cancellation names its lines and each line's reason.",
+  "profile": "walmart/api/v3",
+  "request": {
+    "method": "POST",
+    "path": "/v3/orders/1796277083022/cancel",
+    "query": {},
+    "body": {
+      "orderCancellation": {
+        "orderLines": {
+          "orderLine": [
+            {
+              "lineNumber": "1",
+              "orderLineStatuses": {
+                "orderLineStatus": [
+                  {
+                    "status": "Cancelled",
+                    "cancellationReason": "SELLER_CANCEL_OUT_OF_STOCK",
+                    "statusQuantity": {
+                      "unitOfMeasurement": "EACH",
+                      "amount": "2"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "lineNumber": "3",
+              "orderLineStatuses": {
+                "orderLineStatus": [
+                  {
+                    "status": "Cancelled",
+                    "cancellationReason": "SELLER_CANCEL_PRICING_ERROR",
+                    "statusQuantity": {
+                      "unitOfMeasurement": "EACH",
+                      "amount": "1"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "expected": {
+    "operation": "orders.cancel",
+    "action": "order.cancel",
+    "facts": {
+      "purchase_order_id": "1796277083022",
+      "line_numbers": ["1", "3"],
+      "cancellation_reasons": ["SELLER_CANCEL_OUT_OF_STOCK", "SELLER_CANCEL_PRICING_ERROR"]
+    },
+    "policy_projection": {
+      "decision_type": "ORDER_CANCELLATION",
+      "transaction_type": "order_cancellation",
+      "workflow_key": "commerce",
+      "channel": null
+    }
+  }
+}

@@ -4,6 +4,7 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import {
   ActionRegistry,
+  ApiProfiles,
   AuditRecorder,
   DecionisGate,
   DecionisGrantVerifier,
@@ -12,6 +13,8 @@ import {
   ShadowPipeline,
   type CapturedIntent,
   type DecisionGate,
+  type JsonObject,
+  type JsonValue,
   type SafeExecutionResult,
   type ShadowObservation,
   type TrustedIntentContext,
@@ -67,7 +70,7 @@ import {
 import { normalizeRequest, type InterceptedRequest } from "./InterceptedRequest.js";
 import { TokenBucket, type RateDecision } from "./RateLimit.js";
 import { RefusalSampler } from "./RefusalSampler.js";
-import { RouteTable, type RoutePlan } from "./RouteTable.js";
+import { RouteTable, type PlanQuery, type RoutePlan } from "./RouteTable.js";
 import { enforcementSwitch, ShadowLedger, type ShadowSummary } from "./ShadowLedger.js";
 import {
   PROOF_PENDING_RETRY_MS,
@@ -523,6 +526,7 @@ export class Gateway {
       config.interception.routes,
       config.interception.unmatched,
       config.interception.http,
+      config.interception.profile === null ? null : ApiProfiles.get(config.interception.profile),
     );
     const evidence = takeUp(EVIDENCE_STREAM, continues?.evidence);
     const chain = takeUp(GATEWAY_STREAM, continues?.gateway);
@@ -727,8 +731,20 @@ export class Gateway {
     }
   }
 
-  public plan(method: string, path: string): RoutePlan {
-    return this.routes.plan(method, path);
+  public plan(method: string, path: string, search: string = ""): RoutePlan {
+    return this.routes.plan(method, path, Gateway.queryOf(search));
+  }
+
+  /** A query for planning only; a name the intent contract forbids is left out, and refused later. */
+  private static queryOf(search: string): PlanQuery {
+    const query: Record<string, string | string[]> = {};
+    for (const [key, value] of new URLSearchParams(search)) {
+      if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
+      const current = query[key];
+      if (current === undefined) query[key] = value;
+      else query[key] = Array.isArray(current) ? [...current, value] : [current, value];
+    }
+    return query;
   }
 
   public readiness(): { readonly ready: boolean; readonly body: Record<string, unknown> } {
@@ -1067,6 +1083,7 @@ export class Gateway {
         ...normalized.context,
         ingress: "http",
         ...(normalized.principal === null ? {} : { claimed_principal: normalized.principal }),
+        ...this.profileFacts(request, action),
       },
       idempotencyKey: normalized.idempotencyKey ?? randomUUID(),
       ...(normalized.correlationId === null ? {} : { correlationId: normalized.correlationId }),
@@ -1076,6 +1093,37 @@ export class Gateway {
       },
     };
     return this.capture.capture(normalized.proposal, trusted);
+  }
+
+  /**
+   * The facts the gateway's API profile names for this call, when the profile
+   * named its action: each at the top level of the trusted context, beside the
+   * operation, exactly as a native executor reading the same profile states
+   * them. The body is read for facts whether or not it is embedded.
+   */
+  private profileFacts(request: InterceptedRequest, action: string): JsonObject {
+    const profileId = this.config.interception.profile;
+    const profile = profileId === null ? null : ApiProfiles.get(profileId);
+    if (profile === null) return {};
+    let body: JsonValue | undefined;
+    if (request.body.length > 0 && /json/i.test(request.headers["content-type"] ?? "")) {
+      try {
+        body = JSON.parse(request.body.toString("utf8")) as JsonValue;
+      } catch {
+        body = undefined;
+      }
+    }
+    const matched = profile.match({
+      method: request.method,
+      path: request.path,
+      query: Gateway.queryOf(request.search),
+      ...(body === undefined ? {} : { body }),
+    });
+    if (matched === null || matched.action !== action) return {};
+    return {
+      ...matched.facts,
+      api_profile: { id: matched.profile, operation: matched.operation },
+    };
   }
 
   private principalOf(captured: CapturedIntent): string {

@@ -203,6 +203,16 @@ summary, or null with `signedUnavailable` naming why), `milestones` (what the sh
 of the [adoption path](./telemetry.md#activation-milestones): `decionis_connected` among them),
 `verdict`, `exit`, `activation`.
 
+### `agentsafe profile list`, `agentsafe profile openapi <id> --server URL`
+
+`list` names the API intent profiles this build ships, for `interception.profile`. `openapi`
+writes one as an OpenAPI 3.0.3 document whose only server is the gateway at `--server` (`https`,
+or `http` on loopback): the document an AgentCore Gateway target, or any OpenAPI tool importer, is
+created from, so every tool call an agent makes passes through the gateway. Operations that
+overload one method and path by a query value are one OpenAPI operation with that query value
+documented; the gateway still tells them apart. `--prefix` picks one of the profile's path prefixes
+(`""` for bare paths); the default is its first. See [AgentCore Gateway](../gateway/agentcore.md).
+
 ### `agentsafe config`
 
 Prints the effective configuration as YAML (`--json` for JSON), with `sources` naming the layer

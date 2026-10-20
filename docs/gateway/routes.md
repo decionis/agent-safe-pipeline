@@ -47,6 +47,29 @@ The first route whose pattern and methods match wins, in the order written. A ro
 default to all four consequential methods. Action names follow the intent contract:
 `^[a-z][a-z0-9._:-]*$`, at most 120 characters.
 
+## By an API profile
+
+A platform's API can be governed by its API intent profile
+([`agent-safe.profile.api/1`](../../spec/profiles/api/v1/README.md)) instead of routes you write:
+
+```yaml
+interception:
+  profile: walmart/api/v3 # or businesscentral/api/v2; AGENTSAFE_PROFILE in the environment wins
+  unmatched: govern
+```
+
+- An explicit route is tried first. The profile's operations come next, in the profile's order,
+  matched by method, path template and, where an API overloads a path, an exact query value
+  (`PUT /v3/price?promo=true` is `promotion.change`, `PUT /v3/price` is `price.change`). The
+  unmatched policy decides the rest.
+- The profile names the facts each operation is decided with. The gateway states them at the top
+  of the intent's trusted context, beside `api_profile: { id, operation }`, reading the body for
+  them even when `maxEmbeddedBodyBytes` keeps it out of the intent. A native executor that reads
+  the same profile states the same facts, so one policy rule reads `purchase_order_id` however the
+  call arrived.
+- `agentsafe profile list` names the profiles this build ships; an unknown name is refused when
+  the configuration loads.
+
 ## Unmatched requests
 
 `interception.unmatched` is `govern` by default: an unsafe request no route names is evaluated

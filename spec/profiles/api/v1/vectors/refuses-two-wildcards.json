@@ -1,0 +1,24 @@
+{
+  "description": "A pointer collects through one * at most.",
+  "definition": {
+    "profile": "agent-safe.profile.api/1",
+    "id": "example/api/v1",
+    "platform": "example",
+    "title": "Example API",
+    "prefixes": [""],
+    "operations": [
+      {
+        "id": "a.one",
+        "method": "POST",
+        "path": "/x",
+        "action": "a.one",
+        "summary": "An example operation.",
+        "facts": {
+          "cells": "/body/rows/*/cells/*"
+        },
+        "policy_projection": null
+      }
+    ]
+  },
+  "error": "API_PROFILE_INVALID"
+}
