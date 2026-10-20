@@ -83,6 +83,38 @@ describe("the agent-safe.intent/1 binding schema", () => {
     ).toBe(true);
   });
 
+  it("takes a policy projection only as the contract states it: four keys, three of them nullable", async () => {
+    const first = (await everyBinding())[0];
+    if (first === undefined) throw new Error("no vector");
+    const base = first.binding as Record<string, JsonValue>;
+    const projection = {
+      decision_type: "ORDER_ACCEPTANCE",
+      transaction_type: null,
+      workflow_key: null,
+      channel: null,
+    };
+    expect(
+      AuthorityIntentBindingSchema.safeParse({ ...base, policy_projection: projection }).success,
+    ).toBe(true);
+    const refused: unknown[] = [
+      { ...projection, decision_type: null },
+      { ...projection, decision_type: "" },
+      { ...projection, channel: "x".repeat(121) },
+      { ...projection, extra: "x" },
+      { decision_type: "ORDER_ACCEPTANCE" },
+      { ...projection, workflow_key: 1 },
+      // The pipeline's own camel case is not the wire's.
+      { decisionType: "ORDER_ACCEPTANCE", transactionType: null, workflowKey: null, channel: null },
+      null,
+    ];
+    for (const policy_projection of refused) {
+      expect(
+        AuthorityIntentBindingSchema.safeParse({ ...base, policy_projection }).success,
+        JSON.stringify(policy_projection),
+      ).toBe(false);
+    }
+  });
+
   it("is the JSON Schema published under spec/intent/v1, byte for byte", async () => {
     const document = intentBindingJsonSchema();
     expect(document["$id"]).toBe(INTENT_SCHEMA_ID);

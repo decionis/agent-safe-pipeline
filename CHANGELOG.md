@@ -3,6 +3,34 @@
 Releases of `@decionis/agent-safe-pipeline` (the library) and `@decionis/agentsafe` (the runtime).
 Each entry names what an adopter can rely on and what they must do, if anything.
 
+## Library 0.4.1 (unreleased)
+
+The policy projection, first class: an intent states the policy path Decionis decides it under, and
+the binding carries it inside the hash.
+
+**Nothing to do** for an intent that states no projection: it hashes and travels byte-identically
+to 0.4.0 (`conformance/vectors/policy-projection-absent.json`). Decionis Core already accepts and
+binds `policy_projection` on `POST /v1/authority/grants` and on the claim's `intent`. The runtime
+(`@decionis/agentsafe` 0.6.0, which depends on `^0.4.0`) takes this release on its next install.
+
+- **`TrustedIntentContext.policyProjection`** and **`PreparedAction.policyProjection`** (optional):
+  `decisionType`, and `transactionType`, `workflowKey` and `channel`, each a string or `null`.
+  `IntentCapture` validates and trims it, the agent proposal still cannot carry it, and
+  `CanonicalIntentHasher.bindingOf` emits it as the top-level `policy_projection` Core routes the
+  grant by. `DecionisGate`'s grant request, a managed escalation and `DecionisGrantVerifier`'s
+  claim carry it because they carry the binding; `GovernedExecutionRunner`'s own re-hash
+  reproduces it, so a runner no longer needs another hasher for a projected intent.
+- **Admission:** `GovernedExecutionRunner` refuses, as `INTENT_BINDING_MISMATCH`, an executor whose
+  `prepare` names another policy path than the decided intent's (or names one where the intent
+  has none, or none where it has one).
+- `AuthorityIntentBinding`, `AuthorityIntentBindingSchema` and `spec/intent/v1/schema.json` gain the
+  optional property; `PolicyProjection` and `PolicyProjectionSchema` are exported. `LocalAuthority`
+  accepts and re-hashes it, and its policy hook sees it.
+- `conformance/vectors/policy-projection.json` (a projected binding and five mutations, six
+  distinct hashes) and `policy-projection-absent.json`. `@decionis/verify` 0.4.0's
+  `intent` command does not know the property yet and reports a projected binding as
+  `BINDING_INVALID`; `agentsafe verify intent` and the schema accept it.
+
 ## Library 0.4.0, runtime 0.6.0 (unreleased)
 
 One execution contract: every write to a system of record, on any platform, runs through one runner

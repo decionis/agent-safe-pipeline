@@ -38,6 +38,30 @@ export const DownstreamTargetSchema = z
   })
   .strict();
 
+const projectionValue = z.string().trim().min(1).max(120);
+
+/**
+ * The policy path the authority decides an intent under: its decision type,
+ * transaction type, workflow key and channel. Without one, Decionis evaluates
+ * `action.type` as the decision type, transaction type and workflow key, which
+ * is right when an action's name is its policy vocabulary. An executor whose
+ * policy names its writes differently (an order acknowledgement decided as
+ * `ORDER_ACCEPTANCE`) states the projection, and the binding carries it inside
+ * the hash, so a claim re-validates the policy path the grant was decided on.
+ * A null field is one the authority leaves out of the evaluation.
+ *
+ * The trusted runtime's to state, never the agent's: an agent that could name
+ * its projection could choose the policy it is evaluated under.
+ */
+export const PolicyProjectionSchema = z
+  .object({
+    decisionType: projectionValue,
+    transactionType: projectionValue.nullable(),
+    workflowKey: projectionValue.nullable(),
+    channel: projectionValue.nullable(),
+  })
+  .strict();
+
 /**
  * The trusted idempotency key travels inside the hashed wire `context` under
  * this reserved key, because the Decionis `ExecutionIntentBinding` contract
@@ -53,6 +77,8 @@ export const TrustedIntentContextSchema = z
     context: JsonObjectSchema.default({}),
     correlationId: boundedId.optional(),
     expectedEffectDigest: sha256Digest.optional(),
+    /** The policy path the intent is decided under, when it is not `action.type`. */
+    policyProjection: PolicyProjectionSchema.optional(),
     idempotencyKey: z.string().trim().min(1).max(180),
     /**
      * What the trusted runtime knows about itself and the workload it is
@@ -78,10 +104,12 @@ export const ExecutionIntentSchema = z
     context: JsonObjectSchema,
     correlationId: boundedId.optional(),
     expectedEffectDigest: sha256Digest.optional(),
+    policyProjection: PolicyProjectionSchema.optional(),
     idempotencyKey: z.string().trim().min(1).max(180),
   })
   .strict();
 
+export type PolicyProjection = z.infer<typeof PolicyProjectionSchema>;
 export type AgentProposal = z.infer<typeof AgentProposalSchema>;
 export type IntentActor = z.infer<typeof IntentActorSchema>;
 export type DownstreamTarget = z.infer<typeof DownstreamTargetSchema>;
@@ -95,10 +123,7 @@ export interface CapturedIntent {
   readonly byteLength: number;
 }
 
-/**
- * Wire shape of the Decionis `ExecutionIntentBinding` contract, less the
- * optional `policy_projection` this package does not produce.
- */
+/** Wire shape of the Decionis `ExecutionIntentBinding` contract. */
 export interface AuthorityIntentBinding {
   readonly protocol_version: "agent-safe.intent/1";
   readonly tenant_id: string;
@@ -122,6 +147,17 @@ export interface AuthorityIntentBinding {
     readonly operation: string;
     readonly environment?: string;
     readonly endpoint?: string;
+  };
+  /**
+   * The policy path the authority decides the intent under. Absent unless the
+   * trusted runtime stated one, so an intent without it produces exactly the
+   * binding, canonical JSON, and hash it produced before this property existed.
+   */
+  readonly policy_projection?: {
+    readonly decision_type: string;
+    readonly transaction_type: string | null;
+    readonly workflow_key: string | null;
+    readonly channel: string | null;
   };
   /**
    * Digest-only commitment to the downstream state predicted before dispatch.

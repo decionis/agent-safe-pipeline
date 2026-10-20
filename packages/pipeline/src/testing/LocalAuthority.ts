@@ -89,6 +89,14 @@ const IntentBindingSchema = z.strictObject({
     operation: boundedId,
     endpoint: z.string().min(1).max(500).optional(),
   }),
+  policy_projection: z
+    .strictObject({
+      decision_type: z.string().trim().min(1).max(120),
+      transaction_type: z.string().trim().min(1).max(120).nullable(),
+      workflow_key: z.string().trim().min(1).max(120).nullable(),
+      channel: z.string().trim().min(1).max(120).nullable(),
+    })
+    .optional(),
   expected_effect_digest: sha256Digest.optional(),
 });
 

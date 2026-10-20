@@ -217,6 +217,125 @@ describe("IntentCapture", () => {
     expect("expected_effect_digest" in JSON.parse(captured.canonicalIntent)).toBe(false);
   });
 
+  it("binds a stated policy projection at the binding's top level, inside the hash", () => {
+    const proposal = { action: "refund_order", target: "shopify:order:58291", parameters: {} };
+    const policyProjection = {
+      decisionType: "REFUND_APPROVAL",
+      transactionType: "refund",
+      workflowKey: null,
+      channel: "connector",
+    };
+    const without = capture(proposal);
+    const projected = capture(proposal, { ...trusted(), policyProjection });
+
+    expect(projected.intentHash).not.toBe(without.intentHash);
+    expect(projected.intent.policyProjection).toEqual(policyProjection);
+    const binding = JSON.parse(projected.canonicalIntent) as Record<string, unknown>;
+    // Snake case on the wire, nulls kept: Core's strict projection names all four.
+    expect(binding["policy_projection"]).toEqual({
+      channel: "connector",
+      decision_type: "REFUND_APPROVAL",
+      transaction_type: "refund",
+      workflow_key: null,
+    });
+    expect(binding["context"]).not.toHaveProperty("policy_projection");
+    // Sorted by UTF-16 code unit the projection lands between the intent id
+    // and the protocol version, which is where Decionis recomputes it.
+    expect(Object.keys(binding)).toEqual([
+      "action",
+      "actor",
+      "captured_at",
+      "context",
+      "downstream_target",
+      "expires_at",
+      "intent_id",
+      "policy_projection",
+      "protocol_version",
+      "tenant_id",
+    ]);
+    // Every field is its own policy path, so every change is another intent.
+    const hashes = new Set([without.intentHash, projected.intentHash]);
+    for (const change of [
+      { decisionType: "REFUND_RELEASE" },
+      { transactionType: null },
+      { workflowKey: "commerce" },
+      { channel: null },
+    ]) {
+      hashes.add(
+        capture(proposal, {
+          ...trusted(),
+          policyProjection: { ...policyProjection, ...change },
+        }).intentHash,
+      );
+    }
+    expect(hashes.size).toBe(6);
+  });
+
+  it("trims a projection's values and refuses a malformed projection", () => {
+    const proposal = { action: "refund_order", target: "shopify:order:58291", parameters: {} };
+    const valid = {
+      decisionType: "REFUND_APPROVAL",
+      transactionType: null,
+      workflowKey: null,
+      channel: null,
+    };
+    expect(
+      capture(proposal, {
+        ...trusted(),
+        policyProjection: { ...valid, decisionType: "  REFUND_APPROVAL " },
+      }).intent.policyProjection,
+    ).toEqual(valid);
+
+    const malformed: unknown[] = [
+      {},
+      { ...valid, decisionType: "" },
+      { ...valid, decisionType: "   " },
+      { ...valid, decisionType: null },
+      { ...valid, channel: "x".repeat(121) },
+      { ...valid, extra: "x" },
+      { decisionType: "REFUND_APPROVAL" },
+      { ...valid, workflowKey: undefined },
+      { ...valid, transactionType: 7 },
+      "REFUND_APPROVAL",
+    ];
+    for (const policyProjection of malformed) {
+      expect(
+        () =>
+          capture(proposal, {
+            ...trusted(),
+            policyProjection,
+          } as unknown as TrustedIntentContext),
+        JSON.stringify(policyProjection) ?? "undefined",
+      ).toThrow();
+    }
+  });
+
+  it("never accepts a policy projection from the agent proposal", () => {
+    const policyProjection = {
+      decisionType: "REFUND_APPROVAL",
+      transactionType: null,
+      workflowKey: null,
+      channel: null,
+    };
+    expect(() =>
+      capture({
+        action: "refund_order",
+        target: "shopify:order:58291",
+        parameters: {},
+        policyProjection,
+      } as AgentProposal),
+    ).toThrow();
+
+    // A parameter of that name is only a parameter: it chooses no policy path.
+    const captured = capture({
+      action: "refund_order",
+      target: "shopify:order:58291",
+      parameters: { policy_projection: { decision_type: "REFUND_APPROVAL" } },
+    });
+    expect(captured.intent.policyProjection).toBeUndefined();
+    expect("policy_projection" in JSON.parse(captured.canonicalIntent)).toBe(false);
+  });
+
   it("reserves the context idempotency key for the trusted runtime", () => {
     expect(() =>
       capture(

@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { CanonicalIntentHasher } from "../../src/intent/CanonicalIntentHasher.js";
+import type { TrustedIntentContext } from "../../src/intent/ExecutionIntent.js";
+import { IntentCapture } from "../../src/intent/IntentCapture.js";
 import type { JsonValue } from "../../src/intent/JsonValue.js";
 
 interface ConformanceVector {
@@ -92,6 +94,71 @@ describe("agent-safe.intent/1 conformance", () => {
     expect(new Set(vector.mutations.map((mutation) => mutation.intent_hash)).size).toBe(
       vector.mutations.length,
     );
+  });
+
+  it("captures the policy-projection vectors from an intent, with and without the projection", async () => {
+    const read = async (name: string) =>
+      JSON.parse(await readFile(new URL(name, VECTORS_DIR), "utf8")) as Required<ConformanceVector>;
+    const projected = await read("policy-projection.json");
+    const absent = await read("policy-projection-absent.json");
+    const intents = new IntentCapture({
+      clock: () => new Date("2026-10-20T10:00:00.000Z"),
+      createId: () => "44444444-4444-4444-8444-444444444444",
+      ttlSeconds: 60,
+    });
+    const proposal = {
+      action: "order.acknowledge",
+      target: "walmart-marketplace/orders/synthetic-1001",
+      parameters: { purchase_order_id: "synthetic-1001" },
+    };
+    const trusted: TrustedIntentContext = {
+      tenantId: "00000000-0000-4000-8000-000000000002",
+      actor: { id: "synthetic-commerce-walmart", type: "SERVICE", runtime: "walmart-connector" },
+      downstreamTarget: {
+        system: "walmart-marketplace",
+        operation: "POST /v3/orders/{purchaseOrderId}/acknowledge",
+        environment: "sandbox",
+      },
+      context: { lane: "sandbox", source: "conformance" },
+      idempotencyKey: "walmart-marketplace:order.acknowledge:synthetic-1001:1",
+    };
+
+    const withProjection = intents.capture(proposal, {
+      ...trusted,
+      policyProjection: {
+        decisionType: "ORDER_ACCEPTANCE",
+        transactionType: "order_acceptance",
+        workflowKey: "commerce_order_acceptance",
+        channel: "connector",
+      },
+    });
+    expect(CanonicalIntentHasher.bindingOf(withProjection.intent)).toEqual(projected.binding);
+    expect(withProjection.canonicalIntent).toBe(projected.canonical_json);
+    expect(withProjection.intentHash).toBe(projected.intent_hash);
+
+    // Without the projection the intent is the one an intent without it has
+    // always been: these bytes and this hash were reproduced with the
+    // published @decionis/agent-safe-pipeline 0.4.0, run apart from this tree.
+    const without = intents.capture(proposal, trusted);
+    expect(CanonicalIntentHasher.bindingOf(without.intent)).toEqual(absent.binding);
+    expect(without.canonicalIntent).toBe(absent.canonical_json);
+    expect(without.intentHash).toBe(
+      "sha256:bbd2b45a06920fe1a0caf82a51bd2d70394114ed8f687bec1277784537e21717",
+    );
+    expect(absent.intent_hash).toBe(without.intentHash);
+
+    // Removing the projection is a mutation like any other, and it is exactly
+    // the absent vector: a grant for one policy path authorises no other.
+    const removed = projected.mutations.find((mutation) => mutation.path === "policy_projection");
+    expect(removed?.binding).toEqual(absent.binding);
+    expect(removed?.intent_hash).toBe(absent.intent_hash);
+    expect(projected.mutations.map((mutation) => mutation.path)).toEqual([
+      "policy_projection.decision_type",
+      "policy_projection.transaction_type",
+      "policy_projection.workflow_key",
+      "policy_projection.channel",
+      "policy_projection",
+    ]);
   });
 
   it("keeps composed and decomposed text intentionally distinct (no NFC)", async () => {

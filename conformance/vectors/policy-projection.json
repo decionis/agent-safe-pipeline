@@ -1,0 +1,246 @@
+{
+  "description": "A binding that states its policy projection: a Walmart order acknowledgement the authority decides as an ORDER_ACCEPTANCE, not under its action type. The projection is inside the hash, so a grant decided on one policy path authorises no other. Every mutation MUST hash differently from the base and from every other; the last, the projection removed, is exactly policy-projection-absent.json.",
+  "binding": {
+    "protocol_version": "agent-safe.intent/1",
+    "tenant_id": "00000000-0000-4000-8000-000000000002",
+    "intent_id": "44444444-4444-4444-8444-444444444444",
+    "captured_at": "2026-10-20T10:00:00.000Z",
+    "expires_at": "2026-10-20T10:01:00.000Z",
+    "actor": {
+      "id": "synthetic-commerce-walmart",
+      "type": "SERVICE",
+      "runtime": "walmart-connector"
+    },
+    "action": {
+      "type": "order.acknowledge",
+      "resource": "walmart-marketplace/orders/synthetic-1001",
+      "parameters": {
+        "purchase_order_id": "synthetic-1001"
+      }
+    },
+    "context": {
+      "lane": "sandbox",
+      "source": "conformance",
+      "idempotency_key": "walmart-marketplace:order.acknowledge:synthetic-1001:1"
+    },
+    "downstream_target": {
+      "system": "walmart-marketplace",
+      "operation": "POST /v3/orders/{purchaseOrderId}/acknowledge",
+      "environment": "sandbox"
+    },
+    "policy_projection": {
+      "decision_type": "ORDER_ACCEPTANCE",
+      "transaction_type": "order_acceptance",
+      "workflow_key": "commerce_order_acceptance",
+      "channel": "connector"
+    }
+  },
+  "canonical_json": "{\"action\":{\"parameters\":{\"purchase_order_id\":\"synthetic-1001\"},\"resource\":\"walmart-marketplace/orders/synthetic-1001\",\"type\":\"order.acknowledge\"},\"actor\":{\"id\":\"synthetic-commerce-walmart\",\"runtime\":\"walmart-connector\",\"type\":\"SERVICE\"},\"captured_at\":\"2026-10-20T10:00:00.000Z\",\"context\":{\"idempotency_key\":\"walmart-marketplace:order.acknowledge:synthetic-1001:1\",\"lane\":\"sandbox\",\"source\":\"conformance\"},\"downstream_target\":{\"environment\":\"sandbox\",\"operation\":\"POST /v3/orders/{purchaseOrderId}/acknowledge\",\"system\":\"walmart-marketplace\"},\"expires_at\":\"2026-10-20T10:01:00.000Z\",\"intent_id\":\"44444444-4444-4444-8444-444444444444\",\"policy_projection\":{\"channel\":\"connector\",\"decision_type\":\"ORDER_ACCEPTANCE\",\"transaction_type\":\"order_acceptance\",\"workflow_key\":\"commerce_order_acceptance\"},\"protocol_version\":\"agent-safe.intent/1\",\"tenant_id\":\"00000000-0000-4000-8000-000000000002\"}",
+  "intent_hash": "sha256:adda2a7a9483e4b357579ee06f415e2bb73e3c35492084ea7f2adee1f0568706",
+  "mutations": [
+    {
+      "path": "policy_projection.decision_type",
+      "value": "ORDER_RELEASE",
+      "description": "the decision type: the release of a held order, which policy sends to a person to decide",
+      "binding": {
+        "protocol_version": "agent-safe.intent/1",
+        "tenant_id": "00000000-0000-4000-8000-000000000002",
+        "intent_id": "44444444-4444-4444-8444-444444444444",
+        "captured_at": "2026-10-20T10:00:00.000Z",
+        "expires_at": "2026-10-20T10:01:00.000Z",
+        "actor": {
+          "id": "synthetic-commerce-walmart",
+          "type": "SERVICE",
+          "runtime": "walmart-connector"
+        },
+        "action": {
+          "type": "order.acknowledge",
+          "resource": "walmart-marketplace/orders/synthetic-1001",
+          "parameters": {
+            "purchase_order_id": "synthetic-1001"
+          }
+        },
+        "context": {
+          "lane": "sandbox",
+          "source": "conformance",
+          "idempotency_key": "walmart-marketplace:order.acknowledge:synthetic-1001:1"
+        },
+        "downstream_target": {
+          "system": "walmart-marketplace",
+          "operation": "POST /v3/orders/{purchaseOrderId}/acknowledge",
+          "environment": "sandbox"
+        },
+        "policy_projection": {
+          "decision_type": "ORDER_RELEASE",
+          "transaction_type": "order_acceptance",
+          "workflow_key": "commerce_order_acceptance",
+          "channel": "connector"
+        }
+      },
+      "canonical_json": "{\"action\":{\"parameters\":{\"purchase_order_id\":\"synthetic-1001\"},\"resource\":\"walmart-marketplace/orders/synthetic-1001\",\"type\":\"order.acknowledge\"},\"actor\":{\"id\":\"synthetic-commerce-walmart\",\"runtime\":\"walmart-connector\",\"type\":\"SERVICE\"},\"captured_at\":\"2026-10-20T10:00:00.000Z\",\"context\":{\"idempotency_key\":\"walmart-marketplace:order.acknowledge:synthetic-1001:1\",\"lane\":\"sandbox\",\"source\":\"conformance\"},\"downstream_target\":{\"environment\":\"sandbox\",\"operation\":\"POST /v3/orders/{purchaseOrderId}/acknowledge\",\"system\":\"walmart-marketplace\"},\"expires_at\":\"2026-10-20T10:01:00.000Z\",\"intent_id\":\"44444444-4444-4444-8444-444444444444\",\"policy_projection\":{\"channel\":\"connector\",\"decision_type\":\"ORDER_RELEASE\",\"transaction_type\":\"order_acceptance\",\"workflow_key\":\"commerce_order_acceptance\"},\"protocol_version\":\"agent-safe.intent/1\",\"tenant_id\":\"00000000-0000-4000-8000-000000000002\"}",
+      "intent_hash": "sha256:9da2d7ad7e97299f2407bf7e98dfd463dd755c0fe6f62f8f89723f9be7c9608d"
+    },
+    {
+      "path": "policy_projection.transaction_type",
+      "value": null,
+      "description": "the transaction type left out of the evaluation, where the base names one",
+      "binding": {
+        "protocol_version": "agent-safe.intent/1",
+        "tenant_id": "00000000-0000-4000-8000-000000000002",
+        "intent_id": "44444444-4444-4444-8444-444444444444",
+        "captured_at": "2026-10-20T10:00:00.000Z",
+        "expires_at": "2026-10-20T10:01:00.000Z",
+        "actor": {
+          "id": "synthetic-commerce-walmart",
+          "type": "SERVICE",
+          "runtime": "walmart-connector"
+        },
+        "action": {
+          "type": "order.acknowledge",
+          "resource": "walmart-marketplace/orders/synthetic-1001",
+          "parameters": {
+            "purchase_order_id": "synthetic-1001"
+          }
+        },
+        "context": {
+          "lane": "sandbox",
+          "source": "conformance",
+          "idempotency_key": "walmart-marketplace:order.acknowledge:synthetic-1001:1"
+        },
+        "downstream_target": {
+          "system": "walmart-marketplace",
+          "operation": "POST /v3/orders/{purchaseOrderId}/acknowledge",
+          "environment": "sandbox"
+        },
+        "policy_projection": {
+          "decision_type": "ORDER_ACCEPTANCE",
+          "transaction_type": null,
+          "workflow_key": "commerce_order_acceptance",
+          "channel": "connector"
+        }
+      },
+      "canonical_json": "{\"action\":{\"parameters\":{\"purchase_order_id\":\"synthetic-1001\"},\"resource\":\"walmart-marketplace/orders/synthetic-1001\",\"type\":\"order.acknowledge\"},\"actor\":{\"id\":\"synthetic-commerce-walmart\",\"runtime\":\"walmart-connector\",\"type\":\"SERVICE\"},\"captured_at\":\"2026-10-20T10:00:00.000Z\",\"context\":{\"idempotency_key\":\"walmart-marketplace:order.acknowledge:synthetic-1001:1\",\"lane\":\"sandbox\",\"source\":\"conformance\"},\"downstream_target\":{\"environment\":\"sandbox\",\"operation\":\"POST /v3/orders/{purchaseOrderId}/acknowledge\",\"system\":\"walmart-marketplace\"},\"expires_at\":\"2026-10-20T10:01:00.000Z\",\"intent_id\":\"44444444-4444-4444-8444-444444444444\",\"policy_projection\":{\"channel\":\"connector\",\"decision_type\":\"ORDER_ACCEPTANCE\",\"transaction_type\":null,\"workflow_key\":\"commerce_order_acceptance\"},\"protocol_version\":\"agent-safe.intent/1\",\"tenant_id\":\"00000000-0000-4000-8000-000000000002\"}",
+      "intent_hash": "sha256:eba00ff4e76705a832807ec25574789681af41d3769ebb9158e499618a716068"
+    },
+    {
+      "path": "policy_projection.workflow_key",
+      "value": "commerce",
+      "description": "the workflow key: a broader workflow than the one the grant was decided under",
+      "binding": {
+        "protocol_version": "agent-safe.intent/1",
+        "tenant_id": "00000000-0000-4000-8000-000000000002",
+        "intent_id": "44444444-4444-4444-8444-444444444444",
+        "captured_at": "2026-10-20T10:00:00.000Z",
+        "expires_at": "2026-10-20T10:01:00.000Z",
+        "actor": {
+          "id": "synthetic-commerce-walmart",
+          "type": "SERVICE",
+          "runtime": "walmart-connector"
+        },
+        "action": {
+          "type": "order.acknowledge",
+          "resource": "walmart-marketplace/orders/synthetic-1001",
+          "parameters": {
+            "purchase_order_id": "synthetic-1001"
+          }
+        },
+        "context": {
+          "lane": "sandbox",
+          "source": "conformance",
+          "idempotency_key": "walmart-marketplace:order.acknowledge:synthetic-1001:1"
+        },
+        "downstream_target": {
+          "system": "walmart-marketplace",
+          "operation": "POST /v3/orders/{purchaseOrderId}/acknowledge",
+          "environment": "sandbox"
+        },
+        "policy_projection": {
+          "decision_type": "ORDER_ACCEPTANCE",
+          "transaction_type": "order_acceptance",
+          "workflow_key": "commerce",
+          "channel": "connector"
+        }
+      },
+      "canonical_json": "{\"action\":{\"parameters\":{\"purchase_order_id\":\"synthetic-1001\"},\"resource\":\"walmart-marketplace/orders/synthetic-1001\",\"type\":\"order.acknowledge\"},\"actor\":{\"id\":\"synthetic-commerce-walmart\",\"runtime\":\"walmart-connector\",\"type\":\"SERVICE\"},\"captured_at\":\"2026-10-20T10:00:00.000Z\",\"context\":{\"idempotency_key\":\"walmart-marketplace:order.acknowledge:synthetic-1001:1\",\"lane\":\"sandbox\",\"source\":\"conformance\"},\"downstream_target\":{\"environment\":\"sandbox\",\"operation\":\"POST /v3/orders/{purchaseOrderId}/acknowledge\",\"system\":\"walmart-marketplace\"},\"expires_at\":\"2026-10-20T10:01:00.000Z\",\"intent_id\":\"44444444-4444-4444-8444-444444444444\",\"policy_projection\":{\"channel\":\"connector\",\"decision_type\":\"ORDER_ACCEPTANCE\",\"transaction_type\":\"order_acceptance\",\"workflow_key\":\"commerce\"},\"protocol_version\":\"agent-safe.intent/1\",\"tenant_id\":\"00000000-0000-4000-8000-000000000002\"}",
+      "intent_hash": "sha256:bfbfe472c032e066d20d8413b9f8a33805da5359da893fa01b0bc99a6fb2f44a"
+    },
+    {
+      "path": "policy_projection.channel",
+      "value": null,
+      "description": "the channel left out of the evaluation, where the base names one",
+      "binding": {
+        "protocol_version": "agent-safe.intent/1",
+        "tenant_id": "00000000-0000-4000-8000-000000000002",
+        "intent_id": "44444444-4444-4444-8444-444444444444",
+        "captured_at": "2026-10-20T10:00:00.000Z",
+        "expires_at": "2026-10-20T10:01:00.000Z",
+        "actor": {
+          "id": "synthetic-commerce-walmart",
+          "type": "SERVICE",
+          "runtime": "walmart-connector"
+        },
+        "action": {
+          "type": "order.acknowledge",
+          "resource": "walmart-marketplace/orders/synthetic-1001",
+          "parameters": {
+            "purchase_order_id": "synthetic-1001"
+          }
+        },
+        "context": {
+          "lane": "sandbox",
+          "source": "conformance",
+          "idempotency_key": "walmart-marketplace:order.acknowledge:synthetic-1001:1"
+        },
+        "downstream_target": {
+          "system": "walmart-marketplace",
+          "operation": "POST /v3/orders/{purchaseOrderId}/acknowledge",
+          "environment": "sandbox"
+        },
+        "policy_projection": {
+          "decision_type": "ORDER_ACCEPTANCE",
+          "transaction_type": "order_acceptance",
+          "workflow_key": "commerce_order_acceptance",
+          "channel": null
+        }
+      },
+      "canonical_json": "{\"action\":{\"parameters\":{\"purchase_order_id\":\"synthetic-1001\"},\"resource\":\"walmart-marketplace/orders/synthetic-1001\",\"type\":\"order.acknowledge\"},\"actor\":{\"id\":\"synthetic-commerce-walmart\",\"runtime\":\"walmart-connector\",\"type\":\"SERVICE\"},\"captured_at\":\"2026-10-20T10:00:00.000Z\",\"context\":{\"idempotency_key\":\"walmart-marketplace:order.acknowledge:synthetic-1001:1\",\"lane\":\"sandbox\",\"source\":\"conformance\"},\"downstream_target\":{\"environment\":\"sandbox\",\"operation\":\"POST /v3/orders/{purchaseOrderId}/acknowledge\",\"system\":\"walmart-marketplace\"},\"expires_at\":\"2026-10-20T10:01:00.000Z\",\"intent_id\":\"44444444-4444-4444-8444-444444444444\",\"policy_projection\":{\"channel\":null,\"decision_type\":\"ORDER_ACCEPTANCE\",\"transaction_type\":\"order_acceptance\",\"workflow_key\":\"commerce_order_acceptance\"},\"protocol_version\":\"agent-safe.intent/1\",\"tenant_id\":\"00000000-0000-4000-8000-000000000002\"}",
+      "intent_hash": "sha256:e8e82e73a4587e6292ca396d991e92d526b59e7ba2ea569d1e87214a74dc9729"
+    },
+    {
+      "path": "policy_projection",
+      "value": null,
+      "description": "the projection removed: the authority would evaluate the action type instead",
+      "binding": {
+        "protocol_version": "agent-safe.intent/1",
+        "tenant_id": "00000000-0000-4000-8000-000000000002",
+        "intent_id": "44444444-4444-4444-8444-444444444444",
+        "captured_at": "2026-10-20T10:00:00.000Z",
+        "expires_at": "2026-10-20T10:01:00.000Z",
+        "actor": {
+          "id": "synthetic-commerce-walmart",
+          "type": "SERVICE",
+          "runtime": "walmart-connector"
+        },
+        "action": {
+          "type": "order.acknowledge",
+          "resource": "walmart-marketplace/orders/synthetic-1001",
+          "parameters": {
+            "purchase_order_id": "synthetic-1001"
+          }
+        },
+        "context": {
+          "lane": "sandbox",
+          "source": "conformance",
+          "idempotency_key": "walmart-marketplace:order.acknowledge:synthetic-1001:1"
+        },
+        "downstream_target": {
+          "system": "walmart-marketplace",
+          "operation": "POST /v3/orders/{purchaseOrderId}/acknowledge",
+          "environment": "sandbox"
+        }
+      },
+      "canonical_json": "{\"action\":{\"parameters\":{\"purchase_order_id\":\"synthetic-1001\"},\"resource\":\"walmart-marketplace/orders/synthetic-1001\",\"type\":\"order.acknowledge\"},\"actor\":{\"id\":\"synthetic-commerce-walmart\",\"runtime\":\"walmart-connector\",\"type\":\"SERVICE\"},\"captured_at\":\"2026-10-20T10:00:00.000Z\",\"context\":{\"idempotency_key\":\"walmart-marketplace:order.acknowledge:synthetic-1001:1\",\"lane\":\"sandbox\",\"source\":\"conformance\"},\"downstream_target\":{\"environment\":\"sandbox\",\"operation\":\"POST /v3/orders/{purchaseOrderId}/acknowledge\",\"system\":\"walmart-marketplace\"},\"expires_at\":\"2026-10-20T10:01:00.000Z\",\"intent_id\":\"44444444-4444-4444-8444-444444444444\",\"protocol_version\":\"agent-safe.intent/1\",\"tenant_id\":\"00000000-0000-4000-8000-000000000002\"}",
+      "intent_hash": "sha256:bbd2b45a06920fe1a0caf82a51bd2d70394114ed8f687bec1277784537e21717"
+    }
+  ]
+}

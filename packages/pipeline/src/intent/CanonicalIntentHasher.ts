@@ -131,6 +131,17 @@ export class CanonicalIntentHasher {
           ? {}
           : { endpoint: intent.downstreamTarget.endpoint }),
       },
+      // Absent unless stated, so an intent without one hashes as it always did.
+      ...(intent.policyProjection === undefined
+        ? {}
+        : {
+            policy_projection: {
+              decision_type: intent.policyProjection.decisionType,
+              transaction_type: intent.policyProjection.transactionType,
+              workflow_key: intent.policyProjection.workflowKey,
+              channel: intent.policyProjection.channel,
+            },
+          }),
       ...(intent.expectedEffectDigest === undefined
         ? {}
         : { expected_effect_digest: intent.expectedEffectDigest }),

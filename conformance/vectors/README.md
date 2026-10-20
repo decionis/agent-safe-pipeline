@@ -29,6 +29,19 @@ idempotency key and the environment: every one is inside the hash, so a grant
 for the base authorises none of them. An implementation MUST reproduce all
 nine hashes, and they MUST all differ.
 
+## The policy projection
+
+`policy-projection.json` is a Walmart order acknowledgement that the authority
+decides as an `ORDER_ACCEPTANCE` rather than under its action type, with the
+projection at the binding's top level. Its five mutations change each of the
+four projection fields (a `null` is a field the authority leaves out) and
+remove the projection, six distinct hashes in all: a grant decided on one
+policy path authorises no other. `policy-projection-absent.json` is the same
+intent with no projection. It is the removal mutation byte for byte, and the
+bytes and hash `@decionis/agent-safe-pipeline` 0.4.0 produced for that intent,
+before the projection could be stated: an intent that states none is
+unchanged.
+
 ## Intentional text distinctions (no normalization)
 
 The canonicalizer performs **no Unicode normalization** — it sorts object

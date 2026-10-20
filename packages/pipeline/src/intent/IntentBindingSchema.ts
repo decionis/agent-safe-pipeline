@@ -12,6 +12,7 @@ const actionType = z
   .max(120)
   .regex(/^[a-z][a-z0-9._:-]*$/);
 const sha256Digest = z.string().regex(/^sha256:[0-9a-f]{64}$/);
+const projectionValue = z.string().min(1).max(120);
 
 /**
  * The `agent-safe.intent/1` binding as it is hashed and sent, as a strict
@@ -53,6 +54,15 @@ export const AuthorityIntentBindingSchema = z
         endpoint: z.string().min(1).max(500).optional(),
       })
       .strict(),
+    policy_projection: z
+      .object({
+        decision_type: projectionValue,
+        transaction_type: projectionValue.nullable(),
+        workflow_key: projectionValue.nullable(),
+        channel: projectionValue.nullable(),
+      })
+      .strict()
+      .optional(),
     expected_effect_digest: sha256Digest.optional(),
   })
   .strict()

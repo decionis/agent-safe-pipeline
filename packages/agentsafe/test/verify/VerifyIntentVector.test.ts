@@ -21,19 +21,30 @@ function codes(document: unknown): string[] {
   return verifyIntentVector(document).findings.map((finding) => finding.code);
 }
 
+/** The vectors whose `binding` is a whole intent binding; every other one is a canonicalization case. */
+const BINDINGS = new Set([
+  "compromised-principal.json",
+  "policy-projection.json",
+  "policy-projection-absent.json",
+]);
+
 describe("verifyIntentVector", () => {
   it("reproduces every vector in the corpus, and knows which kind each is", async () => {
     const names = (await readdir(VECTORS_DIR)).filter((name) => name.endsWith(".json"));
-    expect(names.length).toBeGreaterThanOrEqual(7);
+    expect(names.length).toBeGreaterThanOrEqual(9);
     for (const name of names) {
       const report = verifyIntentVector(await vector(name));
       expect(report.ok, `${name}: ${JSON.stringify(report.findings)}`).toBe(true);
       expect(report.pinned).toBe(true);
-      expect(report.kind).toBe(name === "compromised-principal.json" ? "binding" : "canonical");
+      expect(report.kind).toBe(BINDINGS.has(name) ? "binding" : "canonical");
     }
     const principal = verifyIntentVector(await vector("compromised-principal.json"));
     expect(principal.mutations).toBe(8);
     expect(principal.hashes).toBe(9);
+    // A projected binding is a binding like any other: the projection and its
+    // removal are mutations, each with a hash of its own.
+    const projected = verifyIntentVector(await vector("policy-projection.json"));
+    expect(projected).toMatchObject({ kind: "binding", ok: true, mutations: 5, hashes: 6 });
     const pinned = verifyIntentVector(JSON.parse(await readFile(PINNED, "utf8")));
     expect(pinned).toMatchObject({ kind: "binding", ok: true, pinned: true, hashes: 1 });
   });

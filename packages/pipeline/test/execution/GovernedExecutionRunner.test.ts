@@ -34,7 +34,11 @@ import type {
 } from "../../src/execution/NativeExecutor.js";
 import { RegistryExecutor } from "../../src/execution/RegistryExecutor.js";
 import { IntentCapture } from "../../src/intent/IntentCapture.js";
-import type { CapturedIntent } from "../../src/intent/ExecutionIntent.js";
+import type {
+  CapturedIntent,
+  ExecutionIntent,
+  PolicyProjection,
+} from "../../src/intent/ExecutionIntent.js";
 import type { JsonObject } from "../../src/intent/JsonValue.js";
 
 const TENANT = "00000000-0000-4000-8000-000000000004";
@@ -48,6 +52,12 @@ const SCOPE: ExecutorScope = {
 };
 const ACTION: JsonObject = { line: "PAY-1", amount_minor: 4_200 };
 const ACTOR = { id: "synthetic-agent-1", type: "agent" };
+const PROJECTION: PolicyProjection = {
+  decisionType: "PAYMENT_RELEASE",
+  transactionType: "payment_release",
+  workflowKey: null,
+  channel: "connector",
+};
 const EVIDENCE: AuthorityEffectEvidence = {
   version: "1.0",
   status: "UNCONFIRMED",
@@ -199,6 +209,7 @@ function setup(
 
 async function decided(
   verdict: "ALLOW" | "ESCALATE" | "BLOCK" = "ALLOW",
+  policyProjection?: PolicyProjection,
 ): Promise<{ captured: CapturedIntent; decision: DecisionGate; verifier: AuthorizationVerifier }> {
   const pair = createFixtureAuthorityPair(() => verdict, { unsafeAllowDevelopmentFixture: true });
   const p = prepared(ACTION);
@@ -208,6 +219,7 @@ async function decided(
     downstreamTarget: p.downstreamTarget,
     context: p.facts,
     idempotencyKey: p.idempotencyKey,
+    ...(policyProjection === undefined ? {} : { policyProjection }),
   });
   return { captured, decision: await pair.authority.evaluate(captured), verifier: pair.verifier };
 }
@@ -299,6 +311,77 @@ describe("GovernedExecutionRunner admission", () => {
       const result = await runner.run(executor, { captured, decision, action: ACTION });
       expect(result).toMatchObject({ outcome: "BLOCKED", reason: "INTENT_BINDING_MISMATCH" });
     }
+  });
+
+  it("captures the projection an executor states, and admits the intent its own re-hash reproduces", async () => {
+    const { runner, verifier } = setup();
+    const executor = new ScriptedExecutor("dispatch", {
+      prepare: async (action) => prepared(action, { policyProjection: PROJECTION }),
+    });
+    const { captured, result } = await runner.submit(executor, {
+      action: ACTION,
+      scope: SCOPE,
+      actor: ACTOR,
+    });
+    // 0.4.0 could not state a projection, and an intent hashed with one failed
+    // the runner's private re-hash; the binding now carries it on both sides.
+    expect(result).toMatchObject({ outcome: "COMPLETED", executed: true });
+    expect(captured.intent.policyProjection).toEqual(PROJECTION);
+    expect(JSON.parse(captured.canonicalIntent)).toHaveProperty(
+      "policy_projection.decision_type",
+      "PAYMENT_RELEASE",
+    );
+    expect(executor.calls.filter((call) => call === "execute")).toHaveLength(1);
+    expect(verifier.ledger()[0]?.outcome).toBe("COMMITTED");
+  });
+
+  it("refuses an executor that describes another policy path than the one decided", async () => {
+    const plain = await decided();
+    const projected = await decided("ALLOW", PROJECTION);
+    for (const [{ captured, decision, verifier }, drift] of [
+      [plain, { policyProjection: PROJECTION }],
+      [projected, {}],
+      [projected, { policyProjection: { ...PROJECTION, decisionType: "PRICE_CHANGE" } }],
+      [projected, { policyProjection: { ...PROJECTION, transactionType: null } }],
+      [projected, { policyProjection: { ...PROJECTION, workflowKey: "payments" } }],
+      [projected, { policyProjection: { ...PROJECTION, channel: "api" } }],
+    ] as const) {
+      const executor = new ScriptedExecutor("dispatch", {
+        prepare: async (action) => prepared(action, drift),
+      });
+      const result = await new GovernedExecutionRunner({ verifier }).run(executor, {
+        captured,
+        decision,
+        action: ACTION,
+      });
+      expect(result).toMatchObject({ outcome: "BLOCKED", reason: "INTENT_BINDING_MISMATCH" });
+      expect(executor.calls).not.toContain("execute");
+    }
+  });
+
+  it("refuses an intent whose projection changed after it was captured, before a grant is spent", async () => {
+    const { captured, decision, verifier } = await decided("ALLOW", PROJECTION);
+    const claims = vi.spyOn(verifier, "verifyAndConsume");
+    for (const policyProjection of [undefined, { ...PROJECTION, decisionType: "PRICE_CHANGE" }]) {
+      const intent: Partial<ExecutionIntent> = { ...captured.intent };
+      delete intent.policyProjection;
+      const forged = {
+        ...captured,
+        intent: policyProjection === undefined ? intent : { ...intent, policyProjection },
+      } as CapturedIntent;
+      const executor = new ScriptedExecutor("dispatch", {
+        prepare: async (action) =>
+          prepared(action, policyProjection === undefined ? {} : { policyProjection }),
+      });
+      const result = await new GovernedExecutionRunner({ verifier }).run(executor, {
+        captured: forged,
+        decision,
+        action: ACTION,
+      });
+      expect(result).toMatchObject({ outcome: "BLOCKED", reason: "INTENT_CONFORMANCE_FAILED" });
+      expect(executor.calls).not.toContain("execute");
+    }
+    expect(claims).not.toHaveBeenCalled();
   });
 
   it("requires a dossier, and admits Commerce's PROCEED as it admits ALLOW", async () => {

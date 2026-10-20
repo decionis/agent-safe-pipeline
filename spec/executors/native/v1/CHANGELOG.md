@@ -2,6 +2,15 @@
 
 Every entry names the pull request that made it and the vectors that pin it.
 
+## 2026-10-20: the policy projection
+
+- `prepare` may state the policy path the authority decides the action under (`PreparedAction`'s
+  optional `policyProjection`). The runner binds it into the intent as `policy_projection`
+  ([Agent-Safe Intent v1](../../../intent/v1/CHANGELOG.md)) and, at admission, refuses as
+  `INTENT_BINDING_MISMATCH` an executor whose `prepare` names another path than the decided one
+  (§4.1, step 6). An executor that states none is unchanged. The wire profile and its vectors are
+  unchanged: the projection is the executor host's, never the platform's request.
+
 ## 2026-10-18: the contract, the runner, the permit wire profile
 
 - The profile is written down: the executor interface in two styles (dispatch and permit), the

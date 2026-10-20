@@ -1,6 +1,6 @@
 # Compatibility
 
-What release `v0.4.0` runs on, and which versions of its specification and tools go together. The
+What release `v0.4.1` runs on, and which versions of its specification and tools go together. The
 runtime is the same in every distribution; only the packaging differs
 ([cross-runtime conformance](./conformance/runtime/README.md)). A release that changes a runtime
 requirement or a supported configuration updates this page in the same pull request
@@ -24,7 +24,7 @@ only, for the tenants Decionis onboards; there is no self-serve sign-up yet
 
 | Package                               | Needs                    | Details                                                                                    |
 | ------------------------------------- | ------------------------ | ------------------------------------------------------------------------------------------ |
-| `@decionis/agent-safe-pipeline` 0.4.0 | Node.js 22.14.0 or later | [`packages/pipeline`](./packages/pipeline/package.json)                                    |
+| `@decionis/agent-safe-pipeline` 0.4.1 | Node.js 22.14.0 or later | [`packages/pipeline`](./packages/pipeline/package.json)                                    |
 | Released `@decionis/commerce` 0.1.6   | Node.js 20 or later      | [Released-source index](./packages/mcp/README.md); ongoing development belongs to Commerce |
 
 ## Govern 2.1.0
@@ -45,7 +45,9 @@ runners too ([govern/README.md](./govern/README.md)).
   of every existing binding unchanged; anything else is `agent-safe.intent/2` (its §9). The change
   process is its §10.
 - **`@decionis/verify` 0.4.0 or later** is needed for `npx @decionis/verify intent` against the
-  [conformance vectors](./conformance).
+  [conformance vectors](./conformance). Up to 0.4.0 it does not know the optional
+  `policy_projection` (added 2026-10-20) and reports `conformance/vectors/policy-projection.json`
+  as `BINDING_INVALID`; `agentsafe verify intent` with library 0.4.1 accepts it.
 - **Framework coverage** is one matrix, capability by framework, for the OpenAI Responses API and
   Agents SDK, the Vercel AI SDK, LangChain and MCP: for each part of the binding, whether the
   framework's own tool-call record carries it (native) or the adapter adds it

@@ -1,0 +1,34 @@
+{
+  "description": "The same intent as policy-projection.json with no policy projection: the binding, bytes and hash an intent without one has always produced (it is byte-identical to @decionis/agent-safe-pipeline 0.4.0's), and the authority evaluates its action type as the decision type, transaction type and workflow key.",
+  "binding": {
+    "protocol_version": "agent-safe.intent/1",
+    "tenant_id": "00000000-0000-4000-8000-000000000002",
+    "intent_id": "44444444-4444-4444-8444-444444444444",
+    "captured_at": "2026-10-20T10:00:00.000Z",
+    "expires_at": "2026-10-20T10:01:00.000Z",
+    "actor": {
+      "id": "synthetic-commerce-walmart",
+      "type": "SERVICE",
+      "runtime": "walmart-connector"
+    },
+    "action": {
+      "type": "order.acknowledge",
+      "resource": "walmart-marketplace/orders/synthetic-1001",
+      "parameters": {
+        "purchase_order_id": "synthetic-1001"
+      }
+    },
+    "context": {
+      "lane": "sandbox",
+      "source": "conformance",
+      "idempotency_key": "walmart-marketplace:order.acknowledge:synthetic-1001:1"
+    },
+    "downstream_target": {
+      "system": "walmart-marketplace",
+      "operation": "POST /v3/orders/{purchaseOrderId}/acknowledge",
+      "environment": "sandbox"
+    }
+  },
+  "canonical_json": "{\"action\":{\"parameters\":{\"purchase_order_id\":\"synthetic-1001\"},\"resource\":\"walmart-marketplace/orders/synthetic-1001\",\"type\":\"order.acknowledge\"},\"actor\":{\"id\":\"synthetic-commerce-walmart\",\"runtime\":\"walmart-connector\",\"type\":\"SERVICE\"},\"captured_at\":\"2026-10-20T10:00:00.000Z\",\"context\":{\"idempotency_key\":\"walmart-marketplace:order.acknowledge:synthetic-1001:1\",\"lane\":\"sandbox\",\"source\":\"conformance\"},\"downstream_target\":{\"environment\":\"sandbox\",\"operation\":\"POST /v3/orders/{purchaseOrderId}/acknowledge\",\"system\":\"walmart-marketplace\"},\"expires_at\":\"2026-10-20T10:01:00.000Z\",\"intent_id\":\"44444444-4444-4444-8444-444444444444\",\"protocol_version\":\"agent-safe.intent/1\",\"tenant_id\":\"00000000-0000-4000-8000-000000000002\"}",
+  "intent_hash": "sha256:bbd2b45a06920fe1a0caf82a51bd2d70394114ed8f687bec1277784537e21717"
+}
