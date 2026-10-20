@@ -35,9 +35,11 @@ import type {
 import { RegistryExecutor } from "../../src/execution/RegistryExecutor.js";
 import { IntentCapture } from "../../src/intent/IntentCapture.js";
 import type {
+  AgentProposal,
   CapturedIntent,
   ExecutionIntent,
   PolicyProjection,
+  TrustedIntentContext,
 } from "../../src/intent/ExecutionIntent.js";
 import type { JsonObject } from "../../src/intent/JsonValue.js";
 
@@ -333,6 +335,44 @@ describe("GovernedExecutionRunner admission", () => {
     );
     expect(executor.calls.filter((call) => call === "execute")).toHaveLength(1);
     expect(verifier.ledger()[0]?.outcome).toBe("COMMITTED");
+  });
+
+  it("hands the capture a projection only when the executor states one, never an undefined key", async () => {
+    // The capture is replaceable (`options.capture`), and it is handed the
+    // trusted context as it is: one that reads key presence (`in`,
+    // `Object.hasOwn`) must see no projection where the executor stated none.
+    // The default capture drops an undefined key itself, so the captured
+    // intent alone cannot tell the two apart; what was handed over can.
+    const handed: TrustedIntentContext[] = [];
+    class RecordingCapture extends IntentCapture {
+      public override capture(
+        proposal: AgentProposal,
+        trusted: TrustedIntentContext,
+      ): CapturedIntent {
+        handed.push(trusted);
+        return super.capture(proposal, trusted);
+      }
+    }
+    const { runner } = setup({ capture: new RecordingCapture() });
+    const plain = await runner.submit(new ScriptedExecutor("dispatch"), {
+      action: ACTION,
+      scope: SCOPE,
+      actor: ACTOR,
+    });
+    await runner.submit(
+      new ScriptedExecutor("dispatch", {
+        prepare: async (action) => prepared(action, { policyProjection: PROJECTION }),
+      }),
+      { action: ACTION, scope: SCOPE, actor: ACTOR },
+    );
+
+    expect(handed.map((trusted) => Object.hasOwn(trusted, "policyProjection"))).toEqual([
+      false,
+      true,
+    ]);
+    expect(handed[1]?.policyProjection).toStrictEqual(PROJECTION);
+    expect(Object.hasOwn(plain.captured.intent, "policyProjection")).toBe(false);
+    expect("policy_projection" in JSON.parse(plain.captured.canonicalIntent)).toBe(false);
   });
 
   it("refuses an executor that describes another policy path than the one decided", async () => {
