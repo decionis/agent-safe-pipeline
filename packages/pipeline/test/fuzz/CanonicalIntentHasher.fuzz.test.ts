@@ -19,6 +19,15 @@ const configuredRuns = Number.parseInt(process.env.FUZZ_RUNS ?? "1000", 10);
 const numRuns = Number.isSafeInteger(configuredRuns)
   ? Math.min(Math.max(configuredRuns, 1), 10_000)
   : 1000;
+/** fast-check's own budget for one property: a property still running at it fails. */
+const FUZZ_BUDGET_MS = 30_000;
+/**
+ * Vitest's timeout for one fuzz test, derived from the budget so the two
+ * cannot drift. It must outlast fast-check's budget: under vitest's 5 s
+ * default a slow runner killed a property long before fast-check's own
+ * deadline applied, with no seed or counterexample to show for it.
+ */
+const FUZZ_TEST_TIMEOUT_MS = 2 * FUZZ_BUDGET_MS;
 
 const trustedContext: TrustedIntentContext = {
   tenantId: "00000000-0000-4000-8000-000000000002",
@@ -103,7 +112,7 @@ function assertFuzz<Ts>(property: IProperty<Ts>, parameters: FastCheckParameters
     fc.assert(property, {
       seed,
       numRuns,
-      interruptAfterTimeLimit: 30_000,
+      interruptAfterTimeLimit: FUZZ_BUDGET_MS,
       markInterruptAsFailure: true,
       ...parameters,
     });
@@ -117,7 +126,7 @@ const jsonObjectArbitrary = fc
   .dictionary(fc.string({ maxLength: 32 }), fc.jsonValue({ maxDepth: 4 }), { maxKeys: 16 })
   .map((value) => sanitizeJson(value) as JsonObject);
 
-describe("CanonicalIntentHasher property fuzzing", () => {
+describe("CanonicalIntentHasher property fuzzing", { timeout: FUZZ_TEST_TIMEOUT_MS }, () => {
   it("is deterministic across arbitrary object insertion orders", () => {
     assertFuzz(
       fc.property(jsonObjectArbitrary, (parameters) => {

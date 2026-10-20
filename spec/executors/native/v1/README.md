@@ -64,6 +64,10 @@ answers for, and implements five operations.
 An executor MUST NOT call the authority, sign anything, map a verdict, retry a write, or decide an
 outcome. Those are the runner's (§4), so that no platform's code can weaken them.
 
+When the authority's policy names a write other than by its action type, `prepare` also states the
+policy projection (`decision_type`, `transaction_type`, `workflow_key`, `channel`), which the runner
+binds into the intent as `policy_projection` ([Agent-Safe Intent v1](../../../intent/v1/README.md)).
+
 ### 3.1 The dispatch boundary
 
 In dispatch style the runner opens one dispatch per attempt. Everything before `dispatch.run` is
@@ -95,7 +99,8 @@ step consumes nothing:
 3. the decision carries a dossier;
 4. the decision is for this intent hash, carries a grant, and the intent re-hashes to itself;
 5. the intent was captured at this enforcement boundary and by this workload, when those are set;
-6. the executor's `prepare` describes exactly the intent that was decided;
+6. the executor's `prepare` describes exactly the intent that was decided, its policy projection
+   included;
 7. the scope's capability for the action type is connected, scope-granted and enabled.
 
 ### 4.2 Authority calls

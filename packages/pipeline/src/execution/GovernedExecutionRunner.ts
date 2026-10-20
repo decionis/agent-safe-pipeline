@@ -7,7 +7,7 @@ import {
 } from "../decision/DecisionAuthority.js";
 import { AuthorityPaths } from "../http/AuthorityPaths.js";
 import { CanonicalIntentHasher } from "../intent/CanonicalIntentHasher.js";
-import type { CapturedIntent, IntentActor } from "../intent/ExecutionIntent.js";
+import type { CapturedIntent, IntentActor, PolicyProjection } from "../intent/ExecutionIntent.js";
 import { boundaryOf, workloadOf } from "../intent/ExecutionSignals.js";
 import { IntentCapture } from "../intent/IntentCapture.js";
 import type { JsonObject, JsonValue } from "../intent/JsonValue.js";
@@ -283,6 +283,9 @@ export class GovernedExecutionRunner {
       ...(prepared.expectedEffectDigest === null
         ? {}
         : { expectedEffectDigest: prepared.expectedEffectDigest }),
+      ...(prepared.policyProjection === undefined
+        ? {}
+        : { policyProjection: prepared.policyProjection }),
       // Stryker disable next-line ConditionalExpression: the capture drops an undefined correlation itself; the condition only satisfies the strict optional type.
       ...(request.correlationId === undefined ? {} : { correlationId: request.correlationId }),
     });
@@ -1464,7 +1467,26 @@ export class GovernedExecutionRunner {
       prepared.downstreamTarget.system === intent.downstreamTarget.system &&
       prepared.downstreamTarget.operation === intent.downstreamTarget.operation &&
       prepared.idempotencyKey === intent.idempotencyKey &&
-      (prepared.expectedEffectDigest ?? undefined) === intent.expectedEffectDigest
+      (prepared.expectedEffectDigest ?? undefined) === intent.expectedEffectDigest &&
+      GovernedExecutionRunner.sameProjection(prepared.policyProjection, intent.policyProjection)
+    );
+  }
+
+  /**
+   * Whether the executor describes the policy path the intent was decided on:
+   * both absent, or the same four fields. A projection on one side only is
+   * another policy path, never the same one.
+   */
+  private static sameProjection(
+    prepared: PolicyProjection | undefined,
+    decided: PolicyProjection | undefined,
+  ): boolean {
+    if (prepared === undefined || decided === undefined) return prepared === decided;
+    return (
+      prepared.decisionType === decided.decisionType &&
+      prepared.transactionType === decided.transactionType &&
+      prepared.workflowKey === decided.workflowKey &&
+      prepared.channel === decided.channel
     );
   }
 

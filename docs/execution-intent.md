@@ -7,9 +7,8 @@ conformance requirements, and the framework coverage matrix. This page is how th
 The versioned `agent-safe.intent/1` authority binding is the Decionis `ExecutionIntentBinding`
 contract: `protocol_version`, `tenant_id`, `intent_id`, `captured_at`, `expires_at`, `actor`,
 `action` (type, resource, parameters), `context`, `downstream_target` (system, operation, optional
-environment and endpoint), and the optional `expected_effect_digest`. The contract also defines an
-optional `policy_projection` this package does not produce, and rejects every other top-level
-property. Keys are sorted by UTF-16 code unit before JSON encoding and SHA-256 hashing, which is how
+environment and endpoint), and the optional `policy_projection` and `expected_effect_digest`. The
+contract rejects every other top-level property. Keys are sorted by UTF-16 code unit before JSON encoding and SHA-256 hashing, which is how
 Decionis recomputes the hash on receipt.
 
 Input validation and canonicalization are bounded to 100 KiB by default, nesting depth 20, 5,000
@@ -22,6 +21,28 @@ key stays part of the canonical binding by riding inside the trusted `context` u
 authority request's `Idempotency-Key` header carries the `intent_id`, because the contract defines the
 intent as the grant-issuance boundary and rejects a header that differs from it. The correlation ID
 remains operational metadata and must not affect execution semantics.
+
+## The policy projection
+
+`policyProjection` is an optional trusted-context input naming the policy path the authority decides
+the intent under: `decisionType`, and `transactionType`, `workflowKey` and `channel`, each a string
+or `null`. Without one, Decionis evaluates `action.type` as the decision type, transaction type and
+workflow key, which is right when an action's name is its policy vocabulary. An executor whose policy
+names a write otherwise states it: a Walmart order acknowledgement is decided as `ORDER_ACCEPTANCE`,
+not as `order.acknowledge`. A `null` field is one the authority leaves out of the evaluation.
+
+The binding carries it as the top-level `policy_projection`, in the contract's snake case, so it is
+inside `intent_hash`, inside the grant request (`POST /v1/authority/grants`, a managed escalation
+included), and inside the claim's `intent`. Decionis routes the grant by it and recomputes the hash
+over it, so a claim re-validates the policy path the grant was decided on, and a projection dropped or
+rewritten between the decision and the claim is an `INTENT_HASH_MISMATCH`. A native executor states it
+on its `PreparedAction`; `GovernedExecutionRunner` captures it and refuses, as
+`INTENT_BINDING_MISMATCH`, an executor whose `prepare` names another path than the decided one.
+
+Only the trusted runtime may state it: the agent proposal is strict, and an agent that could name its
+projection could choose the policy it is evaluated under. An intent that states none hashes and
+travels byte-identically to 0.4.0, before the property could be stated
+(`conformance/vectors/policy-projection-absent.json`).
 
 ## The expected-effect commitment
 

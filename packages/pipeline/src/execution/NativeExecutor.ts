@@ -1,4 +1,9 @@
-import type { AgentProposal, CapturedIntent, DownstreamTarget } from "../intent/ExecutionIntent.js";
+import type {
+  AgentProposal,
+  CapturedIntent,
+  DownstreamTarget,
+  PolicyProjection,
+} from "../intent/ExecutionIntent.js";
 import type { JsonObject } from "../intent/JsonValue.js";
 import type { ProviderDispatch } from "./ActionRegistry.js";
 import type { AuthorityEffectEvidence, VerifiedAuthorization } from "./AuthorizationVerifier.js";
@@ -93,6 +98,12 @@ export interface PreparedAction {
   readonly requestDigest: Sha256Digest;
   /** Platform facts the authority evaluates, carried in the intent's trusted context. */
   readonly facts: JsonObject;
+  /**
+   * The policy path the authority decides the action under, bound into the
+   * intent as `policy_projection`, when the policy names the write other than
+   * by its action type. Absent, the authority evaluates the action type.
+   */
+  readonly policyProjection?: PolicyProjection;
 }
 
 /**

@@ -64,16 +64,25 @@ implementation's own validator, so the two cannot disagree.
 | `action.parameters`      | object | yes      | agent       | any JSON object; every value is inside the hash                                                                                |
 | `context`                | object | yes      | producer    | any JSON object the producer trusts; MUST carry `idempotency_key` (1–180 chars); an agent-supplied key of that name is refused |
 | `downstream_target`      | object | yes      | producer    | `system`, `operation` (1–200 each), optional `environment` (1–200) and `endpoint` (1–500); no other key                        |
+| `policy_projection`      | object | no       | producer    | `decision_type` (1–120 chars); `transaction_type`, `workflow_key` and `channel` (1–120 chars or `null`); no other key          |
 | `expected_effect_digest` | string | no       | producer    | `sha256:` and 64 lowercase hex characters: a commitment to the predicted downstream state; absent when none is made            |
 
 Rules:
 
-- An object with a fixed key set (`actor`, `downstream_target`, the binding itself) MUST NOT carry
-  any other key. A consumer MUST refuse a binding that does.
+- An object with a fixed key set (`actor`, `downstream_target`, `policy_projection`, the binding
+  itself) MUST NOT carry any other key. A consumer MUST refuse a binding that does.
 - The agent's proposal is `action.type`, `action.resource` and `action.parameters`, and nothing
   else. A producer MUST refuse a proposal that carries any other property, in particular a
-  context, an actor, an expiry or an expected-effect digest: an agent that could name its own
-  expected effect could name the one it intends to cause.
+  context, an actor, an expiry, an expected-effect digest or a policy projection: an agent that
+  could name its own expected effect could name the one it intends to cause, and one that could
+  name its policy projection could choose the policy it is decided under.
+- The policy projection names the policy path, not the action. Without one the authority evaluates
+  `action.type` as the decision type, transaction type and workflow key; a producer whose policy
+  names a write otherwise (an order acknowledgement decided as `ORDER_ACCEPTANCE`) states the
+  projection, and a `null` field is one the authority leaves out of the evaluation. It is a
+  top-level property and never a `context` fact, so it is inside the hash where the authority
+  reads it: a grant decided on one policy path authorises no other, and a claim re-validates the
+  same path.
 - The idempotency key is the producer's, never the agent's. It rides inside `context` under the
   reserved key `idempotency_key` because the authority contract has no top-level property for it
   and refuses unknown properties; it is inside the hash for that reason, so a retry is the same
@@ -210,7 +219,7 @@ not implement rather than interpret it.
 
 Within `/1`, a change MAY add an optional property that is absent by default and leaves the
 bytes and the hash of every existing binding unchanged; `expected_effect_digest` was added that
-way on 2026-09-12. Such a change MUST come with a vector that pins a binding carrying the
+way on 2026-09-12, and `policy_projection` on 2026-10-20. Such a change MUST come with a vector that pins a binding carrying the
 property and with the statement, tested, that the pinned vector reproduces unchanged.
 
 A change that alters the bytes of any existing binding, the canonical form, the digest, or the

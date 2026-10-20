@@ -68,6 +68,9 @@ export class IntentCapture {
       ...(trusted.expectedEffectDigest === undefined
         ? {}
         : { expectedEffectDigest: trusted.expectedEffectDigest }),
+      ...(trusted.policyProjection === undefined
+        ? {}
+        : { policyProjection: trusted.policyProjection }),
       idempotencyKey: trusted.idempotencyKey,
     });
     return this.hasher.capture(intent);

@@ -4,6 +4,21 @@ Every entry names the pull request that made it and the vector that pins it. The
 and hash have not changed for any existing binding since the first vector; the additions were
 optional and absent by default (see §9 of the [specification](./README.md)).
 
+## 2026-10-20: `policy_projection`
+
+- An optional top-level property, exactly the Decionis contract's: `decision_type`, and
+  `transaction_type`, `workflow_key` and `channel`, each a string or `null`, no other key. It names
+  the policy path the authority decides the intent under when that is not `action.type`, supplied
+  by the producer only. Added through a conditional spread, so a binding without it produces
+  exactly the bytes and hash it produced before; `conformance/agent-safe-intent-v1.json` and every
+  other vector reproduce unchanged.
+- `conformance/vectors/policy-projection.json`: a Walmart order acknowledgement decided as
+  `ORDER_ACCEPTANCE`, and five mutations (each of the four fields, and the projection removed),
+  six distinct hashes. `conformance/vectors/policy-projection-absent.json`: the same intent with
+  no projection, which is the removal mutation byte for byte and what
+  `@decionis/agent-safe-pipeline` 0.4.0 produced for it.
+- This retires the 2026-09-07 note that the reference does not produce the projection.
+
 ## 2026-09-19: the specification, the schema, the offline command, framework coverage
 
 - The profile is written down: this directory, with the binding, the canonical form, the hash,

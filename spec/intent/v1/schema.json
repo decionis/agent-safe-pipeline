@@ -134,6 +134,59 @@
       ],
       "additionalProperties": false
     },
+    "policy_projection": {
+      "type": "object",
+      "properties": {
+        "decision_type": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "transaction_type": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "workflow_key": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "channel": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "decision_type",
+        "transaction_type",
+        "workflow_key",
+        "channel"
+      ],
+      "additionalProperties": false
+    },
     "expected_effect_digest": {
       "type": "string",
       "pattern": "^sha256:[0-9a-f]{64}$"

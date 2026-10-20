@@ -78,6 +78,7 @@ const EXPECTED_RUNTIME = [
   "NATIVE_EXECUTOR_CONTRACT",
   "NATIVE_EXECUTOR_SCHEMA_ID",
   "NativeReceiptSchema",
+  "PolicyProjectionSchema",
   "PostgresExecutionJournal",
   "PostgresReplayStore",
   "PreDispatchRefusal",

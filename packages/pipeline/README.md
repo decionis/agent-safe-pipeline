@@ -160,6 +160,25 @@ runtime that observed the effect may pass an `AuthorityEffectEvidence` record as
 [execution intent](https://github.com/decionis/agent-safe-pipeline/blob/master/docs/execution-intent.md)
 and [execution outcomes](https://github.com/decionis/agent-safe-pipeline/blob/master/docs/execution-outcomes.md).
 
+When the authority's policy names a write other than by its action type, the trusted context (or a
+native executor's `PreparedAction`) states the policy path as `policyProjection`:
+
+```ts
+const captured = capture.capture(proposal, {
+  ...trusted,
+  policyProjection: {
+    decisionType: "ORDER_ACCEPTANCE",
+    transactionType: "order_acceptance",
+    workflowKey: "commerce_order_acceptance",
+    channel: "connector", // or null: left out of the evaluation
+  },
+});
+```
+
+The binding carries it as `policy_projection`, inside the intent hash, the grant request, a managed
+escalation and the claim, so Decionis decides and re-validates the grant on that path. Without one it
+evaluates the action type, and the intent hashes and travels exactly as it did in 0.4.0.
+
 ## Outcomes
 
 Decionis returns one of three verdicts. The executor turns a verdict into exactly one execution
