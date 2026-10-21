@@ -9,11 +9,14 @@ import {
 import {
   httpForwardHandler,
   HttpActionParametersSchema,
+  HttpFactsParametersSchema,
   registerHttpActions,
   RequestHolder,
 } from "../../src/gateway/ForwardHandler.js";
 import {
   bodyDigest,
+  keyedRequestDigest,
+  normalizeFacts,
   normalizeRequest,
   type InterceptedRequest,
 } from "../../src/gateway/InterceptedRequest.js";
@@ -21,6 +24,7 @@ import { Upstream } from "../../src/gateway/Upstream.js";
 import { RECEIPT, UpstreamDouble } from "../support/GatewayHarness.js";
 
 const body = Buffer.from('{"amount": 5}', "utf8");
+const KEY = Buffer.alloc(32, 7);
 const request = (overrides: Partial<InterceptedRequest> = {}): InterceptedRequest => ({
   method: "POST",
   path: "/payments",
@@ -90,7 +94,7 @@ describe("the exact-forward handler", () => {
 
   it("forwards the held bytes once the intent's digest matches, with the evidence headers", async () => {
     const holder = new RequestHolder();
-    const handler = httpForwardHandler(upstream, holder);
+    const handler = httpForwardHandler(upstream, holder, KEY);
     holder.hold("00000000-0000-4000-8000-000000000001", request(), { "x-extra": "yes" });
     dispatched = 0;
     const result = await handler.execute({ intent: intent(), parameters, authorization, dispatch });
@@ -115,7 +119,7 @@ describe("the exact-forward handler", () => {
 
   it("fails before dispatch when nothing is held, or when the bytes are not the bound bytes", async () => {
     const holder = new RequestHolder();
-    const handler = httpForwardHandler(upstream, holder);
+    const handler = httpForwardHandler(upstream, holder, KEY);
     dispatched = 0;
     await expect(
       handler.execute({ intent: intent(), parameters, authorization, dispatch }),
@@ -160,7 +164,7 @@ describe("the exact-forward handler", () => {
       principalHeader: null,
     });
     const holder = new RequestHolder();
-    const handler = httpForwardHandler(upstream, holder);
+    const handler = httpForwardHandler(upstream, holder, KEY);
     const captured = intent({ context: normalized.context });
     holder.hold(captured.intent.intentId, request(changes), {});
     dispatched = 0;
@@ -174,7 +178,7 @@ describe("the exact-forward handler", () => {
 
   it("reports the upstream's refusal, error and absence after dispatch, keeping the answer for the relay", async () => {
     const holder = new RequestHolder();
-    const handler = httpForwardHandler(upstream, holder);
+    const handler = httpForwardHandler(upstream, holder, KEY);
     const at = (path: string) => ({
       intent: intent({
         context: normalizeRequest(request({ path }), "http.post", {
@@ -222,7 +226,7 @@ describe("the exact-forward handler", () => {
 
   it("hands the upstream's effect receipt to the dispatch, on a commit and on a refusal alike", async () => {
     const holder = new RequestHolder();
-    const handler = httpForwardHandler(upstream, holder);
+    const handler = httpForwardHandler(upstream, holder, KEY);
     const at = (path: string) => ({
       intent: intent({
         context: normalizeRequest(request({ path }), "http.post", {
@@ -248,16 +252,71 @@ describe("the exact-forward handler", () => {
     expect(receipts).toEqual([RECEIPT, RECEIPT]);
   });
 
+  it("forwards a facts-only intent's held request when the keyed digest binds it", async () => {
+    const operation = { id: "payments.create", path: "/payments" };
+    const facts = normalizeFacts(request(), "payment.create", operation, KEY);
+    const factsIntent = intent({ context: facts.context });
+    const factsParameters = facts.proposal.parameters as {
+      method: "POST";
+      operation: string;
+      path_template: string;
+    };
+    expect(factsParameters).toEqual({
+      method: "POST",
+      operation: "payments.create",
+      path_template: "/payments",
+    });
+    expect(HttpFactsParametersSchema.safeParse({ ...factsParameters, path: "/x" }).success).toBe(
+      false,
+    );
+    const holder = new RequestHolder();
+    const handler = httpForwardHandler(upstream, holder, KEY);
+    holder.hold("00000000-0000-4000-8000-000000000001", request(), {});
+    const result = await handler.execute({
+      intent: factsIntent,
+      parameters: factsParameters,
+      authorization,
+      dispatch,
+    });
+    expect(result.status).toBe(201);
+    expect(double.seen.at(-1)).toMatchObject({ url: "/payments", body: '{"amount": 5}' });
+    holder.release("00000000-0000-4000-8000-000000000001");
+
+    // Another body, another key or another method breaks the binding before dispatch.
+    for (const [held, key] of [
+      [request({ body: Buffer.from('{"amount": 6}') }), KEY],
+      [request(), Buffer.alloc(32, 8)],
+      [request({ search: "?x=1" }), KEY],
+    ] as const) {
+      const other = new RequestHolder();
+      other.hold("00000000-0000-4000-8000-000000000001", held, {});
+      dispatched = 0;
+      await expect(
+        httpForwardHandler(upstream, other, key).execute({
+          intent: factsIntent,
+          parameters: factsParameters,
+          authorization,
+          dispatch,
+        }),
+      ).rejects.toThrow("PAYLOAD_BINDING_MISMATCH");
+      expect(dispatched).toBe(0);
+    }
+    expect(keyedRequestDigest(request(), KEY)).toMatch(/^hmac-sha256:[0-9a-f]{64}$/);
+    expect(keyedRequestDigest(request(), KEY)).not.toBe(
+      keyedRequestDigest(request(), Buffer.alloc(32, 8)),
+    );
+  });
+
   it("registers the one handler under every name and seals the registry", () => {
     const registry = registerHttpActions(
       new ActionRegistry(),
       ["http.post", "payment.create"],
-      httpForwardHandler(upstream, new RequestHolder()),
+      httpForwardHandler(upstream, new RequestHolder(), KEY),
     );
     expect(registry.has("http.post")).toBe(true);
     expect(registry.has("payment.create")).toBe(true);
     expect(() =>
-      registry.register("late", httpForwardHandler(upstream, new RequestHolder())),
+      registry.register("late", httpForwardHandler(upstream, new RequestHolder(), KEY)),
     ).toThrow("ACTION_REGISTRY_SEALED");
   });
 });

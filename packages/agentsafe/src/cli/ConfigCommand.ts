@@ -31,6 +31,8 @@ export function effectiveConfig(config: GatewayConfig): Record<string, unknown> 
       maxBodyBytes: config.interception.maxBodyBytes,
       maxEmbeddedBodyBytes: config.interception.maxEmbeddedBodyBytes,
       principalHeader: config.interception.principalHeader,
+      profile: config.interception.profile,
+      privacy: config.interception.privacy.toLowerCase(),
       routes: config.interception.routes.map((route) => ({
         path: route.path,
         action: route.action,

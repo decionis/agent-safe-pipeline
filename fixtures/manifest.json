@@ -915,6 +915,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/gateway/FactsOnlyGateway.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/gateway/ForwardHandler.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",

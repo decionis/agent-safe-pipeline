@@ -11,8 +11,10 @@ import { dispatchBudgetMs, MonotonicDeadline } from "../time/MonotonicClock.js";
 import { CONSEQUENTIAL_METHODS } from "./GatewayConfig.js";
 import {
   bodyDigest,
+  keyedRequestDigest,
   requestDigest,
   type HttpActionParameters,
+  type HttpFactsParameters,
   type InterceptedRequest,
 } from "./InterceptedRequest.js";
 import type { Upstream, UpstreamResult } from "./Upstream.js";
@@ -24,6 +26,16 @@ export const HttpActionParametersSchema = z.strictObject({
   query: z.record(z.string(), z.union([z.string(), z.array(z.string())])),
   body: JsonValueSchema.optional(),
 });
+
+/** A facts-only HTTP action's parameters: the profile operation and its template, nothing more. */
+export const HttpFactsParametersSchema = z.strictObject({
+  method: z.enum(CONSEQUENTIAL_METHODS),
+  operation: z.string().min(1).max(120),
+  path_template: z.string().min(1).max(500),
+});
+
+/** Either shape; a facts-only one is told apart by its `operation`. */
+export type HttpParameters = HttpActionParameters | HttpFactsParameters;
 
 /** What the handler leaves behind for the relay, whichever way the attempt ended. */
 export interface ForwardOutcome {
@@ -85,26 +97,32 @@ export class RequestHolder {
  * changed between the two is a failure before dispatch, not an execution.
  * The upstream's status is the attempt's outcome: `2xx` and `3xx` commit,
  * `4xx` is the provider's own refusal, `5xx` and a lost connection are
- * unknown.
+ * unknown. A facts-only intent carries no path to compare: the held request
+ * is bound by its keyed digest instead, which covers the same bytes.
  */
 export function httpForwardHandler(
   upstream: Upstream,
   holder: RequestHolder,
-): ActionHandler<HttpActionParameters, UpstreamResult> {
+  digestKey: Uint8Array,
+): ActionHandler<HttpParameters, UpstreamResult> {
   return {
-    parametersSchema: HttpActionParametersSchema as z.ZodType<HttpActionParameters>,
+    parametersSchema: z.union([
+      HttpActionParametersSchema,
+      HttpFactsParametersSchema,
+    ]) as z.ZodType<HttpParameters>,
     execute: async ({ intent, parameters, authorization, dispatch }) => {
       const held = holder.get(intent.intent.intentId);
       if (held === undefined) throw new Error("REQUEST_NOT_HELD");
       const request = held.request;
       const context = intent.intent.context;
-      if (
-        request.method.toUpperCase() !== parameters.method ||
-        request.path !== parameters.path ||
-        context["request_sha256"] !== requestDigest(request) ||
-        context["body_bytes"] !== request.body.length ||
-        context["body_sha256"] !== bodyDigest(request.body)
-      ) {
+      const bound =
+        "operation" in parameters
+          ? context["request_hmac_sha256"] === keyedRequestDigest(request, digestKey)
+          : request.path === parameters.path &&
+            context["request_sha256"] === requestDigest(request) &&
+            context["body_bytes"] === request.body.length &&
+            context["body_sha256"] === bodyDigest(request.body);
+      if (request.method.toUpperCase() !== parameters.method || !bound) {
         throw new PreDispatchRefusal("PAYLOAD_BINDING_MISMATCH");
       }
       const headers = upstream.headersFor(request, {
@@ -122,7 +140,7 @@ export function httpForwardHandler(
         try {
           response = await upstream.send(
             parameters.method,
-            parameters.path,
+            request.path,
             request.search,
             headers,
             request.body,
@@ -165,7 +183,7 @@ export function httpForwardHandler(
 export function registerHttpActions(
   registry: ActionRegistry,
   actions: readonly string[],
-  handler: ActionHandler<HttpActionParameters, UpstreamResult>,
+  handler: ActionHandler<HttpParameters, UpstreamResult>,
 ): ActionRegistry {
   for (const action of actions) registry.register(action, handler);
   return registry.seal();

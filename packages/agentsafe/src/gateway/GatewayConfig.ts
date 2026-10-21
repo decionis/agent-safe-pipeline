@@ -13,6 +13,13 @@ export type GatewayMode = "SHADOW" | "ENFORCEMENT";
 export type FailurePolicy = "FAIL_CLOSED" | "FAIL_OPEN";
 export type AuthorityKind = "LOCAL" | "DECIONIS";
 export type UnmatchedPolicy = "GOVERN" | "PASSTHROUGH";
+/**
+ * What of a governed request the authority receives. `FULL` is the method,
+ * path, query and, within the embedding bound, the body. `FACTS` is the API
+ * profile's operation id and path template and the facts it names, and never
+ * a raw path, query, header or body byte.
+ */
+export type PrivacyMode = "FULL" | "FACTS";
 export type OutputFormat = "HUMAN" | "JSON";
 
 /** The methods a route governs unless it names its own; a safe method is never consequential. */
@@ -130,6 +137,8 @@ export interface GatewayConfig {
      * explicit route: its operations name the action and the facts. Null governs by routes only.
      */
     readonly profile: string | null;
+    /** `FACTS`: the authority receives the profile's operation and facts, never the request. */
+    readonly privacy: PrivacyMode;
   };
   readonly actor: { readonly id: string; readonly type: string; readonly runtime: string };
   /**
@@ -232,6 +241,8 @@ export const GatewayFileSchema = z.strictObject({
         .regex(/^[\w!#$%&'*+.^`|~-]+$/)
         .optional(),
       profile: z.string().trim().min(1).max(120).optional(),
+      // facts: the authority receives the profile's operation and facts, never the request.
+      privacy: lowerEnum(["full", "facts"]).optional(),
     })
     .optional(),
   actor: z
@@ -346,6 +357,7 @@ const ENVIRONMENT = {
   boundaryId: "AGENTSAFE_BOUNDARY_ID",
   principalHeader: "AGENTSAFE_PRINCIPAL_HEADER",
   profile: "AGENTSAFE_PROFILE",
+  privacy: "AGENTSAFE_PRIVACY",
   presenceApproverId: "PRESENCE_APPROVER_ID",
   presenceApproverRole: "PRESENCE_APPROVER_ROLE",
   presenceLevel: "PRESENCE_VERIFICATION_LEVEL",
@@ -456,6 +468,14 @@ function parseUnmatched(value: string | undefined, setting: string): UnmatchedPo
   if (lower === "govern") return "GOVERN";
   if (lower === "passthrough") return "PASSTHROUGH";
   throw new GatewayConfigError("CONFIG_INVALID", setting, "govern or passthrough");
+}
+
+function parsePrivacy(value: string | undefined, setting: string): PrivacyMode | undefined {
+  if (value === undefined) return undefined;
+  const lower = value.trim().toLowerCase();
+  if (lower === "full") return "FULL";
+  if (lower === "facts") return "FACTS";
+  throw new GatewayConfigError("CONFIG_INVALID", setting, "full or facts");
 }
 
 function parseMethods(
@@ -830,6 +850,26 @@ export class GatewayConfigLoader {
       );
     }
 
+    const privacy = resolve<PrivacyMode>(
+      "interception.privacy",
+      [
+        { source: "environment", raw: parsePrivacy(env[ENVIRONMENT.privacy], ENVIRONMENT.privacy) },
+        {
+          source: "file",
+          raw: parsePrivacy(file?.interception?.privacy, "interception.privacy"),
+        },
+      ],
+      "FULL",
+    );
+    if (privacy === "FACTS") {
+      GatewayConfigLoader.factsOnly(
+        profile,
+        routes,
+        principalHeader,
+        sources["interception.unmatched"] === "default" ? null : unmatched,
+      );
+    }
+
     // The tenant key is the gateway's own credential: it is stripped before
     // forwarding, so it can never be the header that names a principal.
     if (principalHeader?.toLowerCase() === TENANT_KEY_HEADER) {
@@ -1019,6 +1059,7 @@ export class GatewayConfigLoader {
         maxEmbeddedBodyBytes,
         principalHeader: principalHeader === null ? null : principalHeader.toLowerCase(),
         profile,
+        privacy,
       },
       actor: {
         id: resolve(
@@ -1065,6 +1106,50 @@ export class GatewayConfigLoader {
       secrets: { required },
       sources,
     };
+  }
+
+  /**
+   * Facts-only mode sends the authority a profile's operation and facts, so
+   * it governs by a profile alone. Every setting that would put a raw part of
+   * the request in front of the authority, or govern a call no operation
+   * names, is refused by name rather than quietly overridden: a route (its
+   * target is the raw path), a principal header (a raw header value), and an
+   * explicit passthrough of unmatched calls (facts-only refuses them).
+   */
+  private static factsOnly(
+    profile: string | null,
+    routes: readonly RouteConfig[],
+    principalHeader: string | null,
+    unmatched: UnmatchedPolicy | null,
+  ): void {
+    if (profile === null) {
+      throw new GatewayConfigError(
+        "CONFIG_MISSING",
+        "interception.profile",
+        "facts-only privacy governs by an API profile's operations",
+      );
+    }
+    if (routes.length > 0) {
+      throw new GatewayConfigError(
+        "CONFIG_INVALID",
+        "interception.routes",
+        "facts-only privacy governs by the profile alone; a route sends the raw path",
+      );
+    }
+    if (principalHeader !== null) {
+      throw new GatewayConfigError(
+        "CONFIG_INVALID",
+        "interception.principalHeader",
+        "facts-only privacy sends no header value; name the agent in actor.id",
+      );
+    }
+    if (unmatched === "PASSTHROUGH") {
+      throw new GatewayConfigError(
+        "CONFIG_INVALID",
+        "interception.unmatched",
+        "facts-only privacy refuses a call no profile operation names",
+      );
+    }
   }
 
   /** The file's shape, refused by the name of the first key that is wrong. */

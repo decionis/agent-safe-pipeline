@@ -27,6 +27,7 @@ export type ApiProfileMethod = (typeof API_PROFILE_METHODS)[number];
  */
 export const RESERVED_FACT_NAMES: readonly string[] = [
   "request_sha256",
+  "request_hmac_sha256",
   "body_sha256",
   "body_bytes",
   "content_type",

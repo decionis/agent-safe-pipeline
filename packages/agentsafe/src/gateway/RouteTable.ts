@@ -2,6 +2,7 @@ import type { ApiProfile } from "@decionis/agent-safe-pipeline";
 import {
   CONSEQUENTIAL_METHODS,
   type ConsequentialMethod,
+  type PrivacyMode,
   type RouteConfig,
   type UnmatchedPolicy,
 } from "./GatewayConfig.js";
@@ -9,7 +10,11 @@ import {
 /** What the gateway decided about one request before reading its body. */
 export type RoutePlan =
   | { readonly kind: "PASSTHROUGH"; readonly reason: "SAFE_METHOD" | "UNMATCHED" | "DISABLED" }
-  | { readonly kind: "REFUSE"; readonly code: "HTTP_METHOD_UNSUPPORTED" | "HTTP_PATH_AMBIGUOUS" }
+  | {
+      readonly kind: "REFUSE";
+      readonly code:
+        "HTTP_METHOD_UNSUPPORTED" | "HTTP_PATH_AMBIGUOUS" | "PROFILE_OPERATION_UNMATCHED";
+    }
   | {
       readonly kind: "GOVERN";
       readonly action: string;
@@ -88,7 +93,9 @@ export function derivedAction(method: ConsequentialMethod): string {
  * first, then the API profile's operations, when the gateway governs by one
  * (`agent-safe.profile.api/1`). An unsafe request neither names is governed
  * under a derived name unless the configuration chose passthrough, so
- * narrowing what is governed is an explicit act.
+ * narrowing what is governed is an explicit act. In facts-only privacy the
+ * profile alone names a call: what it does not name is refused, because
+ * governing it would send the authority its raw path.
  */
 export class RouteTable {
   private readonly routes: readonly CompiledRoute[];
@@ -98,6 +105,7 @@ export class RouteTable {
     private readonly unmatched: UnmatchedPolicy,
     private readonly enabled: boolean = true,
     private readonly profile: ApiProfile | null = null,
+    private readonly privacy: PrivacyMode = "FULL",
   ) {
     this.routes = routes.map((config) => {
       const segments = routingSegments(config.path);
@@ -130,7 +138,8 @@ export class RouteTable {
     const consequential = upper as ConsequentialMethod;
     const path = routingSegments(pathname);
     if (path === null) return { kind: "REFUSE", code: "HTTP_PATH_AMBIGUOUS" };
-    for (const route of this.routes) {
+    const factsOnly = this.privacy === "FACTS";
+    for (const route of factsOnly ? [] : this.routes) {
       if (route.methods.has(consequential) && matches(route.segments, path)) {
         return { kind: "GOVERN", action: route.config.action, route: route.config };
       }
@@ -139,6 +148,7 @@ export class RouteTable {
     if (operation !== null) {
       return { kind: "GOVERN", action: operation.action, route: null, operation: operation.id };
     }
+    if (factsOnly) return { kind: "REFUSE", code: "PROFILE_OPERATION_UNMATCHED" };
     if (this.unmatched === "PASSTHROUGH") return { kind: "PASSTHROUGH", reason: "UNMATCHED" };
     return { kind: "GOVERN", action: derivedAction(consequential), route: null };
   }
