@@ -3,11 +3,15 @@
 For step-by-step tenant onboarding, origin proof and agent client setup, see
 [Set up the Decionis-managed cloud gateway](../gateway/deployment.md#set-up-the-decionis-managed-cloud-gateway).
 For enforcement with the hosted authority and a gateway inside the bank, use the
-[on-premises setup](../gateway/deployment.md#deploy-on-premises).
+[on-premises setup](../gateway/deployment.md#deploy-on-premises). For enforcement on the managed
+gateway, in private beta, see
+[enforce on the managed gateway](../gateway/deployment.md#enforce-on-the-managed-gateway).
 
 Decionis runs this runtime as a hosted fleet, live in shadow: each tenant it onboards is served at
 `{id}.decionisedge.com`, and a request within the gateway's bounds (below) reaches the tenant's API
-while Decionis records what it would have decided. Decionis onboards each tenant and hands it a
+while Decionis records what it would have decided. A tenant that opts in to enforcement, in private
+beta, is served from a gateway of its own that holds its API's credential and fails closed
+([below](#a-tenant-that-enforces)). Decionis onboards each tenant and hands it a
 tenant key; there is no self-serve sign-up. Bringing an endpoint, saying which of its actions are
 consequential and watching the decisions without an operator in the loop is the evaluation path
 the fleet is building toward, and that part is not live.
@@ -29,7 +33,7 @@ For a tenant, that means:
   `AgentSafe-Tenant-Key: <key>` ([the tenant key](../gateway/configuration.md#the-tenant-key)). The
   gateway removes the key, adds `X-Forwarded-For`, `X-Forwarded-Proto` and `X-Forwarded-Host`, and
   `x-agent-safe-intent-hash` on an evaluated request, and forwards the rest unchanged.
-- **Shadow only, and the routes are fixed.** `POST`, `PUT`, `PATCH` and `DELETE` are evaluated as
+- **Shadow, and the routes are fixed.** `POST`, `PUT`, `PATCH` and `DELETE` are evaluated as
   they pass, each under its derived name (`http.post`, `http.put`, `http.patch`, `http.delete`),
   and nothing is held or blocked on a verdict; `GET`, `HEAD` and `OPTIONS` pass through
   unevaluated. A tenant of the fleet cannot configure routes or name its actions: onboarding sets
@@ -66,6 +70,25 @@ For a tenant, that means:
   [in-process path](../shadow-mode.md#when-the-gateway-cannot-front-your-api-mutual-tls-third-party-saas)
   gives the same report without a relay.
 
+## A tenant that enforces
+
+Private beta. A tenant's registry entry says `mode: enforcement` only once its workspace has asked
+for it, and then [every control](../gateway/configuration.md#hosted-enforcement) must be on or its
+gateway is refused at start. For that tenant:
+
+- **Its own process and pods.** `agentsafe host --tenant <id>` serves its entry alone; every host
+  shared by other tenants leaves it out. Its hostname reaches only its own pods.
+- **The gateway holds the credential.** The entry's `upstreamCredential` names a header and a
+  mounted file; the gateway sets that header on every request it forwards and drops the agent's
+  value of it, so the agent carries only `AgentSafe-Tenant-Key` and cannot reach the API around
+  the gateway.
+- **Verdicts decide.** `ALLOW` forwards once its single-use grant is claimed; `BLOCK` is `403`
+  and `NOT_FORWARDED`; `ESCALATE` is `202` and `HELD`, resumed with the tenant key and the resume
+  token, and managed by Decionis when the entry's `presence` section says so.
+- **It fails closed.** With the authority unreachable, a grant that cannot be claimed or an origin
+  whose proof lapsed, nothing is forwarded, whatever the host's shared `AGENTSAFE_FAILURE_POLICY`
+  says. Bypassing the gateway is no fallback, since the agent no longer holds the credential.
+
 ## The boundaries the runtime keeps for a host
 
 - **Configuration is an object.** `GatewayConfigLoader.load({ file, env, version })` resolves a
@@ -95,7 +118,8 @@ For a tenant, that means:
 ## What a hosted gateway still is not
 
 It does not decide: the verdict is Decionis's, per tenant, under that tenant's key. It does not
-verify a person: an `ESCALATE` is held until Decionis, having run the ceremony, answers again. And
+verify a person: an `ESCALATE` is held until Decionis, having run the ceremony, answers again. It
+does not share an enforcing tenant's process with any other tenant. And
 it does not run the demo authority: a hosted endpoint evaluates against Decionis, with a
 provisional key when the visitor has no account, and every dossier such a key mints is signed as
 `provisional_anonymous`.

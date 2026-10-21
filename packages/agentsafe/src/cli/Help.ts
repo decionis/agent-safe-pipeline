@@ -10,7 +10,7 @@ export function usage(version: string): string {
     "  proxy                Run the gateway (--upstream URL, --port N, --mode shadow|enforcement)",
     "  run                  Run the gateway from agentsafe.yaml (same command, file first)",
     "  intercept            Run the transparent interceptor: observe every destination, govern the listed ones",
-    "  host                 Serve many tenants' hosted gateways from a registry (--registry FILE, --port N)",
+    "  host                 Serve hosted gateways from a registry (--registry FILE, --tenant ID)",
     "  connector            Connect one fixed TCP resource outbound (--gateway URL, --route ID, --target IP:port, --credential-file FILE)",
     "  tunnel               Open a TCP resource on 127.0.0.1 (--gateway URL, --route ID, --target IP:port, --credential-file FILE, --port N)",
     "  tcp-broker           Run the internal hosted TCP rendezvous broker (operator only)",

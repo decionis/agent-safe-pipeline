@@ -43,8 +43,9 @@ profile names each consequential call's action and the facts it is decided with;
 [Routes](./routes.md#by-an-api-profile) and the profile itself in
 [`profiles/`](../../profiles). Reads pass through unchanged.
 
-Enforcement runs in the gateway you run. The hosted gateway fleet observes in shadow only, so it
-can show what would have been held but never holds anything.
+Enforcement runs in the gateway you run. The hosted gateway fleet observes in shadow, so it shows
+what would have been held and holds nothing, unless a tenant opts in to enforcement on a gateway of
+its own (private beta; [enforce on the managed gateway](./deployment.md#enforce-on-the-managed-gateway)).
 
 ## 2. Write the target's OpenAPI document
 

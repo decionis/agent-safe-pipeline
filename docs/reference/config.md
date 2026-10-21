@@ -13,7 +13,10 @@ gateway:
   upstream: "http://localhost:3000"
   upstreamInsecure: false # true: plain http off loopback is the network's business
   upstreamPublicOnly: false # true: https at a public host only, every resolved address checked
-  hosted: false # true: run for a tenant; public-only, shadow only, operator-only status, host-only cookies
+  upstreamCredential: # optional; the gateway, not its caller, presents the upstream's credential
+    header: authorization # a header the gateway neither sets nor sends to the authority
+    file: /run/secrets/upstream-credential # absolute; its contents are the header's whole value
+  hosted: false # true: run for a tenant; public-only, operator-only status, host-only cookies, shadow unless it may enforce
   tenantKeyDigests: [] # one or two "sha256:<64 hex>"; required when hosted
   rateLimit: # optional; a hosted gateway gets 50/s, burst 100
     requestsPerSecond: 5 # above 0, at most 10000
@@ -86,7 +89,13 @@ gateway.upstream)`, `CONFIG_INVALID: authority.mode (shadow or enforcement)`,
 - a plain-http upstream off loopback needs `upstreamInsecure: true`;
 - a public-only upstream must be `https://` and name a public host, not loopback or an inward
   address;
-- a hosted gateway runs in shadow only, and needs at least one tenant key digest;
+- a hosted gateway needs at least one tenant key digest, and runs in shadow unless every control
+  of [hosted enforcement](../gateway/configuration.md#hosted-enforcement) is on: a process of its
+  own (`AGENTSAFE_HOSTED_DEDICATED`), its tenant, a Decionis organization, `failClosed`, the
+  upstream's proof, an `upstreamCredential` and evidence;
+- `upstreamCredential` needs both its header and its file, an absolute path, and a header that is
+  not hop-by-hop, framing, `Content-Type`, `Idempotency-Key`, the principal header, or under
+  `agentsafe-`, `x-agent-safe-` or `x-forwarded-`;
 - `tenantKeyDigests` holds one or two distinct `sha256:<64 hex>` digests;
 - the demo authority, `allowInsecureLoopback` and a key in the environment are refused in
   production;

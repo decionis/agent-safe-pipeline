@@ -15,6 +15,7 @@ import { SecretError } from "../secrets/SecretStore.js";
 import {
   parseTenantRegistry,
   registryRevision,
+  tenantEnforces,
   tenantFingerprint,
   tenantHostname,
   TenantRegistryError,
@@ -57,6 +58,12 @@ export interface TenantHostOptions {
    * serves a token bound to the tenant (`--require-upstream-proof`).
    */
   readonly requireUpstreamProof?: boolean;
+  /**
+   * The one tenant this host serves (`--tenant`), by its registry id: the
+   * only kind of host an enforcing tenant runs on. A host without one serves
+   * every tenant the registry names except those that enforce.
+   */
+  readonly tenant?: string;
   readonly clock?: () => number;
   /** Assembles one tenant's gateway; `Gateway.create` unless a test says otherwise. */
   readonly createGateway?: (
@@ -81,6 +88,11 @@ export interface TenantLoadReport {
   readonly rekeyed: readonly string[];
   readonly retired: number;
   /**
+   * Tenants that enforce, which a host shared by many tenants leaves to a
+   * host of their own; never a failure, and empty on a host for one tenant.
+   */
+  readonly dedicated: readonly string[];
+  /**
    * Tenants whose entry could not be applied, with the reason. Each keeps the
    * gateway it had, if it had one, admitting only keys its entry still lists;
    * when that is none, it is not served.
@@ -97,10 +109,13 @@ interface Served {
 /**
  * Many tenants' gateways in one process, each at `{id}.{domain}`, built from
  * the registry the operator mounts. Every tenant gets an ordinary hosted
- * gateway (public-only upstream, shadow only, operator-only status,
- * host-only cookies, its tenant key required) assembled from its entry and
- * its own workspace key file; nothing about one tenant is visible to
- * another, because each request is routed to one gateway by its host alone.
+ * gateway (public-only upstream, operator-only status, host-only cookies,
+ * its tenant key required) assembled from its entry and its own workspace
+ * key file; nothing about one tenant is visible to another, because each
+ * request is routed to one gateway by its host alone. A tenant shadows
+ * unless its entry says it enforces, and an enforcing tenant is served only
+ * by a host started for it alone (`tenant`), so no process another tenant
+ * shares ever holds its upstream credential or its held requests.
  *
  * A reload rebuilds only the tenants whose entry changed, swaps the set at
  * once, and lets a replaced gateway drain before it is closed; the gateway
@@ -243,6 +258,7 @@ export class TenantHost {
         kept: this.served.size,
         rekeyed: [],
         retired: 0,
+        dedicated: [],
         failed: [],
       });
     }
@@ -256,8 +272,19 @@ export class TenantHost {
     const rekeyed: string[] = [];
     const failed: { tenant: string; code: string }[] = [];
     const byId = new Map([...this.served.values()].map((entry) => [entry.id, entry.gateway]));
+    const only = this.options.tenant;
+    // A host for one tenant serves its entry alone; a shared host serves
+    // every entry but those that enforce, which have hosts of their own.
+    const wanted = registry.tenants.filter((tenant) =>
+      only === undefined ? !tenantEnforces(tenant) : tenant.id === only,
+    );
+    const dedicated =
+      only === undefined ? registry.tenants.filter(tenantEnforces).map((tenant) => tenant.id) : [];
+    if (only !== undefined && wanted.length === 0) {
+      failed.push({ tenant: only, code: "TENANT_NOT_IN_REGISTRY" });
+    }
     let kept = 0;
-    for (const tenant of registry.tenants) {
+    for (const tenant of wanted) {
       const hostname = tenantHostname(registry, tenant);
       const fingerprint = tenantFingerprint(registry, tenant);
       const current = this.served.get(hostname);
@@ -302,7 +329,9 @@ export class TenantHost {
       await Promise.all([...next.values()].map((entry) => entry.gateway.close()));
     } else {
       this.served = next;
-      if (next.size === registry.tenants.length) this.everyTenantServedAt ??= this.clock();
+      if (wanted.length > 0 || only === undefined) {
+        if (next.size === wanted.length) this.everyTenantServedAt ??= this.clock();
+      }
       // The replacement persists the chains' heads and looks at the upstream's
       // proof from now on, not the gateway it replaced, which links on the
       // chains only until it has drained. It takes the proof as it stands at
@@ -322,6 +351,7 @@ export class TenantHost {
       kept,
       rekeyed,
       retired: retired.length,
+      dedicated,
       failed,
     });
     const scheme = this.scheme;
@@ -375,6 +405,7 @@ export class TenantHost {
   ): Promise<Gateway> {
     const env = TenantHost.tenantEnvironment(this.options.env, tenant, {
       upstreamProof: this.options.requireUpstreamProof === true,
+      dedicated: this.options.tenant === tenant.id,
     });
     const rateLimit = tenant.rateLimit ?? registry.rateLimit;
     const config = GatewayConfigLoader.load({
@@ -384,6 +415,7 @@ export class TenantHost {
         version: 1,
         ...(rateLimit === undefined ? {} : { gateway: { rateLimit } }),
         ...(tenant.interception === undefined ? {} : { interception: tenant.interception }),
+        ...(tenant.presence === undefined ? {} : { presence: tenant.presence }),
         ...(registry.evidenceDir === undefined
           ? {}
           : { evidence: { journalDir: join(registry.evidenceDir, tenant.id) } }),
@@ -403,12 +435,16 @@ export class TenantHost {
 
   /**
    * The environment a tenant's gateway runs in: the shared settings, its own
-   * entry, and the host's own settings for every tenant.
+   * entry, and the host's own settings for every tenant. An enforcing
+   * tenant's gateway fails closed whatever the host's shared setting says,
+   * and presents its upstream credential from the file its entry names; its
+   * loader refuses it unless every other control hosted enforcement needs
+   * is on as well.
    */
   public static tenantEnvironment(
     host: Readonly<Record<string, string | undefined>>,
     tenant: TenantEntry,
-    settings: { readonly upstreamProof?: boolean } = {},
+    settings: { readonly upstreamProof?: boolean; readonly dedicated?: boolean } = {},
   ): Record<string, string> {
     const env: Record<string, string> = {};
     for (const name of SHARED_ENVIRONMENT) {
@@ -419,7 +455,7 @@ export class TenantHost {
       ...env,
       AGENTSAFE_HOSTED_GATEWAY: "true",
       AGENTSAFE_HOSTED_TENANT: tenant.id,
-      AGENTSAFE_MODE: "shadow",
+      AGENTSAFE_MODE: tenantEnforces(tenant) ? "enforcement" : "shadow",
       AGENTSAFE_UPSTREAM: tenant.upstream,
       AGENTSAFE_TENANT_KEY_DIGESTS: TenantHost.keyDigests(tenant).join(","),
       // The tenant's own timeout wins over the host's.
@@ -431,6 +467,14 @@ export class TenantHost {
       // The proof binds the tenant's id, its workspace and its upstream's
       // origin, all read from the entry above: no field of its own.
       ...(settings.upstreamProof === true ? { AGENTSAFE_UPSTREAM_PROOF_REQUIRED: "true" } : {}),
+      ...(settings.dedicated === true ? { AGENTSAFE_HOSTED_DEDICATED: "true" } : {}),
+      ...(tenantEnforces(tenant) ? { AGENTSAFE_FAILURE_POLICY: "failClosed" } : {}),
+      ...(tenant.upstreamCredential === undefined
+        ? {}
+        : {
+            AGENTSAFE_UPSTREAM_CREDENTIAL_HEADER: tenant.upstreamCredential.header,
+            AGENTSAFE_UPSTREAM_CREDENTIAL_FILE: tenant.upstreamCredential.file,
+          }),
     };
   }
 

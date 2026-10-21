@@ -48,7 +48,7 @@ import { SECURITY_STREAM, SecurityEvents } from "../incident/SecurityEvents.js";
 import { LineEmitter } from "../logging/LineEmitter.js";
 import { CompositeSecretStore } from "../secrets/CompositeSecretStore.js";
 import { Redactor } from "../secrets/Redactor.js";
-import type { SecretStore } from "../secrets/SecretStore.js";
+import { SecretError, type SecretStore } from "../secrets/SecretStore.js";
 import { EscalationResolver, type EscalationHandoff } from "../service/EscalationResolver.js";
 import { ActivationFunnel, type ActivationMilestone } from "./Activation.js";
 import { startDemoAuthority, type DemoAuthorityHandle } from "./DemoAuthority.js";
@@ -244,6 +244,10 @@ export interface GatewayStatus {
     readonly registry: RegistrySource | null;
     /** Where the upstream's proof stands, when the gateway requires one; never its text. */
     readonly upstream_proof: ProofSnapshot | null;
+    /** Whether this gateway is the only one its process serves, as an enforcing one must be. */
+    readonly dedicated: boolean;
+    /** The header the gateway presents its upstream credential in; never the value. */
+    readonly upstream_credential: { readonly header: string } | null;
   } | null;
 }
 
@@ -429,7 +433,18 @@ export class Gateway {
       security.emit({ event: "LEAK_SUSPECTED", patterns: [...patterns] }),
     );
     if (store === null && config.secrets.required.length > 0) {
-      store = CompositeSecretStore.fromEnvironment(env, config.secrets.required, {
+      // The upstream credential is opened from the file the configuration
+      // names, and from nowhere else: never a value in the environment.
+      const credential = config.upstream.credential;
+      const secretEnvironment =
+        credential === null
+          ? env
+          : {
+              ...env,
+              DOWNSTREAM_CREDENTIAL: undefined,
+              DOWNSTREAM_CREDENTIAL_FILE: credential.file,
+            };
+      store = CompositeSecretStore.fromEnvironment(secretEnvironment, config.secrets.required, {
         events: security,
         production: config.production,
         enforcePermissions: config.production,
@@ -440,6 +455,19 @@ export class Gateway {
       });
     }
     const secrets = store;
+    if (config.upstream.credential !== null) {
+      // The value travels as one header, so it is checked once here: a
+      // gateway that could not send it refuses to start rather than fail
+      // each request after its grant was claimed.
+      if (secrets === null || !secrets.has("DOWNSTREAM_CREDENTIAL")) {
+        throw new SecretError("CONFIG_SECRET_MISSING", "DOWNSTREAM_CREDENTIAL");
+      }
+      secrets.get("DOWNSTREAM_CREDENTIAL").use((value) => {
+        if (!Upstream.isHeaderValue(value.toString("utf8"))) {
+          throw new SecretError("CONFIG_SECRET_INVALID", "DOWNSTREAM_CREDENTIAL");
+        }
+      });
+    }
     const demo =
       config.authority.kind === "LOCAL"
         ? await (dependencies.demoAuthority ?? startDemoAuthority)()
@@ -528,6 +556,16 @@ export class Gateway {
       fetch: upstreamGuard?.fetch ?? dependencies.upstreamFetch ?? fetch,
       hostOnlyCookies: config.hosted,
       sandboxed: config.hosted,
+      ...(config.upstream.credential === null || secrets === null
+        ? {}
+        : {
+            credential: {
+              header: config.upstream.credential.header,
+              // Read at the moment of use, so a rotated file takes effect at once.
+              value: () =>
+                secrets.get("DOWNSTREAM_CREDENTIAL").use((value) => value.toString("utf8")),
+            },
+          }),
       ...(upstreamGuard === null ? {} : { close: () => upstreamGuard.close() }),
     });
     const routes = new RouteTable(
@@ -788,6 +826,11 @@ export class Gateway {
             tenant_keys: this.admitted.map(shortDigest),
             registry: this.registry,
             upstream_proof: this.proof?.monitor.snapshot() ?? null,
+            dedicated: this.config.hostedDedicated,
+            upstream_credential:
+              this.config.upstream.credential === null
+                ? null
+                : { header: this.config.upstream.credential.header },
           }
         : null,
     };
