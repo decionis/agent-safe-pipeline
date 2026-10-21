@@ -1,0 +1,25 @@
+{
+  "description": "A response subject points into the answer's body.",
+  "definition": {
+    "profile": "agent-safe.profile.api/1",
+    "id": "example/api/v1",
+    "platform": "example",
+    "title": "Example API",
+    "prefixes": [""],
+    "operations": [
+      {
+        "id": "invoices.list",
+        "method": "GET",
+        "path": "/invoices",
+        "action": "invoice.read",
+        "summary": "List invoices.",
+        "facts": {},
+        "policy_projection": null,
+        "subject": {
+          "response": "/path/customerId"
+        }
+      }
+    ]
+  },
+  "error": "API_PROFILE_INVALID"
+}

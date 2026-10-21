@@ -2,6 +2,20 @@
 
 Every entry names the pull request that made it and the vectors that pin it.
 
+## 2026-10-21: subjects
+
+Additive: every definition, match and vector that was valid stays so, with the same answer.
+
+- An operation may name where its subject sits (`subject.request`, `subject.response`), and a `GET`
+  operation, a read, is checked for its subject and never decided (§7). `session` is reserved.
+- [`schema.json`](./schema.json): `method` admits `GET`; an operation admits `subject`.
+- [`vectors/`](./vectors): reads and answers checked both ways (`subject-*.json`), a write's
+  subject, and six refusals (`refuses-read-*`, `refuses-response-*`, `refuses-request-subject-*`,
+  `refuses-empty-subject`). A vector may pin a `session` and state `request_check`, a `response`
+  and its `response_check`.
+- `businesscentral/api/v2` names its customer, sales document and customer ledger entry reads, and
+  the subject of `salesOrders.create`.
+
 ## 2026-10-21: facts-only privacy
 
 - `request_hmac_sha256` is reserved (§4.2): the gateway states it in facts-only privacy, where an

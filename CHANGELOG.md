@@ -3,6 +3,29 @@
 Releases of `@decionis/agent-safe-pipeline` (the library) and `@decionis/agentsafe` (the runtime).
 Each entry names what an adopter can rely on and what they must do, if anything.
 
+## Runtime (unreleased): subject-bound sessions
+
+An agent limited to the customer it is serving, with no code of yours: a `subject` section names
+your identity provider, and an API profile says where the customer sits.
+
+**Nothing to do** to keep things as they are: without `subject`, reads pass through as before and
+no session is read.
+
+- The app that starts the agent exchanges the provider's short-lived token for a gateway session
+  (RFC 8693, `POST /_agentsafe/v1/sessions`), or the agent presents the token itself on each call
+  (`AgentSafe-Subject-Token`). The gateway pins the customer; the agent cannot change it. Neither
+  header is forwarded.
+- A read an API profile operation names is checked against the session's customer, in the call
+  and in every item of its answer; an answer with another customer's record is refused whole
+  (`403 RESPONSE_SUBJECT_MISMATCH`, `agentsafe-execution: WITHHELD`) and recorded, never filtered.
+  `interception.refuseUnknownReads: true` refuses a read the profile cannot check.
+- A write states the customer to the authority as the fact `session.subject`.
+- `agent-safe.profile.api/1` gains `subject` pointers and `GET` operations, additively, with
+  vectors; `session` is a reserved fact name. `businesscentral/api/v2` scopes its customer, sales
+  document and customer ledger entry reads, and states the subject of a new sales order.
+- New wire values, additive: the state `REFUSED`, the execution `WITHHELD`, the header
+  `agentsafe-subject: CHECKED`. [Subject-bound sessions](docs/gateway/subject-sessions.md).
+
 ## Runtime (unreleased): facts-only privacy for the gateway
 
 One setting keeps the request out of the authority: `interception.privacy: facts` (or

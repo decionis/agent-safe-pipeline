@@ -59,7 +59,8 @@
               "POST",
               "PUT",
               "PATCH",
-              "DELETE"
+              "DELETE",
+              "GET"
             ]
           },
           "path": {
@@ -159,6 +160,22 @@
                 "type": "null"
               }
             ]
+          },
+          "subject": {
+            "type": "object",
+            "properties": {
+              "request": {
+                "type": "string",
+                "maxLength": 300,
+                "pattern": "^\\/(path|query|body)(\\/.*)?$"
+              },
+              "response": {
+                "type": "string",
+                "maxLength": 300,
+                "pattern": "^\\/body(\\/.*)?$"
+              }
+            },
+            "additionalProperties": false
           }
         },
         "required": [

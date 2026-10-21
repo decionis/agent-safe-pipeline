@@ -1,0 +1,28 @@
+{
+  "description": "Only a read names a response subject: a write's answer comes after its effect.",
+  "definition": {
+    "profile": "agent-safe.profile.api/1",
+    "id": "example/api/v1",
+    "platform": "example",
+    "title": "Example API",
+    "prefixes": [""],
+    "operations": [
+      {
+        "id": "orders.create",
+        "method": "POST",
+        "path": "/orders",
+        "action": "order.create",
+        "summary": "Create an order.",
+        "facts": {
+          "customer_number": "/body/customerNumber"
+        },
+        "policy_projection": null,
+        "subject": {
+          "request": "/body/customerNumber",
+          "response": "/body/customerNumber"
+        }
+      }
+    ]
+  },
+  "error": "API_PROFILE_INVALID"
+}

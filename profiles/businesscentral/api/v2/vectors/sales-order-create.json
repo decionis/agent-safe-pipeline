@@ -20,6 +20,7 @@
       "customer_number": "C-20000",
       "currency_code": "EUR"
     },
-    "policy_projection": null
+    "policy_projection": null,
+    "subject": "C-20000"
   }
 }

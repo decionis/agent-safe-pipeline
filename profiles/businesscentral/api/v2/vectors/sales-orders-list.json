@@ -1,0 +1,32 @@
+{
+  "description": "Sales orders filtered by customer, every one the session's.",
+  "profile": "businesscentral/api/v2",
+  "request": {
+    "method": "GET",
+    "path": "/v2.0/production/api/v2.0/companies(6f3c1a52-1d2e-4f5a-8b9c-0d1e2f3a4b5c)/salesOrders",
+    "query": {
+      "$filter": "customerNumber eq 'C-10000'"
+    }
+  },
+  "expected": {
+    "operation": "salesOrders.list",
+    "action": "sales.read",
+    "facts": {},
+    "policy_projection": null
+  },
+  "session": "C-10000",
+  "request_check": "MATCH",
+  "response": {
+    "value": [
+      {
+        "number": "S-ORD-101001",
+        "customerNumber": "C-10000"
+      },
+      {
+        "number": "S-ORD-101002",
+        "customerNumber": "C-10000"
+      }
+    ]
+  },
+  "response_check": "MATCH"
+}

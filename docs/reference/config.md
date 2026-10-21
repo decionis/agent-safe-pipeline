@@ -41,10 +41,19 @@ interception:
   principalHeader: null # a request header whose value is carried as claimed_principal
   profile: null # an API intent profile, e.g. walmart/api/v3; its operations follow any route
   privacy: full # full | facts: the authority receives the profile's operation and facts only
+  refuseUnknownReads: false # true: a read the profile does not name is refused; needs subject
   routes:
     - path: /payments/**
       action: payment.create
       methods: [POST] # default: POST, PUT, PATCH, DELETE
+
+subject: # optional: pin each session to the customer your identity provider names
+  issuer: https://login.example.com/ # the token's iss, exactly
+  audience: agentsafe-gateway # one of the token's aud
+  jwksFile: /etc/agentsafe/idp-jwks.json # the provider's keys; or jwksUrl, or both
+  jwksUrl: null # https; fetched at start without a file, refreshed every 5 minutes
+  claim: sub # the claim naming the customer
+  sessionTtlSeconds: 900 # 60 to 3600; never past the token's own expiry
 
 actor:
   id: agentsafe-gateway # the intent's actor; `runtime` is agentsafe/<version>
@@ -103,6 +112,8 @@ gateway.upstream)`, `CONFIG_INVALID: authority.mode (shadow or enforcement)`,
 - `maxEmbeddedBodyBytes` is 0 or more and cannot exceed `maxBodyBytes`;
 - `privacy: facts` needs a `profile`, and refuses `routes`, a `principalHeader` and
   `unmatched: passthrough`;
+- `subject` needs `jwksFile` or `jwksUrl`, and `refuseUnknownReads` needs `subject` and a
+  `profile`;
 - an `authority.endpoint` other than `local` must be `https://`, or loopback with the allowance.
 
 ## The stored login

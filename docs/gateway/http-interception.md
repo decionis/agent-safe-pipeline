@@ -15,7 +15,10 @@ and governs the destinations an operator names in that same hop.
 
 A request is consequential when its method is `POST`, `PUT`, `PATCH` or `DELETE`. `GET`, `HEAD`
 and `OPTIONS` are never evaluated; they pass through with their query and headers, and are counted,
-and the answer is relayed with `agentsafe-execution: PASSTHROUGH`.
+and the answer is relayed with `agentsafe-execution: PASSTHROUGH`. When the gateway pins
+[subject-bound sessions](./subject-sessions.md), a `GET` an API profile operation names is checked
+against the session's customer instead, and its answer before it is relayed; still never evaluated
+by the authority.
 
 With HTTP interception enabled, any other method is refused with `405 HTTP_METHOD_UNSUPPORTED`;
 WebDAV writes such as `MKCOL` and `MOVE` are not safe reads. Requests carrying

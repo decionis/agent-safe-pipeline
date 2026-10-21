@@ -7,7 +7,9 @@
 [`CHANGELOG.md`](./CHANGELOG.md)
 
 An API intent profile describes a platform API as data: which of its calls are consequential, the
-action type each one is, and the facts an authority decides it with. It exists so that every
+action type each one is, and the facts an authority decides it with. It may also say where each
+call's subject sits (the customer a call is for), so that a component can hold an agent's session
+to one subject. It exists so that every
 component that turns one of those calls into an intent turns it into the same intent. The gateway
 reads a profile to govern an agent's call; a native executor
 ([`agent-safe.executors.native/1`](../../../executors/native/v1/README.md)) reads the same profile
@@ -26,6 +28,7 @@ This profile defines:
 2. **Matching** (§3): how one call selects an operation, deterministically.
 3. **Facts** (§4): how an operation's facts are read from the call.
 4. **Conformance** (§5): the vectors every implementation is held to.
+5. **Subjects** (§7): where a call's subject sits, and how a read and its answer are checked.
 
 It does not define policy, verdicts, the canonical intent or its hash; those are
 [Agent-Safe Intent v1](../../../intent/v1/README.md) and the Decionis execution-authority contract.
@@ -49,13 +52,14 @@ An operation:
 | Field               | Meaning                                                                                                                           |
 | ------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | `id`                | Unique within the profile, dotted lower camel case (`salesInvoices.post`).                                                        |
-| `method`            | `POST`, `PUT`, `PATCH` or `DELETE`. A read is never an operation.                                                                 |
+| `method`            | `POST`, `PUT`, `PATCH` or `DELETE`, decided by the authority; or `GET`, a read, checked for its subject and never decided (§7).   |
 | `path`              | A path template: literal text and `{name}` placeholders, each placeholder within one segment.                                     |
 | `query`             | Optional. Exact values the call's query must carry, for an API that overloads one path (`promo=true`).                            |
 | `action`            | The intent's action type.                                                                                                         |
 | `summary`           | Plain words; what an agent's tool description says.                                                                               |
 | `facts`             | Fact name → RFC 6901 JSON pointer into the call (§4).                                                                             |
 | `policy_projection` | The policy path the authority decides the call under (`decision_type`, `transaction_type`, `workflow_key`, `channel`), or `null`. |
+| `subject`           | Optional; required of a read. Where the call's subject sits: `request`, `response`, or both (§7).                                 |
 
 ### 2.2 Templates
 
@@ -72,7 +76,11 @@ A definition MUST be refused (`API_PROFILE_INVALID`) when:
 - a template repeats a placeholder or has a malformed one;
 - a fact name is reserved (§4.2);
 - a fact pointer is not rooted at `/path`, `/query` or `/body`, has an invalid escape, or has more
-  than one `*` token.
+  than one `*` token;
+- a read names no subject, or names a fact or a policy projection;
+- a write names a `response` subject;
+- a subject names neither pointer, a `request` pointer is not rooted like a fact's or has a `*`
+  token, or a `response` pointer is not rooted at `/body` or has more than one `*` token.
 
 ## 3. Matching
 
@@ -108,7 +116,8 @@ than the context (`agent_safe`, `action_context`, `amount`, `risk_score`, `chann
 `objective_profile`, `mode`, `decision_band`, `transaction_type`, `workflow_key`, `vertical_pack`,
 `policy_version`, `org_id`, `decision_type`, `decision_domain`, `signals`, `signal_provenance`,
 `history`, `override`, `evidence`, `attachments`, `attachment_count`, `policy`, `context`,
-`intake`, `runtime_attribution`). A fact of such a name would be shadowed, or refused, there.
+`intake`, `runtime_attribution`), or `session`, where a component states the subject a session is
+pinned to (§7.3). A fact of such a name would be shadowed, or refused, there.
 
 ### 4.3 Where facts go
 
@@ -127,12 +136,62 @@ which is why an operation's facts are the whole of what an authority can decide 
 [`vectors/`](./vectors) holds the definition-level vectors: a `definition`, a `request` and the
 `expected` match (or `null`), or a `definition` and the `error` it is refused with. Each shipped
 profile carries its own vectors in `profiles/<id>/vectors/`, in the same form with `profile`
-naming it. An implementation conforms when, for every vector, it returns the expected match
-exactly, or refuses the definition with the expected code.
+naming it. A vector may also pin a `session` (the subject a session holds) and state the
+`request_check` of the call against it, and a `response` (the answer's JSON body) with its
+`response_check` (§7.2). An implementation conforms when, for every vector, it returns the expected
+match exactly and the expected checks, or refuses the definition with the expected code.
 
 ## 6. Profiles this build ships
 
-| Profile                                                                           | What it governs                                                                                  |
-| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| [`walmart/api/v3`](../../../../profiles/walmart/api/v3/README.md)                 | Order acknowledge, cancel, refund and ship; base and promotional price; inventory; feeds.        |
-| [`businesscentral/api/v2`](../../../../profiles/businesscentral/api/v2/README.md) | Sales and purchase postings, journal posting, vendor payment lines, vendor and customer changes. |
+| Profile                                                                           | What it governs                                                                                                                                                                        |
+| --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`walmart/api/v3`](../../../../profiles/walmart/api/v3/README.md)                 | Order acknowledge, cancel, refund and ship; base and promotional price; inventory; feeds.                                                                                              |
+| [`businesscentral/api/v2`](../../../../profiles/businesscentral/api/v2/README.md) | Sales and purchase postings, journal posting, vendor payment lines, vendor and customer changes; customer, sales document and customer ledger entry reads, checked for their customer. |
+
+## 7. Subjects
+
+### 7.1 Where a subject sits
+
+An operation's `subject` says where the call's subject sits: the one party the call is for, such as
+the customer whose records a read returns or a write changes.
+
+- `request` is an RFC 6901 pointer into the call, rooted at `/path`, `/query` or `/body` like a
+  fact's, with no `*`: a call has one subject. The subject is the value there when it is a string,
+  or a finite number written as its decimal string, of 1 to 200 characters; otherwise the call
+  names none (`null`).
+- `response`, for a read only, is a pointer into the JSON body of its answer, rooted at `/body`. One
+  `*` reaches every element of a list, so `/body/value/*/customerNumber` is each item's
+  `customerNumber`; without one, the pointer reaches the single item the answer is.
+
+A match states the call's subject as `subject` when the operation names a `request` pointer, and
+not at all otherwise. Vectors state it the same way.
+
+### 7.2 Checking a read
+
+A component that pins a session to one subject, and serves a read that matches an operation, MUST:
+
+1. refuse the read when the operation names a `request` subject and the call's is `null`
+   (`SUBJECT_ABSENT`) or not the session's (`SUBJECT_MISMATCH`), before the read is sent;
+2. when the operation names a `response` subject and the answer is a success, check every item
+   before any of the answer is relayed, and refuse the whole answer when the pointer cannot be
+   walked into it, such as an answer that is not JSON or has no list where the `*` stands
+   (`RESPONSE_UNREADABLE`), when an item names no subject (`RESPONSE_SUBJECT_ABSENT`), or when an
+   item names another subject (`RESPONSE_SUBJECT_MISMATCH`). It MUST NOT filter the answer: a
+   partial answer looks complete. An empty list names no one, and passes.
+
+A read is never sent to an authority and states no facts. Subjects compare as exact strings.
+
+### 7.3 Writes
+
+A write may name a `request` subject too. It is decided by the authority as any write is: the
+component states the session's pinned subject in the intent's trusted context as
+`session: { "subject": <string> }`, so a policy reads the fact `session.subject` and compares it
+with the operation's own facts. The subject is the identity provider's statement, never a value of
+the request, and is absent, never `null`, when no session was presented.
+
+### 7.4 Coverage
+
+An operation with no subject is not scoped. A read a profile does not describe cannot be checked,
+so a component that holds sessions to a subject SHOULD offer to refuse such reads, and SHOULD refuse
+a read whose path only resembles a checked one (another letter case, or a literal
+percent-encoded), since the platform may serve it as that operation.

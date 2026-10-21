@@ -7,13 +7,30 @@ import {
   type UnmatchedPolicy,
 } from "./GatewayConfig.js";
 
+/**
+ * What the gateway does with a read. `PASSTHROUGH` is today's: never
+ * evaluated. `CHECK` checks a read a profile operation names against the
+ * session's subject and passes the rest. `REFUSE_UNKNOWN` also refuses a
+ * read no profile operation names.
+ */
+export type ReadPolicy = "PASSTHROUGH" | "CHECK" | "REFUSE_UNKNOWN";
+
 /** What the gateway decided about one request before reading its body. */
 export type RoutePlan =
   | { readonly kind: "PASSTHROUGH"; readonly reason: "SAFE_METHOD" | "UNMATCHED" | "DISABLED" }
   | {
       readonly kind: "REFUSE";
       readonly code:
-        "HTTP_METHOD_UNSUPPORTED" | "HTTP_PATH_AMBIGUOUS" | "PROFILE_OPERATION_UNMATCHED";
+        | "HTTP_METHOD_UNSUPPORTED"
+        | "HTTP_PATH_AMBIGUOUS"
+        | "PROFILE_OPERATION_UNMATCHED"
+        | "READ_OPERATION_UNMATCHED";
+    }
+  | {
+      /** A read a profile operation names: checked against the session's subject, never decided. */
+      readonly kind: "CHECK";
+      readonly action: string;
+      readonly operation: string;
     }
   | {
       readonly kind: "GOVERN";
@@ -106,6 +123,7 @@ export class RouteTable {
     private readonly enabled: boolean = true,
     private readonly profile: ApiProfile | null = null,
     private readonly privacy: PrivacyMode = "FULL",
+    private readonly reads: ReadPolicy = "PASSTHROUGH",
   ) {
     this.routes = routes.map((config) => {
       const segments = routingSegments(config.path);
@@ -124,12 +142,34 @@ export class RouteTable {
     return [...names];
   }
 
+  /**
+   * A read, when reads are checked. A `GET` a profile operation names is
+   * checked. One that only resembles an operation (another letter case, an
+   * encoded literal) is refused as ambiguous, since the upstream may serve
+   * it as that operation. A `HEAD` or `OPTIONS` on a checked read's path is
+   * refused: it has no answer to check, and its status alone says whether a
+   * record exists. Anything else passes, or is refused when unknown reads are.
+   */
+  private planRead(method: string, pathname: string, query: PlanQuery): RoutePlan {
+    if (this.reads === "PASSTHROUGH" || this.profile === null) {
+      return { kind: "PASSTHROUGH", reason: "SAFE_METHOD" };
+    }
+    const operation = method === "GET" ? this.profile.operationFor("GET", pathname, query) : null;
+    if (operation !== null) {
+      return { kind: "CHECK", action: operation.action, operation: operation.id };
+    }
+    const resembles = this.profile.resembles("GET", pathname);
+    if (this.reads === "REFUSE_UNKNOWN" || (resembles && method !== "GET")) {
+      return { kind: "REFUSE", code: "READ_OPERATION_UNMATCHED" };
+    }
+    if (resembles) return { kind: "REFUSE", code: "HTTP_PATH_AMBIGUOUS" };
+    return { kind: "PASSTHROUGH", reason: "SAFE_METHOD" };
+  }
+
   public plan(method: string, pathname: string, query: PlanQuery = {}): RoutePlan {
     if (!this.enabled) return { kind: "PASSTHROUGH", reason: "DISABLED" };
     const upper = method.toUpperCase();
-    if (SAFE_METHODS.has(upper)) {
-      return { kind: "PASSTHROUGH", reason: "SAFE_METHOD" };
-    }
+    if (SAFE_METHODS.has(upper)) return this.planRead(upper, pathname, query);
     // WebDAV and extension methods can mutate state too. A method outside
     // this execution contract cannot inherit the privilege of a safe read.
     if (!(CONSEQUENTIAL_METHODS as readonly string[]).includes(upper)) {

@@ -1,0 +1,40 @@
+{
+  "description": "A request subject the pointer does not find is null, and the read is refused as naming no subject.",
+  "definition": {
+    "profile": "agent-safe.profile.api/1",
+    "id": "example/api/v1",
+    "platform": "example",
+    "title": "Example API",
+    "prefixes": [""],
+    "operations": [
+      {
+        "id": "statements.get",
+        "method": "GET",
+        "path": "/statements",
+        "action": "statement.read",
+        "summary": "Read a customer's statement.",
+        "facts": {},
+        "policy_projection": null,
+        "subject": {
+          "request": "/query/customer"
+        }
+      }
+    ]
+  },
+  "request": {
+    "method": "GET",
+    "path": "/statements",
+    "query": {
+      "customer": ["C-10000", "C-20000"]
+    }
+  },
+  "expected": {
+    "operation": "statements.get",
+    "action": "statement.read",
+    "facts": {},
+    "policy_projection": null,
+    "subject": null
+  },
+  "session": "C-10000",
+  "request_check": "SUBJECT_ABSENT"
+}

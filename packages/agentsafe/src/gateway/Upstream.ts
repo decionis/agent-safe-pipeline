@@ -1,5 +1,5 @@
 import type { FetchLike } from "../handlers/HandlerRegistration.js";
-import { TENANT_KEY_HEADER } from "./GatewayConfig.js";
+import { SESSION_HEADER, SUBJECT_TOKEN_HEADER, TENANT_KEY_HEADER } from "./GatewayConfig.js";
 import type { InterceptedRequest } from "./InterceptedRequest.js";
 
 /** What came back from the upstream: the status, the headers a client may see, the bytes. */
@@ -39,7 +39,11 @@ const REQUEST_OWNED: ReadonlySet<string> = new Set([
   "x-forwarded-host",
 ]);
 /** The gateway's own credentials a client presents to it; they end at the gateway. */
-const GATEWAY_CREDENTIALS: ReadonlySet<string> = new Set([TENANT_KEY_HEADER]);
+const GATEWAY_CREDENTIALS: ReadonlySet<string> = new Set([
+  TENANT_KEY_HEADER,
+  SESSION_HEADER,
+  SUBJECT_TOKEN_HEADER,
+]);
 /** Response headers the relay recomputes, because it relays decoded bytes of a known length. */
 const RESPONSE_OWNED: ReadonlySet<string> = new Set(["content-length", "content-encoding"]);
 const BODYLESS_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD"]);

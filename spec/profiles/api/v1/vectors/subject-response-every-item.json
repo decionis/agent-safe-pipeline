@@ -1,0 +1,52 @@
+{
+  "description": "A read's answer is checked item by item: every item names the session's subject, so it is relayed.",
+  "definition": {
+    "profile": "agent-safe.profile.api/1",
+    "id": "example/api/v1",
+    "platform": "example",
+    "title": "Example API",
+    "prefixes": [""],
+    "operations": [
+      {
+        "id": "invoices.list",
+        "method": "GET",
+        "path": "/invoices",
+        "action": "invoice.read",
+        "summary": "List invoices.",
+        "facts": {},
+        "policy_projection": null,
+        "subject": {
+          "response": "/body/value/*/customerNumber"
+        }
+      }
+    ]
+  },
+  "request": {
+    "method": "GET",
+    "path": "/invoices",
+    "query": {
+      "$filter": "customerNumber eq 'C-10000'"
+    }
+  },
+  "expected": {
+    "operation": "invoices.list",
+    "action": "invoice.read",
+    "facts": {},
+    "policy_projection": null
+  },
+  "session": "C-10000",
+  "request_check": "MATCH",
+  "response": {
+    "value": [
+      {
+        "number": "INV-1",
+        "customerNumber": "C-10000"
+      },
+      {
+        "number": "INV-2",
+        "customerNumber": "C-10000"
+      }
+    ]
+  },
+  "response_check": "MATCH"
+}
