@@ -7,6 +7,12 @@ the same `ALLOW`, `ESCALATE` or `BLOCK` the hosted route gives, with no network 
 Escalations still go to Decionis, so Presence and presence attestations work exactly as they do
 hosted.
 
+Since 21 October 2026 that policy core is the only engine hosted Decionis decides with. The hosted
+service and the edge module are two builds of one Rust crate, sharing its policy-graph evaluation and
+held to one conformance corpus, so a binding the edge decides is decided by the engine the hosted
+route runs. Governed policy and commerce-preflight requests need checks only the hosted build
+carries, and stay with the hosted service ([Limits](#limits)).
+
 ```text
 proposal -> intent -> EdgeDecisionAuthority --ALLOW--> local authorization -> SafeExecutor (once)
                               |  (module + signed bundle, in process)
@@ -347,5 +353,13 @@ escalate.
 - What hosted Decionis computes from its own state (ledgers, current-state lookups, grant issuance,
   managed escalation) is out of the module's scope; anything that needs it is an `ESCALATE` or is
   decided hosted.
+- Governed policy (bundles released through PolicyAgent) is decided only by the hosted service: an
+  organisation with governed policy is issued no edge bundle (the bundle route answers
+  `governed_online_authority_required`), so its executor asks Decionis.
+- A commerce-preflight request (an intent whose context carries `commerce_preflight` or
+  `commerce_preflight_transport`) is decided by hosted Decionis with its commerce checks, which the
+  edge build does not carry. `edge-module-v1.0.0` does not detect such a request and would decide it
+  on the policy graph alone, so a deployment that submits commerce-preflight requests runs with
+  `EXECUTOR_DECISION_AUTHORITY=hosted`.
 - The usage tally and the licence comparison are per installation; the organisation's total is
   Decionis's, from every installation's reports.

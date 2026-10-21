@@ -440,7 +440,8 @@ network path has a default.
 With `EXECUTOR_DECISION_AUTHORITY=edge`, the executor decides each intent locally with the
 Decionis edge evaluator: a WebAssembly module, licensed separately and not part of this package,
 that evaluates the same binding hosted `enforce-and-bind` receives against a policy bundle Decionis
-signed, and gives the same verdict. An `ALLOW` becomes a local authorization the executor consumes
+signed, and gives the same verdict: it is a build of the policy core hosted Decionis decides with.
+Governed policy and commerce-preflight requests are decided by Decionis only. An `ALLOW` becomes a local authorization the executor consumes
 once; a `BLOCK` is refused; an `ESCALATE` goes to Decionis, so `DIRECT` and `MANAGED` escalation
 work as they do hosted. With no usable bundle the executor asks Decionis, or refuses under
 `EXECUTOR_EDGE_ON_UNAVAILABLE=block`. Each local decision is an `EDGE_DECISION` line on the
