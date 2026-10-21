@@ -102,8 +102,8 @@ absent. Absent facts are not stated at all: never as `null`.
 ### 4.2 Reserved names
 
 A fact name is snake case, 1 to 64 characters, and MUST NOT be one the gateway states itself
-(`request_sha256`, `body_sha256`, `body_bytes`, `content_type`, `body_embedded`, `ingress`,
-`claimed_principal`, `api_profile`) or one the authority states or reads from the request rather
+(`request_sha256`, `request_hmac_sha256`, `body_sha256`, `body_bytes`, `content_type`,
+`body_embedded`, `ingress`, `claimed_principal`, `api_profile`) or one the authority states or reads from the request rather
 than the context (`agent_safe`, `action_context`, `amount`, `risk_score`, `channel`,
 `objective_profile`, `mode`, `decision_band`, `transaction_type`, `workflow_key`, `vertical_pack`,
 `policy_version`, `org_id`, `decision_type`, `decision_domain`, `signals`, `signal_provenance`,
@@ -116,6 +116,11 @@ A component states an operation's facts in the intent's trusted context, each at
 under its name, beside `api_profile: { "id": <profile id>, "operation": <operation id> }`. A
 policy rule therefore reads `purchase_order_id` whether the call came through the gateway or from
 an executor.
+
+A component MAY send only that: the operation id and its path template as the action's parameters,
+and the facts as its context, with no raw part of the call. The reference gateway does so in
+facts-only privacy ([`interception.privacy: facts`](../../../../docs/gateway/http-interception.md#facts-only-privacy)),
+which is why an operation's facts are the whole of what an authority can decide on there.
 
 ## 5. Conformance
 

@@ -11,6 +11,8 @@ import {
   IntentCapture,
   SafeExecutor,
   ShadowPipeline,
+  type ApiProfile,
+  type ApiProfileMatch,
   type CapturedIntent,
   type DecisionGate,
   type JsonObject,
@@ -67,7 +69,7 @@ import {
   type GatewayState,
   type InterceptionReport,
 } from "./GatewayReport.js";
-import { normalizeRequest, type InterceptedRequest } from "./InterceptedRequest.js";
+import { normalizeFacts, normalizeRequest, type InterceptedRequest } from "./InterceptedRequest.js";
 import { TokenBucket, type RateDecision } from "./RateLimit.js";
 import { RefusalSampler } from "./RefusalSampler.js";
 import { RouteTable, type PlanQuery, type RoutePlan } from "./RouteTable.js";
@@ -285,6 +287,12 @@ export const RESUME_TOKEN_HEADER = "agentsafe-resume-token";
 export class Gateway {
   private readonly held = new Map<string, HeldEscalation>();
   private readonly holder = new RequestHolder();
+  /**
+   * The key of the facts-only request digest: made here, held only here, so
+   * the digest an authority receives confirms nothing about the request to
+   * anyone else. A held escalation is resumed by this same gateway.
+   */
+  private readonly digestKey = randomBytes(32);
   private readonly capture: IntentCapture;
   private readonly executor: SafeExecutor;
   private readonly shadow: ShadowPipeline | null;
@@ -345,7 +353,7 @@ export class Gateway {
     const registry = registerHttpActions(
       new ActionRegistry(),
       routes.actions(),
-      httpForwardHandler(upstream, this.holder),
+      httpForwardHandler(upstream, this.holder, this.digestKey),
     );
     // The executor refuses an intent captured through another boundary: an
     // authority issued at one door is not presentable at the next.
@@ -527,6 +535,7 @@ export class Gateway {
       config.interception.unmatched,
       config.interception.http,
       config.interception.profile === null ? null : ApiProfiles.get(config.interception.profile),
+      config.interception.privacy,
     );
     const evidence = takeUp(EVIDENCE_STREAM, continues?.evidence);
     const chain = takeUp(GATEWAY_STREAM, continues?.gateway);
@@ -1066,6 +1075,7 @@ export class Gateway {
   }
 
   private captureIntent(request: InterceptedRequest, action: string): CapturedIntent {
+    if (this.config.interception.privacy === "FACTS") return this.captureFacts(request, action);
     const normalized = normalizeRequest(request, action, {
       maxEmbeddedBodyBytes: this.config.interception.maxEmbeddedBodyBytes,
       principalHeader: this.config.interception.principalHeader,
@@ -1096,15 +1106,68 @@ export class Gateway {
   }
 
   /**
+   * Facts-only privacy: the authority receives the profile operation that
+   * named the call, its path template and the facts it names, and the keyed
+   * digest that binds the held request. No path, query, header or body byte
+   * of the request is in the intent; a call the profile does not describe
+   * never reaches here, because the route table refused it.
+   */
+  private captureFacts(request: InterceptedRequest, action: string): CapturedIntent {
+    const matched = this.profileMatch(request);
+    const operation =
+      matched === null ? null : (this.profile()?.operation(matched.operation) ?? null);
+    if (matched === null || operation === null || matched.action !== action) {
+      throw new Error("PROFILE_OPERATION_UNMATCHED");
+    }
+    const normalized = normalizeFacts(request, action, operation, this.digestKey);
+    const trusted: TrustedIntentContext = {
+      tenantId: this.config.authority.tenantId,
+      actor: this.config.actor,
+      downstreamTarget: {
+        system: this.config.upstream.system,
+        operation: action,
+        environment: this.config.upstream.environment,
+        endpoint: this.config.upstream.url,
+      },
+      context: {
+        ...normalized.context,
+        ingress: "http",
+        ...matched.facts,
+        api_profile: { id: matched.profile, operation: matched.operation },
+      },
+      idempotencyKey: normalized.idempotencyKey ?? randomUUID(),
+      signals: {
+        boundary: boundarySignal(this.boundary),
+        ...(this.workload === null ? {} : { workload: this.workload }),
+      },
+    };
+    return this.capture.capture(normalized.proposal, trusted);
+  }
+
+  /**
    * The facts the gateway's API profile names for this call, when the profile
    * named its action: each at the top level of the trusted context, beside the
    * operation, exactly as a native executor reading the same profile states
    * them. The body is read for facts whether or not it is embedded.
    */
   private profileFacts(request: InterceptedRequest, action: string): JsonObject {
+    const matched = this.profileMatch(request);
+    if (matched === null || matched.action !== action) return {};
+    return {
+      ...matched.facts,
+      api_profile: { id: matched.profile, operation: matched.operation },
+    };
+  }
+
+  private profile(): ApiProfile | null {
     const profileId = this.config.interception.profile;
-    const profile = profileId === null ? null : ApiProfiles.get(profileId);
-    if (profile === null) return {};
+    return profileId === null ? null : ApiProfiles.get(profileId);
+  }
+
+  /** What the gateway's API profile says about a call, its JSON body read when there is one. */
+  private profileMatch(request: InterceptedRequest): ApiProfileMatch | null {
+    const profile = this.profile();
+    if (profile === null) return null;
     let body: JsonValue | undefined;
     if (request.body.length > 0 && /json/i.test(request.headers["content-type"] ?? "")) {
       try {
@@ -1113,17 +1176,12 @@ export class Gateway {
         body = undefined;
       }
     }
-    const matched = profile.match({
+    return profile.match({
       method: request.method,
       path: request.path,
       query: Gateway.queryOf(request.search),
       ...(body === undefined ? {} : { body }),
     });
-    if (matched === null || matched.action !== action) return {};
-    return {
-      ...matched.facts,
-      api_profile: { id: matched.profile, operation: matched.operation },
-    };
   }
 
   private principalOf(captured: CapturedIntent): string {

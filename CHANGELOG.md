@@ -3,6 +3,25 @@
 Releases of `@decionis/agent-safe-pipeline` (the library) and `@decionis/agentsafe` (the runtime).
 Each entry names what an adopter can rely on and what they must do, if anything.
 
+## Runtime (unreleased): facts-only privacy for the gateway
+
+One setting keeps the request out of the authority: `interception.privacy: facts` (or
+`AGENTSAFE_PRIVACY=facts`).
+
+**Nothing to do** to keep things as they are: privacy is `full` by default and sends what it always
+sent. To turn it on, name an API profile (`interception.profile`) and set `privacy: facts`.
+
+- The authority receives the profile operation's id and path template and the facts it names, a
+  keyed digest that binds the held request, and nothing else of the request: no raw path, query,
+  header or body byte, and not the plain digests. The upstream still receives the request as sent.
+- A write the profile does not name is refused with `403 PROFILE_OPERATION_UNMATCHED`, never
+  governed under its raw path.
+- At start, facts-only privacy refuses by name a missing profile, explicit routes, a principal
+  header and `unmatched: passthrough`.
+- `agentsafe config` now prints `interception.profile` and `interception.privacy`.
+- `request_hmac_sha256` joins the reserved fact names of `agent-safe.profile.api/1`.
+  [Facts-only privacy](docs/gateway/http-interception.md#facts-only-privacy).
+
 ## Runtime (unreleased): card authorization outcome evidence
 
 The card purchases' outcome evidence for the Decionis meter (`decionis.outcomes.evidence/1`), kept

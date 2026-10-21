@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import type { AgentProposal, JsonObject, JsonValue } from "@decionis/agent-safe-pipeline";
 import type { ConsequentialMethod } from "./GatewayConfig.js";
 
@@ -21,6 +21,17 @@ export interface HttpActionParameters extends JsonObject {
   path: string;
   query: { [key: string]: string | string[] };
   body?: JsonValue;
+}
+
+/**
+ * A facts-only HTTP action's parameters: the profile operation and its path
+ * template, never the path, query or body the request carried. The handler
+ * forwards the held request, bound by the keyed digest in the context.
+ */
+export interface HttpFactsParameters extends JsonObject {
+  method: ConsequentialMethod;
+  operation: string;
+  path_template: string;
 }
 
 /** What the intent's context carries about the body: its digest, size and kind, never its bytes. */
@@ -74,6 +85,20 @@ export function requestDigest(request: InterceptedRequest): `sha256:${string}` {
     request.encrypted,
   ]);
   return `sha256:${createHash("sha256").update(metadata, "utf8").update(request.body).digest("hex")}`;
+}
+
+/**
+ * The same binding as `requestDigest`, keyed: an HMAC-SHA-256 under a key
+ * that never leaves the gateway process. Facts-only privacy sends this in
+ * place of the plain digests, which a reader holding a guess of a small body
+ * or a path could confirm; the keyed one confirms nothing to anyone without
+ * the key, and still binds the held request to the grant byte for byte.
+ */
+export function keyedRequestDigest(
+  request: InterceptedRequest,
+  key: Uint8Array,
+): `hmac-sha256:${string}` {
+  return `hmac-sha256:${createHmac("sha256", key).update(requestDigest(request), "utf8").digest("hex")}`;
 }
 
 /** Query pairs as an object: one value, or a list where a key repeats; keys sorted for stable hashing. */
@@ -161,4 +186,43 @@ export function normalizeRequest(
         ? null
         : header(request.headers, options.principalHeader, MAX_PRINCIPAL_LENGTH),
   };
+}
+
+/**
+ * The agent's part of an intent in facts-only privacy: the profile operation
+ * that names the call, its path template, and nothing the request carried.
+ * The context binds the held request by its keyed digest. The client's
+ * idempotency key is a header value, so it is keyed too: a retry through the
+ * same gateway process states the same key, and the value never leaves. A
+ * correlation id and a principal header are not carried at all.
+ */
+export function normalizeFacts(
+  request: InterceptedRequest,
+  action: string,
+  operation: { readonly id: string; readonly path: string },
+  key: Uint8Array,
+): NormalizedFacts {
+  const method = request.method.toUpperCase() as ConsequentialMethod;
+  const target = `${method} ${operation.path}`;
+  if (target.length > MAX_TARGET_LENGTH) throw new Error("TARGET_TOO_LONG");
+  const parameters: HttpFactsParameters = {
+    method,
+    operation: operation.id,
+    path_template: operation.path,
+  };
+  const idempotency = header(request.headers, "idempotency-key", MAX_IDEMPOTENCY_KEY_LENGTH);
+  return {
+    proposal: { action, target, parameters },
+    context: { request_hmac_sha256: keyedRequestDigest(request, key) },
+    idempotencyKey:
+      idempotency === null
+        ? null
+        : `hmac-sha256:${createHmac("sha256", key).update(idempotency, "utf8").digest("hex")}`,
+  };
+}
+
+export interface NormalizedFacts {
+  readonly proposal: AgentProposal;
+  readonly context: { readonly request_hmac_sha256: string };
+  readonly idempotencyKey: string | null;
 }

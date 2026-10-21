@@ -202,6 +202,8 @@ export class GatewayHttpServer {
       const plan = gateway.plan(method, url.pathname, url.search);
       if (plan.kind === "REFUSE") {
         if (plan.code === "HTTP_PATH_AMBIGUOUS") throw new GuardError(400, plan.code);
+        // Facts-only privacy: a call the profile does not describe is never sent raw.
+        if (plan.code === "PROFILE_OPERATION_UNMATCHED") throw new GuardError(403, plan.code);
         throw new GuardError(405, plan.code, {
           allow: "GET, HEAD, OPTIONS, POST, PUT, PATCH, DELETE",
         });

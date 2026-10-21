@@ -37,6 +37,7 @@ interception:
   maxEmbeddedBodyBytes: 65536 # JSON up to this is visible to policy; larger is digest-only; 0 embeds none
   principalHeader: null # a request header whose value is carried as claimed_principal
   profile: null # an API intent profile, e.g. walmart/api/v3; its operations follow any route
+  privacy: full # full | facts: the authority receives the profile's operation and facts only
   routes:
     - path: /payments/**
       action: payment.create
@@ -91,6 +92,8 @@ gateway.upstream)`, `CONFIG_INVALID: authority.mode (shadow or enforcement)`,
   production;
 - `presence.managed` needs the Decionis authority, enforcement mode and an `approverId`;
 - `maxEmbeddedBodyBytes` is 0 or more and cannot exceed `maxBodyBytes`;
+- `privacy: facts` needs a `profile`, and refuses `routes`, a `principalHeader` and
+  `unmatched: passthrough`;
 - an `authority.endpoint` other than `local` must be `https://`, or loopback with the allowance.
 
 ## The stored login

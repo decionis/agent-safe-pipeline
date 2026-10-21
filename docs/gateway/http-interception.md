@@ -62,6 +62,40 @@ normalization. With
 `interception.maxEmbeddedBodyBytes: 0` no body is embedded either: the authority sees the method,
 the path, the query and the body's digest, size and type, and policy cannot read its fields.
 
+### Facts-only privacy
+
+`interception.privacy: facts` (or `AGENTSAFE_PRIVACY=facts`) changes what the intent carries, so the
+authority receives only what an [API profile](./routes.md#by-an-api-profile) says a decision needs:
+
+| Field                                | Facts-only value                                                                                     |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| `action`                             | the profile operation's action                                                                       |
+| `target`                             | `<METHOD> <path template>`, for example `POST /companies({companyId})/salesOrders`                   |
+| `parameters`                         | `method`, `operation` (the operation id) and `path_template`; no path, query or body                 |
+| `context`                            | the facts the operation names, `api_profile: { id, operation }`, `ingress` and `request_hmac_sha256` |
+| `context.request_hmac_sha256`        | the complete request digest above, keyed with a secret made by and held in the gateway process       |
+| `idempotencyKey`                     | the client's `Idempotency-Key` keyed the same way, else a fresh one                                  |
+| `correlationId`, `claimed_principal` | never carried                                                                                        |
+
+No byte of the raw path, query, headers or body is sent: not the path's other segments, not a
+query parameter, not a header value, not a body field the profile does not name, and not the plain
+`request_sha256` or `body_sha256`, which anyone holding a guess of a short body or path could
+confirm. The keyed digest confirms nothing without the key and still binds the held request: before
+dispatch the handler recomputes it and refuses a changed request with `PAYLOAD_BINDING_MISMATCH`.
+The upstream still receives the request exactly as the agent sent it. A test sends a request with a
+marker in every part that is not a named fact and checks that no call to the authority (evaluate,
+claim, finalize) contains any of them (`test/gateway/FactsOnlyGateway.test.ts`).
+
+A consequential request no profile operation names is refused with
+`403 PROFILE_OPERATION_UNMATCHED` and `agentsafe-execution: NOT_FORWARDED`: it is never governed
+under a derived name, because its intent would carry the raw path. Facts-only privacy therefore
+needs `interception.profile`, and refuses at start, by name, an explicit route
+(`interception.routes`: its target is the raw path), a principal header (a raw header value) and
+`interception.unmatched: passthrough`. The facts themselves are request values you chose to send:
+review what an operation names before turning this on. A held escalation can be resumed only by the
+gateway process that holds it, which was already true; a retry sent to another replica states a
+different keyed idempotency key.
+
 The intent is canonicalized (RFC 8785) and hashed by `CanonicalIntentHasher`, and sent to the
 authority as the `ExecutionAuthorityRequest` the [execution intent](../execution-intent.md) page
 describes, with `Idempotency-Key: <intent id>`. A body too large or too deep to bind is refused
