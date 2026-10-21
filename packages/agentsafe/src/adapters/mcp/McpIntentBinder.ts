@@ -1,4 +1,9 @@
-import type { AgentProposal, JsonObject } from "@decionis/agent-safe-pipeline";
+import type {
+  AgentProposal,
+  JsonObject,
+  JsonValue,
+  McpToolProfile,
+} from "@decionis/agent-safe-pipeline";
 import { jcsDigest, type Sha256 } from "../JcsDigest.js";
 import {
   McpInvocationSchema,
@@ -19,7 +24,10 @@ export type McpBindingCode =
   | "MCP_TOOL_NOT_BOUND"
   | "MCP_TOOL_MISMATCH"
   | "MCP_ARGUMENTS_INVALID"
-  | "MCP_TARGET_UNRESOLVED";
+  | "MCP_TARGET_UNRESOLVED"
+  | "SUBJECT_SESSION_REQUIRED"
+  | "SUBJECT_ABSENT"
+  | "SUBJECT_MISMATCH";
 
 /** What the runtime knows, as against what the model sent. */
 export interface McpTrustedContext {
@@ -27,6 +35,12 @@ export interface McpTrustedContext {
   readonly principal?: string;
   /** A fallback idempotency key when the invocation carries none. */
   readonly idempotencyKey: string;
+  /**
+   * The subject the host's session is pinned to: the customer the identity
+   * provider named for this conversation, verified by the host, never sent
+   * by the model.
+   */
+  readonly subject?: string;
 }
 
 export interface BoundMcpInvocation {
@@ -60,7 +74,10 @@ export interface BoundMcpInvocation {
  *   dropped, because a dropped argument is one the authority never saw and
  *   the tool might still act on;
  * - a target that cannot be resolved from the arguments is refused rather
- *   than guessed.
+ *   than guessed;
+ * - a tool that names a subject argument is refused without a session
+ *   subject, or when the argument names another subject or none, the rule
+ *   `agent-safe.profile.api/1` holds a read to.
  *
  * What it does not do is authorize anything. It produces a proposal; the
  * authority decides, and the claim is what makes a dispatch legal.
@@ -76,6 +93,14 @@ export function bindMcpInvocation(
   if (invocation.tool !== binding.tool) throw new McpBindingError("MCP_TOOL_MISMATCH");
   const args = binding.argumentsSchema.safeParse(invocation.arguments);
   if (!args.success) throw new McpBindingError("MCP_ARGUMENTS_INVALID");
+  // The subject before the target: a call for no one, or for another, is
+  // that, whatever else is wrong with it.
+  if (binding.subject !== undefined) {
+    if (trusted.subject === undefined) throw new McpBindingError("SUBJECT_SESSION_REQUIRED");
+    const named = subjectOf(args.data[binding.subject]);
+    if (named === null) throw new McpBindingError("SUBJECT_ABSENT");
+    if (named !== trusted.subject) throw new McpBindingError("SUBJECT_MISMATCH");
+  }
   const target = fillTarget(binding.target, args.data);
   if (target === null) throw new McpBindingError("MCP_TARGET_UNRESOLVED");
   // The consequential names are an operator's list of what matters, for a
@@ -98,10 +123,45 @@ export function bindMcpInvocation(
           ? {}
           : { claimed_principal: invocation.principal }
         : { claimed_principal: trusted.principal }),
+      // The session's subject, as the authority reads it: the fact session.subject.
+      ...(trusted.subject === undefined ? {} : { session: { subject: trusted.subject } }),
     },
     idempotencyKey: invocation.idempotencyKey ?? trusted.idempotencyKey,
     correlationId: invocation.correlationId,
     argumentsDigest: jcsDigest(args.data),
+  };
+}
+
+/** A subject as stated: a string or a finite number, as a string, of 1 to 200 characters; else null. */
+function subjectOf(value: JsonValue | undefined): string | null {
+  const named =
+    typeof value === "string"
+      ? value
+      : typeof value === "number" && Number.isFinite(value)
+        ? String(value)
+        : null;
+  return named === null || named.length === 0 || named.length > 200 ? null : named;
+}
+
+/**
+ * A tool's binding as an `agent-safe.profile.mcp/1` profile declares it: the
+ * same shape a binding written in code has, read from data. Null when the
+ * profile does not declare the tool.
+ */
+export function profiledBinding(profile: McpToolProfile, tool: string): McpToolBinding | null {
+  const declared = profile.tool(tool);
+  if (declared === null) return null;
+  const environment = profile.definition.environment;
+  return {
+    tool: declared.tool,
+    action: declared.action,
+    system: profile.definition.system,
+    operation: declared.operation,
+    ...(environment === undefined ? {} : { environment }),
+    target: declared.target,
+    consequential: declared.consequential,
+    argumentsSchema: profile.argumentsSchema(declared.tool),
+    ...(declared.subject === undefined ? {} : { subject: declared.subject }),
   };
 }
 

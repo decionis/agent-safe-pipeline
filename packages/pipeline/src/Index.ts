@@ -55,6 +55,7 @@ export * from "./intent/IntentCapture.js";
 export * from "./intent/JsonValue.js";
 export * from "./profile/ApiProfile.js";
 export * from "./profile/ApiProfiles.js";
+export * from "./profile/McpToolProfile.js";
 export { BUILT_IN_API_PROFILES } from "./profile/BuiltInApiProfiles.js";
 export * from "./report/DecisionReport.js";
 export * from "./report/DossierReport.js";

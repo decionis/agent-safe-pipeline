@@ -1,0 +1,45 @@
+{
+  "description": "An empty subject names no one: refused as absent.",
+  "definition": {
+    "profile": "agent-safe.profile.mcp/1",
+    "id": "erp/mcp/v1",
+    "title": "Synthetic ERP MCP server",
+    "system": "erp.example",
+    "environment": "test",
+    "tools": [
+      {
+        "tool": "update_credit_limit",
+        "action": "customer.credit_limit.update",
+        "operation": "customers.updateCreditLimit",
+        "summary": "Set a customer's credit limit.",
+        "target": "erp:customer:{customerNumber}",
+        "subject": "customerNumber",
+        "consequential": ["customerNumber", "creditLimit"],
+        "arguments": {
+          "customerNumber": {
+            "type": "string",
+            "required": true,
+            "maxLength": 50
+          },
+          "creditLimit": {
+            "type": "number",
+            "required": true
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 200
+          }
+        }
+      }
+    ]
+  },
+  "invocation": {
+    "tool": "update_credit_limit",
+    "arguments": {
+      "customerNumber": "",
+      "creditLimit": 2500
+    }
+  },
+  "session": "C-10000",
+  "refusal": "SUBJECT_ABSENT"
+}

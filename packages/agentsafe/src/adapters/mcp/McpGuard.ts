@@ -10,10 +10,16 @@ import {
   type DecisionGate,
   type IntentActor,
   type JsonObject,
+  type McpToolProfile,
   type SafeExecutionResult,
 } from "@decionis/agent-safe-pipeline";
 import { jcsDigest } from "../JcsDigest.js";
-import { McpBindingError, bindMcpInvocation, bindingFor } from "./McpIntentBinder.js";
+import {
+  McpBindingError,
+  bindMcpInvocation,
+  bindingFor,
+  profiledBinding,
+} from "./McpIntentBinder.js";
 import type { McpInvocation, McpToolBinding } from "./McpInvocation.js";
 
 /**
@@ -26,8 +32,27 @@ export interface McpTool<TResult = unknown> {
   invoke(args: JsonObject): Promise<TResult>;
 }
 
+/**
+ * A tool an `agent-safe.profile.mcp/1` profile declares: only its name and
+ * what it does. Its action, target, subject, consequential arguments and the
+ * arguments it accepts are the profile's, read as data.
+ */
+export interface McpProfiledTool<TResult = unknown> {
+  readonly tool: string;
+  invoke(args: JsonObject): Promise<TResult>;
+}
+
+/** What the host knows about the session a call belongs to, never what the model sent. */
+export interface McpSession {
+  /** The subject the session is pinned to, verified by the host. */
+  readonly subject?: string;
+}
+
 export interface McpGuardOptions {
-  readonly tools: readonly McpTool[];
+  /** Tools bound in code (`McpTool`), or declared by `profile` (`McpProfiledTool`). */
+  readonly tools: readonly (McpTool | McpProfiledTool)[];
+  /** The tool profile the profiled tools are declared in. */
+  readonly profile?: McpToolProfile;
   readonly authority: DecisionAuthority;
   readonly verifier: AuthorizationVerifier;
   readonly tenantId: string;
@@ -113,12 +138,16 @@ export class McpGuard {
 
   public constructor(options: McpGuardOptions) {
     this.options = options;
-    this.bindings = new Map(options.tools.map((tool) => [tool.binding.tool, tool.binding]));
-    this.tools = new Map(options.tools.map((tool) => [tool.binding.tool, tool]));
+    const tools = options.tools.map((tool) => McpGuard.resolve(tool, options.profile));
+    if (new Set(tools.map((tool) => tool.binding.tool)).size !== tools.length) {
+      throw new Error("MCP_TOOL_DUPLICATE");
+    }
+    this.bindings = new Map(tools.map((tool) => [tool.binding.tool, tool.binding]));
+    this.tools = new Map(tools.map((tool) => [tool.binding.tool, tool]));
     this.capture =
       options.capture ?? new IntentCapture({ ...(options.audit && { audit: options.audit }) });
     let registry = new ActionRegistry();
-    for (const tool of options.tools) {
+    for (const tool of tools) {
       registry = registry.register(tool.binding.action, {
         parametersSchema: tool.binding.argumentsSchema,
         execute: async ({ intent, parameters, dispatch }) => {
@@ -142,12 +171,33 @@ export class McpGuard {
     });
   }
 
+  /**
+   * A tool as the guard holds it: a code binding as given, or a profiled
+   * tool's binding read from the profile. A profiled tool the profile does
+   * not declare is refused at construction, never governed by a guess.
+   */
+  private static resolve(tool: McpTool | McpProfiledTool, profile?: McpToolProfile): McpTool {
+    if ("binding" in tool) return tool;
+    const binding = profile === undefined ? null : profiledBinding(profile, tool.tool);
+    if (binding === null) throw new Error("MCP_TOOL_NOT_PROFILED");
+    return { binding, invoke: (args) => tool.invoke(args) };
+  }
+
   /** Every tool this guard governs, for a server publishing its tool list. */
   public governs(tool: string): boolean {
     return this.bindings.has(tool);
   }
 
-  public async guard<TResult = unknown>(invocation: McpInvocation): Promise<McpOutcome<TResult>> {
+  /**
+   * One invocation, through the lifecycle. `session` is the host's: the
+   * subject it verified for this conversation. A tool that names a subject
+   * argument is refused without one, or for another subject, before the
+   * authority is asked; any tool's intent states it as `session.subject`.
+   */
+  public async guard<TResult = unknown>(
+    invocation: McpInvocation,
+    session: McpSession = {},
+  ): Promise<McpOutcome<TResult>> {
     let bound;
     let binding: McpToolBinding;
     try {
@@ -156,6 +206,7 @@ export class McpGuard {
         idempotencyKey:
           this.options.createIdempotencyKey?.(invocation) ??
           `mcp-${invocation.tool}-${jcsDigest(invocation.arguments as JsonObject).slice(7, 23)}`,
+        ...(session.subject === undefined ? {} : { subject: session.subject }),
       });
     } catch (error) {
       // Refused before the authority was asked: no decision, no dossier.

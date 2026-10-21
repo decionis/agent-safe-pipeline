@@ -1,0 +1,37 @@
+{
+  "description": "Without a session, a tool that names no subject binds and states no session.",
+  "definition": {
+    "profile": "agent-safe.profile.mcp/1",
+    "id": "erp/mcp/v1",
+    "title": "Synthetic ERP MCP server",
+    "system": "erp.example",
+    "environment": "test",
+    "tools": [
+      {
+        "tool": "refresh_exchange_rates",
+        "action": "currency.rates.refresh",
+        "operation": "currencies.refreshRates",
+        "summary": "Refresh exchange rates from the bank feed.",
+        "target": "erp:currencies",
+        "consequential": [],
+        "arguments": {
+          "currencies": {
+            "type": "array"
+          }
+        }
+      }
+    ]
+  },
+  "invocation": {
+    "tool": "refresh_exchange_rates",
+    "arguments": {}
+  },
+  "expected": {
+    "action": "currency.rates.refresh",
+    "target": "erp:currencies",
+    "operation": "currencies.refreshRates",
+    "system": "erp.example",
+    "environment": "test",
+    "consequential": []
+  }
+}

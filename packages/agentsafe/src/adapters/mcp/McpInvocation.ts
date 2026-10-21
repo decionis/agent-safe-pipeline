@@ -45,8 +45,9 @@ export const McpInvocationSchema = z
 export type McpInvocation = z.infer<typeof McpInvocationSchema>;
 
 /**
- * What an operator declares about one tool, in trusted startup code beside
- * the registry that will run it.
+ * What an operator declares about one tool: in an `agent-safe.profile.mcp/1`
+ * file the guard reads, or, as before, in trusted startup code beside the
+ * registry that will run it.
  *
  * A tool with no binding is not governed by this adapter and not silently
  * allowed by it either: the guard refuses it, so adding a consequential tool
@@ -74,6 +75,12 @@ export interface McpToolBinding {
   readonly consequential: readonly string[];
   /** The arguments this tool accepts. Anything else is refused, not dropped. */
   readonly argumentsSchema: z.ZodType<JsonObject>;
+  /**
+   * The argument naming the tool's subject (the customer it acts for). When
+   * set, a call must come with a session subject and name that subject here,
+   * or it is refused before the authority is asked.
+   */
+  readonly subject?: string;
 }
 
 export const MAX_TEMPLATE_PLACEHOLDERS = 16;

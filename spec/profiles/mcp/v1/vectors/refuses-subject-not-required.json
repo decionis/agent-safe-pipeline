@@ -1,0 +1,37 @@
+{
+  "description": "A subject argument must be required: a call that leaves it out names no one.",
+  "definition": {
+    "profile": "agent-safe.profile.mcp/1",
+    "id": "erp/mcp/v1",
+    "title": "Synthetic ERP MCP server",
+    "system": "erp.example",
+    "environment": "test",
+    "tools": [
+      {
+        "tool": "update_credit_limit",
+        "action": "customer.credit_limit.update",
+        "operation": "customers.updateCreditLimit",
+        "summary": "Set a customer's credit limit.",
+        "target": "erp:customer:{customerNumber}",
+        "subject": "note",
+        "consequential": ["customerNumber", "creditLimit"],
+        "arguments": {
+          "customerNumber": {
+            "type": "string",
+            "required": true,
+            "maxLength": 50
+          },
+          "creditLimit": {
+            "type": "number",
+            "required": true
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 200
+          }
+        }
+      }
+    ]
+  },
+  "error": "MCP_PROFILE_INVALID"
+}
