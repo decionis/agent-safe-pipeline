@@ -66,14 +66,29 @@ interface PolicyBundle {
   readonly version: string;
 }
 
+/** A format-3 bundle's organisation claims: the organisation's pack and the most it may enforce. */
+interface OrganisationClaims {
+  readonly vertical_pack: string | null;
+  readonly max_mode: string;
+  readonly max_mode_reason: string | null;
+}
+
+/** Format 2 without organisation claims; format 3 with them after `core_abi`, as issuance signs. */
 function signBundle(
   bundle: PolicyBundle,
-  claims: { orgId: string; jti: string; nbf: number; exp: number },
+  claims: {
+    orgId: string;
+    jti: string;
+    nbf: number;
+    exp: number;
+    organisation?: OrganisationClaims | undefined;
+  },
   kid = "decionis-policy-bundle-test-1",
   key = testKey("decionis-policy-bundle-test-key/1"),
 ): string {
   const b64 = (text: string): string => Buffer.from(text, "utf8").toString("base64url");
   const header = b64(JSON.stringify({ alg: "EdDSA", typ: "decionis-policy-bundle+jwt", kid }));
+  const organisation = claims.organisation;
   const payload = b64(
     JSON.stringify({
       iss: "decionis",
@@ -85,7 +100,14 @@ function signBundle(
       bundle_id: bundle.bundle_id,
       policy_version: bundle.version,
       bundle_digest: `sha256:${createHash("sha256").update(stable(bundle), "utf8").digest("hex")}`,
-      core_abi: 2,
+      ...(organisation === undefined
+        ? { core_abi: 2 }
+        : {
+            core_abi: 3,
+            vertical_pack: organisation.vertical_pack,
+            max_mode: organisation.max_mode,
+            max_mode_reason: organisation.max_mode_reason,
+          }),
       bundle,
     }),
   );
@@ -93,15 +115,26 @@ function signBundle(
   return `${input}.${sign(null, Buffer.from(input, "ascii"), key).toString("base64url")}`;
 }
 
+const DecideBundleSchema = z.object({
+  bundle: z.object({ bundle_id: z.string(), version: z.string() }).passthrough(),
+  org_id: z.string(),
+  jti: z.string(),
+  nbf: z.number(),
+  exp: z.number(),
+});
+
 const DecideCorpusSchema = z.object({
   bundles: z.array(
-    z.object({
-      bundle: z.object({ bundle_id: z.string(), version: z.string() }).passthrough(),
-      org_id: z.string(),
-      jti: z.string(),
-      nbf: z.number(),
-      exp: z.number(),
-    }),
+    z.union([
+      // Format 3: an organisation's bundle, signed with the claims hosted derived for it.
+      DecideBundleSchema.extend({
+        core_abi: z.literal(3),
+        vertical_pack: z.string().nullable(),
+        max_mode: z.string(),
+        max_mode_reason: z.string().nullable(),
+      }),
+      DecideBundleSchema.extend({ core_abi: z.undefined().optional() }),
+    ]),
   ),
   vectors: z.array(
     z.object({
@@ -121,10 +154,26 @@ function corpus<T>(name: string, schema: z.ZodType<T>): T {
   return schema.parse(JSON.parse(readFileSync(join(CORPUS, name), "utf8")));
 }
 
+/** A corpus `decide` result with its bundle reference under another signing key's kid. */
+function withKid(result: unknown, kid: string): unknown {
+  const answer = result as { readonly bundle: Record<string, unknown> };
+  return { ...answer, bundle: { ...answer.bundle, kid } };
+}
+
 const SignedBundlesSchema = z.object({
   meta: z.object({ org_id: z.string() }).passthrough(),
   bundles: z.array(
-    z.object({ signed_bundle: z.string(), kid: z.string(), jti: z.string() }).passthrough(),
+    z
+      .object({
+        signed_bundle: z.string(),
+        kid: z.string(),
+        jti: z.string(),
+        corpus: z.string(),
+        vector_ids: z.array(z.string()),
+        // A bundle issued to one of the decide corpus's organisations names that audience.
+        org_id: z.string().optional(),
+      })
+      .passthrough(),
   ),
 });
 
@@ -159,11 +208,15 @@ describe.skipIf(!available)(
 
     it("loads every bundle the Decionis issuer signed (test key decionis-policy-bundle-test-v1)", () => {
       const signed = corpus("signed-bundles.json", SignedBundlesSchema);
+      const decideVectors = new Map(
+        corpus("decide.json", DecideCorpusSchema).vectors.map((vector) => [vector.id, vector]),
+      );
       const module = EdgeModule.fromFile(WASM);
+      let decided = 0;
       for (const bundle of signed.bundles) {
         const loaded = module.loadBundle({
           signed_bundle: bundle.signed_bundle,
-          org_id: signed.meta.org_id,
+          org_id: bundle.org_id ?? signed.meta.org_id,
           now: "2026-10-02T00:00:00.000Z",
         });
         expect(loaded, bundle.jti).toMatchObject({
@@ -171,8 +224,24 @@ describe.skipIf(!available)(
           result: { kid: "decionis-policy-bundle-test-v1" },
         });
         const handle = (loaded as { result: { handle: number } }).result.handle;
+        // Issued for the decide corpus: its vectors get hosted's answer, under the issuer's kid.
+        for (const id of bundle.corpus === "decide.json" ? bundle.vector_ids : []) {
+          const vector = decideVectors.get(id);
+          if (vector?.input === undefined) throw new Error(`${bundle.jti}: no decide input ${id}`);
+          const expected = vector.expected.ok
+            ? {
+                ok: true,
+                result: withKid(vector.expected.result, "decionis-policy-bundle-test-v1"),
+              }
+            : { ok: false, code: vector.expected.code };
+          expect(JSON.stringify(module.decide(handle, vector.input)), id).toBe(
+            JSON.stringify(expected),
+          );
+          decided += 1;
+        }
         expect(module.unloadBundle(handle)).toBe(true);
       }
+      expect(decided).toBeGreaterThanOrEqual(100);
       expect(
         module.loadBundle({
           signed_bundle: signed.bundles[0]?.signed_bundle ?? "",
@@ -204,6 +273,7 @@ describe.skipIf(!available)(
               jti: entry.jti,
               nbf: entry.nbf,
               exp: entry.exp,
+              organisation: entry.core_abi === 3 ? entry : undefined,
             }),
             org_id: entry.org_id,
             now: new Date(entry.nbf * 1_000).toISOString(),
