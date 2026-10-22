@@ -32,6 +32,10 @@ export const ACTION_NAME = /^[a-z][a-z0-9._:-]*$/;
 
 /** The header a tenant presents its ingress key in; never the URL, never forwarded. */
 export const TENANT_KEY_HEADER = "agentsafe-tenant-key";
+/** The header a caller presents a subject session in, from the gateway's token exchange; never forwarded. */
+export const SESSION_HEADER = "agentsafe-session";
+/** The header a caller presents the identity provider's subject token in, per request; never forwarded. */
+export const SUBJECT_TOKEN_HEADER = "agentsafe-subject-token";
 const TENANT_KEY_DIGEST = /^sha256:[0-9a-f]{64}$/;
 /** A tenant's registry id: the DNS label it is served under. */
 const HOSTED_TENANT = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
@@ -73,8 +77,27 @@ const DEFAULT_UPSTREAM_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_BODY_BYTES = 1024 * 1024;
 const DEFAULT_MAX_EMBEDDED_BODY_BYTES = 64 * 1024;
 const DEFAULT_INTENT_TTL_SECONDS = 120;
+const DEFAULT_SESSION_TTL_SECONDS = 900;
 /** The most a body may be, so the bound is a bound and not a suggestion. */
 const MAX_BODY_BYTES = 16 * 1024 * 1024;
+
+/**
+ * Who a session is for: the identity provider whose short-lived token names
+ * the subject (the customer in context), and where in the token the subject
+ * is. The gateway pins that subject for the session.
+ */
+export interface SubjectConfig {
+  readonly issuer: string;
+  readonly audience: string;
+  /** A JWKS document on disk; the first key set, and the one kept when a refresh fails. */
+  readonly jwksFile: string | null;
+  /** Where the key set is refreshed from, through the guarded egress; fetched at start without a file. */
+  readonly jwksUrl: string | null;
+  /** The claim naming the subject; `sub` by default. */
+  readonly claim: string;
+  /** The longest a session from the token exchange lasts; never past the token's own expiry. */
+  readonly sessionTtlSeconds: number;
+}
 
 export interface RouteConfig {
   readonly path: string;
@@ -183,7 +206,11 @@ export interface GatewayConfig {
     readonly profile: string | null;
     /** `FACTS`: the authority receives the profile's operation and facts, never the request. */
     readonly privacy: PrivacyMode;
+    /** Refuse a read no profile operation names, rather than pass it through unchecked. */
+    readonly refuseUnknownReads: boolean;
   };
+  /** Subject-bound sessions: null when the gateway pins no subject. */
+  readonly subject: SubjectConfig | null;
   readonly actor: { readonly id: string; readonly type: string; readonly runtime: string };
   /**
    * What the operator calls this enforcement boundary. Null leaves it to be
@@ -293,6 +320,24 @@ export const GatewayFileSchema = z.strictObject({
       profile: z.string().trim().min(1).max(120).optional(),
       // facts: the authority receives the profile's operation and facts, never the request.
       privacy: lowerEnum(["full", "facts"]).optional(),
+      // true: a read no profile operation names is refused; needs subject and a profile.
+      refuseUnknownReads: z.boolean().optional(),
+    })
+    .optional(),
+  subject: z
+    .strictObject({
+      issuer: z.string().trim().min(1).max(500),
+      audience: z.string().trim().min(1).max(500),
+      jwksFile: z.string().trim().min(1).max(500).optional(),
+      jwksUrl: url.optional(),
+      claim: z
+        .string()
+        .trim()
+        .min(1)
+        .max(200)
+        .regex(/^[^\s"\\]+$/)
+        .optional(),
+      sessionTtlSeconds: z.number().int().min(60).max(3_600).optional(),
     })
     .optional(),
   actor: z
@@ -915,13 +960,32 @@ export class GatewayConfigLoader {
       );
     }
 
-    // The tenant key is the gateway's own credential: it is stripped before
-    // forwarding, so it can never be the header that names a principal.
-    if (principalHeader?.toLowerCase() === TENANT_KEY_HEADER) {
+    const subject = GatewayConfigLoader.subject(file, allowInsecureLoopback, sources);
+    const refuseUnknownReads = resolve(
+      "interception.refuseUnknownReads",
+      [{ source: "file", raw: file?.interception?.refuseUnknownReads }],
+      false,
+    );
+    if (refuseUnknownReads && (subject === null || profile === null)) {
+      throw new GatewayConfigError(
+        "CONFIG_INVALID",
+        "interception.refuseUnknownReads",
+        "needs subject and interception.profile: reads are checked against a session",
+      );
+    }
+
+    // The tenant key and the subject session headers are the gateway's own
+    // credentials: they are stripped before forwarding, and the value of a
+    // principal header is sent to the authority, so none of them can be the
+    // header that names a principal.
+    const ownCredential = [TENANT_KEY_HEADER, SESSION_HEADER, SUBJECT_TOKEN_HEADER].find(
+      (header) => header === principalHeader?.toLowerCase(),
+    );
+    if (ownCredential !== undefined) {
       throw new GatewayConfigError(
         "CONFIG_INVALID",
         "interception.principalHeader",
-        `${TENANT_KEY_HEADER} is the gateway's own credential`,
+        `${ownCredential} is the gateway's own credential`,
       );
     }
     const tenantKeys = GatewayConfigLoader.tenantKeys(
@@ -1143,7 +1207,9 @@ export class GatewayConfigLoader {
         principalHeader: principalHeader === null ? null : principalHeader.toLowerCase(),
         profile,
         privacy,
+        refuseUnknownReads,
       },
+      subject,
       actor: {
         id: resolve(
           "actor.id",
@@ -1188,6 +1254,43 @@ export class GatewayConfigLoader {
       production,
       secrets: { required },
       sources,
+    };
+  }
+
+  /**
+   * The subject section, when there is one: an issuer, an audience and a key
+   * set, on disk or at an address the guarded egress fetches. The address is
+   * https, or loopback with the authority's loopback allowance.
+   */
+  private static subject(
+    file: GatewayFile | null,
+    allowInsecureLoopback: boolean,
+    sources: Record<string, ConfigSource>,
+  ): SubjectConfig | null {
+    const section = file?.subject;
+    sources["subject"] = section === undefined ? "default" : "file";
+    if (section === undefined) return null;
+    if (section.jwksFile === undefined && section.jwksUrl === undefined) {
+      throw new GatewayConfigError(
+        "CONFIG_MISSING",
+        "subject.jwksFile",
+        "subject.jwksFile or subject.jwksUrl: the identity provider's keys",
+      );
+    }
+    return {
+      issuer: section.issuer,
+      audience: section.audience,
+      jwksFile: section.jwksFile ?? null,
+      jwksUrl:
+        section.jwksUrl === undefined
+          ? null
+          : GatewayConfigLoader.authorityUrl(
+              section.jwksUrl,
+              "subject.jwksUrl",
+              allowInsecureLoopback,
+            ),
+      claim: section.claim ?? "sub",
+      sessionTtlSeconds: section.sessionTtlSeconds ?? DEFAULT_SESSION_TTL_SECONDS,
     };
   }
 

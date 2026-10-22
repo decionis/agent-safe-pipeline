@@ -69,6 +69,8 @@ interception:
   call arrived.
 - `agentsafe profile list` names the profiles this build ships; an unknown name is refused when
   the configuration loads.
+- An operation may name where its subject sits, and a `GET` operation is a read the gateway checks
+  against a [subject-bound session](./subject-sessions.md) rather than a call it governs.
 - `privacy: facts` sends the authority the operation id, its path template and the named facts,
   never the raw path, query, headers or body, and refuses with `403 PROFILE_OPERATION_UNMATCHED` a
   write the profile does not name ([facts-only privacy](./http-interception.md#facts-only-privacy)).

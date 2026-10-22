@@ -1,0 +1,44 @@
+{
+  "description": "A write names where its subject sits too; a number is stated as its decimal string. A write is decided by policy, not checked.",
+  "definition": {
+    "profile": "agent-safe.profile.api/1",
+    "id": "example/api/v1",
+    "platform": "example",
+    "title": "Example API",
+    "prefixes": [""],
+    "operations": [
+      {
+        "id": "orders.create",
+        "method": "POST",
+        "path": "/orders",
+        "action": "order.create",
+        "summary": "Create an order.",
+        "facts": {
+          "customer_number": "/body/customerNumber"
+        },
+        "policy_projection": null,
+        "subject": {
+          "request": "/body/customerNumber"
+        }
+      }
+    ]
+  },
+  "request": {
+    "method": "POST",
+    "path": "/orders",
+    "body": {
+      "customerNumber": 10000
+    }
+  },
+  "expected": {
+    "operation": "orders.create",
+    "action": "order.create",
+    "facts": {
+      "customer_number": 10000
+    },
+    "policy_projection": null,
+    "subject": "10000"
+  },
+  "session": "10000",
+  "request_check": "MATCH"
+}

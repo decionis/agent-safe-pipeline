@@ -23,13 +23,17 @@ describe("agentsafe profile", () => {
           id: "businesscentral/api/v2",
           platform: "business-central",
           title: ApiProfiles.get("businesscentral/api/v2")!.definition.title,
-          operations: 10,
+          operations: 22,
+          reads: 12,
+          subject_scoped: 13,
         },
         {
           id: "walmart/api/v3",
           platform: "walmart-marketplace",
           title: ApiProfiles.get("walmart/api/v3")!.definition.title,
           operations: 8,
+          reads: 0,
+          subject_scoped: 0,
         },
       ],
     });
@@ -92,10 +96,23 @@ describe("agentsafe profile", () => {
       "--prefix",
       "",
     ]);
-    const bare = lastJson(io.out) as { paths: Record<string, unknown> };
+    const bare = lastJson(io.out) as {
+      paths: Record<string, Record<string, Operation & { description: string }>>;
+    };
     expect(Object.keys(bare.paths)).toContain(
       "/companies({companyId})/salesInvoices({salesInvoiceId})/Microsoft.NAV.post",
     );
+    // A read is checked, never governed, and takes no body.
+    const read = bare.paths["/companies({companyId})/customers"]!["get"]!;
+    expect(read.operationId).toBe("customers_list");
+    expect(read.requestBody).toBeUndefined();
+    expect(read.description).toContain("Checked as customer.read");
+    expect(read.description).toContain("refused whole");
+    // A read and a write on one path are two OpenAPI operations.
+    expect(Object.keys(bare.paths["/companies({companyId})/salesOrders"]!).sort()).toEqual([
+      "get",
+      "post",
+    ]);
   });
 
   it.each([

@@ -1,4 +1,4 @@
-import { ApiProfiles, type ApiProfile } from "@decionis/agent-safe-pipeline";
+import { ApiProfile, ApiProfiles } from "@decionis/agent-safe-pipeline";
 import { ArgumentError, optionValue, parseArguments } from "./Arguments.js";
 import type { CliProcess } from "./CliProcess.js";
 
@@ -9,7 +9,10 @@ const SERVER = /^https:\/\/[^\s/?#]+(?:\/[^\s?#]*)?$/;
 const LOCAL = /^http:\/\/(?:127\.0\.0\.1|localhost)(?::\d{1,5})?(?:\/[^\s?#]*)?$/;
 
 /**
- * `agentsafe profile list` names the API intent profiles this build ships;
+ * `agentsafe profile list` names the API intent profiles this build ships,
+ * with how many operations each has, how many are reads, and how many say
+ * where their subject sits: an operation that does not is not scoped to a
+ * session's customer, and the count says so rather than leave it assumed;
  * `agentsafe profile openapi <id> --server <gateway URL>` writes one as the
  * OpenAPI 3.0 document an AgentCore Gateway target (or any OpenAPI tool
  * importer) is created from. Every operation's server is the AgentSafe
@@ -28,6 +31,11 @@ export function runProfile(io: CliProcess, argv: readonly string[]): void {
             platform: profile.platform,
             title: profile.definition.title,
             operations: profile.definition.operations.length,
+            reads: profile.definition.operations.filter((operation) => ApiProfile.isRead(operation))
+              .length,
+            subject_scoped: profile.definition.operations.filter(
+              (operation) => operation.subject !== undefined,
+            ).length,
           };
         }),
       })}\n`,
@@ -117,6 +125,7 @@ export function profileOpenApi(
     const readsBody = operations.some((operation) =>
       Object.values(operation.facts).some((pointer) => pointer.startsWith("/body")),
     );
+    const read = method === "GET";
     const governed = operations
       .map(
         (operation) =>
@@ -126,15 +135,18 @@ export function profileOpenApi(
               : `With ${Object.entries(operation.query)
                   .map(([name, value]) => `${name}=${value}`)
                   .join("&")}: `
-          }${operation.summary} Governed as ${operation.action}.`,
+          }${operation.summary} ${read ? "Checked" : "Governed"} as ${operation.action}.`,
       )
       .join(" ");
+    const platform = profile.definition.title.split(":")[0];
     paths[path] = {
       ...(paths[path] ?? {}),
       [method.toLowerCase()]: {
         operationId: primary.id.replaceAll(".", "_"),
         summary: primary.summary,
-        description: `${governed} The AgentSafe gateway asks Decionis before the call reaches ${profile.definition.title.split(":")[0]}; a held or refused call is answered by the gateway, never forwarded.`,
+        description: read
+          ? `${governed} With subject-bound sessions, the AgentSafe gateway checks the call and every item of its answer against the session's customer; an answer naming another is refused whole by the gateway.`
+          : `${governed} The AgentSafe gateway asks Decionis before the call reaches ${platform}; a held or refused call is answered by the gateway, never forwarded.`,
         parameters: [
           ...placeholders.map((name) => ({
             name,
@@ -149,7 +161,7 @@ export function profileOpenApi(
             schema: { type: "string", enum: [...values] },
           })),
         ],
-        ...(method === "DELETE"
+        ...(method === "DELETE" || read
           ? {}
           : {
               requestBody: {

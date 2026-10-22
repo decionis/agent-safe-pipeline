@@ -999,6 +999,18 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/gateway/SubjectGateway.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/gateway/SubjectSessions.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/gateway/Upstream.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",

@@ -1,0 +1,51 @@
+{
+  "description": "An item that names no subject cannot be checked, so the answer is refused.",
+  "definition": {
+    "profile": "agent-safe.profile.api/1",
+    "id": "example/api/v1",
+    "platform": "example",
+    "title": "Example API",
+    "prefixes": [""],
+    "operations": [
+      {
+        "id": "invoices.list",
+        "method": "GET",
+        "path": "/invoices",
+        "action": "invoice.read",
+        "summary": "List invoices.",
+        "facts": {},
+        "policy_projection": null,
+        "subject": {
+          "response": "/body/value/*/customerNumber"
+        }
+      }
+    ]
+  },
+  "request": {
+    "method": "GET",
+    "path": "/invoices",
+    "query": {
+      "$select": "number"
+    }
+  },
+  "expected": {
+    "operation": "invoices.list",
+    "action": "invoice.read",
+    "facts": {},
+    "policy_projection": null
+  },
+  "session": "C-10000",
+  "request_check": "MATCH",
+  "response": {
+    "value": [
+      {
+        "number": "INV-1",
+        "customerNumber": "C-10000"
+      },
+      {
+        "number": "INV-2"
+      }
+    ]
+  },
+  "response_check": "RESPONSE_SUBJECT_ABSENT"
+}

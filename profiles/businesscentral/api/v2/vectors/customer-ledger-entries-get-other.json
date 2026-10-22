@@ -1,0 +1,23 @@
+{
+  "description": "One ledger entry, by its number, of another customer: refused.",
+  "profile": "businesscentral/api/v2",
+  "request": {
+    "method": "GET",
+    "path": "/v2.0/production/api/v2.0/companies(6f3c1a52-1d2e-4f5a-8b9c-0d1e2f3a4b5c)/customerLedgerEntries(1207)",
+    "query": {}
+  },
+  "expected": {
+    "operation": "customerLedgerEntries.get",
+    "action": "ledger.read",
+    "facts": {},
+    "policy_projection": null
+  },
+  "session": "C-10000",
+  "request_check": "MATCH",
+  "response": {
+    "entryNumber": 1207,
+    "customerNumber": "C-20000",
+    "amount": 99
+  },
+  "response_check": "RESPONSE_SUBJECT_MISMATCH"
+}

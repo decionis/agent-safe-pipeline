@@ -1,0 +1,22 @@
+{
+  "description": "A read is an operation only to be checked for its subject: one that names none is refused.",
+  "definition": {
+    "profile": "agent-safe.profile.api/1",
+    "id": "example/api/v1",
+    "platform": "example",
+    "title": "Example API",
+    "prefixes": [""],
+    "operations": [
+      {
+        "id": "invoices.list",
+        "method": "GET",
+        "path": "/invoices",
+        "action": "invoice.read",
+        "summary": "List invoices.",
+        "facts": {},
+        "policy_projection": null
+      }
+    ]
+  },
+  "error": "API_PROFILE_INVALID"
+}

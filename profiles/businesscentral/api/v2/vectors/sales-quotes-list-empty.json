@@ -1,0 +1,21 @@
+{
+  "description": "No quotes for the session's customer: an empty list names no one.",
+  "profile": "businesscentral/api/v2",
+  "request": {
+    "method": "GET",
+    "path": "/v2.0/production/api/v2.0/companies(6f3c1a52-1d2e-4f5a-8b9c-0d1e2f3a4b5c)/salesQuotes",
+    "query": {}
+  },
+  "expected": {
+    "operation": "salesQuotes.list",
+    "action": "sales.read",
+    "facts": {},
+    "policy_projection": null
+  },
+  "session": "C-10000",
+  "request_check": "MATCH",
+  "response": {
+    "value": []
+  },
+  "response_check": "MATCH"
+}

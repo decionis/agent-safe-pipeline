@@ -1,0 +1,27 @@
+{
+  "description": "A read is never decided, so it states no fact.",
+  "definition": {
+    "profile": "agent-safe.profile.api/1",
+    "id": "example/api/v1",
+    "platform": "example",
+    "title": "Example API",
+    "prefixes": [""],
+    "operations": [
+      {
+        "id": "invoices.list",
+        "method": "GET",
+        "path": "/invoices",
+        "action": "invoice.read",
+        "summary": "List invoices.",
+        "facts": {
+          "customer_number": "/query/customer"
+        },
+        "policy_projection": null,
+        "subject": {
+          "response": "/body/value/*/customerNumber"
+        }
+      }
+    ]
+  },
+  "error": "API_PROFILE_INVALID"
+}

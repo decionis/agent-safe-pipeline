@@ -1,0 +1,40 @@
+{
+  "description": "An empty list names no one, and matches.",
+  "definition": {
+    "profile": "agent-safe.profile.api/1",
+    "id": "example/api/v1",
+    "platform": "example",
+    "title": "Example API",
+    "prefixes": [""],
+    "operations": [
+      {
+        "id": "invoices.list",
+        "method": "GET",
+        "path": "/invoices",
+        "action": "invoice.read",
+        "summary": "List invoices.",
+        "facts": {},
+        "policy_projection": null,
+        "subject": {
+          "response": "/body/value/*/customerNumber"
+        }
+      }
+    ]
+  },
+  "request": {
+    "method": "GET",
+    "path": "/invoices"
+  },
+  "expected": {
+    "operation": "invoices.list",
+    "action": "invoice.read",
+    "facts": {},
+    "policy_projection": null
+  },
+  "session": "C-10000",
+  "request_check": "MATCH",
+  "response": {
+    "value": []
+  },
+  "response_check": "MATCH"
+}

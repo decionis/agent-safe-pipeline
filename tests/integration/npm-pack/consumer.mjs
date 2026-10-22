@@ -15,6 +15,7 @@ console.log(`Imported ${exports.length} exports:`, exports);
 const EXPECTED_RUNTIME = [
   "API_PROFILE_CONTRACT",
   "API_PROFILE_METHODS",
+  "API_PROFILE_READ_METHOD",
   "API_PROFILE_SCHEMA_ID",
   "ActionRegistry",
   "AgentProposalSchema",
@@ -24,6 +25,7 @@ const EXPECTED_RUNTIME = [
   "ApiProfileDefinitionSchema",
   "ApiProfileError",
   "ApiProfiles",
+  "ApiSubjectSchema",
   "AuditPolicyRevisionVerifier",
   "AuditRecorder",
   "AuthorityIntentBindingSchema",
@@ -74,6 +76,7 @@ const EXPECTED_RUNTIME = [
   "LocalGrants",
   "MAX_FACT_ELEMENTS",
   "MAX_FACT_STRING",
+  "MAX_SUBJECT_LENGTH",
   "MonotonicDeadline",
   "NATIVE_EXECUTOR_CONTRACT",
   "NATIVE_EXECUTOR_SCHEMA_ID",

@@ -9,15 +9,23 @@ import type { JsonObject, JsonPrimitive, JsonValue } from "../intent/JsonValue.j
  * by JSON pointer into the call. The gateway reads it to govern an agent's
  * call; a native executor's `prepare` reads it to describe the call it is
  * about to make. One mapping, no code coupling between them.
+ *
+ * An operation may also say where the subject sits (the customer a call is
+ * for): in the call, and, for a read, in each item of its answer. A component
+ * that pins a session to one subject checks a read against it, and states the
+ * subject to the authority for a write. A read is an operation only for that:
+ * it is checked, never decided.
  */
 export const API_PROFILE_CONTRACT = "agent-safe.profile.api/1";
 
 export const API_PROFILE_SCHEMA_ID =
   "https://github.com/decionis/agent-safe-pipeline/blob/master/spec/profiles/api/v1/schema.json";
 
-/** The methods a profile governs; a read is never an operation. */
+/** The methods a profile governs: each operation of one is decided by the authority. */
 export const API_PROFILE_METHODS = ["POST", "PUT", "PATCH", "DELETE"] as const;
 export type ApiProfileMethod = (typeof API_PROFILE_METHODS)[number];
+/** The one read method an operation may name: checked for its subject, never decided. */
+export const API_PROFILE_READ_METHOD = "GET";
 
 /**
  * Fact names a profile may not use. The first group is what the gateway
@@ -61,16 +69,20 @@ export const RESERVED_FACT_NAMES: readonly string[] = [
   "context",
   "intake",
   "runtime_attribution",
+  "session",
 ];
 
 /** The most elements one `*` pointer collects; more is not a fact, it is a payload. */
 export const MAX_FACT_ELEMENTS = 100;
 /** The longest string a fact carries; a longer value is not stated. */
 export const MAX_FACT_STRING = 1000;
+/** The longest subject: an identifier, never a payload. */
+export const MAX_SUBJECT_LENGTH = 200;
 
 const PLACEHOLDER = /\{([A-Z]\w{0,63})\}/gi;
 const TEMPLATE = /^(\/[^/?#%\\\s]+)+$/;
 const POINTER = /^\/(path|query|body)(\/.*)?$/;
+const RESPONSE_POINTER = /^\/body(\/.*)?$/;
 
 const name = z.string().regex(/^[a-z][a-z0-9_]{0,63}$/);
 const projectionText = z.string().trim().min(1).max(120);
@@ -82,13 +94,23 @@ export const ApiPolicyProjectionSchema = z.strictObject({
   channel: projectionText.nullable(),
 });
 
+/**
+ * Where an operation's subject sits: `request`, a pointer into the call like
+ * a fact's, with no `*`; `response`, for a read, a pointer into its answer's
+ * JSON body, where one `*` reaches every item of a list.
+ */
+export const ApiSubjectSchema = z.strictObject({
+  request: z.string().max(300).regex(POINTER).optional(),
+  response: z.string().max(300).regex(RESPONSE_POINTER).optional(),
+});
+
 export const ApiOperationSchema = z.strictObject({
   /** The operation's name in the profile, unique, dotted lower camel case. */
   id: z
     .string()
     .regex(/^[a-z][A-Za-z0-9]*(\.[a-z][A-Za-z0-9]*)*$/)
     .max(120),
-  method: z.enum(API_PROFILE_METHODS),
+  method: z.enum([...API_PROFILE_METHODS, API_PROFILE_READ_METHOD]),
   /** A path template: literal text and `{name}` placeholders, each within one segment. */
   path: z.string().max(500).regex(TEMPLATE),
   /** Exact query values the call must carry to be this operation (an API that overloads a path). */
@@ -103,6 +125,8 @@ export const ApiOperationSchema = z.strictObject({
   facts: z.record(name, z.string().max(300).regex(POINTER)),
   /** The policy path the authority decides the call under, when the profile states one. */
   policy_projection: ApiPolicyProjectionSchema.nullable(),
+  /** Where the call's subject sits; required of a read, optional for a write. */
+  subject: ApiSubjectSchema.optional(),
 });
 
 export const ApiProfileDefinitionSchema = z.strictObject({
@@ -126,6 +150,7 @@ export const ApiProfileDefinitionSchema = z.strictObject({
 });
 
 export type ApiPolicyProjection = z.infer<typeof ApiPolicyProjectionSchema>;
+export type ApiSubject = z.infer<typeof ApiSubjectSchema>;
 export type ApiOperationDefinition = z.infer<typeof ApiOperationSchema>;
 export type ApiProfileDefinition = z.infer<typeof ApiProfileDefinitionSchema>;
 
@@ -147,7 +172,26 @@ export interface ApiProfileMatch {
   /** Every fact whose pointer resolved to a statable value; the others are absent. */
   readonly facts: JsonObject;
   readonly policyProjection: ApiPolicyProjection | null;
+  /**
+   * The call's subject, when the operation names where it sits in the call:
+   * a string or a finite number, as a string; null when the pointer found
+   * neither. Absent when the operation names no request subject.
+   */
+  readonly subject?: string | null;
 }
+
+/**
+ * A subject check's answer. `MATCH` is the only one that lets a call or an
+ * answer through; every other is a refusal, and each says why without saying
+ * whose record it was.
+ */
+export type ApiSubjectCheck =
+  | "MATCH"
+  | "SUBJECT_ABSENT"
+  | "SUBJECT_MISMATCH"
+  | "RESPONSE_UNREADABLE"
+  | "RESPONSE_SUBJECT_ABSENT"
+  | "RESPONSE_SUBJECT_MISMATCH";
 
 export class ApiProfileError extends Error {
   public constructor(
@@ -163,6 +207,8 @@ interface CompiledOperation {
   readonly definition: ApiOperationDefinition;
   /** One matcher per prefix, in the profile's prefix order. */
   readonly matchers: readonly RegExp[];
+  /** The same matchers, case-insensitive: what `resembles` asks. */
+  readonly loose: readonly RegExp[];
   readonly placeholders: readonly (readonly string[])[];
 }
 
@@ -200,6 +246,7 @@ export class ApiProfile {
       }
       for (const pointer of Object.values(operation.facts))
         ApiProfile.pointerSegments(pointer, operation.id);
+      ApiProfile.subjectRules(operation);
       const matchers: RegExp[] = [];
       const placeholders: string[][] = [];
       for (const prefix of definition.prefixes) {
@@ -207,7 +254,12 @@ export class ApiProfile {
         matchers.push(pattern);
         placeholders.push(names);
       }
-      return { definition: operation, matchers, placeholders };
+      return {
+        definition: operation,
+        matchers,
+        loose: matchers.map((matcher) => new RegExp(matcher.source, "i")),
+        placeholders,
+      };
     });
   }
 
@@ -233,9 +285,68 @@ export class ApiProfile {
     return this.definition.platform;
   }
 
-  /** Every action type the profile can produce, for a registry to be sealed over. */
+  /**
+   * Every action type the profile's writes can produce, for a registry to be
+   * sealed over. A read's action names it in reports; it is never an intent.
+   */
   public actions(): readonly string[] {
-    return [...new Set(this.definition.operations.map((operation) => operation.action))];
+    return [
+      ...new Set(
+        this.definition.operations
+          .filter((operation) => !ApiProfile.isRead(operation))
+          .map((operation) => operation.action),
+      ),
+    ];
+  }
+
+  /** Whether an operation is a read: checked for its subject, never decided. */
+  public static isRead(operation: ApiOperationDefinition): boolean {
+    return operation.method === API_PROFILE_READ_METHOD;
+  }
+
+  /** A call's subject against the session's: `MATCH`, or why not. */
+  public static checkRequest(
+    match: ApiProfileMatch,
+    subject: string,
+  ): "MATCH" | "SUBJECT_ABSENT" | "SUBJECT_MISMATCH" {
+    if (match.subject === undefined) return "MATCH";
+    if (match.subject === null) return "SUBJECT_ABSENT";
+    return match.subject === subject ? "MATCH" : "SUBJECT_MISMATCH";
+  }
+
+  /**
+   * A read's answer against the session's subject, before any of it is
+   * relayed: every item the operation's response pointer reaches must name
+   * the subject. One item naming another is `RESPONSE_SUBJECT_MISMATCH`, one
+   * naming none `RESPONSE_SUBJECT_ABSENT`, and an answer the pointer cannot
+   * be walked into (not JSON, or no list where the `*` stands)
+   * `RESPONSE_UNREADABLE`. Nothing is filtered: a partial answer would look
+   * complete. An empty list names no one and matches. Null when the
+   * operation names no response subject, so there is nothing to check.
+   */
+  public checkResponse(
+    operationId: string,
+    body: JsonValue | undefined,
+    subject: string,
+  ): ApiSubjectCheck | null {
+    const pointer = this.operation(operationId)?.subject?.response;
+    if (pointer === undefined) return null;
+    if (body === undefined) return "RESPONSE_UNREADABLE";
+    const tokens = ApiProfile.pointerSegments(pointer, operationId);
+    const root: JsonObject = { body };
+    const wildcard = tokens.indexOf("*");
+    const items =
+      wildcard === -1
+        ? [ApiProfile.walk(root, tokens)]
+        : ApiProfile.walkList(root, tokens.slice(0, wildcard), tokens.slice(wildcard + 1));
+    if (items === null) return "RESPONSE_UNREADABLE";
+    let absent = false;
+    for (const item of items) {
+      const named = ApiProfile.subjectOf(item);
+      if (named === null) absent = true;
+      else if (named !== subject) return "RESPONSE_SUBJECT_MISMATCH";
+    }
+    return absent ? "RESPONSE_SUBJECT_ABSENT" : "MATCH";
   }
 
   public operation(id: string): ApiOperationDefinition | null {
@@ -252,6 +363,29 @@ export class ApiProfile {
     query: ApiRequest["query"] = {},
   ): ApiOperationDefinition | null {
     return this.select(method, path, query)?.operation.definition ?? null;
+  }
+
+  /**
+   * Whether a call reads like one of this method's operations without
+   * matching it exactly: its path in another letter case, or with a literal
+   * percent-encoded. An upstream that folds case or decodes before it routes
+   * would serve it as that operation, so a component that checks reads
+   * refuses it rather than let it through unchecked. A path that does not
+   * decode resembles everything.
+   */
+  public resembles(method: string, path: string): boolean {
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(path);
+    } catch {
+      return true;
+    }
+    const upper = method.toUpperCase();
+    return this.compiled.some(
+      (operation) =>
+        operation.definition.method === upper &&
+        operation.loose.some((matcher) => matcher.test(path) || matcher.test(decoded)),
+    );
   }
 
   /** The operation, action type, facts and policy projection of one call; null when no operation matches. */
@@ -272,12 +406,23 @@ export class ApiProfile {
       );
       if (value !== undefined) facts[fact] = value;
     }
+    const subjectPointer = operation.definition.subject?.request;
     return {
       profile: this.definition.id,
       operation: operation.definition.id,
       action: operation.definition.action,
       facts,
       policyProjection: operation.definition.policy_projection,
+      ...(subjectPointer === undefined
+        ? {}
+        : {
+            subject: ApiProfile.subjectOf(
+              ApiProfile.walk(
+                root,
+                ApiProfile.pointerSegments(subjectPointer, operation.definition.id),
+              ),
+            ),
+          }),
     };
   }
 
@@ -370,6 +515,55 @@ export class ApiProfile {
       root[key] = typeof value === "string" ? value : [...value];
     }
     return root;
+  }
+
+  /**
+   * What a definition must also be about subjects: a read names where its
+   * subject sits and states no fact or policy path, since it is never
+   * decided; only a read names a response subject; a request subject is one
+   * value, so its pointer has no `*`.
+   */
+  private static subjectRules(operation: ApiOperationDefinition): void {
+    const subject = operation.subject;
+    const refuse = (detail: string): never => {
+      throw new ApiProfileError("API_PROFILE_INVALID", `operation ${operation.id} ${detail}`);
+    };
+    if (subject !== undefined && subject.request === undefined && subject.response === undefined)
+      refuse("names an empty subject");
+    if (ApiProfile.isRead(operation)) {
+      if (subject === undefined) refuse("is a read that names no subject");
+      if (Object.keys(operation.facts).length > 0 || operation.policy_projection !== null)
+        refuse("is a read: it states no fact and no policy projection");
+    } else if (subject?.response !== undefined) {
+      refuse("is a write: only a read names a response subject");
+    }
+    if (subject?.request !== undefined) {
+      if (ApiProfile.pointerSegments(subject.request, operation.id).includes("*"))
+        refuse("names a request subject through *");
+    }
+    if (subject?.response !== undefined) ApiProfile.pointerSegments(subject.response, operation.id);
+  }
+
+  /** A subject as stated: a string or a finite number, as a string, within the bound; else null. */
+  private static subjectOf(value: JsonValue | undefined): string | null {
+    const text =
+      typeof value === "string"
+        ? value
+        : typeof value === "number" && Number.isFinite(value)
+          ? String(value)
+          : null;
+    return text === null || text.length === 0 || text.length > MAX_SUBJECT_LENGTH ? null : text;
+  }
+
+  /** Each element's value through a `*`; null when there is no list where the `*` stands. */
+  private static walkList(
+    root: JsonValue,
+    before: readonly string[],
+    after: readonly string[],
+  ): (JsonValue | undefined)[] | null {
+    const list = ApiProfile.walk(root, before);
+    if (!Array.isArray(list)) return null;
+    return list.map((element) => ApiProfile.walk(element, after));
   }
 
   /** RFC 6901 reference tokens, unescaped; one `*` token at most. */

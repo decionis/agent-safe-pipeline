@@ -30,6 +30,10 @@ const KEEP_ALIVE_TIMEOUT_MS = 5_000;
 /** The gateway's own routes, under its prefix; anything else under the prefix is 404. */
 const OWN_ROUTES = ["healthz", "readyz", "status", "metrics"] as const;
 const ESCALATIONS = `${GATEWAY_PREFIX}/v1/escalations/`;
+/** RFC 8693 token exchange: a subject token in, a session token out. */
+const SESSIONS = `${GATEWAY_PREFIX}/v1/sessions`;
+/** A token exchange request is a short form; anything longer is not one. */
+const MAX_EXCHANGE_BYTES = 16 * 1024;
 const INTENT_ID = /^[0-9a-f-]{36}$/;
 const METHOD_OVERRIDE_HEADERS = ["x-http-method-override", "x-http-method", "x-method-override"];
 
@@ -204,6 +208,8 @@ export class GatewayHttpServer {
         if (plan.code === "HTTP_PATH_AMBIGUOUS") throw new GuardError(400, plan.code);
         // Facts-only privacy: a call the profile does not describe is never sent raw.
         if (plan.code === "PROFILE_OPERATION_UNMATCHED") throw new GuardError(403, plan.code);
+        // Reads are checked: one the profile cannot check is not relayed unchecked.
+        if (plan.code === "READ_OPERATION_UNMATCHED") throw new GuardError(403, plan.code);
         throw new GuardError(405, plan.code, {
           allow: "GET, HEAD, OPTIONS, POST, PUT, PATCH, DELETE",
         });
@@ -226,7 +232,9 @@ export class GatewayHttpServer {
       const answer =
         plan.kind === "GOVERN"
           ? await gateway.govern(intercepted, plan.action)
-          : await gateway.passthrough(intercepted);
+          : plan.kind === "CHECK"
+            ? await gateway.check(intercepted, plan.operation)
+            : await gateway.passthrough(intercepted);
       this.write(
         response,
         proof === "MISSING"
@@ -270,6 +278,30 @@ export class GatewayHttpServer {
     request: IncomingMessage,
     response: ServerResponse,
   ): Promise<void> {
+    if (url.pathname === SESSIONS) {
+      if (method !== "POST") throw new GuardError(405, "METHOD_NOT_ALLOWED");
+      // A session is the tenant's: it takes the tenant's key and rate, like its traffic.
+      const presented = request.headers[TENANT_KEY_HEADER];
+      const refusal = gateway.keyRefusal(typeof presented === "string" ? presented : undefined);
+      if (refusal !== null) {
+        throw new GuardError(401, refusal, { "www-authenticate": TENANT_KEY_CHALLENGE });
+      }
+      const rate = gateway.rate();
+      if (!rate.admitted) {
+        throw new GuardError(429, "RATE_LIMITED", {
+          "retry-after": String(rate.retryAfterSeconds),
+        });
+      }
+      const type = (request.headers["content-type"] ?? "").split(";")[0]?.trim().toLowerCase();
+      if (type !== "application/x-www-form-urlencoded") {
+        throw new GuardError(415, "CONTENT_TYPE_UNSUPPORTED");
+      }
+      const body = await GatewayHttpServer.readBody(request, MAX_EXCHANGE_BYTES);
+      return this.write(
+        response,
+        await gateway.exchange(new URLSearchParams(body.toString("utf8"))),
+      );
+    }
     if (url.pathname.startsWith(ESCALATIONS)) {
       // A held request is the tenant's: hosted, its key is asked for as
       // well as the resume token, so a leaked token alone resumes nothing.

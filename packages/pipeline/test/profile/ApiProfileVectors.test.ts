@@ -8,7 +8,9 @@ import {
   apiProfileJsonSchema,
   type ApiProfileMatch,
   type ApiRequest,
+  type ApiSubjectCheck,
 } from "../../src/profile/ApiProfile.js";
+import type { JsonValue } from "../../src/intent/JsonValue.js";
 import { ApiProfiles } from "../../src/profile/ApiProfiles.js";
 import { BUILT_IN_API_PROFILES } from "../../src/profile/BuiltInApiProfiles.js";
 
@@ -39,8 +41,15 @@ interface Vector {
     action: string;
     facts: Record<string, unknown>;
     policy_projection: unknown;
+    subject?: string | null;
   } | null;
   readonly error?: string;
+  /** The subject a session is pinned to, for the checks below. */
+  readonly session?: string;
+  readonly request_check?: ApiSubjectCheck;
+  /** A read's answer, as its JSON body. */
+  readonly response?: JsonValue;
+  readonly response_check?: ApiSubjectCheck;
 }
 
 function json<T>(url: URL): T {
@@ -83,7 +92,20 @@ function asVector(match: ApiProfileMatch | null): Vector["expected"] {
         action: match.action,
         facts: match.facts,
         policy_projection: match.policyProjection,
+        ...(match.subject === undefined ? {} : { subject: match.subject }),
       };
+}
+
+/** A vector's subject checks, when it pins a session: the call's, then its answer's. */
+function expectChecks(profile: ApiProfile, match: ApiProfileMatch | null, vector: Vector): void {
+  if (vector.session === undefined) return;
+  expect(match).not.toBeNull();
+  expect(ApiProfile.checkRequest(match!, vector.session)).toBe(vector.request_check);
+  if (vector.response_check !== undefined) {
+    expect(profile.checkResponse(match!.operation, vector.response, vector.session)).toBe(
+      vector.response_check,
+    );
+  }
 }
 
 function refusal(work: () => unknown): string {
@@ -109,7 +131,25 @@ describe("agent-safe.profile.api/1 definition vectors", () => {
       return;
     }
     const profile = ApiProfile.parse(vector.definition);
-    expect(asVector(profile.match(vector.request!))).toEqual(vector.expected);
+    const match = profile.match(vector.request!);
+    expect(asVector(match)).toEqual(vector.expected);
+    expectChecks(profile, match, vector);
+  });
+
+  it("checks subjects in reads and answers, both ways", () => {
+    const checked = vectors.filter(([, vector]) => vector.session !== undefined);
+    const outcomes = new Set(
+      checked.flatMap(([, vector]) => [vector.request_check, vector.response_check]),
+    );
+    for (const outcome of [
+      "MATCH",
+      "SUBJECT_ABSENT",
+      "SUBJECT_MISMATCH",
+      "RESPONSE_UNREADABLE",
+      "RESPONSE_SUBJECT_ABSENT",
+      "RESPONSE_SUBJECT_MISMATCH",
+    ])
+      expect(outcomes).toContain(outcome);
   });
 });
 
@@ -150,6 +190,7 @@ describe("the profiles this build ships", () => {
       expect(vector.profile, name).toBe(id);
       const match = profile.match(vector.request!);
       expect(asVector(match), name).toEqual(vector.expected);
+      expectChecks(profile, match, vector);
       if (match !== null) covered.add(match.operation);
     }
     expect([...covered].sort()).toEqual(
@@ -246,6 +287,40 @@ describe("ApiProfile", () => {
     expect(refusal(() => ApiProfile.parse(definition("/things/{id")))).toBe("API_PROFILE_INVALID");
     expect(refusal(() => ApiProfile.parse(definition("/things/{1d}")))).toBe("API_PROFILE_INVALID");
     expect(refusal(() => ApiProfile.parse(definition("things")))).toBe("API_PROFILE_INVALID");
+  });
+});
+
+describe("ApiProfile subjects", () => {
+  const businessCentral = ApiProfiles.get("businesscentral/api/v2")!;
+  const base = "/v2.0/production/api/v2.0/companies(6f3c1a52-1d2e-4f5a-8b9c-0d1e2f3a4b5c)";
+
+  it("seals a registry over writes only: a read is never an intent", () => {
+    expect(businessCentral.actions()).not.toContain("customer.read");
+    expect(businessCentral.actions()).toContain("sales.create");
+    expect(ApiProfile.isRead(businessCentral.operation("customers.list")!)).toBe(true);
+    expect(ApiProfile.isRead(businessCentral.operation("salesOrders.create")!)).toBe(false);
+  });
+
+  it("tells a read that only resembles an operation from one that matches none", () => {
+    expect(businessCentral.resembles("GET", `${base}/customers`)).toBe(true);
+    expect(businessCentral.resembles("GET", `${base}/CUSTOMERS`)).toBe(true);
+    expect(businessCentral.resembles("GET", `${base}/%63ustomers`)).toBe(true);
+    expect(businessCentral.resembles("GET", `${base}/%E0%A4%A`)).toBe(true);
+    expect(businessCentral.resembles("GET", `${base}/items`)).toBe(false);
+    expect(businessCentral.resembles("DELETE", `${base}/customers`)).toBe(false);
+  });
+
+  it("has nothing to check in an answer when the operation names no response subject", () => {
+    expect(
+      businessCentral.checkResponse("salesOrders.create", { customerNumber: "C-1" }, "C-1"),
+    ).toBeNull();
+    expect(businessCentral.checkResponse("customers.get", undefined, "C-1")).toBe(
+      "RESPONSE_UNREADABLE",
+    );
+    expect(businessCentral.checkResponse("customers.get", { number: "C-1" }, "C-1")).toBe("MATCH");
+    expect(businessCentral.checkResponse("customers.get", "C-1", "C-1")).toBe(
+      "RESPONSE_SUBJECT_ABSENT",
+    );
   });
 });
 

@@ -207,7 +207,10 @@ of the [adoption path](./telemetry.md#activation-milestones): `decionis_connecte
 
 ### `agentsafe profile list`, `agentsafe profile openapi <id> --server URL`
 
-`list` names the API intent profiles this build ships, for `interception.profile`. `openapi`
+`list` names the API intent profiles this build ships, for `interception.profile`, with each one's
+count of `operations`, of `reads` and of operations that say where their subject sits
+(`subject_scoped`); an operation outside that count is not held to a
+[subject-bound session](../gateway/subject-sessions.md). `openapi`
 writes one as an OpenAPI 3.0.3 document whose only server is the gateway at `--server` (`https`,
 or `http` on loopback): the document an AgentCore Gateway target, or any OpenAPI tool importer, is
 created from, so every tool call an agent makes passes through the gateway. Operations that

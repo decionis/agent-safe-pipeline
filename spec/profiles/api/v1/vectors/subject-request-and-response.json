@@ -1,0 +1,43 @@
+{
+  "description": "A read checked twice: its path names the session's subject, and so does its answer.",
+  "definition": {
+    "profile": "agent-safe.profile.api/1",
+    "id": "example/api/v1",
+    "platform": "example",
+    "title": "Example API",
+    "prefixes": [""],
+    "operations": [
+      {
+        "id": "customers.get",
+        "method": "GET",
+        "path": "/customers/{customerId}",
+        "action": "customer.read",
+        "summary": "Read one customer.",
+        "facts": {},
+        "policy_projection": null,
+        "subject": {
+          "request": "/path/customerId",
+          "response": "/body/number"
+        }
+      }
+    ]
+  },
+  "request": {
+    "method": "GET",
+    "path": "/customers/'C-10000'"
+  },
+  "expected": {
+    "operation": "customers.get",
+    "action": "customer.read",
+    "facts": {},
+    "policy_projection": null,
+    "subject": "C-10000"
+  },
+  "session": "C-10000",
+  "request_check": "MATCH",
+  "response": {
+    "number": "C-10000",
+    "displayName": "Synthetic Customer"
+  },
+  "response_check": "MATCH"
+}

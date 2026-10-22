@@ -14,7 +14,9 @@ export type GatewayState =
   | "AUTHORITY_UNAVAILABLE"
   | "EXECUTION_FAILED"
   | "EXECUTION_INDETERMINATE"
-  | "ERROR";
+  | "ERROR"
+  /** The gateway's own refusal of a request for its subject: no authority was asked. */
+  | "REFUSED";
 
 export type ExecutionDisposition =
   | "FORWARDED"
@@ -23,7 +25,9 @@ export type ExecutionDisposition =
   | "PASSTHROUGH"
   | "FORWARDED_UNGOVERNED"
   | "FAILED"
-  | "INDETERMINATE";
+  | "INDETERMINATE"
+  /** A read reached the upstream and its answer was not relayed. */
+  | "WITHHELD";
 
 export interface InterceptionReport {
   readonly event: "INTERCEPTED";
@@ -135,6 +139,7 @@ const COLORS: Readonly<Record<GatewayState, string>> = {
   EXECUTION_FAILED: `${ESC}[35m`,
   EXECUTION_INDETERMINATE: `${ESC}[35m`,
   ERROR: `${ESC}[35m`,
+  REFUSED: `${ESC}[31m`,
 };
 
 /** The label a state prints under, spaced for reading. */
@@ -158,6 +163,8 @@ export function executionLabel(execution: ExecutionDisposition): string {
       return "FAILED";
     case "INDETERMINATE":
       return "INDETERMINATE";
+    case "WITHHELD":
+      return "WITHHELD (answer refused)";
   }
 }
 

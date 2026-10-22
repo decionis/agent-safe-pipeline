@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { Resolver } from "node:dns/promises";
-import { appendFileSync, mkdirSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   ActionRegistry,
@@ -11,7 +11,7 @@ import {
   IntentCapture,
   SafeExecutor,
   ShadowPipeline,
-  type ApiProfile,
+  ApiProfile,
   type ApiProfileMatch,
   type CapturedIntent,
   type DecisionGate,
@@ -72,7 +72,15 @@ import {
 import { normalizeFacts, normalizeRequest, type InterceptedRequest } from "./InterceptedRequest.js";
 import { TokenBucket, type RateDecision } from "./RateLimit.js";
 import { RefusalSampler } from "./RefusalSampler.js";
-import { RouteTable, type PlanQuery, type RoutePlan } from "./RouteTable.js";
+import { RouteTable, type PlanQuery, type ReadPolicy, type RoutePlan } from "./RouteTable.js";
+import {
+  IssuerSubjectVerifier,
+  MAX_SUBJECT_TOKEN_AGE_SECONDS,
+  SubjectSessions,
+  type SessionRefusal,
+  type SubjectSession,
+} from "./SubjectSessions.js";
+import { WorkloadJwtVerifier } from "../identity/WorkloadJwtVerifier.js";
 import { enforcementSwitch, ShadowLedger, type ShadowSummary } from "./ShadowLedger.js";
 import {
   PROOF_PENDING_RETRY_MS,
@@ -166,6 +174,8 @@ export interface GatewayDependencies {
   readonly upstreamResolve?: AddressResolver;
   /** TXT lookup for the upstream's proof; the system resolver's when absent. */
   readonly upstreamResolveTxt?: TxtResolver;
+  /** The transport under the guard for the identity provider's key set; `node:https` when absent. */
+  readonly subjectJwksFetch?: FetchLike;
   readonly secrets?: SecretStore;
   readonly demoAuthority?: () => Promise<DemoAuthorityHandle>;
   readonly clock?: () => number;
@@ -336,6 +346,8 @@ export class Gateway {
     public readonly workload: WorkloadSignal | null,
     activation: ActivationFunnel | null,
     private readonly proof: UpstreamProof | null,
+    private readonly sessions: SubjectSessions | null,
+    private readonly jwks: WorkloadJwtVerifier | null,
   ) {
     this.lastShadowReportAt = clock();
     this.admitted = config.tenantKeys;
@@ -574,6 +586,7 @@ export class Gateway {
       config.interception.http,
       config.interception.profile === null ? null : ApiProfiles.get(config.interception.profile),
       config.interception.privacy,
+      Gateway.readPolicy(config),
     );
     const evidence = takeUp(EVIDENCE_STREAM, continues?.evidence);
     const chain = takeUp(GATEWAY_STREAM, continues?.gateway);
@@ -599,6 +612,14 @@ export class Gateway {
     ];
     const workload = resolveWorkload(dependencies.provenance ?? providers, { env });
     const proof = Gateway.upstreamProof(config, dependencies, security, clock, continues !== null);
+    const jwks = await Gateway.subjectKeys(config, dependencies, security);
+    const sessions =
+      config.subject === null || jwks === null
+        ? null
+        : new SubjectSessions(
+            new IssuerSubjectVerifier(jwks, config.subject.issuer, config.subject.claim),
+            { ttlSeconds: config.subject.sessionTtlSeconds, clock },
+          );
     // A chain that does not start at genesis says where it was taken up, once
     // nothing is left that can refuse the gateway.
     for (const [stream, head] of [
@@ -631,7 +652,10 @@ export class Gateway {
       workload,
       continues?.activation ?? null,
       proof,
+      sessions,
+      jwks,
     );
+    jwks?.start();
     // The first look at the proof starts once nothing can refuse the gateway;
     // a gateway built to replace another takes the proof over at the swap.
     if (proof !== null && !proof.takesOver) proof.monitor.start();
@@ -673,6 +697,71 @@ export class Gateway {
       random: Math.random,
     });
     return { binding, check, monitor, takesOver };
+  }
+
+  /** What the gateway does with reads: checked only when it pins subjects. */
+  private static readPolicy(config: GatewayConfig): ReadPolicy {
+    if (config.subject === null) return "PASSTHROUGH";
+    return config.interception.refuseUnknownReads ? "REFUSE_UNKNOWN" : "CHECK";
+  }
+
+  /**
+   * The identity provider's key set, when the gateway pins subjects: the file
+   * when there is one, else one fetch from the address at start, refused by
+   * name when it fails; refreshed from the address through the guarded
+   * egress, sealed to its origin, with the last good set kept on a failure.
+   */
+  private static async subjectKeys(
+    config: GatewayConfig,
+    dependencies: GatewayDependencies,
+    security: SecurityEvents,
+  ): Promise<WorkloadJwtVerifier | null> {
+    const subject = config.subject;
+    if (subject === null) return null;
+    const egress =
+      subject.jwksUrl === null
+        ? null
+        : new GuardedFetch({
+            policy: new EgressPolicy([
+              { origin: new URL(subject.jwksUrl).origin, pathPrefixes: ["/"], ca: null, pins: [] },
+            ]),
+            events: security,
+            maxResponseBytes: 256 * 1024,
+            ...(dependencies.subjectJwksFetch === undefined
+              ? {}
+              : { transport: dependencies.subjectJwksFetch }),
+          });
+    const refresh =
+      egress === null || subject.jwksUrl === null
+        ? undefined
+        : { url: subject.jwksUrl, fetch: egress.fetch, intervalSeconds: 300, events: security };
+    let text: string | null = null;
+    if (subject.jwksFile !== null) {
+      try {
+        text = readFileSync(subject.jwksFile, "utf8");
+      } catch {
+        throw new Error("JWKS_UNAVAILABLE: subject.jwksFile");
+      }
+    } else if (refresh !== undefined) {
+      try {
+        const response = await refresh.fetch(refresh.url, {
+          method: "GET",
+          headers: { accept: "application/json" },
+          signal: AbortSignal.timeout(10_000),
+        });
+        text = response.status === 200 ? await response.text() : null;
+      } catch {
+        text = null;
+      }
+      if (text === null) throw new Error("JWKS_UNAVAILABLE: subject.jwksUrl");
+    }
+    return new WorkloadJwtVerifier({
+      audiences: [subject.audience],
+      keys: WorkloadJwtVerifier.parseJwks(text ?? ""),
+      clockToleranceSeconds: 60,
+      maxTokenAgeSeconds: MAX_SUBJECT_TOKEN_AGE_SECONDS,
+      ...(refresh === undefined ? {} : { refresh }),
+    });
   }
 
   /** TXT through the system's resolver, bounded, so a check never waits on DNS for long. */
@@ -962,14 +1051,23 @@ export class Gateway {
     return await this.forwardUnchanged(request, { "agentsafe-execution": "PASSTHROUGH" });
   }
 
-  /** A consequential request, through the whole lifecycle. */
+  /**
+   * A consequential request, through the whole lifecycle. When the gateway
+   * pins subjects, a session the request presents is resolved first: one
+   * that does not stand is refused before anything else, and the subject of
+   * one that does is stated to the authority as `session.subject`, so a
+   * write's policy can compare a fact with it.
+   */
   public async govern(request: InterceptedRequest, action: string): Promise<GatewayResponse> {
     this.metrics.requests.inc({ kind: "governed" });
     this.count("governed");
     const startedAt = this.clock();
+    const session = await this.sessionOf(request);
+    if (typeof session === "string")
+      return this.subjectRefused(request, action, null, session, null);
     let captured: CapturedIntent;
     try {
-      captured = this.captureIntent(request, action);
+      captured = this.captureIntent(request, action, session);
     } catch (error) {
       const code = error instanceof Error ? error.message : "INTENT_INVALID";
       return this.own(code === "INTENT_TOO_LARGE" || code === "INTENT_TOO_COMPLEX" ? 413 : 400, {
@@ -1111,14 +1209,21 @@ export class Gateway {
     this.refusals.flush();
     this.handedOn();
     this.proof?.check.close();
+    this.jwks?.stop();
     this.held.clear();
     if (this.demo !== null) await this.demo.stop();
     this.secrets?.close();
     this.upstream.close();
   }
 
-  private captureIntent(request: InterceptedRequest, action: string): CapturedIntent {
-    if (this.config.interception.privacy === "FACTS") return this.captureFacts(request, action);
+  private captureIntent(
+    request: InterceptedRequest,
+    action: string,
+    session: SubjectSession | null,
+  ): CapturedIntent {
+    if (this.config.interception.privacy === "FACTS") {
+      return this.captureFacts(request, action, session);
+    }
     const normalized = normalizeRequest(request, action, {
       maxEmbeddedBodyBytes: this.config.interception.maxEmbeddedBodyBytes,
       principalHeader: this.config.interception.principalHeader,
@@ -1137,6 +1242,7 @@ export class Gateway {
         ingress: "http",
         ...(normalized.principal === null ? {} : { claimed_principal: normalized.principal }),
         ...this.profileFacts(request, action),
+        ...Gateway.sessionContext(session),
       },
       idempotencyKey: normalized.idempotencyKey ?? randomUUID(),
       ...(normalized.correlationId === null ? {} : { correlationId: normalized.correlationId }),
@@ -1155,7 +1261,11 @@ export class Gateway {
    * of the request is in the intent; a call the profile does not describe
    * never reaches here, because the route table refused it.
    */
-  private captureFacts(request: InterceptedRequest, action: string): CapturedIntent {
+  private captureFacts(
+    request: InterceptedRequest,
+    action: string,
+    session: SubjectSession | null,
+  ): CapturedIntent {
     const matched = this.profileMatch(request);
     const operation =
       matched === null ? null : (this.profile()?.operation(matched.operation) ?? null);
@@ -1177,6 +1287,7 @@ export class Gateway {
         ingress: "http",
         ...matched.facts,
         api_profile: { id: matched.profile, operation: matched.operation },
+        ...Gateway.sessionContext(session),
       },
       idempotencyKey: normalized.idempotencyKey ?? randomUUID(),
       signals: {
@@ -1185,6 +1296,210 @@ export class Gateway {
       },
     };
     return this.capture.capture(normalized.proposal, trusted);
+  }
+
+  /**
+   * The pinned subject as the authority reads it: the fact `session.subject`.
+   * A verified claim of the identity provider, never a value of the request;
+   * absent, never null, when the request presented no session.
+   */
+  private static sessionContext(session: SubjectSession | null): JsonObject {
+    return session === null ? {} : { session: { subject: session.subject } };
+  }
+
+  /** The session a request presents, when the gateway pins subjects; null when it presents none. */
+  private async sessionOf(
+    request: InterceptedRequest,
+  ): Promise<SubjectSession | SessionRefusal | null> {
+    return this.sessions === null ? null : await this.sessions.resolve(request.headers);
+  }
+
+  /**
+   * A read a profile operation names, checked against the session's subject
+   * and never decided. Before it is sent: the request must present a session
+   * that stands, and when the operation says where the subject sits in the
+   * call, it must be the session's. After: when the operation says where the
+   * subject sits in each item of a successful answer, every item must name
+   * the session's subject, or the whole answer is refused and none of it is
+   * relayed; nothing is filtered, since a partial answer would look complete.
+   * An answer that is not a success is relayed as it came. Every refusal is
+   * a reason code and a line on the gateway's evidence chain.
+   */
+  public async check(request: InterceptedRequest, operationId: string): Promise<GatewayResponse> {
+    this.metrics.requests.inc({ kind: "checked" });
+    this.count("checked");
+    const profile = this.profile();
+    const operation = profile?.operation(operationId) ?? null;
+    if (profile === null || operation === null) {
+      return this.subjectRefused(request, operationId, null, "READ_OPERATION_UNMATCHED", null);
+    }
+    const session = await this.sessionOf(request);
+    if (session === null || typeof session === "string") {
+      return this.subjectRefused(
+        request,
+        operation.action,
+        operationId,
+        session ?? "SUBJECT_SESSION_REQUIRED",
+        null,
+      );
+    }
+    const matched = this.profileMatch(request);
+    if (matched === null || matched.operation !== operationId) {
+      return this.subjectRefused(
+        request,
+        operation.action,
+        operationId,
+        "READ_OPERATION_UNMATCHED",
+        session,
+      );
+    }
+    const asked = ApiProfile.checkRequest(matched, session.subject);
+    if (asked !== "MATCH") {
+      return this.subjectRefused(request, operation.action, operationId, asked, session);
+    }
+    let result: UpstreamResult;
+    try {
+      result = await this.upstream.send(
+        request.method.toUpperCase(),
+        request.path,
+        request.search,
+        this.upstream.headersFor(request),
+        request.body,
+        this.upstream.signal(),
+      );
+    } catch (error) {
+      return this.failed(this.failureOf(error));
+    }
+    if (result.status >= 200 && result.status < 300) {
+      let body: JsonValue | undefined;
+      try {
+        body =
+          result.body.length === 0
+            ? undefined
+            : (JSON.parse(result.body.toString("utf8")) as JsonValue);
+      } catch {
+        body = undefined;
+      }
+      const answered = profile.checkResponse(operationId, body, session.subject);
+      if (answered !== null && answered !== "MATCH") {
+        return this.subjectRefused(
+          request,
+          operation.action,
+          operationId,
+          answered,
+          session,
+          result.status,
+        );
+      }
+    }
+    return this.relay(result, {
+      "agentsafe-execution": "PASSTHROUGH",
+      "agentsafe-subject": "CHECKED",
+    });
+  }
+
+  /**
+   * RFC 8693 token exchange at the gateway: the identity provider's subject
+   * token in, a session token for this gateway out. The answer is the RFC's,
+   * never cached; issuing and refusing are both lines on the evidence chain,
+   * with the session's short digest and never a token or the subject.
+   */
+  public async exchange(form: URLSearchParams): Promise<GatewayResponse> {
+    this.metrics.requests.inc({ kind: "control" });
+    if (this.sessions === null) {
+      return this.oauth(404, {
+        error: "invalid_request",
+        error_description: "SUBJECT_NOT_CONFIGURED",
+      });
+    }
+    const answer = await this.sessions.exchange(form);
+    if (answer.status === 200) {
+      this.link({
+        event: "SUBJECT_SESSION_ISSUED",
+        session: answer.session.id,
+        expires_at: new Date(answer.session.expiresAt).toISOString(),
+      });
+      return this.oauth(200, answer.body);
+    }
+    this.link({
+      event: "SUBJECT_SESSION_REFUSED",
+      reason_codes: [answer.body.error_description],
+    });
+    return this.oauth(answer.status, answer.body);
+  }
+
+  /** An OAuth token endpoint's answer: JSON, never stored by anything between. */
+  private oauth(status: number, body: Readonly<Record<string, unknown>>): GatewayResponse {
+    return {
+      status,
+      headers: [
+        ["content-type", "application/json; charset=utf-8"],
+        ["cache-control", "no-store"],
+        ["pragma", "no-cache"],
+        ["x-content-type-options", "nosniff"],
+      ],
+      body: Buffer.from(JSON.stringify(body), "utf8"),
+    };
+  }
+
+  /**
+   * A subject refusal: the gateway's own answer, a report line and a line on
+   * the evidence chain naming the operation, the reason and the session by
+   * its short digest. `WITHHELD` when the read reached the upstream and its
+   * answer was not relayed; `NOT_FORWARDED` otherwise.
+   */
+  private subjectRefused(
+    request: InterceptedRequest,
+    action: string,
+    operation: string | null,
+    code: string,
+    session: SubjectSession | null,
+    upstreamStatus: number | null = null,
+  ): GatewayResponse {
+    const execution = upstreamStatus === null ? "NOT_FORWARDED" : "WITHHELD";
+    const status =
+      code === "SUBJECT_TOKEN_AMBIGUOUS"
+        ? 400
+        : code === "SUBJECT_SESSION_REQUIRED" ||
+            code === "SUBJECT_SESSION_INVALID" ||
+            code === "SUBJECT_TOKEN_INVALID"
+          ? 401
+          : 403;
+    this.metrics.requests.inc({ kind: "subject_refused" });
+    this.count("subject_refused");
+    this.link({
+      event: "SUBJECT_REFUSED",
+      operation,
+      reason_codes: [code],
+      session: session?.id ?? null,
+      execution,
+    });
+    this.report({
+      event: "INTERCEPTED",
+      at: new Date(this.clock()).toISOString(),
+      method: request.method.toUpperCase(),
+      path: request.path,
+      action,
+      state: "REFUSED",
+      verdict: null,
+      reason_codes: [code],
+      execution,
+      mode: this.config.authority.mode,
+      authority: this.demo === null ? "decionis" : "local/demo",
+      intent_id: null,
+      intent_hash: null,
+      decision_id: null,
+      dossier_id: null,
+      upstream_status: upstreamStatus,
+      finalization: null,
+      latency_ms: 0,
+      authority_ms: null,
+    });
+    return this.own(
+      status,
+      { state: "REFUSED", verdict: null, reason_codes: [code], execution },
+      status === 401 ? { "www-authenticate": "AgentSafe-Session" } : {},
+    );
   }
 
   /**
