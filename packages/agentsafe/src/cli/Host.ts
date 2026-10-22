@@ -13,9 +13,21 @@ import { optionPort, optionValue, parseArguments } from "./Arguments.js";
 import type { CliProcess } from "./CliProcess.js";
 
 export const HOST_ARGUMENTS = {
-  valued: ["registry", "port", "listen", "tls-cert", "tls-key", "redirect-listen", "apex-page"],
+  valued: [
+    "registry",
+    "port",
+    "listen",
+    "tls-cert",
+    "tls-key",
+    "redirect-listen",
+    "apex-page",
+    "tenant",
+  ],
   flags: ["require-upstream-proof"],
 } as const;
+
+/** A tenant's registry id, as `--tenant` names it: a DNS label. */
+const TENANT_ID = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 
 /** How often the registry is read for a change, when nothing says otherwise. */
 export const REGISTRY_POLL_MS = 5_000;
@@ -44,7 +56,10 @@ export const TENANT_RETRY_MS = 60_000;
  * gateway forward nothing until its upstream's origin serves a token bound to
  * the tenant, its workspace and that origin, and keep checking that it does
  * (gateway/UpstreamProof.ts); `readyz` then also waits, at most 30 seconds,
- * for each tenant's first look.
+ * for each tenant's first look. `--tenant ID` (or AGENTSAFE_HOST_TENANT)
+ * serves that one registry entry and nothing else: the only host a tenant
+ * that enforces runs on, since a host shared by many tenants leaves every
+ * enforcing entry to a host of its own.
  */
 export async function runHost(
   io: CliProcess,
@@ -64,6 +79,7 @@ export async function runHost(
   let redirectListen: { host: string; port: number } | null;
   let apexPath: string | null;
   let requireUpstreamProof: boolean;
+  let tenant: string | undefined;
   try {
     const parsed = parseArguments(argv, HOST_ARGUMENTS);
     const named = optionValue(parsed, "registry") ?? io.env["AGENTSAFE_TENANT_REGISTRY"];
@@ -99,6 +115,10 @@ export async function runHost(
     redirectListen = redirect === undefined ? null : parseListen(redirect, "redirect-listen");
     apexPath = optionValue(parsed, "apex-page") ?? io.env["AGENTSAFE_APEX_PAGE"] ?? null;
     requireUpstreamProof = parsed.options.has("require-upstream-proof");
+    tenant = (optionValue(parsed, "tenant") ?? io.env["AGENTSAFE_HOST_TENANT"])?.trim();
+    if (tenant !== undefined && !TENANT_ID.test(tenant)) {
+      throw new GatewayConfigError("CONFIG_INVALID", "tenant", "a tenant id from the registry");
+    }
   } catch (error) {
     refuse(error instanceof Error ? error.message : "UNKNOWN", 2);
     return;
@@ -118,6 +138,7 @@ export async function runHost(
       readFile: (path) => io.files.read(path),
       version: packageVersion(),
       requireUpstreamProof,
+      ...(tenant === undefined ? {} : { tenant }),
       clock,
       dependencies,
     });
@@ -218,6 +239,8 @@ export async function runHost(
       tls: tls !== null,
       redirect: redirectListen === null ? null : `${redirectListen.host}:${redirectListen.port}`,
       tenants: host.hostnames().length,
+      // Not `tenant`: that field names a tenant gateway's own lines.
+      dedicated_to: tenant ?? null,
       upstream_proof: requireUpstreamProof,
     }),
   );

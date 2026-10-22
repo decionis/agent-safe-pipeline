@@ -42,10 +42,13 @@ const OTHER_DIGEST =
 const authority = new LocalAuthority();
 const secrets = mkdtempSync(join(tmpdir(), "agentsafe-tenants-"));
 const keyFile = join(secrets, "decionis-api-key");
+const credentialFile = join(secrets, "upstream-credential");
+const UPSTREAM_CREDENTIAL = "Bearer synthetic-upstream-credential";
 
 beforeAll(async () => {
   await authority.start();
   writeFileSync(keyFile, LOCAL_AUTHORITY_API_KEY, { mode: 0o600 });
+  writeFileSync(credentialFile, `${UPSTREAM_CREDENTIAL}\n`, { mode: 0o600 });
 });
 afterAll(async () => {
   await authority.stop();
@@ -471,6 +474,37 @@ describe("the tenant host", () => {
     ).not.toHaveProperty("AGENTSAFE_UPSTREAM_PROOF_REQUIRED");
   });
 
+  it("gives an enforcing tenant enforcement, fail-closed whatever the host says, and its upstream credential's file, never its value", () => {
+    const enforcing = tenant("acme", TENANT_KEY_DIGEST, {
+      mode: "enforcement",
+      upstreamCredential: { header: "authorization", file: "/run/custody/upstream-credential" },
+    });
+    const env = TenantHost.tenantEnvironment(
+      { AGENTSAFE_FAILURE_POLICY: "failOpen", DECIONIS_API_URL: "https://authority.example" },
+      enforcing as never,
+      { upstreamProof: true, dedicated: true },
+    );
+    expect(env).toMatchObject({
+      AGENTSAFE_MODE: "enforcement",
+      AGENTSAFE_FAILURE_POLICY: "failClosed",
+      AGENTSAFE_HOSTED_DEDICATED: "true",
+      AGENTSAFE_UPSTREAM_PROOF_REQUIRED: "true",
+      AGENTSAFE_UPSTREAM_CREDENTIAL_HEADER: "authorization",
+      AGENTSAFE_UPSTREAM_CREDENTIAL_FILE: "/run/custody/upstream-credential",
+    });
+    // A shadow tenant keeps the host's failure policy, and is dedicated only on a host of its own.
+    const shadow = TenantHost.tenantEnvironment(
+      { AGENTSAFE_FAILURE_POLICY: "failOpen" },
+      tenant("acme", TENANT_KEY_DIGEST) as never,
+    );
+    expect(shadow).toMatchObject({
+      AGENTSAFE_MODE: "shadow",
+      AGENTSAFE_FAILURE_POLICY: "failOpen",
+    });
+    expect(shadow).not.toHaveProperty("AGENTSAFE_HOSTED_DEDICATED");
+    expect(shadow).not.toHaveProperty("AGENTSAFE_UPSTREAM_CREDENTIAL_FILE");
+  });
+
   it("tags a JSON line in place, leaves a line that already names its tenant alone, and wraps anything else", () => {
     const io = collectedIo();
     const tagged = TenantHost.taggedIo(io, "acme");
@@ -819,6 +853,8 @@ describe("the tenant host", () => {
         entry: expect.stringMatching(/^sha256:[0-9a-f]{12}$/) as unknown,
       },
       upstream_proof: null,
+      dedicated: false,
+      upstream_credential: null,
     });
     expect(JSON.stringify(gateway?.status())).not.toContain(TENANT_KEY_DIGEST);
 
@@ -836,6 +872,8 @@ describe("the tenant host", () => {
       tenant_keys: [short(TENANT_KEY_DIGEST), short(OTHER_DIGEST)],
       registry: { revision: report.revision, entry: first?.registry?.entry },
       upstream_proof: null,
+      dedicated: false,
+      upstream_credential: null,
     });
 
     files.set(REGISTRY_PATH, "version: 1\ndomain: [");
@@ -1057,5 +1095,174 @@ describe("the tenant host", () => {
       vi.useRealTimers();
       vi.restoreAllMocks();
     }
+  });
+
+  it("leaves an enforcing tenant to a host of its own: a shared host skips it, keeps the rest, and is ready", async () => {
+    const enforcing = tenant("acme", TENANT_KEY_DIGEST, {
+      mode: "enforcement",
+      upstreamCredential: { header: "authorization", file: credentialFile },
+    });
+    const { host, io, files } = await start([
+      tenant("acme", TENANT_KEY_DIGEST),
+      tenant("globex", OTHER_DIGEST),
+    ]);
+    expect(host.hostnames()).toEqual([ACME, "globex.decionisedge.example"]);
+
+    // The tenant opts in: the shared host retires its gateway, and says why, without a failure.
+    files.set(REGISTRY_PATH, registry([enforcing, tenant("globex", OTHER_DIGEST)]));
+    expect(await host.reload()).toMatchObject({
+      event: "TENANT_REGISTRY_LOADED",
+      served: 1,
+      retired: 1,
+      dedicated: ["acme"],
+      failed: [],
+    });
+    expect(host.hostnames()).toEqual(["globex.decionisedge.example"]);
+    expect(host.select(ACME)).toBeNull();
+    expect(host.failures()).toEqual([]);
+    expect(reports(io)[0]).toMatchObject({ dedicated: [] });
+    await host.close();
+
+    // A shared host started on such a registry is ready once it serves the others.
+    const fresh = await start([enforcing, tenant("globex", OTHER_DIGEST)]);
+    expect(fresh.host.hostnames()).toEqual(["globex.decionisedge.example"]);
+    expect(fresh.host.ready()).toBe(true);
+    await fresh.host.close();
+  });
+
+  it("serves an enforcing tenant on a host of its own, which presents the tenant's upstream credential in place of the caller's", async () => {
+    const token = proofToken(
+      { tenant: "acme", org: WORKSPACE, origin: upstreamOf("acme") },
+      1_759_492_800,
+    );
+    const sent: { path: string; headers: Headers }[] = [];
+    const files = new Map([
+      [
+        REGISTRY_PATH,
+        registry([
+          tenant("acme", TENANT_KEY_DIGEST, {
+            mode: "enforcement",
+            upstreamCredential: { header: "Authorization", file: credentialFile },
+          }),
+          tenant("globex", OTHER_DIGEST),
+        ]),
+      ],
+    ]);
+    const io = collectedIo();
+    const host = await TenantHost.start({
+      registryPath: REGISTRY_PATH,
+      env: {
+        DECIONIS_API_URL: authority.baseUrl,
+        DECIONIS_ALLOW_INSECURE_LOOPBACK: "true",
+        // The host's shared setting never makes an enforcing tenant fail open.
+        AGENTSAFE_FAILURE_POLICY: "failOpen",
+      },
+      io,
+      readFile: (path) => files.get(path) ?? null,
+      requireUpstreamProof: true,
+      tenant: "acme",
+      dependencies: {
+        upstreamFetch: async (input, init) => {
+          const url = new URL(String(input));
+          sent.push({ path: url.pathname, headers: new Headers(init?.headers) });
+          if (url.pathname === UPSTREAM_PROOF_PATH) return new Response(`${token}\n`);
+          return new Response(`from ${url.host}`);
+        },
+        upstreamResolveTxt: async () => [],
+      },
+    });
+    expect(host.hostnames()).toEqual([ACME]);
+    await until(() => host.select(ACME)?.upstreamProofSettled === true);
+    expect(host.ready()).toBe(true);
+    const gateway = host.select(ACME);
+    expect(gateway?.config.authority).toMatchObject({
+      mode: "ENFORCEMENT",
+      failurePolicy: "FAIL_CLOSED",
+    });
+    expect(gateway?.status().hosted).toMatchObject({
+      tenant: "acme",
+      dedicated: true,
+      upstream_credential: { header: "authorization" },
+    });
+
+    const { port, server } = await serve(host);
+    const allowed = await send(port, "POST", ACME, "/orders", {
+      "agentsafe-tenant-key": TENANT_KEY,
+      authorization: "Bearer the-agents-own-credential",
+    });
+    expect(allowed).toEqual({ status: 200, body: "from acme.shop.example" });
+    const forwarded = sent.filter((entry) => entry.path === "/orders");
+    expect(forwarded).toHaveLength(1);
+    expect(forwarded[0]?.headers.get("authorization")).toBe(UPSTREAM_CREDENTIAL);
+    expect(forwarded[0]?.headers.get("agentsafe-tenant-key")).toBeNull();
+    // The proof is fetched without it: only forwarded requests carry the credential.
+    expect(
+      sent.find((entry) => entry.path === UPSTREAM_PROOF_PATH)?.headers.get("authorization"),
+    ).toBeNull();
+
+    // Its held requests are the tenant's: the escalation routes ask for its key too.
+    const escalation = "/_agentsafe/v1/escalations/00000000-0000-4000-8000-0000000000aa";
+    expect((await get(port, ACME, escalation)).status).toBe(401);
+    expect((await get(port, ACME, escalation, { "agentsafe-tenant-key": TENANT_KEY })).status).toBe(
+      404,
+    );
+
+    const printed = [...io.out, ...io.err].join("\n");
+    expect(printed).not.toContain("synthetic-upstream-credential");
+    expect(printed).not.toContain("the-agents-own-credential");
+    await server.close();
+    await host.close();
+  });
+
+  it("refuses an enforcing tenant whose controls are not all on, by the missing setting, and a host for a tenant the registry lacks", async () => {
+    const enforcing = (overrides: Record<string, unknown> = {}) =>
+      tenant("acme", TENANT_KEY_DIGEST, {
+        mode: "enforcement",
+        upstreamCredential: { header: "authorization", file: credentialFile },
+        ...overrides,
+      });
+    const failure = async (
+      entry: unknown,
+      options: { readonly requireUpstreamProof?: boolean } = {},
+    ): Promise<readonly { tenant: string; code: string }[]> => {
+      const files = new Map([[REGISTRY_PATH, registry([entry])]]);
+      const host = await TenantHost.start({
+        registryPath: REGISTRY_PATH,
+        env: { DECIONIS_API_URL: authority.baseUrl, DECIONIS_ALLOW_INSECURE_LOOPBACK: "true" },
+        io: collectedIo(),
+        readFile: (path) => files.get(path) ?? null,
+        requireUpstreamProof: options.requireUpstreamProof ?? true,
+        tenant: "acme",
+        dependencies: {
+          upstreamFetch: async () => new Promise<Response>(() => undefined),
+          upstreamResolveTxt: async () => [],
+        },
+      });
+      const report = await host.reload();
+      expect(host.ready()).toBe(false);
+      await host.close();
+      return report.failed;
+    };
+    expect(await failure(enforcing(), { requireUpstreamProof: false })).toEqual([
+      { tenant: "acme", code: "CONFIG_MISSING:AGENTSAFE_UPSTREAM_PROOF_REQUIRED" },
+    ]);
+    expect(
+      await failure(
+        enforcing({
+          upstreamCredential: { header: "authorization", file: join(secrets, "absent") },
+        }),
+      ),
+    ).toEqual([{ tenant: "acme", code: "CONFIG_SECRET_FILE_UNREADABLE:DOWNSTREAM_CREDENTIAL" }]);
+    expect(
+      await failure(
+        enforcing({ upstreamCredential: { header: "content-type", file: credentialFile } }),
+      ),
+    ).toEqual([{ tenant: "acme", code: "CONFIG_INVALID:upstream.credential.header" }]);
+    expect(
+      await failure(enforcing({ interception: { principalHeader: "authorization" } })),
+    ).toEqual([{ tenant: "acme", code: "CONFIG_INVALID:upstream.credential.header" }]);
+    expect(await failure(tenant("globex", OTHER_DIGEST))).toEqual([
+      { tenant: "acme", code: "TENANT_NOT_IN_REGISTRY" },
+    ]);
   });
 });

@@ -89,14 +89,30 @@ connection to a destination the operator names, such as the gateway's authority,
 mutual TLS cannot be fronted by a gateway at all; [shadow mode](../shadow-mode.md#when-the-gateway-cannot-front-your-api-mutual-tls-third-party-saas)
 says what to run instead.
 
+`gateway.upstreamCredential: { header, file }` (`AGENTSAFE_UPSTREAM_CREDENTIAL_HEADER` and
+`AGENTSAFE_UPSTREAM_CREDENTIAL_FILE`) makes the gateway, not its caller, hold the credential the
+upstream accepts. The gateway sets that one header on every request it forwards, with the contents
+of the file as its value (`Bearer …` for `authorization`, the bare key for `x-api-key`), and drops
+any value of it the caller sent, so an agent behind it never needs, and never sees, the
+credential. Both settings or neither; the file is an absolute path, opened as the secret
+`DOWNSTREAM_CREDENTIAL` with the same permission checks as every other secret file, watched, so a
+rotated file takes effect on the next request, and refused at start when its value cannot travel as
+one header (empty, over 8 KiB, or holding a control character). The header must be one the gateway
+neither sets nor sends to the authority: not a hop-by-hop or framing header, not `Content-Type` or
+`Idempotency-Key` (both bound into the intent), not the principal header, and nothing under
+`agentsafe-`, `x-agent-safe-` or `x-forwarded-`. The value never reaches the intent, a report line,
+the evidence or `/_agentsafe/status`, which names the header only. The upstream's proof is fetched
+without it.
+
 ## Hosted
 
 `gateway.hosted: true` (`AGENTSAFE_HOSTED_GATEWAY=true`) is for a gateway someone runs on a
 tenant's behalf, as Decionis runs hosted shadow. It changes four things:
 
 - the upstream is public-only, whatever `upstreamPublicOnly` says;
-- the mode is shadow: a hosted gateway set to enforce is refused at start, because enforcing
-  would mean holding the tenant's provider credentials;
+- the mode is shadow unless the tenant has opted in: a hosted gateway set to enforce is refused at
+  start unless every control [hosted enforcement](#hosted-enforcement) asks for is on, by the name
+  of the first one missing;
 - `/_agentsafe/status` and `/_agentsafe/metrics` answer only `Authorization: Bearer
 $AGENTSAFE_METRICS_TOKEN`, the operator's token, with `401` for any other, and are not there
   at all (`404`) when no token is set; `healthz` and `readyz` stay open for the platform's probes;
@@ -112,6 +128,31 @@ is not hosted, has no `AGENTSAFE_HOSTED_TENANT`, or has no Decionis organization
 `DECIONIS_TENANT_ID`, since those are what the proof is bound to. A gateway built before it
 ignores the variable, as it ignores every variable it does not know, and forwards with no proof:
 set it on a gateway of your own only on an image that has it.
+
+### Hosted enforcement
+
+A hosted gateway enforces only for a tenant that asked to, and only where nothing another tenant
+shares can reach what enforcement holds: the tenant's upstream credential and its held requests.
+`AGENTSAFE_MODE=enforcement` on a hosted gateway is refused at start (`CONFIG_INVALID` or
+`CONFIG_MISSING`, naming the setting) unless all of these hold:
+
+- `AGENTSAFE_HOSTED_DEDICATED=true`: the gateway is the only one its process serves. `agentsafe
+host --tenant <id>` sets it; a host shared by many tenants never does, and never builds an
+  enforcing tenant at all.
+- `AGENTSAFE_HOSTED_TENANT` names the tenant, and the authority is a Decionis organization, never
+  the demo authority or a provisional workspace.
+- `authority.failurePolicy` is `failClosed`: with the authority unreachable nothing is forwarded.
+  Bypassing the gateway is no fallback either, since the agent no longer holds the credential.
+- `AGENTSAFE_UPSTREAM_PROOF_REQUIRED=true`: it forwards only to an upstream that proves it is the
+  tenant's ([the upstream's proof](#the-upstreams-proof)).
+- `gateway.upstreamCredential` is set ([the upstream](#the-upstream)), so the gateway, not the
+  agent, holds what the upstream accepts.
+- `evidence.enabled` is not `false`: evidence is written before anything executes.
+
+A hosted gateway's escalation routes (`/_agentsafe/v1/escalations/{intent}` and its `resume`) ask
+for the tenant key as well as the resume token, so a resume token alone resumes nothing. A held
+request lives in the memory of the process that holds it: a resume that reaches another replica,
+or comes after a restart, is `404 ESCALATION_NOT_HELD`, and the request never runs.
 
 ## Many tenants in one process
 
@@ -134,11 +175,31 @@ tenants:
     interception: # optional: the tenant's routes, as in agentsafe.yaml
       routes:
         - { path: /payments/**, action: payment.create, methods: [POST] }
+  - id: globex
+    upstream: https://api.globex.example
+    tenantKeyDigests: ["sha256:…"]
+    workspace:
+      tenantId: 9d41…
+      apiKeyFile: /var/run/agent-safe/custody/decionis-api-key
+    mode: enforcement # optional; shadow when absent. Served only by `agentsafe host --tenant globex`
+    upstreamCredential: # required with mode: enforcement, refused without it
+      header: authorization
+      file: /var/run/agent-safe/custody/upstream-credential
+    presence: { managed: true, approverId: "…" } # optional, enforcement only, as in agentsafe.yaml
 ```
 
 Each tenant's gateway is built exactly as a hosted gateway configured by hand would be: public-only
-upstream, shadow only, operator-only status and metrics, host-only cookies, its tenant key required,
-and its workspace key read from its own mounted file. From the host's environment it inherits only
+upstream, operator-only status and metrics, host-only cookies, its tenant key required, and its
+workspace key read from its own mounted file. It shadows unless its entry says `mode:
+enforcement`. An enforcing entry is served only by a host started for it alone, `agentsafe host
+--tenant <id>` (`AGENTSAFE_HOST_TENANT`), which serves that one entry and nothing else; there its
+gateway enforces, fails closed whatever the host's `AGENTSAFE_FAILURE_POLICY` says, presents the
+entry's `upstreamCredential`, and is held to every other control of
+[hosted enforcement](#hosted-enforcement). A host started without `--tenant` leaves every
+enforcing entry to its own host: it does not build it, retires its gateway if it had one, lists it
+under `dedicated` in its load line rather than `failed`, and is ready without it. A host started
+for a tenant the registry does not name serves nothing, reports `TENANT_NOT_IN_REGISTRY`, and is
+not ready. From the host's environment it inherits only
 how to reach the authority (`NODE_ENV`, `DECIONIS_API_URL`, `DECIONIS_TIMEOUT_MS`,
 `DECIONIS_ALLOW_INSECURE_LOOPBACK`, `AGENTSAFE_UPSTREAM_TIMEOUT_MS`, `AGENTSAFE_FAILURE_POLICY`),
 never a credential; a tenant's own `upstreamTimeoutMs` (1 to 120000) replaces the host's timeout
@@ -160,10 +221,11 @@ reload rebuilds only the tenants whose entry changed; a replaced or removed tena
 finishes the requests in flight for 30 seconds before it is closed. Each load is one
 `TENANT_REGISTRY_LOADED` or `TENANT_REGISTRY_REFUSED` line naming the registry's `revision`
 (`sha256:` and the first 12 hex digits of the SHA-256 of its text, as read) and what was built,
-kept, rekeyed, retired and failed.
+kept, rekeyed, retired, left to a host of its own (`dedicated`) and failed.
 
 The schema is strict, so a host refuses a field it does not know. A tenant's `upstreamTimeoutMs`,
-and an `interception.maxEmbeddedBodyBytes` of `0`, came after the first builds of `agentsafe host`.
+`mode`, `upstreamCredential` and `presence`, and an `interception.maxEmbeddedBodyBytes` of `0`,
+came after the first builds of `agentsafe host`.
 A host built before them refuses the whole registry over the first (`REGISTRY_INVALID`): on a
 reload no later change applies, a key revocation included, and at start the process exits, so a
 replica restarted on that host never comes up. It refuses that tenant's gateway over the second
@@ -171,13 +233,14 @@ replica restarted on that host never comes up. It refuses that tenant's gateway 
 out of the registry before rolling back to a host that does not. Between releases every build
 reports the same version, so check the image the replicas run, not the version.
 
-`--require-upstream-proof` is newer than the first builds too, and it is an argument, not a field:
-a host built before it refuses to start over it (`REFUSED_TO_START` with
-`UNKNOWN_OPTION: require-upstream-proof`, exit `2`), so every replica that restarts on such an
-image exits. Add it to the host's arguments only on an image that has it, take it out of them
-before rolling back to an image that does not, and check the image, not the version, here as
-well. Being refused is the point of a flag: a host that cannot check a proof does not start, where
-an environment variable it ignored would have it forward as though every origin were proven.
+`--require-upstream-proof` and `--tenant` are newer than the first builds too, and they are
+arguments, not fields: a host built before either refuses to start over it (`REFUSED_TO_START`
+with `UNKNOWN_OPTION: require-upstream-proof` or `UNKNOWN_OPTION: tenant`, exit `2`), so every
+replica that restarts on such an image exits. Add them to the host's arguments only on an image
+that has them, take them out before rolling back to an image that does not, and check the image,
+not the version, here as well. Being refused is the point of a flag: a host that cannot check a
+proof does not start, where an environment variable it ignored would have it forward as though
+every origin were proven, and a host that cannot serve one tenant alone does not serve them all.
 
 A change to a tenant's `tenantKeyDigests` alone rebuilds nothing: the tenant's gateway admits the
 new set at once and goes on as it was, its chains, rate and counts included, and the tenant is
@@ -190,7 +253,9 @@ still names, and a tenant left with none is not served (`421`) until its entry i
 replica reads the registry on its own, so a change reaches replicas at different moments: a
 tenant's `/_agentsafe/status`, which answers the operator's token only, carries `hosted`, with the
 registry `revision` that replica last loaded, the `entry` (a short digest) its gateway was built
-from, and a `sha256:` prefix of 12 hex digits for each tenant key it admits, never the digest.
+from, and a `sha256:` prefix of 12 hex digits for each tenant key it admits, never the digest; and
+whether it is `dedicated` (its host serves it alone) and the header its `upstream_credential` is
+presented in, never the value.
 
 Once the listener is bound, each tenant's gateway prints its banner (`GATEWAY_STARTED`, at
 `https://{id}.{domain}` when the host terminates TLS) and links `GATEWAY_STARTED` on its own

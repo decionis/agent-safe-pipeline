@@ -492,7 +492,9 @@ describe("the gateway configuration", () => {
         flags: { upstream: "https://shop.tenant.example", mode: "enforcement" },
         env: { AGENTSAFE_HOSTED_GATEWAY: "true", AGENTSAFE_TENANT_KEY_DIGESTS: TENANT_KEY_DIGEST },
       }).message,
-    ).toBe("CONFIG_INVALID: authority.mode (a hosted gateway runs in shadow only)");
+    ).toBe(
+      "CONFIG_INVALID: AGENTSAFE_HOSTED_DEDICATED (a hosted gateway enforces only in a process of its own: agentsafe host --tenant)",
+    );
     expect(
       refusal({
         flags: { upstream: "http://localhost:3000", mode: "shadow" },
@@ -515,6 +517,160 @@ describe("the gateway configuration", () => {
         },
       }).setting,
     ).toBe("AGENTSAFE_UPSTREAM_PUBLIC_ONLY");
+  });
+
+  it("enforces hosted only for a tenant whose every control is on, and refuses each missing one by name", () => {
+    const enforcing = {
+      flags: { upstream: "https://shop.tenant.example", mode: "enforcement" },
+      env: {
+        AGENTSAFE_HOSTED_GATEWAY: "true",
+        AGENTSAFE_HOSTED_TENANT: "acme",
+        AGENTSAFE_HOSTED_DEDICATED: "true",
+        AGENTSAFE_TENANT_KEY_DIGESTS: TENANT_KEY_DIGEST,
+        AGENTSAFE_UPSTREAM_PROOF_REQUIRED: "true",
+        AGENTSAFE_UPSTREAM_CREDENTIAL_HEADER: "Authorization",
+        AGENTSAFE_UPSTREAM_CREDENTIAL_FILE: "/run/custody/upstream-credential",
+        DECIONIS_API_KEY_FILE: "/run/custody/decionis-api-key",
+        DECIONIS_TENANT_ID: TENANT_ID,
+      } as Record<string, string>,
+    };
+    const config = load(enforcing);
+    expect(config.authority).toMatchObject({ mode: "ENFORCEMENT", failurePolicy: "FAIL_CLOSED" });
+    expect(config.hostedDedicated).toBe(true);
+    expect(config.upstream.credential).toEqual({
+      header: "authorization",
+      file: "/run/custody/upstream-credential",
+    });
+    expect(config.secrets.required).toEqual(["DECIONIS_API_KEY", "DOWNSTREAM_CREDENTIAL"]);
+    expect(JSON.stringify(config)).not.toContain('custody/upstream-credential"}"');
+
+    const without = (name: string): Record<string, string> =>
+      Object.fromEntries(Object.entries(enforcing.env).filter(([key]) => key !== name));
+    const refused = (env: Record<string, string>, extra: Partial<GatewayConfigInput> = {}) =>
+      refusal({ ...enforcing, env, ...extra }).message;
+    expect(refused(without("AGENTSAFE_HOSTED_DEDICATED"))).toMatch(
+      /^CONFIG_INVALID: AGENTSAFE_HOSTED_DEDICATED /,
+    );
+    // The upstream's proof binds the tenant, so it names the gap first; without either, the tenant.
+    expect(refused(without("AGENTSAFE_HOSTED_TENANT"))).toMatch(
+      /^CONFIG_INVALID: AGENTSAFE_UPSTREAM_PROOF_REQUIRED /,
+    );
+    expect(
+      refused(
+        Object.fromEntries(
+          Object.entries(enforcing.env).filter(
+            ([key]) =>
+              key !== "AGENTSAFE_HOSTED_TENANT" && key !== "AGENTSAFE_UPSTREAM_PROOF_REQUIRED",
+          ),
+        ),
+      ),
+    ).toMatch(/^CONFIG_MISSING: AGENTSAFE_HOSTED_TENANT /);
+    expect(refused({ ...enforcing.env, AGENTSAFE_FAILURE_POLICY: "failOpen" })).toBe(
+      "CONFIG_INVALID: authority.failurePolicy (a hosted gateway enforces fail-closed)",
+    );
+    expect(refused(without("AGENTSAFE_UPSTREAM_PROOF_REQUIRED"))).toMatch(
+      /^CONFIG_MISSING: AGENTSAFE_UPSTREAM_PROOF_REQUIRED /,
+    );
+    expect(
+      refused(
+        Object.fromEntries(
+          Object.entries(enforcing.env).filter(
+            ([key]) => !key.startsWith("AGENTSAFE_UPSTREAM_CREDENTIAL_"),
+          ),
+        ),
+      ),
+    ).toMatch(/^CONFIG_MISSING: upstream.credential /);
+    expect(refused(enforcing.env, { file: { version: 1, evidence: { enabled: false } } })).toBe(
+      "CONFIG_INVALID: evidence.enabled (a hosted gateway that enforces writes evidence before execution)",
+    );
+    // The demo authority governs nothing real, and is never what a hosted gateway enforces against.
+    expect(
+      refused(
+        Object.fromEntries(
+          Object.entries(enforcing.env).filter(
+            ([key]) =>
+              key !== "DECIONIS_API_KEY_FILE" && key !== "AGENTSAFE_UPSTREAM_PROOF_REQUIRED",
+          ),
+        ),
+        { flags: { ...enforcing.flags, authority: "local" } },
+      ),
+    ).toBe("CONFIG_INVALID: authority (a hosted gateway enforces against a Decionis organization)");
+    // Dedicated means hosted: a self-hosted gateway is the only one in its process anyway.
+    expect(
+      refusal({
+        flags: { upstream: "https://api.example" },
+        env: { AGENTSAFE_HOSTED_DEDICATED: "true" },
+      }).setting,
+    ).toBe("AGENTSAFE_HOSTED_DEDICATED");
+  });
+
+  it("presents an upstream credential from a file, in a header that is neither the gateway's nor the authority's", () => {
+    const withCredential = (header: string, file = "/run/secrets/upstream", extra = {}) =>
+      ({
+        flags: { upstream: "https://api.example" },
+        env: {
+          AGENTSAFE_UPSTREAM_CREDENTIAL_HEADER: header,
+          AGENTSAFE_UPSTREAM_CREDENTIAL_FILE: file,
+          ...extra,
+        },
+      }) satisfies Partial<GatewayConfigInput>;
+    expect(load(withCredential("X-Api-Key")).upstream.credential).toEqual({
+      header: "x-api-key",
+      file: "/run/secrets/upstream",
+    });
+    expect(
+      load({
+        flags: { upstream: "https://api.example" },
+        file: {
+          version: 1,
+          gateway: { upstreamCredential: { header: "authorization", file: "/run/secrets/u" } },
+        },
+      }).upstream.credential,
+    ).toEqual({ header: "authorization", file: "/run/secrets/u" });
+    expect(load({ flags: { upstream: "https://api.example" } }).upstream.credential).toBeNull();
+    for (const header of [
+      "host",
+      "Content-Type",
+      "idempotency-key",
+      "agentsafe-tenant-key",
+      "AgentSafe-Anything",
+      "x-agent-safe-intent-hash",
+      "x-forwarded-for",
+      "proxy-authorization",
+      "two words",
+    ]) {
+      expect(refusal(withCredential(header)).setting).toBe("upstream.credential.header");
+    }
+    expect(
+      refusal(
+        withCredential("x-caller", "/run/secrets/upstream", {
+          AGENTSAFE_PRINCIPAL_HEADER: "X-Caller",
+        }),
+      ).setting,
+    ).toBe("upstream.credential.header");
+    expect(refusal(withCredential("authorization", "relative/file")).setting).toBe(
+      "upstream.credential.file",
+    );
+    expect(
+      refusal({
+        flags: { upstream: "https://api.example" },
+        env: { AGENTSAFE_UPSTREAM_CREDENTIAL_FILE: "/run/secrets/upstream" },
+      }).setting,
+    ).toBe("AGENTSAFE_UPSTREAM_CREDENTIAL_HEADER");
+    expect(
+      refusal({
+        flags: { upstream: "https://api.example" },
+        env: { AGENTSAFE_UPSTREAM_CREDENTIAL_HEADER: "authorization" },
+      }).setting,
+    ).toBe("AGENTSAFE_UPSTREAM_CREDENTIAL_FILE");
+    expect(GATEWAY_ENVIRONMENT).toEqual(
+      expect.arrayContaining([
+        "AGENTSAFE_HOSTED_DEDICATED",
+        "AGENTSAFE_UPSTREAM_CREDENTIAL_HEADER",
+        "AGENTSAFE_UPSTREAM_CREDENTIAL_FILE",
+        "AGENTSAFE_HOST_TENANT",
+      ]),
+    );
   });
 
   it("admits a hosted tenant only by its key's digest, one or two of them", () => {

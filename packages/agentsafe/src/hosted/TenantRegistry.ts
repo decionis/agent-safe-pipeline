@@ -15,36 +15,79 @@ const DOMAIN = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]
 /** Labels a tenant may not take: they name the operator's own hosts. */
 const RESERVED_LABELS: ReadonlySet<string> = new Set(["www", "api", "status", "admin", "console"]);
 
+/** A path the operator mounts a file at. */
+const MountedFile = z
+  .string()
+  .min(1)
+  .max(500)
+  .refine((path) => isAbsolute(path), "an absolute path");
+
 const RateLimitSchema = z.strictObject({
   requestsPerSecond: z.number().positive().max(10_000),
   burst: z.number().int().min(1).max(100_000),
 });
 
-const TenantSchema = z.strictObject({
-  /** The tenant's label; it is served at `{id}.{domain}`. */
-  id: z
-    .string()
-    .regex(LABEL, "a lower-case DNS label")
-    .refine((id) => !RESERVED_LABELS.has(id), "a label the operator keeps for itself"),
-  upstream: z.string().url(),
-  tenantKeyDigests: z.array(z.string()).min(1).max(2),
-  workspace: z.strictObject({
-    /** The Decionis workspace the tenant's evaluations run in. */
-    tenantId: z.string().uuid(),
-    /** The mounted file holding the workspace key; the key itself is never in the registry. */
-    apiKeyFile: z
+const TenantSchema = z
+  .strictObject({
+    /** The tenant's label; it is served at `{id}.{domain}`. */
+    id: z
       .string()
-      .min(1)
-      .max(500)
-      .refine((path) => isAbsolute(path), "an absolute path"),
-  }),
-  /** This tenant's rate, per process; the registry's `rateLimit` otherwise. */
-  rateLimit: RateLimitSchema.optional(),
-  /** How long this tenant's upstream may take to answer, in ms; the host's own setting otherwise. */
-  upstreamTimeoutMs: z.number().int().positive().max(120_000).optional(),
-  /** The tenant's `interception` section, as `agentsafe.yaml` has it; validated by the gateway's loader. */
-  interception: z.record(z.string(), z.unknown()).optional(),
-});
+      .regex(LABEL, "a lower-case DNS label")
+      .refine((id) => !RESERVED_LABELS.has(id), "a label the operator keeps for itself"),
+    upstream: z.string().url(),
+    tenantKeyDigests: z.array(z.string()).min(1).max(2),
+    workspace: z.strictObject({
+      /** The Decionis workspace the tenant's evaluations run in. */
+      tenantId: z.string().uuid(),
+      /** The mounted file holding the workspace key; the key itself is never in the registry. */
+      apiKeyFile: z
+        .string()
+        .min(1)
+        .max(500)
+        .refine((path) => isAbsolute(path), "an absolute path"),
+    }),
+    /** This tenant's rate, per process; the registry's `rateLimit` otherwise. */
+    rateLimit: RateLimitSchema.optional(),
+    /** How long this tenant's upstream may take to answer, in ms; the host's own setting otherwise. */
+    upstreamTimeoutMs: z.number().int().positive().max(120_000).optional(),
+    /** The tenant's `interception` section, as `agentsafe.yaml` has it; validated by the gateway's loader. */
+    interception: z.record(z.string(), z.unknown()).optional(),
+    /**
+     * Shadow unless the tenant has opted in to enforcement. An enforcing
+     * tenant is served only by a host started for it alone (`agentsafe host
+     * --tenant`), never by a host shared with other tenants.
+     */
+    mode: z.enum(["shadow", "enforcement"]).optional(),
+    /**
+     * What an enforcing tenant's gateway presents to its upstream in place of
+     * the agent: the header, and the mounted file holding its value. The value
+     * itself is never in the registry.
+     */
+    upstreamCredential: z
+      .strictObject({ header: z.string().min(1).max(64), file: MountedFile })
+      .optional(),
+    /** The tenant's `presence` section, as `agentsafe.yaml` has it; enforcement only. */
+    presence: z.record(z.string(), z.unknown()).optional(),
+  })
+  .superRefine((tenant, context) => {
+    const enforces = tenant.mode === "enforcement";
+    if (enforces && tenant.upstreamCredential === undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["upstreamCredential"],
+        message: "an enforcing tenant's gateway holds the upstream credential",
+      });
+    }
+    for (const field of ["upstreamCredential", "presence"] as const) {
+      if (!enforces && tenant[field] !== undefined) {
+        context.addIssue({
+          code: "custom",
+          path: [field],
+          message: "for an enforcing tenant only",
+        });
+      }
+    }
+  });
 
 export const TenantRegistrySchema = z.strictObject({
   version: z.literal(TENANT_REGISTRY_VERSION),
@@ -104,6 +147,11 @@ export function parseTenantRegistry(text: string): TenantRegistry {
     seen.add(tenant.id);
   }
   return parsed.data;
+}
+
+/** Whether a tenant has opted in to enforcement, which only a host of its own may serve. */
+export function tenantEnforces(tenant: TenantEntry): boolean {
+  return tenant.mode === "enforcement";
 }
 
 /** The hostname a tenant is served at. */

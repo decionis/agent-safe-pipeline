@@ -271,6 +271,15 @@ export class GatewayHttpServer {
     response: ServerResponse,
   ): Promise<void> {
     if (url.pathname.startsWith(ESCALATIONS)) {
+      // A held request is the tenant's: hosted, its key is asked for as
+      // well as the resume token, so a leaked token alone resumes nothing.
+      if (gateway.config.hosted) {
+        const presented = request.headers[TENANT_KEY_HEADER];
+        const refusal = gateway.keyRefusal(typeof presented === "string" ? presented : undefined);
+        if (refusal !== null) {
+          throw new GuardError(401, refusal, { "www-authenticate": TENANT_KEY_CHALLENGE });
+        }
+      }
       const rest = url.pathname.slice(ESCALATIONS.length).split("/");
       const intentId = rest[0] ?? "";
       if (!INTENT_ID.test(intentId)) throw new GuardError(404, "NOT_FOUND");

@@ -1285,6 +1285,8 @@ describe("the tenant key check", () => {
       tenant_keys: [secondDigest.slice(0, "sha256:".length + 12)],
       registry: null,
       upstream_proof: null,
+      dedicated: false,
+      upstream_credential: null,
     });
     expect(JSON.stringify(gateway.status())).not.toContain(secondDigest);
     await gateway.close();

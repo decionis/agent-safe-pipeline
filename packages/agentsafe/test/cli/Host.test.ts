@@ -169,6 +169,46 @@ describe("agentsafe host", () => {
     expect(io.out.join("")).not.toContain(TENANT_KEY);
   });
 
+  it("serves one registry entry alone with --tenant, and refuses a tenant id that is not a label", async () => {
+    const bad = fakeProcess({ env: { AGENTSAFE_TENANT_REGISTRY: REGISTRY } });
+    await runHost(bad, ["--tenant", "Acme!"]);
+    expect(bad.exits).toEqual([2]);
+    expect(bad.err[0]).toContain("CONFIG_INVALID: tenant");
+
+    const port = await closedPort();
+    const io = fakeProcess({
+      env: {
+        AGENTSAFE_TENANT_REGISTRY: REGISTRY,
+        AGENTSAFE_HOST_TENANT: "globex",
+        DECIONIS_API_URL: authority.baseUrl,
+        DECIONIS_ALLOW_INSECURE_LOOPBACK: "true",
+      },
+      files: { [REGISTRY]: registry(["acme", "globex"]) },
+    });
+    await runHost(
+      io,
+      ["--listen", `127.0.0.1:${port}`],
+      { upstreamFetch: async () => new Response("ok", { status: 200 }) },
+      0,
+    );
+    expect(io.exits).toEqual([]);
+    expect(own(io.out)[1]).toMatchObject({
+      event: "TENANT_HOST_STARTED",
+      tenants: 1,
+      dedicated_to: "globex",
+    });
+    expect(await get(port, "10.0.0.8:8080", "/_agentsafe/readyz")).toBe(200);
+    expect(await get(port, "acme.decionisedge.example", "/orders")).toBe(421);
+    expect(
+      await get(port, "globex.decionisedge.example", "/orders", {
+        "agentsafe-tenant-key": TENANT_KEY,
+      }),
+    ).toBe(200);
+    io.signals.get("SIGTERM")?.();
+    for (let attempt = 0; attempt < 40 && io.exits.length === 0; attempt += 1) await settle();
+    expect(io.exits).toEqual([0]);
+  });
+
   it("requires every tenant's upstream proof with --require-upstream-proof, and says so when it starts", async () => {
     const port = await closedPort();
     const io = fakeProcess({

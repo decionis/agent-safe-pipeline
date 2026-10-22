@@ -59,6 +59,12 @@ export interface UpstreamOptions {
   readonly hostOnlyCookies?: boolean;
   /** Relay every response under a sandboxing content security policy (a hosted gateway). */
   readonly sandboxed?: boolean;
+  /**
+   * The credential the gateway presents in place of its caller: the header,
+   * lower-case, and its value, read at each request so a rotation applies at
+   * once. A caller's own value of that header is never forwarded.
+   */
+  readonly credential?: { readonly header: string; readonly value: () => string };
 }
 
 /**
@@ -111,6 +117,11 @@ export class Upstream {
     return this.options.timeoutMs;
   }
 
+  /** Whether a value can be sent as one header: visible characters, spaces and tabs, nothing else. */
+  public static isHeaderValue(value: string): boolean {
+    return value.length > 0 && value.length <= 8192 && /^[\t\x20-\x7e]+$/.test(value);
+  }
+
   /** The upstream URL for a path and query, under the configured base path. */
   public target(path: string, search: string): string {
     const base = this.origin.pathname.replace(/\/$/, "");
@@ -136,6 +147,7 @@ export class Upstream {
         HOP_BY_HOP.has(name) ||
         REQUEST_OWNED.has(name) ||
         GATEWAY_CREDENTIALS.has(name) ||
+        name === this.options.credential?.header ||
         connectionNamed.has(name) ||
         name.startsWith(EVIDENCE_HEADER_PREFIX)
       ) {
@@ -157,6 +169,13 @@ export class Upstream {
     // the bytes received, and no header describes an encoding they lack.
     headers["accept-encoding"] = "identity";
     for (const [name, value] of Object.entries(extra)) headers[name.toLowerCase()] = value;
+    // Last, so nothing the caller or the gateway added stands in for it.
+    const credential = this.options.credential;
+    if (credential !== undefined) {
+      const value = credential.value();
+      if (!Upstream.isHeaderValue(value)) throw new Error("UPSTREAM_CREDENTIAL_INVALID");
+      headers[credential.header] = value;
+    }
     return headers;
   }
 

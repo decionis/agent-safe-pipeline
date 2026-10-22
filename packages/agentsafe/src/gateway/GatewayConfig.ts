@@ -1,4 +1,5 @@
 import { ApiProfiles } from "@decionis/agent-safe-pipeline";
+import { isAbsolute } from "node:path";
 import { z } from "zod";
 import {
   ExecutorConfigLoader,
@@ -34,6 +35,34 @@ export const TENANT_KEY_HEADER = "agentsafe-tenant-key";
 const TENANT_KEY_DIGEST = /^sha256:[0-9a-f]{64}$/;
 /** A tenant's registry id: the DNS label it is served under. */
 const HOSTED_TENANT = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+/** A header name as RFC 9110 spells a token, lower-cased. */
+const HEADER_TOKEN = /^[a-z0-9!#$%&'*+.^_`|~-]{1,64}$/;
+/**
+ * Headers an upstream credential may not be carried in: those that describe
+ * the hop or frame the request, which the gateway sets or drops itself, and
+ * those the authority reads (the intent binds Content-Type and
+ * Idempotency-Key), so a credential never reaches the intent.
+ */
+const CREDENTIAL_HEADERS_REFUSED: ReadonlySet<string> = new Set([
+  "host",
+  "content-length",
+  "content-type",
+  "content-encoding",
+  "transfer-encoding",
+  "connection",
+  "keep-alive",
+  "upgrade",
+  "te",
+  "trailer",
+  "expect",
+  "accept-encoding",
+  "idempotency-key",
+  "proxy-authorization",
+  "proxy-authenticate",
+  "proxy-connection",
+  TENANT_KEY_HEADER,
+]);
+const CREDENTIAL_PREFIXES_REFUSED = ["agentsafe-", "x-agent-safe-", "x-forwarded-"] as const;
 
 /** The tenant the demo authority evaluates under; a reserved fixture identifier, never an organization. */
 export const LOCAL_TENANT_ID = "00000000-0000-4000-8000-000000000009";
@@ -74,6 +103,13 @@ export interface GatewayConfig {
    */
   readonly hostedTenant: string | null;
   /**
+   * A hosted gateway that is the only gateway its process serves: a host
+   * started for one tenant (`agentsafe host --tenant`), or a single hosted
+   * gateway. A hosted gateway enforces nowhere else, so no other tenant's
+   * process ever holds its credentials or its held requests.
+   */
+  readonly hostedDedicated: boolean;
+  /**
    * The tenant's ingress keys, as `sha256:` digests: one, or two while a
    * rotation overlaps. When there are any, a request that is not the
    * gateway's own must carry a key in `AgentSafe-Tenant-Key` that hashes to
@@ -104,6 +140,14 @@ export interface GatewayConfig {
      * hosted tenant and the Decionis organization it runs under.
      */
     readonly proofRequired: boolean;
+    /**
+     * The credential the gateway, and not its caller, presents to the
+     * upstream: one header it sets on every request it forwards, whose value
+     * is the secret in `file` (opened as `DOWNSTREAM_CREDENTIAL`, and followed
+     * when the file is rotated). A caller's own value of that header is
+     * dropped. Null forwards the caller's headers as they are.
+     */
+    readonly credential: { readonly header: string; readonly file: string } | null;
     readonly system: string;
     readonly environment: string;
     readonly timeoutMs: number;
@@ -209,6 +253,12 @@ export const GatewayFileSchema = z.strictObject({
       upstream: url.optional(),
       upstreamInsecure: z.boolean().optional(),
       upstreamPublicOnly: z.boolean().optional(),
+      upstreamCredential: z
+        .strictObject({
+          header: z.string().trim().min(1).max(64),
+          file: z.string().trim().min(1).max(500),
+        })
+        .optional(),
       hosted: z.boolean().optional(),
       tenantKeyDigests: z.array(z.string()).optional(),
       rateLimit: z
@@ -333,6 +383,9 @@ const ENVIRONMENT = {
   upstreamProofRequired: "AGENTSAFE_UPSTREAM_PROOF_REQUIRED",
   hosted: "AGENTSAFE_HOSTED_GATEWAY",
   hostedTenant: "AGENTSAFE_HOSTED_TENANT",
+  hostedDedicated: "AGENTSAFE_HOSTED_DEDICATED",
+  upstreamCredentialHeader: "AGENTSAFE_UPSTREAM_CREDENTIAL_HEADER",
+  upstreamCredentialFile: "AGENTSAFE_UPSTREAM_CREDENTIAL_FILE",
   tenantKeyDigests: "AGENTSAFE_TENANT_KEY_DIGESTS",
   rateLimitRps: "AGENTSAFE_RATE_LIMIT_RPS",
   rateLimitBurst: "AGENTSAFE_RATE_LIMIT_BURST",
@@ -371,6 +424,7 @@ const COMMAND_ENVIRONMENT = [
   "AGENTSAFE_HOME",
   "AGENTSAFE_METRICS_TOKEN",
   "AGENTSAFE_TENANT_REGISTRY",
+  "AGENTSAFE_HOST_TENANT",
   "AGENTSAFE_TLS_CERT_FILE",
   "AGENTSAFE_TLS_KEY_FILE",
   "AGENTSAFE_REDIRECT_LISTEN",
@@ -680,15 +734,6 @@ export class GatewayConfigLoader {
     // every action closed, so the refusal is at start, by name.
     const provisional =
       kind === "DECIONIS" && keyFromCredentials && credentials.provisional === true;
-    // Hosted enforcement would hold every tenant's provider credentials; it is
-    // not offered, so a hosted gateway that says enforce is refused at start.
-    if (hosted && mode === "ENFORCEMENT") {
-      throw new GatewayConfigError(
-        "CONFIG_INVALID",
-        "authority.mode",
-        "a hosted gateway runs in shadow only",
-      );
-    }
     if (provisional && mode === "ENFORCEMENT") {
       throw new GatewayConfigError(
         "CONFIG_INVALID",
@@ -904,6 +949,23 @@ export class GatewayConfigLoader {
       );
     }
     GatewayConfigLoader.requireTenantKey(tenantKeys, hosted);
+    const hostedDedicated = resolve(
+      "hostedDedicated",
+      [
+        {
+          source: "environment",
+          raw: parseBoolean(env[ENVIRONMENT.hostedDedicated], ENVIRONMENT.hostedDedicated),
+        },
+      ],
+      false,
+    );
+    if (hostedDedicated && !hosted) {
+      throw new GatewayConfigError(
+        "CONFIG_INVALID",
+        ENVIRONMENT.hostedDedicated,
+        "on a hosted gateway",
+      );
+    }
     // The proof binds the hosted tenant and the organization its key belongs
     // to, so it means nothing on a gateway that has neither.
     const proofRequired = resolve(
@@ -927,6 +989,24 @@ export class GatewayConfigLoader {
       );
     }
 
+    const credential = GatewayConfigLoader.upstreamCredential(env, file, principalHeader, resolve);
+    // Hosted enforcement is the tenant's opt-in, and runs only where every
+    // control its design asks for is on (design.agentsafe-hosted-shadow.md
+    // §14): a process of its own, a Decionis organization, failing closed, a
+    // proven upstream, a credential the gateway holds in place of the agent,
+    // and evidence written before anything executes.
+    if (hosted && mode === "ENFORCEMENT") {
+      GatewayConfigLoader.requireHostedEnforcement({
+        dedicated: hostedDedicated,
+        tenant: hostedTenant,
+        kind,
+        failurePolicy,
+        proofRequired,
+        credential,
+        evidence: file?.evidence?.enabled ?? true,
+      });
+    }
+
     const rateLimit =
       resolve<RateLimit | null>(
         "rateLimit",
@@ -940,6 +1020,7 @@ export class GatewayConfigLoader {
     const escalation = GatewayConfigLoader.escalation(file, env, mode, kind, resolve);
     const required: SecretName[] = [];
     if (kind === "DECIONIS") required.push("DECIONIS_API_KEY");
+    if (credential !== null) required.push("DOWNSTREAM_CREDENTIAL");
     if (escalation.mode === "DIRECT") required.push("PRESENCE_API_KEY");
 
     const verbose = resolve(
@@ -987,6 +1068,7 @@ export class GatewayConfigLoader {
       listen,
       hosted,
       hostedTenant,
+      hostedDedicated,
       tenantKeys,
       rateLimit,
       upstream: {
@@ -994,6 +1076,7 @@ export class GatewayConfigLoader {
         insecure: upstreamInsecure,
         publicOnly: upstreamPublicOnly,
         proofRequired,
+        credential,
         system: resolve(
           "upstream.system",
           [
@@ -1206,6 +1289,132 @@ export class GatewayConfigLoader {
     const keys = GatewayConfigLoader.tenantKeys(digests);
     GatewayConfigLoader.requireTenantKey(keys, hosted);
     return keys;
+  }
+
+  /**
+   * The upstream credential the gateway presents, from the environment or
+   * the file: a header and the file holding its value, both or neither. The
+   * header is one a credential can travel in without the gateway setting or
+   * dropping it, and never one whose value reaches the authority.
+   */
+  private static upstreamCredential(
+    env: Readonly<Record<string, string | undefined>>,
+    file: GatewayFile | null,
+    principalHeader: string | null,
+    resolve: <T>(name: string, layers: readonly Layer<T>[], fallback: T) => T,
+  ): { readonly header: string; readonly file: string } | null {
+    const header = resolve<string | null>(
+      "upstream.credential.header",
+      [
+        {
+          source: "environment",
+          raw: env[ENVIRONMENT.upstreamCredentialHeader]?.trim() || undefined,
+        },
+        { source: "file", raw: file?.gateway?.upstreamCredential?.header },
+      ],
+      null,
+    );
+    const path = resolve<string | null>(
+      "upstream.credential.file",
+      [
+        {
+          source: "environment",
+          raw: env[ENVIRONMENT.upstreamCredentialFile]?.trim() || undefined,
+        },
+        { source: "file", raw: file?.gateway?.upstreamCredential?.file },
+      ],
+      null,
+    );
+    if (header === null && path === null) return null;
+    if (header === null || path === null) {
+      throw new GatewayConfigError(
+        "CONFIG_MISSING",
+        header === null ? ENVIRONMENT.upstreamCredentialHeader : ENVIRONMENT.upstreamCredentialFile,
+        "an upstream credential needs its header and the file holding its value",
+      );
+    }
+    const name = header.toLowerCase();
+    if (
+      !HEADER_TOKEN.test(name) ||
+      CREDENTIAL_HEADERS_REFUSED.has(name) ||
+      CREDENTIAL_PREFIXES_REFUSED.some((prefix) => name.startsWith(prefix)) ||
+      name === principalHeader?.toLowerCase()
+    ) {
+      throw new GatewayConfigError(
+        "CONFIG_INVALID",
+        "upstream.credential.header",
+        "a header the gateway neither sets nor sends to the authority, such as authorization or x-api-key",
+      );
+    }
+    if (!isAbsolute(path)) {
+      throw new GatewayConfigError(
+        "CONFIG_INVALID",
+        "upstream.credential.file",
+        "an absolute path",
+      );
+    }
+    return { header: name, file: path };
+  }
+
+  /** Every control hosted enforcement needs, refused by the first one missing, by name. */
+  private static requireHostedEnforcement(facts: {
+    readonly dedicated: boolean;
+    readonly tenant: string | null;
+    readonly kind: AuthorityKind;
+    readonly failurePolicy: FailurePolicy;
+    readonly proofRequired: boolean;
+    readonly credential: { readonly header: string; readonly file: string } | null;
+    readonly evidence: boolean;
+  }): void {
+    if (!facts.dedicated) {
+      throw new GatewayConfigError(
+        "CONFIG_INVALID",
+        ENVIRONMENT.hostedDedicated,
+        "a hosted gateway enforces only in a process of its own: agentsafe host --tenant",
+      );
+    }
+    if (facts.tenant === null) {
+      throw new GatewayConfigError(
+        "CONFIG_MISSING",
+        ENVIRONMENT.hostedTenant,
+        "the tenant a hosted gateway enforces for",
+      );
+    }
+    if (facts.kind !== "DECIONIS") {
+      throw new GatewayConfigError(
+        "CONFIG_INVALID",
+        "authority",
+        "a hosted gateway enforces against a Decionis organization",
+      );
+    }
+    if (facts.failurePolicy !== "FAIL_CLOSED") {
+      throw new GatewayConfigError(
+        "CONFIG_INVALID",
+        "authority.failurePolicy",
+        "a hosted gateway enforces fail-closed",
+      );
+    }
+    if (!facts.proofRequired) {
+      throw new GatewayConfigError(
+        "CONFIG_MISSING",
+        ENVIRONMENT.upstreamProofRequired,
+        "a hosted gateway enforces only for an upstream that proves it is the tenant's",
+      );
+    }
+    if (facts.credential === null) {
+      throw new GatewayConfigError(
+        "CONFIG_MISSING",
+        "upstream.credential",
+        "a hosted gateway that enforces holds the upstream credential, so the agent cannot go around it",
+      );
+    }
+    if (!facts.evidence) {
+      throw new GatewayConfigError(
+        "CONFIG_INVALID",
+        "evidence.enabled",
+        "a hosted gateway that enforces writes evidence before execution",
+      );
+    }
   }
 
   /** Hosted, the tenant is the only caller the gateway admits, from day one. */

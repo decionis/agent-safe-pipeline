@@ -141,6 +141,41 @@ describe("the upstream client", () => {
 });
 
 describe("host-only cookies, for a hosted gateway", () => {
+  it("presents its own credential in place of the caller's, read at each request, and only a value one header can carry", () => {
+    let value = "Bearer synthetic-upstream-credential";
+    const holding = new Upstream({
+      url: "https://api.example",
+      timeoutMs: 2_000,
+      maxResponseBytes: 1024,
+      fetch,
+      credential: { header: "authorization", value: () => value },
+    });
+    const headers = holding.headersFor(request(), { authorization: "Bearer from-extra" });
+    expect(headers["authorization"]).toBe("Bearer synthetic-upstream-credential");
+    // A rotated value is the one the next request carries.
+    value = "Bearer rotated";
+    expect(holding.headersFor(request())["authorization"]).toBe("Bearer rotated");
+    // A caller's spelling of another header is untouched; its spelling of this one never leaves.
+    const keyed = new Upstream({
+      url: "https://api.example",
+      timeoutMs: 2_000,
+      maxResponseBytes: 1024,
+      fetch,
+      credential: { header: "x-api-key", value: () => "synthetic-key" },
+    });
+    const sent = keyed.headersFor(
+      request({ headers: { ...request().headers, "x-api-key": "mine" } }),
+    );
+    expect(sent["x-api-key"]).toBe("synthetic-key");
+    expect(sent["authorization"]).toBe("Bearer synthetic");
+    for (const broken of ["", "a\r\nx-injected: 1", "a\u0000b", "x".repeat(8193), "caf\u00e9"]) {
+      value = broken;
+      expect(Upstream.isHeaderValue(broken)).toBe(false);
+      expect(() => holding.headersFor(request())).toThrow("UPSTREAM_CREDENTIAL_INVALID");
+    }
+    expect(Upstream.isHeaderValue("Token a\tb")).toBe(true);
+  });
+
   it("drops the Domain attribute and nothing else", () => {
     expect(hostOnlyCookie("sid=1; Domain=gw.example; Path=/; Secure; HttpOnly")).toBe(
       "sid=1; Path=/; Secure; HttpOnly",

@@ -3,6 +3,7 @@ import {
   parseTenantRegistry,
   registryRevision,
   tenantFingerprint,
+  tenantEnforces,
   tenantHostname,
   TenantRegistryError,
 } from "../../src/hosted/TenantRegistry.js";
@@ -197,5 +198,56 @@ describe("the tenant registry", () => {
     expect(registryRevision(text)).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(registryRevision(text)).toBe(registryRevision(registry([tenant("acme")])));
     expect(registryRevision(`${text}\n`)).not.toBe(registryRevision(text));
+  });
+
+  it("lets a tenant opt in to enforcement only with the upstream credential its gateway holds", () => {
+    const credential = {
+      header: "authorization",
+      file: "/var/run/agent-safe/custody/upstream-credential",
+    };
+    const enforcing = parseTenantRegistry(
+      registry([
+        tenant("acme", {
+          mode: "enforcement",
+          upstreamCredential: credential,
+          presence: { managed: true, approverId: "synthetic-approver" },
+        }),
+        tenant("globex"),
+        tenant("initech", { mode: "shadow" }),
+      ]),
+    );
+    expect(enforcing.tenants.map(tenantEnforces)).toEqual([true, false, false]);
+    expect(enforcing.tenants[0]?.upstreamCredential).toEqual(credential);
+    // Opting in changes what the tenant's gateway is built from.
+    const before = parseTenantRegistry(registry([tenant("acme")]));
+    expect(tenantFingerprint(enforcing, enforcing.tenants[0] as never)).not.toBe(
+      tenantFingerprint(before, before.tenants[0] as never),
+    );
+
+    for (const [entry, where] of [
+      [tenant("acme", { mode: "enforcement" }), "tenants.0.upstreamCredential"],
+      [tenant("acme", { upstreamCredential: credential }), "tenants.0.upstreamCredential"],
+      [tenant("acme", { mode: "shadow", presence: { managed: true } }), "tenants.0.presence"],
+      [tenant("acme", { mode: "enforce" }), "tenants.0.mode"],
+      [
+        tenant("acme", {
+          mode: "enforcement",
+          upstreamCredential: { header: "authorization", file: "relative/credential" },
+        }),
+        "tenants.0.upstreamCredential.file",
+      ],
+      [
+        tenant("acme", {
+          mode: "enforcement",
+          upstreamCredential: { ...credential, value: "inline secret" },
+        }),
+        "tenants.0.upstreamCredential",
+      ],
+    ] as const) {
+      const error = refusal(registry([entry]));
+      expect(error.code).toBe("REGISTRY_INVALID");
+      expect(error.where).toBe(where);
+      expect(error.message).not.toContain("inline secret");
+    }
   });
 });
