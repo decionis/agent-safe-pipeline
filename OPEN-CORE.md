@@ -14,7 +14,8 @@ business model from the code.
   intents, issues and atomically consumes execution grants, signs and retains Decision Dossiers,
   and verifies human approval through Presence.
 - **Licensed separately (Decionis, not in this repository):** the edge evaluator, a WebAssembly
-  build of the policy core that a deployment runs in its own network. This repository ships its
+  build of the policy core, the engine the hosted service decides with, that a deployment runs in
+  its own network. This repository ships its
   open host, as it ships `DecionisGate` as an open client of the hosted service.
 - **The seam:** two TypeScript interfaces, five versioned HTTP operations, and the edge module's
   versioned ABI. Anyone can implement the interfaces. The library does not check a plan, key, or
@@ -70,6 +71,9 @@ The **policy control plane** is the hosted authority behind `DecionisGate`. It o
 Decionis also licenses, separately, the **edge evaluator**: the policy core compiled to a
 WebAssembly module that evaluates bundles Decionis signed, so a deployment can decide inside its
 own network and get the verdict the hosted service would give ([the edge evaluator](./docs/edge-evaluator.md)).
+The hosted service decides with the same core: the two are builds of one Rust crate, held to one
+conformance corpus. Governed policy and commerce-preflight requests are decided only by the hosted
+service ([limits](./docs/edge-evaluator.md#limits)).
 The module, its pinned keys and its bundle signing are Decionis's; the host that loads it, keeps a
 bundle current, records each local decision and sends escalations to the hosted service is here.
 
