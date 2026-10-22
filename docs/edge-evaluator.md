@@ -358,8 +358,18 @@ escalate.
   `governed_online_authority_required`), so its executor asks Decionis.
 - A commerce-preflight request (an intent whose context carries `commerce_preflight` or
   `commerce_preflight_transport`) is decided by hosted Decionis with its commerce checks, which the
-  edge build does not carry. `edge-module-v1.0.0` does not detect such a request and would decide it
-  on the policy graph alone, so a deployment that submits commerce-preflight requests runs with
-  `EXECUTOR_DECISION_AUTHORITY=hosted`.
+  edge build does not carry. From `edge-module-v1.1.0` the module refuses such a request
+  (`commerce_preflight_requires_hosted`), and the refusal follows `EXECUTOR_EDGE_ON_UNAVAILABLE`:
+  with `hosted` Decionis decides it, with `block` it is refused, so a deployment that submits
+  commerce-preflight requests keeps `hosted`. `edge-module-v1.0.0` does not detect such a request
+  and would decide it on the policy graph alone, so a deployment still on 1.0.0 that submits them
+  runs with `EXECUTOR_DECISION_AUTHORITY=hosted`; on 1.1.0 it can return to `edge`.
+- A rule that compares two facts (`EQ_FACT`, `NEQ_FACT`, such as the
+  [subject-bound session](./gateway/subject-sessions.md#writes) rule) is not decided at the edge:
+  every released module, 1.1.0 included, is ABI 3, which is the ABI this host requires and which
+  predates those operators. Decionis signs a bundle that uses one in a format an ABI 3 module refuses
+  (`bundle_abi_unsupported`), so the executor keeps any bundle it already holds, an older policy,
+  until that bundle expires, and then follows `EXECUTOR_EDGE_ON_UNAVAILABLE`. An organisation whose
+  policy uses these operators runs with `EXECUTOR_DECISION_AUTHORITY=hosted`.
 - The usage tally and the licence comparison are per installation; the organisation's total is
   Decionis's, from every installation's reports.

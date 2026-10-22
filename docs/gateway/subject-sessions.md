@@ -102,7 +102,7 @@ A write is decided by the authority as always. When the request presents a sessi
 gateway states its customer in the intent's trusted context as `session: { "subject": "C-10000" }`,
 which a policy reads as the fact `session.subject`: a rule compares it with the operation's own fact,
 such as `customer_number EQ_FACT session.subject`, where the authority's policy core has fact-to-fact
-operators. It is a verified claim of your identity provider, never a value of the request, so it is
+operators (hosted only: the [edge evaluator](../edge-evaluator.md#limits) cannot yet decide them). It is a verified claim of your identity provider, never a value of the request, so it is
 sent in [facts-only privacy](./http-interception.md#facts-only-privacy) too. A session that does not
 stand is refused before the authority is asked; a write with no session states no `session`.
 
