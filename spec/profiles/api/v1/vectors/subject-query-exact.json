@@ -1,0 +1,57 @@
+{
+  "description": "A list read states the session's subject in its subject query exactly as the template writes it, and carries only the parameters it may; its answer holds the list and the envelope's keys.",
+  "definition": {
+    "profile": "agent-safe.profile.api/1",
+    "id": "example/api/v1",
+    "platform": "example",
+    "title": "Example API",
+    "prefixes": [""],
+    "operations": [
+      {
+        "id": "invoices.list",
+        "method": "GET",
+        "path": "/invoices",
+        "action": "invoice.read",
+        "summary": "List a customer's invoices.",
+        "facts": {},
+        "policy_projection": null,
+        "subject": {
+          "response": "/body/value/*/customerNumber",
+          "query": {
+            "name": "$filter",
+            "template": "customerNumber eq '{subject}'"
+          },
+          "parameters": ["$select", "$top", "$skip"],
+          "envelope": ["@odata.context", "@odata.nextLink"]
+        }
+      }
+    ]
+  },
+  "request": {
+    "method": "GET",
+    "path": "/invoices",
+    "query": {
+      "$filter": "customerNumber eq 'C-10000'",
+      "$top": "20"
+    }
+  },
+  "expected": {
+    "operation": "invoices.list",
+    "action": "invoice.read",
+    "facts": {},
+    "policy_projection": null
+  },
+  "session": "C-10000",
+  "request_check": "MATCH",
+  "response": {
+    "@odata.context": "https://erp.example/$metadata#invoices",
+    "value": [
+      {
+        "number": "INV-1",
+        "customerNumber": "C-10000"
+      }
+    ],
+    "@odata.nextLink": "https://erp.example/invoices?$skiptoken=1"
+  },
+  "response_check": "MATCH"
+}

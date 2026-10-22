@@ -4,7 +4,9 @@
   "request": {
     "method": "GET",
     "path": "/v2.0/production/api/v2.0/companies(6f3c1a52-1d2e-4f5a-8b9c-0d1e2f3a4b5c)/salesQuotes",
-    "query": {}
+    "query": {
+      "$filter": "customerNumber eq 'C-10000'"
+    }
   },
   "expected": {
     "operation": "salesQuotes.list",

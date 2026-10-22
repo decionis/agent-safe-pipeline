@@ -173,6 +173,42 @@
                 "type": "string",
                 "maxLength": 300,
                 "pattern": "^\\/body(\\/.*)?$"
+              },
+              "query": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^\\$?[a-z][\\w.-]{0,63}$"
+                  },
+                  "template": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 300
+                  }
+                },
+                "required": [
+                  "name",
+                  "template"
+                ],
+                "additionalProperties": false
+              },
+              "parameters": {
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^\\$?[a-z][\\w.-]{0,63}$"
+                }
+              },
+              "envelope": {
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 100
+                }
               }
             },
             "additionalProperties": false

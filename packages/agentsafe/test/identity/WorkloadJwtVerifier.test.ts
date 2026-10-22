@@ -4,6 +4,7 @@ type KeyLike = Awaited<ReturnType<typeof generateKeyPair>>["privateKey"];
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import {
   JwtError,
+  UNKNOWN_KEY_REFRESH_MS,
   WorkloadJwtVerifier,
   type JwtCode,
 } from "../../src/identity/WorkloadJwtVerifier.js";
@@ -181,6 +182,7 @@ describe("WorkloadJwtVerifier", () => {
         },
       });
       const fresh = await token(rotated, { iss: ISSUER, sub: SUBJECT, aud: "agentsafe" });
+      // An unknown key id asks for one refresh, which fails here: still refused.
       expect(await code(v.verify(fresh))).toBe("JWT_SIGNATURE_INVALID");
       answers.push(() => new Response("oops", { status: 503 }));
       expect(await v.refreshNow()).toBe(false);
@@ -194,26 +196,66 @@ describe("WorkloadJwtVerifier", () => {
       v.start();
       v.start();
       await vi.advanceTimersByTimeAsync(60_000);
-      expect(fetchImpl).toHaveBeenCalledTimes(4);
+      expect(fetchImpl).toHaveBeenCalledTimes(5);
       expect(await code(v.verify(fresh))).toBe("OK");
+      // The old key is gone; its unknown key id asks again, a minute later.
       expect(
         await code(v.verify(await token(es, { iss: ISSUER, sub: SUBJECT, aud: "agentsafe" }))),
       ).toBe("JWT_SIGNATURE_INVALID");
       v.stop();
       v.stop();
       await vi.advanceTimersByTimeAsync(120_000);
-      expect(fetchImpl).toHaveBeenCalledTimes(4);
+      expect(fetchImpl).toHaveBeenCalledTimes(6);
       expect(
         lines.map((line) => JSON.parse(line) as { event: string; code?: string; keys?: number }),
       ).toEqual([
+        expect.objectContaining({ event: "JWKS_REFRESH_FAILED", code: "JWKS_UNREACHABLE" }),
         expect.objectContaining({ event: "JWKS_REFRESH_FAILED", code: "JWKS_HTTP_503" }),
         expect.objectContaining({ event: "JWKS_REFRESH_FAILED", code: "JWKS_INVALID" }),
         expect.objectContaining({ event: "JWKS_REFRESH_FAILED", code: "JWKS_UNREACHABLE" }),
         expect.objectContaining({ event: "JWKS_REFRESHED", keys: 1 }),
+        expect.objectContaining({ event: "JWKS_REFRESH_FAILED", code: "JWKS_UNREACHABLE" }),
       ]);
       expect(await verifier().refreshNow()).toBe(false);
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("fetches a key the issuer just rotated in at once, at most every 30 seconds", async () => {
+    const lines: string[] = [];
+    const rotated = await signer("ES256", "es-2");
+    let now = 1_000_000;
+    const fetchImpl = vi.fn(
+      async () => new Response(JSON.stringify({ keys: [es.jwk, rotated.jwk] }), { status: 200 }),
+    ) as unknown as typeof fetch;
+    const v = verifier({
+      refresh: {
+        url: "https://issuer.synthetic.example/openid/v1/jwks",
+        fetch: fetchImpl,
+        intervalSeconds: 300,
+        events: collectedEvents(lines),
+      },
+      clock: () => now,
+    });
+    // The rotated key is not in the set yet: one refresh, then the token verifies.
+    const fresh = await token(rotated, { iss: ISSUER, sub: SUBJECT, aud: "agentsafe" });
+    expect(await code(v.verify(fresh))).toBe("OK");
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    // A key id no set holds asks again only once 30 seconds have passed.
+    const stranger = await signer("ES256", "es-unknown");
+    const forged = await token(stranger, { iss: ISSUER, sub: SUBJECT, aud: "agentsafe" });
+    now += UNKNOWN_KEY_REFRESH_MS - 1;
+    expect(await code(v.verify(forged))).toBe("JWT_SIGNATURE_INVALID");
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    now += 1;
+    expect(await code(v.verify(forged))).toBe("JWT_SIGNATURE_INVALID");
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    // A signature that fails for another reason asks for nothing.
+    now += UNKNOWN_KEY_REFRESH_MS;
+    expect(await code(v.verify(`${fresh.slice(0, -4)}AAAA`))).toBe("JWT_SIGNATURE_INVALID");
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    // Without an address there is nothing to refresh from.
+    expect(await code(verifier().verify(fresh))).toBe("JWT_SIGNATURE_INVALID");
   });
 });

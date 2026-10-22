@@ -35,18 +35,32 @@ no session is read.
   (RFC 8693, `POST /_agentsafe/v1/sessions`), or the agent presents the token itself on each call
   (`AgentSafe-Subject-Token`). The gateway pins the customer; the agent cannot change it. Neither
   header is forwarded.
-- A read an API profile operation names is checked against the session's customer, in the call
-  and in every item of its answer; an answer with another customer's record is refused whole
-  (`403 RESPONSE_SUBJECT_MISMATCH`, `agentsafe-execution: WITHHELD`) and recorded, never filtered.
-  `interception.refuseUnknownReads: true` refuses a read the profile cannot check.
-- A write states the customer to the authority as the fact `session.subject`.
+- A read an API profile operation names is checked against the session's customer before it is
+  sent and in every item of its answer. A list must carry exactly the profile's subject filter
+  (`$filter=number eq 'C-10000'`, no second predicate) and only the query options the profile
+  allows, so `$count`, `$search` and `$apply` are refused (`403 QUERY_PARAMETER_REFUSED`); a `+` in
+  a checked read's query is refused, as platforms read it differently. An answer with another
+  customer's record, or a key beside the list the profile does not name (`@odata.count`), is
+  refused whole (`403 RESPONSE_SUBJECT_MISMATCH`, `RESPONSE_KEY_REFUSED`,
+  `agentsafe-execution: WITHHELD`) and recorded, never filtered.
+- `interception.refuseUnknownReads` is on by default with `subject` and a profile, and refuses
+  what the profile cannot check: a read it does not name, a path beneath one (`/$count`), and a
+  write no operation or route names, `$batch` included, whatever `unmatched` says. A gateway that
+  holds the upstream credential and pins subjects refuses `false` at start.
+- A write whose operation names a subject needs a session (`401 SUBJECT_SESSION_REQUIRED`), states
+  the customer to the authority as the fact `session.subject`, and has its successful answer
+  checked like a read's: `PATCH …/customers(<another's id>)` no longer relays that customer's record.
+- Exchanging the same token again replaces its session, and a token whose key id the key set does
+  not hold refreshes the set once, at most every 30 seconds (the executor's workload tokens too).
 - Neither session header can be `interception.principalHeader`, whose value the authority
   receives; the configuration refuses it by name, as it refuses the tenant key.
-- `agent-safe.profile.api/1` gains `subject` pointers and `GET` operations, additively, with
-  vectors; `session` is a reserved fact name. `businesscentral/api/v2` scopes its customer, sales
-  document and customer ledger entry reads, and states the subject of a new sales order.
-- New wire values, additive: the state `REFUSED`, the execution `WITHHELD`, the header
-  `agentsafe-subject: CHECKED`. [Subject-bound sessions](docs/gateway/subject-sessions.md).
+- `agent-safe.profile.api/1` gains `subject` (`request`, `response`, `query`, `parameters`,
+  `envelope`) and `GET` operations, additively, with vectors; `session` is a reserved fact name.
+  `businesscentral/api/v2` scopes its customer, sales document and customer ledger entry reads,
+  and the answers of `customers.update` and `salesOrders.create`.
+- New wire values, additive: the state `REFUSED`, the execution `WITHHELD` (with `upstream_status`
+  in the body), the header `agentsafe-subject: CHECKED`.
+  [Subject-bound sessions](docs/gateway/subject-sessions.md).
 
 ## Runtime (unreleased): facts-only privacy for the gateway
 

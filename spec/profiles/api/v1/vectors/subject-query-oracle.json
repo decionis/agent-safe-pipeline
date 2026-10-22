@@ -1,0 +1,45 @@
+{
+  "description": "A second predicate beside another subject's would make an empty answer a yes or no about that subject's fields: anything but the template's one literal is refused.",
+  "definition": {
+    "profile": "agent-safe.profile.api/1",
+    "id": "example/api/v1",
+    "platform": "example",
+    "title": "Example API",
+    "prefixes": [""],
+    "operations": [
+      {
+        "id": "invoices.list",
+        "method": "GET",
+        "path": "/invoices",
+        "action": "invoice.read",
+        "summary": "List a customer's invoices.",
+        "facts": {},
+        "policy_projection": null,
+        "subject": {
+          "response": "/body/value/*/customerNumber",
+          "query": {
+            "name": "$filter",
+            "template": "customerNumber eq '{subject}'"
+          },
+          "parameters": ["$select", "$top", "$skip"],
+          "envelope": ["@odata.context", "@odata.nextLink"]
+        }
+      }
+    ]
+  },
+  "request": {
+    "method": "GET",
+    "path": "/invoices",
+    "query": {
+      "$filter": "customerNumber eq 'C-20000' and amount gt 5000"
+    }
+  },
+  "expected": {
+    "operation": "invoices.list",
+    "action": "invoice.read",
+    "facts": {},
+    "policy_projection": null
+  },
+  "session": "C-10000",
+  "request_check": "QUERY_PARAMETER_REFUSED"
+}

@@ -1,0 +1,47 @@
+{
+  "description": "A write's successful answer is checked too: a change addressed by another subject's id answers with that subject's record, which is withheld.",
+  "definition": {
+    "profile": "agent-safe.profile.api/1",
+    "id": "example/api/v1",
+    "platform": "example",
+    "title": "Example API",
+    "prefixes": [""],
+    "operations": [
+      {
+        "id": "customers.update",
+        "method": "PATCH",
+        "path": "/customers/{customerId}",
+        "action": "customer.update",
+        "summary": "Change a customer.",
+        "facts": {
+          "customer_id": "/path/customerId"
+        },
+        "policy_projection": null,
+        "subject": {
+          "response": "/body/number"
+        }
+      }
+    ]
+  },
+  "request": {
+    "method": "PATCH",
+    "path": "/customers/7f1c",
+    "body": {}
+  },
+  "expected": {
+    "operation": "customers.update",
+    "action": "customer.update",
+    "facts": {
+      "customer_id": "7f1c"
+    },
+    "policy_projection": null
+  },
+  "session": "C-10000",
+  "request_check": "MATCH",
+  "response": {
+    "id": "7f1c",
+    "number": "C-20000",
+    "displayName": "Another Synthetic Customer"
+  },
+  "response_check": "RESPONSE_SUBJECT_MISMATCH"
+}

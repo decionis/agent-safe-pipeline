@@ -11,8 +11,10 @@ import {
   IntentCapture,
   SafeExecutor,
   ShadowPipeline,
-  ApiProfile,
+  type ApiOperationDefinition,
+  type ApiProfile,
   type ApiProfileMatch,
+  type ApiSubjectCheck,
   type CapturedIntent,
   type DecisionGate,
   type JsonObject,
@@ -266,6 +268,13 @@ export function shortDigest(digest: string): string {
   return digest.slice(0, "sha256:".length + 12);
 }
 
+/** What a governed request's answer is checked against: its session, and the operation that names the answer's subject. */
+interface AnswerScope {
+  readonly session: SubjectSession;
+  readonly operation: string;
+  readonly action: string;
+}
+
 interface HeldEscalation {
   readonly captured: CapturedIntent;
   readonly request: InterceptedRequest;
@@ -300,6 +309,13 @@ export const RESUME_TOKEN_HEADER = "agentsafe-resume-token";
  */
 export class Gateway {
   private readonly held = new Map<string, HeldEscalation>();
+  /**
+   * For each governed request whose operation names where the subject sits
+   * in its answer: the session and operation the answer is checked against,
+   * wherever it is relayed (enforced, observed in shadow, forwarded failing
+   * open, or after a resumed escalation, which holds the same request).
+   */
+  private readonly answerScopes = new WeakMap<InterceptedRequest, AnswerScope>();
   private readonly holder = new RequestHolder();
   /**
    * The key of the facts-only request digest: made here, held only here, so
@@ -1065,6 +1081,17 @@ export class Gateway {
     const session = await this.sessionOf(request);
     if (typeof session === "string")
       return this.subjectRefused(request, action, null, session, null);
+    // A write whose operation names a subject is for one subject: without a
+    // session there is nothing to state to policy or to check its answer by.
+    const scoped = this.sessions === null ? null : this.scopedOperation(request, action);
+    if (scoped !== null) {
+      if (session === null) {
+        return this.subjectRefused(request, action, scoped.id, "SUBJECT_SESSION_REQUIRED", null);
+      }
+      if (scoped.subject?.response !== undefined) {
+        this.answerScopes.set(request, { session, operation: scoped.id, action });
+      }
+    }
     let captured: CapturedIntent;
     try {
       captured = this.captureIntent(request, action, session);
@@ -1343,7 +1370,17 @@ export class Gateway {
         null,
       );
     }
-    const matched = this.profileMatch(request);
+    const query = Gateway.strictQuery(request.search);
+    if (query === null) {
+      return this.subjectRefused(
+        request,
+        operation.action,
+        operationId,
+        "QUERY_PARAMETER_REFUSED",
+        session,
+      );
+    }
+    const matched = profile.match({ method: request.method, path: request.path, query });
     if (matched === null || matched.operation !== operationId) {
       return this.subjectRefused(
         request,
@@ -1353,7 +1390,7 @@ export class Gateway {
         session,
       );
     }
-    const asked = ApiProfile.checkRequest(matched, session.subject);
+    const asked = profile.checkRequest(matched, query, session.subject);
     if (asked !== "MATCH") {
       return this.subjectRefused(request, operation.action, operationId, asked, session);
     }
@@ -1370,32 +1407,119 @@ export class Gateway {
     } catch (error) {
       return this.failed(this.failureOf(error));
     }
-    if (result.status >= 200 && result.status < 300) {
-      let body: JsonValue | undefined;
-      try {
-        body =
-          result.body.length === 0
-            ? undefined
-            : (JSON.parse(result.body.toString("utf8")) as JsonValue);
-      } catch {
-        body = undefined;
-      }
-      const answered = profile.checkResponse(operationId, body, session.subject);
-      if (answered !== null && answered !== "MATCH") {
-        return this.subjectRefused(
-          request,
-          operation.action,
-          operationId,
-          answered,
-          session,
-          result.status,
-        );
-      }
+    const answered = this.answerRefusal(operationId, session, result);
+    if (answered !== null) {
+      return this.subjectRefused(
+        request,
+        operation.action,
+        operationId,
+        answered,
+        session,
+        result.status,
+      );
     }
     return this.relay(result, {
       "agentsafe-execution": "PASSTHROUGH",
       "agentsafe-subject": "CHECKED",
     });
+  }
+
+  /**
+   * Why a successful answer may not be relayed for this session, or null when
+   * it may: every item the operation's response pointer reaches must name the
+   * session's subject, and beside a list only the envelope's keys may stand.
+   * An answer that is not a success is relayed as it came.
+   */
+  private answerRefusal(
+    operationId: string,
+    session: SubjectSession,
+    result: UpstreamResult,
+  ): ApiSubjectCheck | null {
+    if (result.status < 200 || result.status >= 300) return null;
+    let body: JsonValue | undefined;
+    try {
+      body =
+        result.body.length === 0
+          ? undefined
+          : (JSON.parse(result.body.toString("utf8")) as JsonValue);
+    } catch {
+      body = undefined;
+    }
+    const answered = this.profile()?.checkResponse(operationId, body, session.subject) ?? null;
+    return answered === null || answered === "MATCH" ? null : answered;
+  }
+
+  /**
+   * A forwarded answer, relayed: as it came, or, when the request's operation
+   * names where the subject sits in its answer and the answer names another
+   * subject, withheld. The effect, if any, has happened; the response says
+   * the call reached the upstream (`WITHHELD`) and with what status, so a
+   * caller never takes it for a call that was not made.
+   */
+  private answer(
+    request: InterceptedRequest,
+    result: UpstreamResult,
+    extra: Readonly<Record<string, string>>,
+  ): GatewayResponse {
+    const scope = this.answerScopes.get(request);
+    const refused =
+      scope === undefined ? null : this.answerRefusal(scope.operation, scope.session, result);
+    if (scope !== undefined && refused !== null) {
+      return this.subjectRefused(
+        request,
+        scope.action,
+        scope.operation,
+        refused,
+        scope.session,
+        result.status,
+      );
+    }
+    return this.relay(result, extra);
+  }
+
+  /** The profile operation that named a governed call, when it names a subject; else null. */
+  private scopedOperation(
+    request: InterceptedRequest,
+    action: string,
+  ): ApiOperationDefinition | null {
+    const matched = this.profileMatch(request);
+    if (matched === null || matched.action !== action) return null;
+    const operation = this.profile()?.operation(matched.operation) ?? null;
+    return operation?.subject === undefined ? null : operation;
+  }
+
+  /**
+   * A checked read's query, decoded as RFC 3986 writes it: each name and
+   * value percent-decoded once, and a `+` refused rather than read as a space
+   * or a plus, since an upstream may read it either way and a subject check
+   * must see what the upstream sees. Null when a component does not decode,
+   * holds a `+`, or is a name the intent contract forbids.
+   */
+  private static strictQuery(search: string): PlanQuery | null {
+    const query: Record<string, string | string[]> = {};
+    const text = search.startsWith("?") ? search.slice(1) : search;
+    for (const pair of text.split("&")) {
+      if (pair === "") continue;
+      if (pair.includes("+")) return null;
+      const at = pair.indexOf("=");
+      let name: string;
+      let value: string;
+      try {
+        name = decodeURIComponent(at === -1 ? pair : pair.slice(0, at));
+        value = at === -1 ? "" : decodeURIComponent(pair.slice(at + 1));
+      } catch {
+        return null;
+      }
+      if (name === "__proto__" || name === "constructor" || name === "prototype") return null;
+      const current = query[name];
+      query[name] =
+        current === undefined
+          ? value
+          : Array.isArray(current)
+            ? [...current, value]
+            : [current, value];
+    }
+    return query;
   }
 
   /**
@@ -1445,8 +1569,9 @@ export class Gateway {
   /**
    * A subject refusal: the gateway's own answer, a report line and a line on
    * the evidence chain naming the operation, the reason and the session by
-   * its short digest. `WITHHELD` when the read reached the upstream and its
-   * answer was not relayed; `NOT_FORWARDED` otherwise.
+   * its short digest. `WITHHELD`, with the upstream's status, when the call
+   * reached the upstream and its answer was not relayed; `NOT_FORWARDED`
+   * otherwise.
    */
   private subjectRefused(
     request: InterceptedRequest,
@@ -1497,7 +1622,13 @@ export class Gateway {
     });
     return this.own(
       status,
-      { state: "REFUSED", verdict: null, reason_codes: [code], execution },
+      {
+        state: "REFUSED",
+        verdict: null,
+        reason_codes: [code],
+        execution,
+        ...(upstreamStatus === null ? {} : { upstream_status: upstreamStatus }),
+      },
       status === 401 ? { "www-authenticate": "AgentSafe-Session" } : {},
     );
   }
@@ -1572,7 +1703,7 @@ export class Gateway {
     let answer: GatewayResponse;
     if (production.status === "COMPLETED") {
       upstreamStatus = production.result.status;
-      answer = this.relay(production.result, {
+      answer = this.answer(request, production.result, {
         "agentsafe-mode": "SHADOW",
         "agentsafe-execution": "PASSTHROUGH",
       });
@@ -1831,7 +1962,10 @@ export class Gateway {
         upstream_status: outcome.result.status,
         finalization,
       });
-      return this.relay(outcome.result, { ...evidenceHeaders, "agentsafe-execution": "FORWARDED" });
+      return this.answer(request, outcome.result, {
+        ...evidenceHeaders,
+        "agentsafe-execution": "FORWARDED",
+      });
     }
     if (outcome.outcome === "DEFINITELY_NOT_EXECUTED" && forward.response !== null) {
       this.report({
@@ -2028,7 +2162,7 @@ export class Gateway {
         this.upstream.signal(),
       );
       this.metrics.observeForwardLatency(this.clock() - startedAt);
-      return this.relay(result, extra);
+      return this.answer(request, result, extra);
     } catch (error) {
       return this.failed(this.failureOf(error));
     }

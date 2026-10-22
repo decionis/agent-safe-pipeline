@@ -48,12 +48,21 @@ export interface WorkloadJwtVerifierOptions {
   readonly clockToleranceSeconds: number;
   readonly maxTokenAgeSeconds?: number;
   readonly refresh?: JwksRefresh;
+  /** Milliseconds since the epoch; `Date.now` when absent. */
+  readonly clock?: () => number;
 }
 
 /** Asymmetric only: a workload's token is signed by its platform, never by a shared secret. */
 export const JWT_ALGORITHMS = ["RS256", "ES256", "EdDSA"] as const;
 const MAX_TOKEN_AGE_SECONDS = 24 * 60 * 60;
 const MAX_JWKS_BYTES = 256 * 1024;
+/**
+ * The least time between two refreshes a token with an unknown key id asks
+ * for. A key the issuer just rotated in is fetched at once rather than at the
+ * next interval; a stream of tokens naming keys that do not exist cannot turn
+ * this process into a client that fetches the key set on every request.
+ */
+export const UNKNOWN_KEY_REFRESH_MS = 30_000;
 
 /**
  * Verifies a workload's token against a JWKS the platform team placed on
@@ -68,6 +77,7 @@ const MAX_JWKS_BYTES = 256 * 1024;
 export class WorkloadJwtVerifier {
   private keys: ReturnType<typeof createLocalJWKSet>;
   private timer: ReturnType<typeof setInterval> | null = null;
+  private lastUnknownKeyRefresh = Number.NEGATIVE_INFINITY;
 
   public constructor(private readonly options: WorkloadJwtVerifierOptions) {
     this.keys = createLocalJWKSet(options.keys);
@@ -107,17 +117,19 @@ export class WorkloadJwtVerifier {
     }
     let payload: JWTPayload;
     try {
-      payload = (
-        await jwtVerify(token, this.keys, {
-          audience: [...this.options.audiences],
-          algorithms: [...JWT_ALGORITHMS],
-          maxTokenAge: this.options.maxTokenAgeSeconds ?? MAX_TOKEN_AGE_SECONDS,
-          clockTolerance: this.options.clockToleranceSeconds,
-          requiredClaims: ["iss", "sub", "exp", "iat"],
-        })
-      ).payload;
+      payload = await this.payloadOf(token);
     } catch (error) {
-      throw new JwtError(WorkloadJwtVerifier.code(error));
+      // A key id the set does not hold may be a key the issuer just rotated
+      // in: the set is refreshed once, at most every UNKNOWN_KEY_REFRESH_MS,
+      // and the token tried again against it.
+      if (!(error instanceof errors.JWKSNoMatchingKey) || !(await this.refreshForUnknownKey())) {
+        throw new JwtError(WorkloadJwtVerifier.code(error));
+      }
+      try {
+        payload = await this.payloadOf(token);
+      } catch (retried) {
+        throw new JwtError(WorkloadJwtVerifier.code(retried));
+      }
     }
     return {
       issuer: String(payload.iss),
@@ -125,6 +137,31 @@ export class WorkloadJwtVerifier {
       audiences: typeof payload.aud === "string" ? [payload.aud] : (payload.aud ?? []),
       claims: payload,
     };
+  }
+
+  private async payloadOf(token: string): Promise<JWTPayload> {
+    return (
+      await jwtVerify(token, this.keys, {
+        audience: [...this.options.audiences],
+        algorithms: [...JWT_ALGORITHMS],
+        maxTokenAge: this.options.maxTokenAgeSeconds ?? MAX_TOKEN_AGE_SECONDS,
+        clockTolerance: this.options.clockToleranceSeconds,
+        requiredClaims: ["iss", "sub", "exp", "iat"],
+      })
+    ).payload;
+  }
+
+  /** One refresh for a token's unknown key id, when there is an address and the last was long enough ago. */
+  private async refreshForUnknownKey(): Promise<boolean> {
+    const now = (this.options.clock ?? Date.now)();
+    if (
+      this.options.refresh === undefined ||
+      now - this.lastUnknownKeyRefresh < UNKNOWN_KEY_REFRESH_MS
+    ) {
+      return false;
+    }
+    this.lastUnknownKeyRefresh = now;
+    return await this.refreshNow();
   }
 
   /** Begins refreshing from the URL on the interval; a failure keeps the last good set. */

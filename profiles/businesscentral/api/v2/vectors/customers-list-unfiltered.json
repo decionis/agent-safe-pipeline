@@ -1,5 +1,5 @@
 {
-  "description": "An unfiltered customer list names other customers: refused whole.",
+  "description": "An unfiltered customer list would list every customer: refused before it is sent. Its answer, had it been sent, names other customers and would be refused whole too.",
   "profile": "businesscentral/api/v2",
   "request": {
     "method": "GET",
@@ -13,7 +13,7 @@
     "policy_projection": null
   },
   "session": "C-10000",
-  "request_check": "MATCH",
+  "request_check": "SUBJECT_ABSENT",
   "response": {
     "value": [
       {

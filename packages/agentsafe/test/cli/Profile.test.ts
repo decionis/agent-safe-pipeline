@@ -25,7 +25,7 @@ describe("agentsafe profile", () => {
           title: ApiProfiles.get("businesscentral/api/v2")!.definition.title,
           operations: 22,
           reads: 12,
-          subject_scoped: 13,
+          subject_scoped: 14,
         },
         {
           id: "walmart/api/v3",

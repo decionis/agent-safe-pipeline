@@ -1,0 +1,30 @@
+{
+  "description": "An answer carrying a count beside the list is refused whole, though its one item is the session's customer.",
+  "profile": "businesscentral/api/v2",
+  "request": {
+    "method": "GET",
+    "path": "/v2.0/production/api/v2.0/companies(6f3c1a52-1d2e-4f5a-8b9c-0d1e2f3a4b5c)/customers",
+    "query": {
+      "$filter": "number eq 'C-10000'"
+    }
+  },
+  "expected": {
+    "operation": "customers.list",
+    "action": "customer.read",
+    "facts": {},
+    "policy_projection": null
+  },
+  "session": "C-10000",
+  "request_check": "MATCH",
+  "response": {
+    "@odata.context": "https://api.businesscentral.dynamics.example/v2.0/$metadata#companies(6f3c1a52-1d2e-4f5a-8b9c-0d1e2f3a4b5c)/customers",
+    "@odata.count": 412,
+    "value": [
+      {
+        "id": "3b7d2c10-5e4f-4a6b-9c8d-7e6f5a4b3c2d",
+        "number": "C-10000"
+      }
+    ]
+  },
+  "response_check": "RESPONSE_KEY_REFUSED"
+}

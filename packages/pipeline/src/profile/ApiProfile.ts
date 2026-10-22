@@ -94,14 +94,34 @@ export const ApiPolicyProjectionSchema = z.strictObject({
   channel: projectionText.nullable(),
 });
 
+/** A query parameter's name as a subject rule names it: `$filter` as well as `sku`. */
+const queryName = z.string().regex(/^\$?[a-z][\w.-]{0,63}$/i);
+
 /**
- * Where an operation's subject sits: `request`, a pointer into the call like
- * a fact's, with no `*`; `response`, for a read, a pointer into its answer's
- * JSON body, where one `*` reaches every item of a list.
+ * Where an operation's subject sits, and what else a call or an answer may
+ * carry around it:
+ *
+ * - `request`, a pointer into the call like a fact's, with no `*`;
+ * - `response`, a pointer into a successful answer's JSON body, where one `*`
+ *   reaches every item of a list;
+ * - `query`, for a read, the one query parameter that must state the subject,
+ *   exactly as `template` writes it with `{subject}` in place of the
+ *   session's subject (`customerNumber eq '{subject}'`);
+ * - `parameters`, for a read, every other query parameter it may carry;
+ * - `envelope`, beside a `response` pointer through `*`, the keys the object
+ *   holding the list may carry besides the list.
  */
 export const ApiSubjectSchema = z.strictObject({
   request: z.string().max(300).regex(POINTER).optional(),
   response: z.string().max(300).regex(RESPONSE_POINTER).optional(),
+  query: z
+    .strictObject({
+      name: queryName,
+      template: z.string().min(1).max(300),
+    })
+    .optional(),
+  parameters: z.array(queryName).max(32).optional(),
+  envelope: z.array(z.string().min(1).max(100)).max(32).optional(),
 });
 
 export const ApiOperationSchema = z.strictObject({
@@ -189,9 +209,14 @@ export type ApiSubjectCheck =
   | "MATCH"
   | "SUBJECT_ABSENT"
   | "SUBJECT_MISMATCH"
+  | "QUERY_PARAMETER_REFUSED"
   | "RESPONSE_UNREADABLE"
+  | "RESPONSE_KEY_REFUSED"
   | "RESPONSE_SUBJECT_ABSENT"
   | "RESPONSE_SUBJECT_MISMATCH";
+
+/** Where a template states the subject. */
+const SUBJECT_PLACEHOLDER = "{subject}";
 
 export class ApiProfileError extends Error {
   public constructor(
@@ -209,6 +234,8 @@ interface CompiledOperation {
   readonly matchers: readonly RegExp[];
   /** The same matchers, case-insensitive: what `resembles` asks. */
   readonly loose: readonly RegExp[];
+  /** The same matchers, case-insensitive, for a path that goes on below the operation's. */
+  readonly beneath: readonly RegExp[];
   readonly placeholders: readonly (readonly string[])[];
 }
 
@@ -258,6 +285,7 @@ export class ApiProfile {
         definition: operation,
         matchers,
         loose: matchers.map((matcher) => new RegExp(matcher.source, "i")),
+        beneath: matchers.map((matcher) => new RegExp(`${matcher.source.slice(0, -1)}/`, "i")),
         placeholders,
       };
     });
@@ -304,25 +332,93 @@ export class ApiProfile {
     return operation.method === API_PROFILE_READ_METHOD;
   }
 
-  /** A call's subject against the session's: `MATCH`, or why not. */
-  public static checkRequest(
+  /**
+   * A call against the session's subject, before it is sent: `MATCH`, or why
+   * not. A read that names the query parameters it may carry carries no
+   * other (`QUERY_PARAMETER_REFUSED`); a read that names its subject query
+   * states the session's subject there and nothing else, so a list can be
+   * asked only for the session's own records; and the subject at the
+   * operation's request pointer is the session's.
+   */
+  public checkRequest(
     match: ApiProfileMatch,
+    query: NonNullable<ApiRequest["query"]>,
     subject: string,
-  ): "MATCH" | "SUBJECT_ABSENT" | "SUBJECT_MISMATCH" {
+  ): ApiSubjectCheck {
+    const definition = this.operation(match.operation);
+    const declared = definition?.subject;
+    if (declared?.parameters !== undefined) {
+      const allowed = new Set([
+        ...declared.parameters,
+        ...(declared.query === undefined ? [] : [declared.query.name]),
+        ...Object.keys(definition?.query ?? {}),
+      ]);
+      if (Object.keys(query).some((name) => !allowed.has(name))) return "QUERY_PARAMETER_REFUSED";
+    }
+    if (declared?.query !== undefined) {
+      const stated = ApiProfile.checkQuery(
+        declared.query.template,
+        query[declared.query.name],
+        subject,
+      );
+      if (stated !== "MATCH") return stated;
+    }
     if (match.subject === undefined) return "MATCH";
     if (match.subject === null) return "SUBJECT_ABSENT";
     return match.subject === subject ? "MATCH" : "SUBJECT_MISMATCH";
   }
 
   /**
-   * A read's answer against the session's subject, before any of it is
-   * relayed: every item the operation's response pointer reaches must name
-   * the subject. One item naming another is `RESPONSE_SUBJECT_MISMATCH`, one
-   * naming none `RESPONSE_SUBJECT_ABSENT`, and an answer the pointer cannot
-   * be walked into (not JSON, or no list where the `*` stands)
-   * `RESPONSE_UNREADABLE`. Nothing is filtered: a partial answer would look
-   * complete. An empty list names no one and matches. Null when the
-   * operation names no response subject, so there is nothing to check.
+   * A subject query parameter against its template: absent is
+   * `SUBJECT_ABSENT`; given twice, or anything but the template with one
+   * literal in place of `{subject}`, is `QUERY_PARAMETER_REFUSED`, which is
+   * what a second predicate beside the subject's is; a literal naming
+   * another subject is `SUBJECT_MISMATCH`. A `'` inside the literal is
+   * written doubled, as an OData string literal writes it; a single one ends
+   * the literal, so it refuses the call.
+   */
+  private static checkQuery(
+    template: string,
+    value: string | readonly string[] | undefined,
+    subject: string,
+  ): ApiSubjectCheck {
+    if (value === undefined) return "SUBJECT_ABSENT";
+    if (typeof value !== "string") return "QUERY_PARAMETER_REFUSED";
+    const at = template.indexOf(SUBJECT_PLACEHOLDER);
+    const prefix = template.slice(0, at);
+    const suffix = template.slice(at + SUBJECT_PLACEHOLDER.length);
+    if (
+      value.length < prefix.length + suffix.length ||
+      !value.startsWith(prefix) ||
+      !value.endsWith(suffix)
+    ) {
+      return "QUERY_PARAMETER_REFUSED";
+    }
+    const literal = value.slice(prefix.length, value.length - suffix.length);
+    let named = "";
+    for (let index = 0; index < literal.length; index += 1) {
+      const character = literal[index]!;
+      if (character === "'") {
+        if (literal[index + 1] !== "'") return "QUERY_PARAMETER_REFUSED";
+        index += 1;
+      }
+      named += character;
+    }
+    return named === subject ? "MATCH" : "SUBJECT_MISMATCH";
+  }
+
+  /**
+   * A successful answer, to a read or a write, against the session's
+   * subject, before any of it is relayed: every item the operation's response
+   * pointer reaches must name the subject. One item naming another is
+   * `RESPONSE_SUBJECT_MISMATCH`, one naming none `RESPONSE_SUBJECT_ABSENT`,
+   * and an answer the pointer cannot be walked into (not JSON, or no list
+   * where the `*` stands) `RESPONSE_UNREADABLE`. Beside a list, the object
+   * that holds it may carry only the keys the operation's `envelope` names,
+   * so a count or a summary about other subjects is `RESPONSE_KEY_REFUSED`.
+   * Nothing is filtered: a partial answer would look complete. An empty list
+   * names no one and matches. Null when the operation names no response
+   * subject, so there is nothing to check.
    */
   public checkResponse(
     operationId: string,
@@ -340,6 +436,19 @@ export class ApiProfile {
         ? [ApiProfile.walk(root, tokens)]
         : ApiProfile.walkList(root, tokens.slice(0, wildcard), tokens.slice(wildcard + 1));
     if (items === null) return "RESPONSE_UNREADABLE";
+    if (wildcard > 1) {
+      const holder = ApiProfile.walk(root, tokens.slice(0, wildcard - 1));
+      const list = tokens[wildcard - 1];
+      const envelope = this.operation(operationId)?.subject?.envelope ?? [];
+      if (
+        holder !== null &&
+        typeof holder === "object" &&
+        !Array.isArray(holder) &&
+        Object.keys(holder).some((key) => key !== list && !envelope.includes(key))
+      ) {
+        return "RESPONSE_KEY_REFUSED";
+      }
+    }
     let absent = false;
     for (const item of items) {
       const named = ApiProfile.subjectOf(item);
@@ -385,6 +494,28 @@ export class ApiProfile {
       (operation) =>
         operation.definition.method === upper &&
         operation.loose.some((matcher) => matcher.test(path) || matcher.test(decoded)),
+    );
+  }
+
+  /**
+   * Whether a call's path goes on below one of this method's operations
+   * without being an operation itself, in any letter case: a count
+   * (`/customers/$count`), a navigation or a media stream beneath a record.
+   * What it answers is not what the operation's subject rule checks, so a
+   * component that checks reads refuses it.
+   */
+  public beneath(method: string, path: string): boolean {
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(path);
+    } catch {
+      return true;
+    }
+    const upper = method.toUpperCase();
+    return this.compiled.some(
+      (operation) =>
+        operation.definition.method === upper &&
+        operation.beneath.some((matcher) => matcher.test(path) || matcher.test(decoded)),
     );
   }
 
@@ -518,30 +649,45 @@ export class ApiProfile {
   }
 
   /**
-   * What a definition must also be about subjects: a read names where its
-   * subject sits and states no fact or policy path, since it is never
-   * decided; only a read names a response subject; a request subject is one
-   * value, so its pointer has no `*`.
+   * What a definition must also be about subjects: a subject names where it
+   * sits, in the call, its query or its answer; a read names one and states
+   * no fact or policy path, since it is never decided; only a read names a
+   * subject query or the parameters it may carry; a request subject is one
+   * value, so its pointer has no `*`; a subject query's template states the
+   * subject once; an envelope stands beside a list.
    */
   private static subjectRules(operation: ApiOperationDefinition): void {
     const subject = operation.subject;
     const refuse = (detail: string): never => {
       throw new ApiProfileError("API_PROFILE_INVALID", `operation ${operation.id} ${detail}`);
     };
-    if (subject !== undefined && subject.request === undefined && subject.response === undefined)
+    if (
+      subject !== undefined &&
+      subject.request === undefined &&
+      subject.response === undefined &&
+      subject.query === undefined
+    )
       refuse("names an empty subject");
     if (ApiProfile.isRead(operation)) {
       if (subject === undefined) refuse("is a read that names no subject");
       if (Object.keys(operation.facts).length > 0 || operation.policy_projection !== null)
         refuse("is a read: it states no fact and no policy projection");
-    } else if (subject?.response !== undefined) {
-      refuse("is a write: only a read names a response subject");
+    } else if (subject?.query !== undefined || subject?.parameters !== undefined) {
+      refuse("is a write: only a read names its query parameters");
     }
     if (subject?.request !== undefined) {
       if (ApiProfile.pointerSegments(subject.request, operation.id).includes("*"))
         refuse("names a request subject through *");
     }
-    if (subject?.response !== undefined) ApiProfile.pointerSegments(subject.response, operation.id);
+    const response =
+      subject?.response === undefined
+        ? null
+        : ApiProfile.pointerSegments(subject.response, operation.id);
+    const template = subject?.query?.template;
+    if (template !== undefined && template.split(SUBJECT_PLACEHOLDER).length !== 2)
+      refuse("has a subject query template that does not state {subject} once");
+    if (subject?.envelope !== undefined && !(response ?? []).includes("*"))
+      refuse("names an envelope without a list to stand beside");
   }
 
   /** A subject as stated: a string or a finite number, as a string, within the bound; else null. */

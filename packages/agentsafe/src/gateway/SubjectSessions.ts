@@ -110,6 +110,12 @@ export type ExchangeAnswer =
  */
 export class SubjectSessions {
   private readonly sessions = new Map<string, SubjectSession>();
+  /**
+   * The session each subject token was last exchanged for, by the token's
+   * digest: exchanging a token again replaces its session rather than add
+   * one, so one token cannot fill the gateway's sessions.
+   */
+  private readonly byToken = new Map<string, string>();
 
   public constructor(
     private readonly verifier: SubjectTokenVerifier,
@@ -168,6 +174,9 @@ export class SubjectSessions {
       return refuse("invalid_request", error instanceof JwtError ? error.code : "JWT_INVALID");
     }
     this.expire();
+    const tokenDigest = SubjectSessions.digest(token);
+    const previous = this.byToken.get(tokenDigest);
+    if (previous !== undefined) this.sessions.delete(previous);
     if (this.sessions.size >= (this.options.maxSessions ?? MAX_SESSIONS)) {
       return {
         status: 503,
@@ -184,6 +193,7 @@ export class SubjectSessions {
       id: `sha256:${digest.slice(0, 12)}`,
     };
     this.sessions.set(digest, session);
+    this.byToken.set(tokenDigest, digest);
     return {
       status: 200,
       body: {
@@ -238,6 +248,9 @@ export class SubjectSessions {
     const now = this.options.clock();
     for (const [digest, session] of this.sessions) {
       if (session.expiresAt <= now) this.sessions.delete(digest);
+    }
+    for (const [token, digest] of this.byToken) {
+      if (!this.sessions.has(digest)) this.byToken.delete(token);
     }
   }
 

@@ -84,6 +84,7 @@ export const BUILT_IN_API_PROFILES: readonly ApiProfileDefinition[] = [
         policy_projection: null,
         subject: {
           request: "/body/customerNumber",
+          response: "/body/customerNumber",
         },
       },
       {
@@ -155,6 +156,9 @@ export const BUILT_IN_API_PROFILES: readonly ApiProfileDefinition[] = [
           blocked: "/body/blocked",
         },
         policy_projection: null,
+        subject: {
+          response: "/body/number",
+        },
       },
       {
         id: "customers.list",
@@ -166,6 +170,12 @@ export const BUILT_IN_API_PROFILES: readonly ApiProfileDefinition[] = [
         policy_projection: null,
         subject: {
           response: "/body/value/*/number",
+          query: {
+            name: "$filter",
+            template: "number eq '{subject}'",
+          },
+          parameters: ["$select", "$top", "$skip", "$orderby", "$expand", "$skiptoken"],
+          envelope: ["@odata.context", "@odata.nextLink"],
         },
       },
       {
@@ -178,6 +188,7 @@ export const BUILT_IN_API_PROFILES: readonly ApiProfileDefinition[] = [
         policy_projection: null,
         subject: {
           response: "/body/number",
+          parameters: ["$select", "$expand"],
         },
       },
       {
@@ -190,6 +201,12 @@ export const BUILT_IN_API_PROFILES: readonly ApiProfileDefinition[] = [
         policy_projection: null,
         subject: {
           response: "/body/value/*/customerNumber",
+          query: {
+            name: "$filter",
+            template: "customerNumber eq '{subject}'",
+          },
+          parameters: ["$select", "$top", "$skip", "$orderby", "$expand", "$skiptoken"],
+          envelope: ["@odata.context", "@odata.nextLink"],
         },
       },
       {
@@ -202,6 +219,7 @@ export const BUILT_IN_API_PROFILES: readonly ApiProfileDefinition[] = [
         policy_projection: null,
         subject: {
           response: "/body/customerNumber",
+          parameters: ["$select", "$expand"],
         },
       },
       {
@@ -214,6 +232,12 @@ export const BUILT_IN_API_PROFILES: readonly ApiProfileDefinition[] = [
         policy_projection: null,
         subject: {
           response: "/body/value/*/customerNumber",
+          query: {
+            name: "$filter",
+            template: "customerNumber eq '{subject}'",
+          },
+          parameters: ["$select", "$top", "$skip", "$orderby", "$expand", "$skiptoken"],
+          envelope: ["@odata.context", "@odata.nextLink"],
         },
       },
       {
@@ -226,6 +250,7 @@ export const BUILT_IN_API_PROFILES: readonly ApiProfileDefinition[] = [
         policy_projection: null,
         subject: {
           response: "/body/customerNumber",
+          parameters: ["$select", "$expand"],
         },
       },
       {
@@ -238,6 +263,12 @@ export const BUILT_IN_API_PROFILES: readonly ApiProfileDefinition[] = [
         policy_projection: null,
         subject: {
           response: "/body/value/*/customerNumber",
+          query: {
+            name: "$filter",
+            template: "customerNumber eq '{subject}'",
+          },
+          parameters: ["$select", "$top", "$skip", "$orderby", "$expand", "$skiptoken"],
+          envelope: ["@odata.context", "@odata.nextLink"],
         },
       },
       {
@@ -250,6 +281,7 @@ export const BUILT_IN_API_PROFILES: readonly ApiProfileDefinition[] = [
         policy_projection: null,
         subject: {
           response: "/body/customerNumber",
+          parameters: ["$select", "$expand"],
         },
       },
       {
@@ -262,6 +294,12 @@ export const BUILT_IN_API_PROFILES: readonly ApiProfileDefinition[] = [
         policy_projection: null,
         subject: {
           response: "/body/value/*/customerNumber",
+          query: {
+            name: "$filter",
+            template: "customerNumber eq '{subject}'",
+          },
+          parameters: ["$select", "$top", "$skip", "$orderby", "$expand", "$skiptoken"],
+          envelope: ["@odata.context", "@odata.nextLink"],
         },
       },
       {
@@ -274,6 +312,7 @@ export const BUILT_IN_API_PROFILES: readonly ApiProfileDefinition[] = [
         policy_projection: null,
         subject: {
           response: "/body/customerNumber",
+          parameters: ["$select", "$expand"],
         },
       },
       {
@@ -286,6 +325,12 @@ export const BUILT_IN_API_PROFILES: readonly ApiProfileDefinition[] = [
         policy_projection: null,
         subject: {
           response: "/body/value/*/customerNumber",
+          query: {
+            name: "$filter",
+            template: "customerNumber eq '{subject}'",
+          },
+          parameters: ["$select", "$top", "$skip", "$orderby", "$expand", "$skiptoken"],
+          envelope: ["@odata.context", "@odata.nextLink"],
         },
       },
       {
@@ -298,6 +343,7 @@ export const BUILT_IN_API_PROFILES: readonly ApiProfileDefinition[] = [
         policy_projection: null,
         subject: {
           response: "/body/customerNumber",
+          parameters: ["$select", "$expand"],
         },
       },
     ],
