@@ -100,7 +100,9 @@ function asVector(match: ApiProfileMatch | null): Vector["expected"] {
 function expectChecks(profile: ApiProfile, match: ApiProfileMatch | null, vector: Vector): void {
   if (vector.session === undefined) return;
   expect(match).not.toBeNull();
-  expect(ApiProfile.checkRequest(match!, vector.session)).toBe(vector.request_check);
+  expect(profile.checkRequest(match!, vector.request?.query ?? {}, vector.session)).toBe(
+    vector.request_check,
+  );
   if (vector.response_check !== undefined) {
     expect(profile.checkResponse(match!.operation, vector.response, vector.session)).toBe(
       vector.response_check,
@@ -145,7 +147,9 @@ describe("agent-safe.profile.api/1 definition vectors", () => {
       "MATCH",
       "SUBJECT_ABSENT",
       "SUBJECT_MISMATCH",
+      "QUERY_PARAMETER_REFUSED",
       "RESPONSE_UNREADABLE",
+      "RESPONSE_KEY_REFUSED",
       "RESPONSE_SUBJECT_ABSENT",
       "RESPONSE_SUBJECT_MISMATCH",
     ])
@@ -310,10 +314,37 @@ describe("ApiProfile subjects", () => {
     expect(businessCentral.resembles("DELETE", `${base}/customers`)).toBe(false);
   });
 
-  it("has nothing to check in an answer when the operation names no response subject", () => {
+  it("tells a path below a checked read from the read and from one that matches none", () => {
+    expect(businessCentral.beneath("GET", `${base}/customers/$count`)).toBe(true);
+    expect(businessCentral.beneath("GET", `${base}/Customers/%24count`)).toBe(true);
+    expect(
+      businessCentral.beneath(
+        "GET",
+        `${base}/customers(3b7d2c10-5e4f-4a6b-9c8d-7e6f5a4b3c2d)/picture`,
+      ),
+    ).toBe(true);
+    expect(businessCentral.beneath("GET", `${base}/%E0%A4%A`)).toBe(true);
+    expect(businessCentral.beneath("GET", `${base}/customers`)).toBe(false);
+    expect(businessCentral.beneath("GET", `${base}/customersAndMore`)).toBe(false);
+    expect(businessCentral.beneath("GET", `${base}/items/$count`)).toBe(false);
+    expect(businessCentral.beneath("DELETE", `${base}/customers/$count`)).toBe(false);
+  });
+
+  it("checks a write's answer where the operation names a response subject, and nothing else", () => {
     expect(
       businessCentral.checkResponse("salesOrders.create", { customerNumber: "C-1" }, "C-1"),
-    ).toBeNull();
+    ).toBe("MATCH");
+    expect(
+      businessCentral.checkResponse("salesOrders.create", { customerNumber: "C-2" }, "C-1"),
+    ).toBe("RESPONSE_SUBJECT_MISMATCH");
+    expect(businessCentral.checkResponse("salesInvoices.post", {}, "C-1")).toBeNull();
+    expect(businessCentral.checkResponse("customers.list", { value: [] }, "C-1")).toBe("MATCH");
+    expect(
+      businessCentral.checkResponse("customers.list", { "@odata.count": 1, value: [] }, "C-1"),
+    ).toBe("RESPONSE_KEY_REFUSED");
+    expect(businessCentral.checkResponse("customers.list", { value: {} }, "C-1")).toBe(
+      "RESPONSE_UNREADABLE",
+    );
     expect(businessCentral.checkResponse("customers.get", undefined, "C-1")).toBe(
       "RESPONSE_UNREADABLE",
     );

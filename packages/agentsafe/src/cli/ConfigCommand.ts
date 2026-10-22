@@ -33,6 +33,7 @@ export function effectiveConfig(config: GatewayConfig): Record<string, unknown> 
       principalHeader: config.interception.principalHeader,
       profile: config.interception.profile,
       privacy: config.interception.privacy.toLowerCase(),
+      refuseUnknownReads: config.interception.refuseUnknownReads,
       routes: config.interception.routes.map((route) => ({
         path: route.path,
         action: route.action,

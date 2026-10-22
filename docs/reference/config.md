@@ -41,7 +41,7 @@ interception:
   principalHeader: null # a request header whose value is carried as claimed_principal
   profile: null # an API intent profile, e.g. walmart/api/v3; its operations follow any route
   privacy: full # full | facts: the authority receives the profile's operation and facts only
-  refuseUnknownReads: false # true: a read the profile does not name is refused; needs subject
+  refuseUnknownReads: false # true (the default with subject and a profile): a call the profile cannot check is refused
   routes:
     - path: /payments/**
       action: payment.create
@@ -114,8 +114,8 @@ gateway.upstream)`, `CONFIG_INVALID: authority.mode (shadow or enforcement)`,
   `AgentSafe-Session` or `AgentSafe-Subject-Token`;
 - `privacy: facts` needs a `profile`, and refuses `routes`, a `principalHeader` and
   `unmatched: passthrough`;
-- `subject` needs `jwksFile` or `jwksUrl`, and `refuseUnknownReads` needs `subject` and a
-  `profile`;
+- `subject` needs `jwksFile` or `jwksUrl`; `refuseUnknownReads` needs `subject` and a `profile`,
+  and cannot be `false` with `subject` on a gateway that holds the upstream credential;
 - an `authority.endpoint` other than `local` must be `https://`, or loopback with the allowance.
 
 ## The stored login

@@ -518,7 +518,8 @@ bearer secret somewhere else.
 
 Workload tokens are verified against the JWKS in `EXECUTOR_JWKS_FILE`, which the platform team
 places from the cluster's `/openid/v1/jwks`, optionally refreshed from `EXECUTOR_JWKS_URL`
-through the guarded fetch with the last good set kept on any failure. RS256, ES256 and EdDSA only;
+through the guarded fetch with the last good set kept on any failure; a token whose key id the set
+does not hold refreshes it once at once, at most every 30 seconds. RS256, ES256 and EdDSA only;
 `iss`, `sub`, `exp` and `iat` required; at most a day old; the audience must include the
 executor's or the one the principal names; `required_claims` must match exactly. Each refusal has
 its own code (`JWT_SIGNATURE_INVALID`, `JWT_AUDIENCE_MISMATCH`, `JWT_ISSUER_UNKNOWN`,

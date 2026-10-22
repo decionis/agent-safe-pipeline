@@ -59,7 +59,7 @@ An operation:
 | `summary`           | Plain words; what an agent's tool description says.                                                                               |
 | `facts`             | Fact name → RFC 6901 JSON pointer into the call (§4).                                                                             |
 | `policy_projection` | The policy path the authority decides the call under (`decision_type`, `transaction_type`, `workflow_key`, `channel`), or `null`. |
-| `subject`           | Optional; required of a read. Where the call's subject sits: `request`, `response`, or both (§7).                                 |
+| `subject`           | Optional; required of a read. Where the call's subject sits (`request`, `response`, `query`) and what may stand around it (§7).   |
 
 ### 2.2 Templates
 
@@ -78,9 +78,11 @@ A definition MUST be refused (`API_PROFILE_INVALID`) when:
 - a fact pointer is not rooted at `/path`, `/query` or `/body`, has an invalid escape, or has more
   than one `*` token;
 - a read names no subject, or names a fact or a policy projection;
-- a write names a `response` subject;
-- a subject names neither pointer, a `request` pointer is not rooted like a fact's or has a `*`
-  token, or a `response` pointer is not rooted at `/body` or has more than one `*` token.
+- a write names a subject `query` or `parameters`;
+- a subject names none of `request`, `response` and `query`; a `request` pointer is not rooted like
+  a fact's or has a `*` token; a `response` pointer is not rooted at `/body` or has more than one
+  `*` token; a `query` template does not hold `{subject}` exactly once; or an `envelope` stands
+  without a `response` pointer through `*`.
 
 ## 3. Matching
 
@@ -159,9 +161,15 @@ the customer whose records a read returns or a write changes.
   fact's, with no `*`: a call has one subject. The subject is the value there when it is a string,
   or a finite number written as its decimal string, of 1 to 200 characters; otherwise the call
   names none (`null`).
-- `response`, for a read only, is a pointer into the JSON body of its answer, rooted at `/body`. One
-  `*` reaches every element of a list, so `/body/value/*/customerNumber` is each item's
-  `customerNumber`; without one, the pointer reaches the single item the answer is.
+- `response` is a pointer into the JSON body of a successful answer, to a read or a write, rooted
+  at `/body`. One `*` reaches every element of a list, so `/body/value/*/customerNumber` is each
+  item's `customerNumber`; without one, the pointer reaches the single item the answer is.
+- `query`, for a read only, is `{ "name", "template" }`: the one query parameter that states the
+  subject, and how, with `{subject}` where the subject goes (`customerNumber eq '{subject}'`).
+- `parameters`, for a read only, names every other query parameter the read may carry, beside the
+  `query` parameter and any exact `query` value the operation names. Absent, a read may carry any.
+- `envelope`, beside a `response` pointer through `*`, names the keys the object that holds the list
+  may carry besides the list (`@odata.context`, `@odata.nextLink`). Absent, it may carry none.
 
 A match states the call's subject as `subject` when the operation names a `request` pointer, and
 not at all otherwise. Vectors state it the same way.
@@ -170,16 +178,29 @@ not at all otherwise. Vectors state it the same way.
 
 A component that pins a session to one subject, and serves a read that matches an operation, MUST:
 
-1. refuse the read when the operation names a `request` subject and the call's is `null`
-   (`SUBJECT_ABSENT`) or not the session's (`SUBJECT_MISMATCH`), before the read is sent;
-2. when the operation names a `response` subject and the answer is a success, check every item
-   before any of the answer is relayed, and refuse the whole answer when the pointer cannot be
-   walked into it, such as an answer that is not JSON or has no list where the `*` stands
-   (`RESPONSE_UNREADABLE`), when an item names no subject (`RESPONSE_SUBJECT_ABSENT`), or when an
-   item names another subject (`RESPONSE_SUBJECT_MISMATCH`). It MUST NOT filter the answer: a
-   partial answer looks complete. An empty list names no one, and passes.
+1. when the operation names `parameters`, refuse a call that carries any other query parameter
+   (`QUERY_PARAMETER_REFUSED`), so a count, a search or an aggregation is never asked;
+2. when the operation names a `query`, refuse a call without that parameter (`SUBJECT_ABSENT`),
+   with it twice or with anything but the template with one literal in place of `{subject}`
+   (`QUERY_PARAMETER_REFUSED`), and with a literal naming another subject (`SUBJECT_MISMATCH`).
+   The template is matched whole and never parsed, so a second predicate is refused even beside
+   the session's own subject: it would make an empty answer a yes or no about another subject. A
+   `'` inside the literal is written doubled, as an OData string literal writes it; a single one
+   ends the literal and refuses the call;
+3. refuse the read when the operation names a `request` subject and the call's is `null`
+   (`SUBJECT_ABSENT`) or not the session's (`SUBJECT_MISMATCH`);
+4. when the operation names a `response` subject and the answer is a success, check it before any of
+   it is relayed, and refuse it whole when the pointer cannot be walked into it, such as an answer
+   that is not JSON or has no list where the `*` stands (`RESPONSE_UNREADABLE`), when the object
+   holding the list carries a key the `envelope` does not name (`RESPONSE_KEY_REFUSED`), when an
+   item names no subject (`RESPONSE_SUBJECT_ABSENT`), or when an item names another subject
+   (`RESPONSE_SUBJECT_MISMATCH`). It MUST NOT filter the answer: a partial answer looks complete.
+   An empty list names no one, and passes.
 
-A read is never sent to an authority and states no facts. Subjects compare as exact strings.
+Steps 1 to 3 come before the read is sent. A component MUST read the query as the platform will:
+the reference gateway decodes each name and value once, as RFC 3986 writes them, and refuses a `+`,
+which platforms read differently. A read is never sent to an authority and states no facts.
+Subjects compare as exact strings.
 
 ### 7.3 Writes
 
@@ -187,11 +208,15 @@ A write may name a `request` subject too. It is decided by the authority as any 
 component states the session's pinned subject in the intent's trusted context as
 `session: { "subject": <string> }`, so a policy reads the fact `session.subject` and compares it
 with the operation's own facts. The subject is the identity provider's statement, never a value of
-the request, and is absent, never `null`, when no session was presented.
+the request, and is absent, never `null`, when no session was presented. A component that pins
+sessions SHOULD refuse a write whose operation names a subject when no session was presented, and
+MUST check a write's successful answer by its `response` pointer as step 4 checks a read's,
+withholding it on a refusal: the effect has happened, but no other subject's record is relayed.
 
 ### 7.4 Coverage
 
-An operation with no subject is not scoped. A read a profile does not describe cannot be checked,
-so a component that holds sessions to a subject SHOULD offer to refuse such reads, and SHOULD refuse
-a read whose path only resembles a checked one (another letter case, or a literal
-percent-encoded), since the platform may serve it as that operation.
+An operation with no subject is not scoped. A call a profile does not describe cannot be checked, so
+a component that holds sessions to a subject SHOULD refuse it by default: a read, a path beneath an
+operation's (a count, a navigation), and a write, a batch of calls included, whose parts it could
+not check. It SHOULD refuse a read whose path only resembles a checked one (another letter case, or
+a literal percent-encoded), since the platform may serve it as that operation.

@@ -1,0 +1,47 @@
+{
+  "description": "A parameter the read does not name is refused: a count, a search or an aggregation answers about records the subject check never sees.",
+  "definition": {
+    "profile": "agent-safe.profile.api/1",
+    "id": "example/api/v1",
+    "platform": "example",
+    "title": "Example API",
+    "prefixes": [""],
+    "operations": [
+      {
+        "id": "invoices.list",
+        "method": "GET",
+        "path": "/invoices",
+        "action": "invoice.read",
+        "summary": "List a customer's invoices.",
+        "facts": {},
+        "policy_projection": null,
+        "subject": {
+          "response": "/body/value/*/customerNumber",
+          "query": {
+            "name": "$filter",
+            "template": "customerNumber eq '{subject}'"
+          },
+          "parameters": ["$select", "$top", "$skip"],
+          "envelope": ["@odata.context", "@odata.nextLink"]
+        }
+      }
+    ]
+  },
+  "request": {
+    "method": "GET",
+    "path": "/invoices",
+    "query": {
+      "$filter": "customerNumber eq 'C-10000'",
+      "$count": "true",
+      "$top": "0"
+    }
+  },
+  "expected": {
+    "operation": "invoices.list",
+    "action": "invoice.read",
+    "facts": {},
+    "policy_projection": null
+  },
+  "session": "C-10000",
+  "request_check": "QUERY_PARAMETER_REFUSED"
+}

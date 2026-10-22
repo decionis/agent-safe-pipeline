@@ -32,7 +32,13 @@ gateway's upstream already carries the API base. An OData key may be quoted or n
 The subject is the customer's number (`number` on a customer, `customerNumber` on a document or a
 ledger entry), which is what an identity provider or a CRM names a customer by. Each read below is
 checked against the session's customer and never sent to the authority
-([subjects](../../../../spec/profiles/api/v1/README.md#7-subjects)):
+([subjects](../../../../spec/profiles/api/v1/README.md#7-subjects)). A list read must carry exactly
+one filter, the profile's: `$filter=number eq 'C-10000'` for customers and
+`$filter=customerNumber eq 'C-10000'` for documents and ledger entries, with the session's number
+and no second predicate. Besides it a list may carry `$select`, `$top`, `$skip`, `$orderby`,
+`$expand` and `$skiptoken`, and a read by id `$select` and `$expand`; any other option, `$count`,
+`$search` and `$apply` among them, is refused. A list's answer may carry `@odata.context` and
+`@odata.nextLink` beside `value`, and nothing else:
 
 | Operation                            | Call (after the prefix)                                        | Action          | Subject in each item of the answer |
 | ------------------------------------ | -------------------------------------------------------------- | --------------- | ---------------------------------- |
@@ -44,11 +50,12 @@ checked against the session's customer and never sent to the authority
 | `salesCreditMemos.list`, `.get`      | `GET …/salesCreditMemos`, `…/salesCreditMemos({id})`           | `sales.read`    | `customerNumber`                   |
 | `customerLedgerEntries.list`, `.get` | `GET …/customerLedgerEntries`, `…/customerLedgerEntries({id})` | `ledger.read`   | `customerNumber`                   |
 
-`salesOrders.create` names its subject in the call (`/body/customerNumber`). Writes are decided by
-the authority: the gateway states the session's customer as the fact `session.subject`, beside the
-operation's `customer_number`, so a write policy can compare the two
-(`customer_number EQ_FACT session.subject`) where the authority's policy core has fact-to-fact
-operators.
+`salesOrders.create` names its subject in the call and in its answer (`customerNumber`), and
+`customers.update` in its answer (`number`). Writes are decided by the authority: the gateway
+states the session's customer as the fact `session.subject`, beside the operation's
+`customer_number`, so a write policy can compare the two (`customer_number EQ_FACT session.subject`)
+where the authority's policy core has fact-to-fact operators. Either write needs a session, and its
+successful answer is withheld when it names another customer.
 
 What this does not cover, so an operator knows where the edge is:
 
@@ -57,13 +64,20 @@ What this does not cover, so an operator knows where the edge is:
   whole before any of it is relayed.
 - An answer is checked only when it carries the number. A `$select` that leaves it out is refused
   (`RESPONSE_SUBJECT_ABSENT`); select `number` or `customerNumber` too.
-- Document lines (`salesInvoiceLines`, `salesOrderLines`, …), attachments, PDFs, navigation below a
-  customer and `$batch` name no customer, so they are no read operation of this profile. Turn on
-  `refuseUnknownReads` to refuse them; without it they pass unchecked. `$batch` is a `POST`, governed
-  as any unlisted write.
+- A list cannot be narrowed further by the filter (`and open eq true`, `and amount gt 5000`): a second
+  predicate is refused, so filter what comes back instead.
+- Document lines (`salesInvoiceLines`, `salesOrderLines`, …), attachments, PDFs, counts and
+  navigation below a record name no customer, so they are no read operation of this profile and
+  `refuseUnknownReads` refuses them. It is on by default with `subject`; with it off, a read the
+  profile does not name passes unchecked, though a count or a navigation below a listed read is
+  still refused.
+- `$batch` is a `POST` the profile does not name, so `refuseUnknownReads` refuses it, whatever
+  `unmatched` says; its parts could not be checked. With it off, `$batch` goes to the authority as
+  `http.post` and its answer is not checked.
 - The writes by id (postings, `customers.update`, `vendors.update`) carry a GUID and no customer
   number, so no fact compares them with the session: block or escalate them in policy when
-  `session.subject` is present.
+  `session.subject` is present. The answer of `customers.update` is checked, so another customer's
+  record is withheld, but the change has been made if policy allowed it.
 - Customer ledger entries are served by Business Central's finance reports API, which Microsoft has
   announced as deprecated from Business Central 2026 release wave 2. Where an environment serves
   them under another route, they are no read operation of this profile.
@@ -74,7 +88,7 @@ An operator turns customer scoping on with one profile and one identity provider
 interception:
   profile: businesscentral/api/v2
   privacy: facts # optional: the authority receives the operation and facts only
-  refuseUnknownReads: true # reads this profile cannot check are refused
+  # refuseUnknownReads: true is the default with subject: calls this profile cannot check are refused
 subject:
   issuer: https://login.example.com/
   audience: agentsafe-gateway

@@ -55,6 +55,29 @@ describe("SubjectSessions", () => {
     expect(sessions.size).toBe(0);
   });
 
+  it("replaces a token's session when the token is exchanged again, so one token cannot fill it", async () => {
+    const sessions = new SubjectSessions(echo(Date.now() + 600_000), {
+      ttlSeconds: 900,
+      clock: () => Date.now(),
+      maxSessions: 2,
+    });
+    const first = await sessions.exchange(form("C-1"));
+    const again = await sessions.exchange(form("C-1"));
+    if (first.status !== 200 || again.status !== 200) throw new Error("expected sessions");
+    expect(sessions.size).toBe(1);
+    expect(await sessions.resolve({ "agentsafe-session": first.body.access_token })).toBe(
+      "SUBJECT_SESSION_INVALID",
+    );
+    expect(await sessions.resolve({ "agentsafe-session": again.body.access_token })).toMatchObject({
+      subject: "C-1",
+    });
+    for (let index = 0; index < 5; index += 1) await sessions.exchange(form("C-1"));
+    expect(sessions.size).toBe(1);
+    // Another token still gets a session of its own.
+    expect((await sessions.exchange(form("C-2"))).status).toBe(200);
+    expect(sessions.size).toBe(2);
+  });
+
   it("refuses past its capacity rather than drop a session, and names a refusal by code", async () => {
     const sessions = new SubjectSessions(echo(Date.now() + 600_000), {
       ttlSeconds: 900,

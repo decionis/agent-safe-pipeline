@@ -1,0 +1,28 @@
+{
+  "description": "An envelope names the keys beside a list, so it needs a response pointer through *.",
+  "definition": {
+    "profile": "agent-safe.profile.api/1",
+    "id": "example/api/v1",
+    "platform": "example",
+    "title": "Example API",
+    "prefixes": [""],
+    "operations": [
+      {
+        "id": "customers.update",
+        "method": "PATCH",
+        "path": "/customers/{customerId}",
+        "action": "customer.update",
+        "summary": "Change a customer.",
+        "facts": {
+          "customer_id": "/path/customerId"
+        },
+        "policy_projection": null,
+        "subject": {
+          "response": "/body/number",
+          "envelope": ["@odata.context"]
+        }
+      }
+    ]
+  },
+  "error": "API_PROFILE_INVALID"
+}

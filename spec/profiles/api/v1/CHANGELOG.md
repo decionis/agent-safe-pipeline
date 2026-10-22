@@ -2,6 +2,26 @@
 
 Every entry names the pull request that made it and the vectors that pin it.
 
+## 2026-10-22: subject queries, parameters, envelopes and write answers
+
+The subjects of 2026-10-21 had not been released. Review found two ways around them, closed here
+before any release:
+
+- A list read had no request-side check, so a filter naming another subject and a second predicate
+  made an empty answer a yes or no about that subject's fields, and `$count` reported records no
+  item showed. A read now names its subject `query` (a template the call must state exactly), the
+  `parameters` it may carry, and the `envelope` keys its list may stand beside; anything else is
+  `QUERY_PARAMETER_REFUSED` or `RESPONSE_KEY_REFUSED` (§7.2).
+- A write's answer was never checked, so a change addressed by another subject's id relayed that
+  subject's record. A write may now name a `response` pointer, and its successful answer is checked
+  as a read's is (§7.3); the rule that refused a write's `response` is withdrawn, with its vector.
+- [`schema.json`](./schema.json): `subject` admits `query`, `parameters` and `envelope`.
+- [`vectors/`](./vectors): the query held exactly (`subject-query-*.json`), a refused parameter, a
+  refused envelope key, a write's answer, and three definition refusals.
+- `businesscentral/api/v2` holds its list reads to `number eq '{subject}'` or
+  `customerNumber eq '{subject}'`, names their parameters and envelope, and checks the answers of
+  `customers.update` and `salesOrders.create`.
+
 ## 2026-10-21: subjects
 
 Additive: every definition, match and vector that was valid stays so, with the same answer.

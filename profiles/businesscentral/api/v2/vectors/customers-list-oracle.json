@@ -1,0 +1,19 @@
+{
+  "description": "Another customer's number with a second predicate would make an empty answer a yes or no about that customer's phone number: refused before it is sent.",
+  "profile": "businesscentral/api/v2",
+  "request": {
+    "method": "GET",
+    "path": "/v2.0/production/api/v2.0/companies(6f3c1a52-1d2e-4f5a-8b9c-0d1e2f3a4b5c)/customers",
+    "query": {
+      "$filter": "number eq 'C-20000' and startswith(phoneNumber,'+4479')"
+    }
+  },
+  "expected": {
+    "operation": "customers.list",
+    "action": "customer.read",
+    "facts": {},
+    "policy_projection": null
+  },
+  "session": "C-10000",
+  "request_check": "QUERY_PARAMETER_REFUSED"
+}

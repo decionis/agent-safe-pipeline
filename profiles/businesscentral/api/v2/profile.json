@@ -72,7 +72,8 @@
       },
       "policy_projection": null,
       "subject": {
-        "request": "/body/customerNumber"
+        "request": "/body/customerNumber",
+        "response": "/body/customerNumber"
       }
     },
     {
@@ -143,7 +144,10 @@
         "customer_id": "/path/customerId",
         "blocked": "/body/blocked"
       },
-      "policy_projection": null
+      "policy_projection": null,
+      "subject": {
+        "response": "/body/number"
+      }
     },
     {
       "id": "customers.list",
@@ -154,7 +158,13 @@
       "facts": {},
       "policy_projection": null,
       "subject": {
-        "response": "/body/value/*/number"
+        "response": "/body/value/*/number",
+        "query": {
+          "name": "$filter",
+          "template": "number eq '{subject}'"
+        },
+        "parameters": ["$select", "$top", "$skip", "$orderby", "$expand", "$skiptoken"],
+        "envelope": ["@odata.context", "@odata.nextLink"]
       }
     },
     {
@@ -166,7 +176,8 @@
       "facts": {},
       "policy_projection": null,
       "subject": {
-        "response": "/body/number"
+        "response": "/body/number",
+        "parameters": ["$select", "$expand"]
       }
     },
     {
@@ -178,7 +189,13 @@
       "facts": {},
       "policy_projection": null,
       "subject": {
-        "response": "/body/value/*/customerNumber"
+        "response": "/body/value/*/customerNumber",
+        "query": {
+          "name": "$filter",
+          "template": "customerNumber eq '{subject}'"
+        },
+        "parameters": ["$select", "$top", "$skip", "$orderby", "$expand", "$skiptoken"],
+        "envelope": ["@odata.context", "@odata.nextLink"]
       }
     },
     {
@@ -190,7 +207,8 @@
       "facts": {},
       "policy_projection": null,
       "subject": {
-        "response": "/body/customerNumber"
+        "response": "/body/customerNumber",
+        "parameters": ["$select", "$expand"]
       }
     },
     {
@@ -202,7 +220,13 @@
       "facts": {},
       "policy_projection": null,
       "subject": {
-        "response": "/body/value/*/customerNumber"
+        "response": "/body/value/*/customerNumber",
+        "query": {
+          "name": "$filter",
+          "template": "customerNumber eq '{subject}'"
+        },
+        "parameters": ["$select", "$top", "$skip", "$orderby", "$expand", "$skiptoken"],
+        "envelope": ["@odata.context", "@odata.nextLink"]
       }
     },
     {
@@ -214,7 +238,8 @@
       "facts": {},
       "policy_projection": null,
       "subject": {
-        "response": "/body/customerNumber"
+        "response": "/body/customerNumber",
+        "parameters": ["$select", "$expand"]
       }
     },
     {
@@ -226,7 +251,13 @@
       "facts": {},
       "policy_projection": null,
       "subject": {
-        "response": "/body/value/*/customerNumber"
+        "response": "/body/value/*/customerNumber",
+        "query": {
+          "name": "$filter",
+          "template": "customerNumber eq '{subject}'"
+        },
+        "parameters": ["$select", "$top", "$skip", "$orderby", "$expand", "$skiptoken"],
+        "envelope": ["@odata.context", "@odata.nextLink"]
       }
     },
     {
@@ -238,7 +269,8 @@
       "facts": {},
       "policy_projection": null,
       "subject": {
-        "response": "/body/customerNumber"
+        "response": "/body/customerNumber",
+        "parameters": ["$select", "$expand"]
       }
     },
     {
@@ -250,7 +282,13 @@
       "facts": {},
       "policy_projection": null,
       "subject": {
-        "response": "/body/value/*/customerNumber"
+        "response": "/body/value/*/customerNumber",
+        "query": {
+          "name": "$filter",
+          "template": "customerNumber eq '{subject}'"
+        },
+        "parameters": ["$select", "$top", "$skip", "$orderby", "$expand", "$skiptoken"],
+        "envelope": ["@odata.context", "@odata.nextLink"]
       }
     },
     {
@@ -262,7 +300,8 @@
       "facts": {},
       "policy_projection": null,
       "subject": {
-        "response": "/body/customerNumber"
+        "response": "/body/customerNumber",
+        "parameters": ["$select", "$expand"]
       }
     },
     {
@@ -274,7 +313,13 @@
       "facts": {},
       "policy_projection": null,
       "subject": {
-        "response": "/body/value/*/customerNumber"
+        "response": "/body/value/*/customerNumber",
+        "query": {
+          "name": "$filter",
+          "template": "customerNumber eq '{subject}'"
+        },
+        "parameters": ["$select", "$top", "$skip", "$orderby", "$expand", "$skiptoken"],
+        "envelope": ["@odata.context", "@odata.nextLink"]
       }
     },
     {
@@ -286,7 +331,8 @@
       "facts": {},
       "policy_projection": null,
       "subject": {
-        "response": "/body/customerNumber"
+        "response": "/body/customerNumber",
+        "parameters": ["$select", "$expand"]
       }
     }
   ]

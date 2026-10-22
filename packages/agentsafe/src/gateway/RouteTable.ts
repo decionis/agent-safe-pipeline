@@ -146,9 +146,11 @@ export class RouteTable {
    * A read, when reads are checked. A `GET` a profile operation names is
    * checked. One that only resembles an operation (another letter case, an
    * encoded literal) is refused as ambiguous, since the upstream may serve
-   * it as that operation. A `HEAD` or `OPTIONS` on a checked read's path is
-   * refused: it has no answer to check, and its status alone says whether a
-   * record exists. Anything else passes, or is refused when unknown reads are.
+   * it as that operation. A path beneath a checked read (`/$count`, a
+   * navigation, a media stream) answers what the read's subject rule does
+   * not check, and a `HEAD` or `OPTIONS` on a checked read's path has no
+   * answer to check while its status says whether a record exists: both are
+   * refused. Anything else passes, or is refused when unknown reads are.
    */
   private planRead(method: string, pathname: string, query: PlanQuery): RoutePlan {
     if (this.reads === "PASSTHROUGH" || this.profile === null) {
@@ -159,7 +161,11 @@ export class RouteTable {
       return { kind: "CHECK", action: operation.action, operation: operation.id };
     }
     const resembles = this.profile.resembles("GET", pathname);
-    if (this.reads === "REFUSE_UNKNOWN" || (resembles && method !== "GET")) {
+    if (
+      this.reads === "REFUSE_UNKNOWN" ||
+      (resembles && method !== "GET") ||
+      this.profile.beneath("GET", pathname)
+    ) {
       return { kind: "REFUSE", code: "READ_OPERATION_UNMATCHED" };
     }
     if (resembles) return { kind: "REFUSE", code: "HTTP_PATH_AMBIGUOUS" };
@@ -188,7 +194,11 @@ export class RouteTable {
     if (operation !== null) {
       return { kind: "GOVERN", action: operation.action, route: null, operation: operation.id };
     }
-    if (factsOnly) return { kind: "REFUSE", code: "PROFILE_OPERATION_UNMATCHED" };
+    // Facts-only privacy would send the raw path; refusing unknown calls
+    // would relay an answer, a batch's included, that no subject rule checks.
+    if (factsOnly || this.reads === "REFUSE_UNKNOWN") {
+      return { kind: "REFUSE", code: "PROFILE_OPERATION_UNMATCHED" };
+    }
     if (this.unmatched === "PASSTHROUGH") return { kind: "PASSTHROUGH", reason: "UNMATCHED" };
     return { kind: "GOVERN", action: derivedAction(consequential), route: null };
   }

@@ -206,7 +206,12 @@ export interface GatewayConfig {
     readonly profile: string | null;
     /** `FACTS`: the authority receives the profile's operation and facts, never the request. */
     readonly privacy: PrivacyMode;
-    /** Refuse a read no profile operation names, rather than pass it through unchecked. */
+    /**
+     * Refuse a call the profile cannot check: a read no profile operation
+     * names, a path beneath one, and a write neither a route nor an operation
+     * names (a batch included), whatever `unmatched` says. On by default when
+     * the gateway pins subjects with a profile.
+     */
     readonly refuseUnknownReads: boolean;
   };
   /** Subject-bound sessions: null when the gateway pins no subject. */
@@ -961,10 +966,12 @@ export class GatewayConfigLoader {
     }
 
     const subject = GatewayConfigLoader.subject(file, allowInsecureLoopback, sources);
+    // Scoping is only as good as what it covers, so pinning subjects with a
+    // profile refuses what the profile cannot check unless the file says not.
     const refuseUnknownReads = resolve(
       "interception.refuseUnknownReads",
       [{ source: "file", raw: file?.interception?.refuseUnknownReads }],
-      false,
+      subject !== null && profile !== null,
     );
     if (refuseUnknownReads && (subject === null || profile === null)) {
       throw new GatewayConfigError(
@@ -1054,6 +1061,15 @@ export class GatewayConfigLoader {
     }
 
     const credential = GatewayConfigLoader.upstreamCredential(env, file, principalHeader, resolve);
+    // A gateway that holds the upstream's credential is the agent's only way
+    // in, so with subjects pinned, a call it cannot check is never let through.
+    if (credential !== null && subject !== null && !refuseUnknownReads) {
+      throw new GatewayConfigError(
+        "CONFIG_INVALID",
+        "interception.refuseUnknownReads",
+        "a gateway that holds the upstream credential and pins subjects refuses what it cannot check",
+      );
+    }
     // Hosted enforcement is the tenant's opt-in, and runs only where every
     // control its design asks for is on (design.agentsafe-hosted-shadow.md
     // §14): a process of its own, a Decionis organization, failing closed, a
