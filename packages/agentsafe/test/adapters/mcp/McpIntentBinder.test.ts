@@ -180,3 +180,55 @@ describe("filling a target template", () => {
     ).toBe("x".repeat(MAX_TEMPLATE_PLACEHOLDERS));
   });
 });
+
+describe("the subject a binding names", () => {
+  // A code binding may accept any value for its subject argument, so the
+  // binder, not the schema, decides what names a subject.
+  const scoped: McpToolBinding = {
+    tool: "read_statement",
+    action: "statement.read",
+    system: "erp",
+    operation: "statements.read",
+    target: "erp:statements",
+    consequential: ["customer"],
+    argumentsSchema: z
+      .object({ customer: z.unknown() })
+      .strict() as unknown as z.ZodType<JsonObject>,
+    subject: "customer",
+  };
+  const bind = (customer: unknown, subject: string) =>
+    bindMcpInvocation({ tool: "read_statement", arguments: { customer } }, scoped, {
+      idempotencyKey: "mcp-subject",
+      subject,
+    });
+  const code = (work: () => unknown): string => {
+    try {
+      work();
+    } catch (error) {
+      return error instanceof McpBindingError ? error.code : `unexpected ${String(error)}`;
+    }
+    return "bound";
+  };
+
+  it("is a string or a finite number, never a value written as one", () => {
+    expect(code(() => bind("C-1", "C-1"))).toBe("bound");
+    expect(code(() => bind(10_000, "10000"))).toBe("bound");
+    for (const [value, written] of [
+      [true, "true"],
+      [Infinity, "Infinity"],
+      [Number.NaN, "NaN"],
+      [{}, "[object Object]"],
+      [null, "null"],
+      ["", ""],
+    ] as const) {
+      expect([value, code(() => bind(value, written))]).toEqual([value, "SUBJECT_ABSENT"]);
+    }
+  });
+
+  it("is at most 200 characters", () => {
+    const longest = "c".repeat(200);
+    expect(code(() => bind(longest, longest))).toBe("bound");
+    const over = "c".repeat(201);
+    expect(code(() => bind(over, over))).toBe("SUBJECT_ABSENT");
+  });
+});

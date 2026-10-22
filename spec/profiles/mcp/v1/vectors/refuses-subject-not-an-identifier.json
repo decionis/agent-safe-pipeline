@@ -1,0 +1,36 @@
+{
+  "description": "A subject is a string or a number.",
+  "definition": {
+    "profile": "agent-safe.profile.mcp/1",
+    "id": "erp/mcp/v1",
+    "title": "Synthetic ERP MCP server",
+    "system": "erp.example",
+    "environment": "test",
+    "tools": [
+      {
+        "tool": "update_credit_limit",
+        "action": "customer.credit_limit.update",
+        "operation": "customers.updateCreditLimit",
+        "summary": "Set a customer's credit limit.",
+        "target": "erp:customer",
+        "subject": "customerNumber",
+        "consequential": ["customerNumber", "creditLimit"],
+        "arguments": {
+          "customerNumber": {
+            "type": "object",
+            "required": true
+          },
+          "creditLimit": {
+            "type": "number",
+            "required": true
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 200
+          }
+        }
+      }
+    ]
+  },
+  "error": "MCP_PROFILE_INVALID"
+}

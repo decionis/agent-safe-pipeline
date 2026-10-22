@@ -3,6 +3,26 @@
 Releases of `@decionis/agent-safe-pipeline` (the library) and `@decionis/agentsafe` (the runtime).
 Each entry names what an adopter can rely on and what they must do, if anything.
 
+## Runtime (unreleased): MCP tools as data
+
+An MCP server's consequential tools can be declared in a file instead of TypeScript:
+`agent-safe.profile.mcp/1`, which `McpGuard` reads.
+
+**Nothing to do** to keep things as they are: a binding written in code works as before, and a call
+to a tool with no `subject` binds byte-identically.
+
+- A tool profile names each tool's action, target template, subject argument, consequential
+  arguments and accepted arguments; `McpToolProfile.parse` validates it and `McpGuard` takes it as
+  `profile`, with the tools it implements as `{ tool, invoke }`.
+- `guard(invocation, { subject })` holds a tool that names a subject argument to the session's
+  customer, refusing `SUBJECT_SESSION_REQUIRED`, `SUBJECT_ABSENT` or `SUBJECT_MISMATCH` before the
+  authority is asked, and states the subject as `session.subject`. A code binding may name a
+  `subject` too.
+- `SubjectSessions`, `IssuerSubjectVerifier` and `profiledBinding` are exported, so an MCP host
+  verifies a session the way the gateway does.
+- The specification, schema and vectors are at
+  [spec/profiles/mcp/v1](spec/profiles/mcp/v1/README.md).
+
 ## Runtime (unreleased): subject-bound sessions
 
 An agent limited to the customer it is serving, with no code of yours: a `subject` section names

@@ -173,13 +173,24 @@ export {
   McpGuard,
   type McpGuardOptions,
   type McpOutcome,
+  type McpProfiledTool,
   type McpRefusal,
+  type McpSession,
   type McpTool,
 } from "./adapters/mcp/McpGuard.js";
+export {
+  IssuerSubjectVerifier,
+  SubjectSessions,
+  type SessionRefusal,
+  type SubjectSession,
+  type SubjectTokenVerifier,
+  type VerifiedSubject,
+} from "./gateway/SubjectSessions.js";
 export {
   McpBindingError,
   bindMcpInvocation,
   bindingFor,
+  profiledBinding,
   type BoundMcpInvocation,
   type McpBindingCode,
   type McpTrustedContext,

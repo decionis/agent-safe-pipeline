@@ -1,0 +1,49 @@
+{
+  "description": "A number subject is compared as its decimal string.",
+  "definition": {
+    "profile": "agent-safe.profile.mcp/1",
+    "id": "erp/mcp/v1",
+    "title": "Synthetic ERP MCP server",
+    "system": "erp.example",
+    "environment": "test",
+    "tools": [
+      {
+        "tool": "list_open_invoices",
+        "action": "invoice.read",
+        "operation": "invoices.listOpen",
+        "summary": "List a customer's open invoices.",
+        "target": "erp:customer:{customerNumber}:invoices",
+        "subject": "customerNumber",
+        "consequential": ["customerNumber"],
+        "arguments": {
+          "customerNumber": {
+            "type": "integer",
+            "required": true
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    ]
+  },
+  "invocation": {
+    "tool": "list_open_invoices",
+    "arguments": {
+      "customerNumber": 10000,
+      "limit": 20
+    }
+  },
+  "session": "10000",
+  "expected": {
+    "action": "invoice.read",
+    "target": "erp:customer:10000:invoices",
+    "operation": "invoices.listOpen",
+    "system": "erp.example",
+    "environment": "test",
+    "consequential": ["customerNumber"],
+    "session": {
+      "subject": "10000"
+    }
+  }
+}

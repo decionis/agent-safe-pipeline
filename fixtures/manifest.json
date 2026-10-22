@@ -591,6 +591,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/adapters/mcp/McpToolProfile.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/audit/ChainJournal.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
@@ -1780,6 +1786,12 @@
     },
     {
       "path": "packages/pipeline/test/profile/ApiProfileVectors.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/pipeline/test/profile/McpToolProfile.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false
