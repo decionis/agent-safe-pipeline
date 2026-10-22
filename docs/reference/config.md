@@ -110,6 +110,8 @@ gateway.upstream)`, `CONFIG_INVALID: authority.mode (shadow or enforcement)`,
   production;
 - `presence.managed` needs the Decionis authority, enforcement mode and an `approverId`;
 - `maxEmbeddedBodyBytes` is 0 or more and cannot exceed `maxBodyBytes`;
+- `principalHeader` cannot be one of the gateway's own credentials: `AgentSafe-Tenant-Key`,
+  `AgentSafe-Session` or `AgentSafe-Subject-Token`;
 - `privacy: facts` needs a `profile`, and refuses `routes`, a `principalHeader` and
   `unmatched: passthrough`;
 - `subject` needs `jwksFile` or `jwksUrl`, and `refuseUnknownReads` needs `subject` and a

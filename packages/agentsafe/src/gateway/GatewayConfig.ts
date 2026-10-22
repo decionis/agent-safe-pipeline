@@ -974,13 +974,18 @@ export class GatewayConfigLoader {
       );
     }
 
-    // The tenant key is the gateway's own credential: it is stripped before
-    // forwarding, so it can never be the header that names a principal.
-    if (principalHeader?.toLowerCase() === TENANT_KEY_HEADER) {
+    // The tenant key and the subject session headers are the gateway's own
+    // credentials: they are stripped before forwarding, and the value of a
+    // principal header is sent to the authority, so none of them can be the
+    // header that names a principal.
+    const ownCredential = [TENANT_KEY_HEADER, SESSION_HEADER, SUBJECT_TOKEN_HEADER].find(
+      (header) => header === principalHeader?.toLowerCase(),
+    );
+    if (ownCredential !== undefined) {
       throw new GatewayConfigError(
         "CONFIG_INVALID",
         "interception.principalHeader",
-        `${TENANT_KEY_HEADER} is the gateway's own credential`,
+        `${ownCredential} is the gateway's own credential`,
       );
     }
     const tenantKeys = GatewayConfigLoader.tenantKeys(

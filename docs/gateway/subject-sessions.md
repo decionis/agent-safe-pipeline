@@ -62,7 +62,9 @@ replicas: a session from the exchange is held in the memory of the gateway proce
 and ends with it.
 
 Both headers end at the gateway: they are never forwarded, and evidence names a session by
-`sha256:` and 12 hex characters of its token's digest, never the token or the customer.
+`sha256:` and 12 hex characters of its token's digest, never the token or the customer. Neither may
+be `interception.principalHeader`, whose value the authority receives: the configuration refuses
+it by name, as it refuses the tenant key.
 
 ## Reads
 

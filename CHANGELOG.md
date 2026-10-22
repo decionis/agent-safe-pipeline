@@ -20,6 +20,8 @@ no session is read.
   (`403 RESPONSE_SUBJECT_MISMATCH`, `agentsafe-execution: WITHHELD`) and recorded, never filtered.
   `interception.refuseUnknownReads: true` refuses a read the profile cannot check.
 - A write states the customer to the authority as the fact `session.subject`.
+- Neither session header can be `interception.principalHeader`, whose value the authority
+  receives; the configuration refuses it by name, as it refuses the tenant key.
 - `agent-safe.profile.api/1` gains `subject` pointers and `GET` operations, additively, with
   vectors; `session` is a reserved fact name. `businesscentral/api/v2` scopes its customer, sales
   document and customer ledger entry reads, and states the subject of a new sales order.

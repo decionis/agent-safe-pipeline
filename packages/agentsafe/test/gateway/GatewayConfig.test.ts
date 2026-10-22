@@ -715,6 +715,25 @@ describe("the gateway configuration", () => {
     ).toBe("interception.principalHeader");
   });
 
+  it("refuses a subject session header as the principal header, which the authority would receive", () => {
+    const base = { flags: { upstream: "https://api.tenant.example" } };
+    for (const header of ["AgentSafe-Session", "agentsafe-subject-token"]) {
+      const fromEnvironment = refusal({ ...base, env: { AGENTSAFE_PRINCIPAL_HEADER: header } });
+      expect(fromEnvironment.setting).toBe("interception.principalHeader");
+      expect(fromEnvironment.message).toBe(
+        `CONFIG_INVALID: interception.principalHeader (${header.toLowerCase()} is the gateway's own credential)`,
+      );
+      expect(
+        refusal({ ...base, file: { version: 1, interception: { principalHeader: header } } })
+          .setting,
+      ).toBe("interception.principalHeader");
+    }
+    expect(
+      load({ ...base, env: { AGENTSAFE_PRINCIPAL_HEADER: "x-agent-id" } }).interception
+        .principalHeader,
+    ).toBe("x-agent-id");
+  });
+
   it("limits a gateway's rate when told, and a hosted one by default", () => {
     const base = { flags: { upstream: "https://shop.tenant.example", mode: "shadow" } };
     expect(load(base).rateLimit).toBeNull();
