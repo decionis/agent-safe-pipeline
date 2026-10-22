@@ -103,6 +103,39 @@ describe("agent-safe.profile.mcp/1 vectors, held by the guard's binder", () => {
   });
 });
 
+describe("profiledBinding", () => {
+  const tool = {
+    tool: "refresh_rates",
+    action: "currency.rates.refresh",
+    operation: "currencies.refreshRates",
+    summary: "Refresh exchange rates.",
+    target: "erp:currencies",
+    consequential: [],
+    arguments: { customer: { type: "string", required: true } },
+  };
+  const definition = (extra: Record<string, unknown>, toolExtra: Record<string, unknown>) => ({
+    profile: "agent-safe.profile.mcp/1",
+    id: "erp/mcp/v1",
+    title: "Synthetic ERP MCP server",
+    system: "erp.example",
+    ...extra,
+    tools: [{ ...tool, ...toolExtra }],
+  });
+
+  it("states an environment and a subject only where the profile names them", () => {
+    const bare = profiledBinding(McpToolProfile.parse(definition({}, {})), "refresh_rates")!;
+    expect(Object.hasOwn(bare, "environment")).toBe(false);
+    expect(Object.hasOwn(bare, "subject")).toBe(false);
+    const named = profiledBinding(
+      McpToolProfile.parse(definition({ environment: "test" }, { subject: "customer" })),
+      "refresh_rates",
+    )!;
+    expect(named.environment).toBe("test");
+    expect(named.subject).toBe("customer");
+    expect(profiledBinding(McpToolProfile.parse(definition({}, {})), "other")).toBeNull();
+  });
+});
+
 describe("McpGuard over a tool profile", () => {
   const definition = JSON.parse(
     readFileSync(new URL("binds-from-profile.json", VECTORS), "utf8"),

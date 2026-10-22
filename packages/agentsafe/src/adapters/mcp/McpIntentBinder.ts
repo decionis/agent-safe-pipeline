@@ -132,14 +132,13 @@ export function bindMcpInvocation(
   };
 }
 
-/** A subject as stated: a string or a finite number, as a string, of 1 to 200 characters; else null. */
+/**
+ * A subject as stated: a string or a finite number, as a string, of 1 to 200
+ * characters; else null. `Number.isFinite` is true of a finite number only,
+ * never of a value it would have to convert.
+ */
 function subjectOf(value: JsonValue | undefined): string | null {
-  const named =
-    typeof value === "string"
-      ? value
-      : typeof value === "number" && Number.isFinite(value)
-        ? String(value)
-        : null;
+  const named = typeof value === "string" ? value : Number.isFinite(value) ? String(value) : null;
   return named === null || named.length === 0 || named.length > 200 ? null : named;
 }
 
