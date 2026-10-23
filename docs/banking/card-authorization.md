@@ -194,6 +194,25 @@ to another row does not open. The hold key is read from the secret store when a 
 is the deployment's, not Decionis's, and where it lives per hosting tier is the deployment guide's
 subject.
 
+### Card limits and the hosted allowance
+
+Decionis is adding allowances it holds itself (`/v1/authority/allowances`). Each one is a named
+counter for the organisation that the approving rule draws on (`then.allowance`). The draw is
+reserved with the grant, converted at the claim, kept by a commit and released by a decline, and
+every replica and every executor shares it. A draw that does not fit is refused as `BLOCK`
+`ALLOWANCE_EXHAUSTED` before any grant exists. A card's spending or velocity limit could later move
+onto one, so that `context.card_velocity` would no longer be one process's count of the last ten
+minutes.
+
+Nothing moves in this release, for two reasons:
+
+- A hold does something an allowance does not: it matches an authorization to the grant that
+  admitted it, by card and merchant.
+- The rule fixes an allowance's key, so a limit per card would need a key derived from the card,
+  which `then.allowance` does not offer yet.
+
+`HardLimits` stays the host's backstop either way.
+
 ## Latency
 
 What this process adds to the hook is measured in the package's `test/performance` suite on every

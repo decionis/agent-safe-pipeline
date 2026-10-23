@@ -300,8 +300,8 @@ refused at the commit, every legitimate counterpart (a renewal, a safe retry und
 identity, reauthorized work after a repair) completes exactly once, and a lost acknowledgement is
 reconciled without a second send. The recording target behind `agentsafe test` counts what reached
 it. The race is refused because the allowance is a material signal the deploy API re-versions with
-each commit; the one case reported open is an allowance published after the commit instead of with
-it, where a claim inside that window reads the old value. See [`examples/changed-conditions-demo`](./examples/changed-conditions-demo) and the
+each commit, and, when the allowance is published after the commit instead of with it, because the
+authority also holds it as an allowance it reserves with the grant and counts at the commit. See [`examples/changed-conditions-demo`](./examples/changed-conditions-demo) and the
 [Changed Conditions Test](./docs/changed-conditions-test.md).
 
 ## Execution lifecycle
@@ -649,7 +649,7 @@ Companion notes on the Execution Authority model, the authorization protocol, Pr
 - [`examples/whisper-boundary-demo`](./examples/whisper-boundary-demo) — the same proof for a shopping agent: merchant-text steering, a cross-session credential lookup, a cart changed after signing, constraints lost in context compaction, and principal loss across a delegation hop — six attacks, zero unauthorized effects.
 - [`examples/crm-outreach-demo`](./examples/crm-outreach-demo) — the same proof for a sales-development agent: who can approve a CRM update or an outbound message, a recipient changed after approval, an off-template message, an opted-out contact, an expired approval, and a provider response lost after dispatch that is reconciled once and never re-sent — six attacks, zero unauthorized effects.
 - [`examples/infra-scale-demo`](./examples/infra-scale-demo) — the Compromised Principal Test: an infrastructure agent whose identity, credential and API are all valid proposes a `deployment.scale` it is not authorised for — 960 replicas, another service, another cluster, a post-authorization mutation, a swapped approval, a replayed grant, a direct call to the cluster — seven attacks, zero unauthorized effects.
-- [`examples/changed-conditions-demo`](./examples/changed-conditions-demo) — the Changed Conditions Test: an honest deploy agent's queued work meets a world that changed — a configuration at the same path, a grown target group, an allowance another rollout took, a withdrawn approval, a policy release, a reclassified security group — nineteen attempts refused at the commit, thirteen legitimate counterparts completed exactly once, and one case (an allowance published after the commit rather than with it) reported open.
+- [`examples/changed-conditions-demo`](./examples/changed-conditions-demo) — the Changed Conditions Test: an honest deploy agent's queued work meets a world that changed — a configuration at the same path, a grown target group, an allowance another rollout took, a withdrawn approval, a policy release, a reclassified security group, an allowance published after the commit rather than with it — twenty-one attempts refused, fifteen legitimate counterparts completed exactly once.
 - [`examples/staged-change-demo`](./examples/staged-change-demo) — one production change as a governed plan: open, drain, deploy, re-enable, each step decided and granted on its own with plan facts the authority derives from its finalization records; a deploy refused before the drain commits, a re-enable escalated after a failed deploy, a rollback under its own grant, and the plan ending `PARTIAL`.
 - [`examples/basic-agent`](./examples/basic-agent) — the smallest BLOCK flow.
 - [`examples/shopify-refund-agent`](./examples/shopify-refund-agent) — amount-based ALLOW / ESCALATE / BLOCK.

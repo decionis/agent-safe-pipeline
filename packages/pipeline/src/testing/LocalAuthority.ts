@@ -417,6 +417,24 @@ function effectStatus(value: unknown): LocalEffectReceiptRecord["effect_status"]
   return value === "EFFECTED" || value === "REFUSED" || value === "INDETERMINATE" ? value : null;
 }
 
+/**
+ * One draw on a held allowance, as the approving hosted rule names it in
+ * `then.allowance` and the binding signs it in `allowance_draws`. `amount` is
+ * null when the rule reads it from parameters that give no whole number.
+ */
+export interface LocalAllowanceDraw {
+  readonly allowance_key: string;
+  readonly amount: number | null;
+}
+
+/** What an allowance holds now, as hosted `GET /v1/authority/allowances/{key}` reports it. */
+export interface LocalAllowanceUsage {
+  readonly reserved: number;
+  readonly held: number;
+  readonly consumed: number;
+  readonly available: number;
+}
+
 /** A verifying provider's registered receipt key: the public half, its `kid`, the `iss` it signs as. */
 export interface LocalProviderKey {
   readonly kid: string;
@@ -519,6 +537,18 @@ export interface LocalAuthorityOptions {
       readonly level: "STANDARD" | "HIGH_CONFIDENCE";
     };
   };
+  /**
+   * The held allowances an approval draws on, as the approving hosted rule
+   * names them in `then.allowance`. An ALLOW is granted only once every draw
+   * fits what its allowance has left; otherwise the decision is `BLOCK` with
+   * `ALLOWANCE_EXHAUSTED`, `ALLOWANCE_UNDEFINED` (no `setAllowance` for the
+   * key) or `ALLOWANCE_AMOUNT_INVALID`, and no grant is issued. A draw counts
+   * from the grant to the outcome: an unclaimed grant holds it until it
+   * expires, a commit keeps it, a failure releases it, and an INDETERMINATE
+   * holds it until reconciled. A counter, never a concurrency scope. Here an
+   * allowance has no window and serves every tenant alike.
+   */
+  readonly allowanceDraws?: (request: LocalAuthorityRequest) => readonly LocalAllowanceDraw[];
 }
 
 /** The organization a provisioned synthetic workspace belongs to. */
@@ -648,6 +678,13 @@ export class LocalAuthority {
   private readonly escalationRouting: LocalAuthorityOptions["escalationRouting"];
   private server: Server | null = null;
   private port = 0;
+  private readonly allowanceDrawsOf: (
+    request: LocalAuthorityRequest,
+  ) => readonly LocalAllowanceDraw[];
+  /** Each allowance's limit, by key, as the policy writer last set it. */
+  private readonly allowanceLimits = new Map<string, number>();
+  /** What each issued grant drew, by jti. */
+  private readonly grantDraws = new Map<string, readonly LocalAllowanceDraw[]>();
 
   public constructor(options: LocalAuthorityOptions = {}) {
     if (process.env.NODE_ENV === "production") throw new Error("LOCAL_DOUBLE_FORBIDDEN");
@@ -669,6 +706,7 @@ export class LocalAuthority {
       privateKey: keys.privateKey,
       publicJwk: keys.publicKey.export({ format: "jwk" }),
     };
+    this.allowanceDrawsOf = options.allowanceDraws ?? (() => []);
   }
 
   /** The fixture's JWKS, as `GET /.well-known/decionis-execution-grant-jwks.json` serves it. */
@@ -944,6 +982,66 @@ export class LocalAuthority {
     return record("EFFECT_RECEIPT_VERIFIED", described);
   }
 
+  /**
+   * Defines an allowance, or changes its limit: the policy writer's act
+   * (hosted, `PUT /v1/authority/allowances/{key}` with `policy:write`), which
+   * no decision key can perform here or hosted. Raising it is a top-up.
+   */
+  public setAllowance(key: string, limit: number): void {
+    if (!Number.isSafeInteger(limit) || limit < 0) throw new Error("ALLOWANCE_LIMIT_INVALID");
+    this.allowanceLimits.set(key, limit);
+  }
+
+  /** What an allowance holds now; null for a key no allowance is defined under. */
+  public allowanceUsage(key: string): LocalAllowanceUsage | null {
+    const limit = this.allowanceLimits.get(key);
+    if (limit === undefined) return null;
+    let reserved = 0;
+    let held = 0;
+    let consumed = 0;
+    for (const grant of this.grants.values()) {
+      for (const draw of this.grantDraws.get(grant.jti) ?? []) {
+        if (draw.allowance_key !== key || draw.amount === null) continue;
+        if (!grant.claimed) {
+          if (grant.expiresAt * 1_000 > this.clock()) reserved += draw.amount;
+        } else if (grant.finalized === "COMMITTED") {
+          consumed += draw.amount;
+        } else if (grant.finalized !== "FAILED") {
+          held += draw.amount;
+        }
+      }
+    }
+    return { reserved, held, consumed, available: Math.max(0, limit - reserved - held - consumed) };
+  }
+
+  /**
+   * An ALLOW's grant, once its draws are reserved, as hosted reserves them
+   * with the grant; or the same decision as `BLOCK` with the refusal code and
+   * no grant. Never ESCALATE: no approval creates capacity.
+   */
+  private grantWithinAllowances(
+    request: LocalAuthorityRequest,
+    decision: Decision,
+    approval: { readonly requestId: string; readonly receiptDossierId: string } | null,
+  ): Decision {
+    const draws = this.allowanceDrawsOf(request);
+    const refused =
+      draws.find((draw) => draw.amount === null) !== undefined
+        ? "ALLOWANCE_AMOUNT_INVALID"
+        : draws.some((draw) => this.allowanceUsage(draw.allowance_key) === null)
+          ? "ALLOWANCE_UNDEFINED"
+          : draws.some((draw) => draw.amount! > this.allowanceUsage(draw.allowance_key)!.available)
+            ? "ALLOWANCE_EXHAUSTED"
+            : null;
+    if (refused !== null) {
+      const reasons = Array.isArray(decision.reason_codes) ? decision.reason_codes : [];
+      return { ...decision, status: "BLOCK", reason_codes: [...reasons, refused] };
+    }
+    const granted = this.grantDecision(request, decision, approval);
+    if (draws.length > 0) this.grantDraws.set(String(granted.execution_token_jti), draws);
+    return granted;
+  }
+
   public get baseUrl(): string {
     return `${LOOPBACK_ORIGIN}:${this.port}`;
   }
@@ -1202,7 +1300,10 @@ export class LocalAuthority {
     }
     return {
       status: 200,
-      body: this.remember(request, this.grantDecision(request, decision, evaluation.approval)),
+      body: this.remember(
+        request,
+        this.grantWithinAllowances(request, decision, evaluation.approval),
+      ),
     };
   }
 
@@ -1567,7 +1668,7 @@ export class LocalAuthority {
       outcome = "ALLOW";
       if (managed.finalDecision === null) {
         this.decisions += 1;
-        managed.finalDecision = this.grantDecision(
+        managed.finalDecision = this.grantWithinAllowances(
           managed.request,
           this.baseDecision(
             { ...managed.request, mode: "ENFORCEMENT" },
@@ -1588,17 +1689,22 @@ export class LocalAuthority {
     } else if (state.status === "FAILED") {
       outcome = "ERROR";
     }
+    // A reauthorization whose allowance cannot be reserved ends BLOCKED, as hosted.
+    const refused = decision?.status === "BLOCK" ? decision : null;
     return {
       status: 200,
       body: {
         escalation_id: managed.escalationId,
         intent_id: managed.request.intent_id,
         action_hash: managed.request.intent_hash,
-        status: state.status,
-        outcome,
+        status: refused === null ? state.status : "BLOCKED",
+        outcome: refused === null ? outcome : "BLOCK",
         expires_at: managed.request.expires_at,
-        reason_codes: state.reasonCodes,
-        decision,
+        reason_codes:
+          refused === null
+            ? state.reasonCodes
+            : [...(refused.reason_codes as string[]), "REAUTHORIZATION_BLOCKED"],
+        decision: refused === null ? decision : null,
       },
     };
   }

@@ -140,9 +140,10 @@ re-evaluation to `GRANT_READY`, or to `REJECTED`, `EXPIRED`, `CANCELLED`, or `FA
   move an expired claim lease to an unresolved one, and holds no scope for a grant that binds no
   material signal, where the hosted claim store holds the execution target (system, environment,
   operation, resource, endpoint): two open claims on one resource with no material signal are
-  refused hosted and not here. It reserves nothing: two grants on the last unit of an allowance are
-  refused only through the signal, so when the allowance is published after the commit rather than
-  with it, a claim inside that window reads the old value and both commit, here and hosted.
+  refused hosted and not here. Without the `allowanceDraws` option it reserves nothing: two grants
+  on the last unit of an allowance are then refused only through the signal, so when the allowance
+  is published after the commit rather than with it, a claim inside that window reads the old value
+  and both commit, here and hosted. A [held allowance](#held-allowances) closes that window.
 - The effect-evidence path is modelled only as far as claim-lease-free state allows. The double does
   not model `authority_protocol_version: "1.1"` or `eligibility_validated_at`, and it models none of
   the observation causality window: the hosted authority refuses any non-null `observed_at` that
@@ -167,6 +168,35 @@ what the hosted route does with an observation that does not name the key that p
 closed to `UNCONFIRMED`: it refuses the whole finalization, which is why `DecionisGrantVerifier`
 retries once without the observation. Local tests should exercise both the allowlisted path and the
 default refusal.
+
+## Held allowances
+
+`new LocalAuthority({ allowanceDraws })` models the counters hosted Decionis holds itself
+(`/v1/authority/allowances`). `allowanceDraws(request)` stands for the approving rule's
+`then.allowance`: the allowance key and the amount, or a null amount when the parameters give none.
+`setAllowance(key, limit)` stands for the policy writer's `PUT`, which no decision key can make, and
+raising a limit is a top-up. `allowanceUsage(key)` reports what an allowance has reserved, held,
+consumed and left.
+
+What the double does is what hosted does:
+
+- An ALLOW is granted only once every draw fits what its allowance has left.
+- A draw that does not fit gets no grant. The decision is `BLOCK`, never `ESCALATE`, with
+  `ALLOWANCE_EXHAUSTED`, `ALLOWANCE_UNDEFINED` or `ALLOWANCE_AMOUNT_INVALID` after the policy's own
+  reason code.
+- A managed escalation whose reauthorization cannot draw ends `BLOCKED` with `REAUTHORIZATION_BLOCKED`.
+- A draw counts from the grant to the outcome. An unclaimed grant holds it until the grant expires,
+  a commit keeps it, a failure releases it, and an `INDETERMINATE` holds it until reconciled.
+- It is never a concurrency scope.
+
+What it leaves out: an allowance here has no window, and every tenant the double serves shares it,
+where hosted allowances are per organisation. It does not model the hosted claim's own check that
+the grant's reservation is live, because here a reservation cannot expire before its grant.
+`packages/pipeline/test/testing/LocalAllowances.test.ts` runs the race for a shared limit against
+it: two rollouts, each fitting the last unit, are proposed before either commits. One commits, the
+other is refused, and the other completes after a top-up. The twelfth case of
+[the Changed Conditions Test](./changed-conditions-test.md#a-shared-limit-and-its-window) uses it to
+close the window between a commit and a late publication of the limit.
 
 The [wire-contract harness](../tests/integration/contract/README.md) runs these doubles against the
 packed npm tarball in CI, and the [local escalation example](../examples/local-escalation) shows both

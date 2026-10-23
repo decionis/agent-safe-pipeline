@@ -1,8 +1,8 @@
 # Changed conditions demo: the Changed Conditions Test
 
-An honest agent's authorized work meets a world that changed before the commit. Eleven cases,
-nineteen attempts on changed conditions, thirteen legitimate counterparts, and one case reported open,
-run offline in a few seconds with no credentials. Every expectation is asserted, so the run is a
+An honest agent's authorized work meets a world that changed before the commit. Twelve cases,
+twenty-one attempts on changed conditions and fifteen legitimate counterparts run offline in a few
+seconds with no credentials. Every expectation is asserted, so the run is a
 self-checking proof: it exits 0 only when no attempt reached the target and every counterpart
 reached it exactly once.
 
@@ -35,7 +35,9 @@ digest at `checkout/prod/app.yaml`, the canary group's size, the rollout allowan
 state of change `CHG-1042`, and each security group's classification. Synthetic policy allows a
 canary that names the configuration it read and the group as it is, stays inside the host ceiling,
 has an allowance left and an approved change, and is not a blocked build. It never opens an
-administrative port of a production security group to every address.
+administrative port of a production security group to every address. The authority also holds the
+canary allowance itself: the rule that approves a canary draws one unit on a held allowance,
+reserved with the grant and kept by the commit.
 
 The authority is the loopback Decionis double from the pipeline's testing entry; the production
 `DecionisGate`, `DecionisGrantVerifier` and `GovernedExecutionRunner` carry the work over real
@@ -57,32 +59,36 @@ network APIs: it is the observer, and every count is what reached it.
 | A lost acknowledgement                               | The rollout lands and the answer is lost; an eager retry while it is unresolved: `CURRENT_STATE_UNRESOLVED`                                                                                                            | Reconciled from the deploy API's record as completed, and never sent again |
 | A grant is carried into another organisation         | Another organisation's executor presents it: `403 TENANT_MISMATCH`; with the intent rewritten: `INTENT_BINDING_MISMATCH`                                                                                               | The grant used where it was issued                                         |
 | No admin port of a production group open to all      | SSH to `0.0.0.0/0` on a production group: `BLOCK`; decided while staging, presented after reclassification: `SIGNAL_VERSION_STALE`, then `BLOCK`                                                                       | SSH from the bastion range, on both groups                                 |
-| The allowance is published after the commit (open)   | The same race with a producer that publishes on its own schedule: the second rollout is claimed inside the window before the consumed allowance is published, and both commit                                          | None: the run asserts today's result and reports it open, never as a pass  |
+| The allowance is published after the commit          | The same race with a producer that publishes late, and one unit left in the held allowance: the second rollout while the first's grant holds it, and again inside the window: `BLOCK` `ALLOWANCE_EXHAUSTED`            | The first rollout completes once; after a top-up, the second proceeds      |
 
 The last line reads:
 
 ```text
-PROVEN: 19 changed-condition attempts, 0 stale commits; 13 legitimate counterparts completed, each exactly once.
-OPEN: 1 case the boundary does not close today: with the allowance published after the commit instead of with it, 2 rollouts committed against an allowance of 1. That window, and any limit nobody publishes as a signal, need a reservation the authority takes with the grant.
+PROVEN: 21 changed-condition attempts, 0 stale commits; 15 legitimate counterparts completed, each exactly once.
 ```
 
 The observer's counts come before it: the requests the target received, how many of them came from
 an attempt (zero), how many counterparts reached it exactly once under their own identity, and how
 many requests no step accounts for (zero). They are counts of what reached the target, never a rate.
 
-## The open case
+## A shared limit and its window
 
-The race itself is closed when the limit is a material signal published with each commit, as
-case three shows: the signal is the claim's concurrency scope, held while a claim is open or its
-outcome unknown, so the second rollout waits (`AUTHORIZATION_SCOPE_BUSY`), and once the first commits
-the next claim reads the new version (`SIGNAL_VERSION_STALE`).
+The race is closed when the limit is a material signal published with each commit, as case three
+shows: the signal is the claim's concurrency scope, held while a claim is open or its outcome
+unknown, so the second rollout waits (`AUTHORIZATION_SCOPE_BUSY`), and once the first commits the
+next claim reads the new version (`SIGNAL_VERSION_STALE`).
 
-What stays open is narrower. When the producer publishes the consumed allowance after the commit
-rather than with it, a claim inside that window reads the old value, and nothing has changed yet for
-revalidation to see: both rollouts commit. A limit nobody publishes as a signal is not seen at all.
-Closing either needs the authority to reserve the limit with the grant and settle the reservation
-at the commit, which is not built. The run asserts that both commit today, so the day that changes,
-the case has to be moved rather than quietly passing.
+The signal alone leaves a window. When the producer publishes the consumed allowance after the
+commit rather than with it, a claim inside that window reads the old value, and nothing has changed
+yet for revalidation to see. A limit nobody publishes as a signal is not seen at all.
+
+Case twelve closes the window with the held allowance. The draw is reserved with the grant, so the
+second rollout is refused at the decision while the first's grant holds the last unit. The commit
+is counted when it happens, so the second rollout is refused again inside the window, while the
+published allowance still reads 1. Both refusals are `ALLOWANCE_EXHAUSTED`: the policy, reading the
+stale signal, would have allowed them. Without the held allowance, both reach the target and the run
+fails with 2 stale commits. The held allowance is a counter, never a concurrency scope, so rollouts
+that fit are claimed side by side.
 
 ## What the doubles keep, and what they do not
 
@@ -91,7 +97,8 @@ reason codes, and refuses a stale grant without consuming it. It does not re-run
 claim (`POLICY_STATE_CHANGED`), recover an expired claim lease into an unresolved one, or, for a
 grant that binds no material signal, hold the execution target as its scope as the hosted claim
 store does. A change to the target that no system of record publishes is not seen at the claim,
-here or hosted: the grant names no state version of the target. See
+here or hosted: the grant names no state version of the target. Its held allowance has no window
+and serves every tenant alike. See
 [testing locally](../../docs/local-testing.md) for what the doubles verify and
 [the Changed Conditions Test](../../docs/changed-conditions-test.md) for what each run proves and
 does not.
