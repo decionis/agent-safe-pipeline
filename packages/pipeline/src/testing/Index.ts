@@ -40,6 +40,8 @@ export {
   LOCAL_AUTHORITY_JWKS_PATH,
   hashBinding,
   stableStringify,
+  type LocalAllowanceDraw,
+  type LocalAllowanceUsage,
   type LocalAuthorityOptions,
   type LocalClaimAttestationClaims,
   type LocalEffectReceiptCode,

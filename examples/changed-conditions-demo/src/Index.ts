@@ -24,12 +24,12 @@
  * Two rollouts racing for the last unit of an allowance are refused when the
  * allowance is a material signal re-versioned with each commit: the signal is
  * the claim's concurrency scope, and the next claim reads its new version.
- * One case is beyond what the boundary decides today and is reported as
- * such: when the allowance is published after the commit rather than with it,
- * a claim inside that window reads the old value, and both rollouts commit.
- * That window, like any limit nobody publishes, needs the authority to
- * reserve the allowance with the grant. The run asserts today's result for
- * it, so the day it changes the case has to be moved, not quietly passed.
+ * When the allowance is published after the commit rather than with it, a
+ * claim inside that window reads the old value, and the signal alone would let
+ * both rollouts commit. The authority closes that window by holding the
+ * allowance itself: each canary draws on a held allowance, reserved with its
+ * grant and kept by its commit, so a proposal inside the window is refused
+ * however late the producer publishes.
  *
  * All identities, services, groups and organisations are synthetic.
  */
@@ -66,6 +66,8 @@ const POLICY_ID = "11111111-1111-4111-8111-111111111111";
 const PRINCIPAL = "synthetic-deploy-agent";
 const RUNTIME = "changed-conditions-demo";
 
+/** The allowance the authority holds itself: every canary draws one unit. */
+const CANARY_CAPACITY = "checkout-canary-capacity";
 /** The material signals the systems of record publish, by id. */
 const CONFIG = "config:checkout/prod/app.yaml";
 const GROUP = "group:checkout-canary";
@@ -162,7 +164,21 @@ const authority = new LocalAuthority({
     request.action.type === "rollout.canary"
       ? [CONFIG, GROUP, ALLOWANCE, CHANGE]
       : [classificationOf(String(request.action.parameters.group))],
+  // The rule that approves a canary draws on the held allowance (`then.allowance`).
+  allowanceDraws: (request) =>
+    request.action.type === "rollout.canary" ? [{ allowance_key: CANARY_CAPACITY, amount: 1 }] : [],
 });
+
+/**
+ * Sets the held allowance so that `left` units remain beyond what grants
+ * already reserve, claims hold and commits consumed: the governance
+ * authority's own act (hosted, a `PUT` with `policy:write`), never the agent's.
+ */
+function holdCapacity(left: number): void {
+  const used = authority.allowanceUsage(CANARY_CAPACITY);
+  const taken = used === null ? 0 : used.reserved + used.held + used.consumed;
+  authority.setAllowance(CANARY_CAPACITY, taken + left);
+}
 
 function release(next: Controls): string {
   controls = next;
@@ -218,8 +234,8 @@ const classify = (group: string, environment: string): void => {
  * The deploy system's allowance, published as a material signal. It counts a
  * rollout it applied and re-versions the allowance as part of that commit, so
  * the next claim against the old version is stale. `lag()` makes it publish
- * later instead, on a schedule of its own, until `catchUp()`: the window the
- * open case measures.
+ * later instead, on a schedule of its own, until `catchUp()`: the window
+ * case 12 measures.
  */
 class AllowanceProducer {
   private lagging = false;
@@ -400,9 +416,9 @@ const outcomeOf = (result: SafeExecutionResult): string =>
  * `attempt`: work on changed conditions, which must not reach the target.
  * `counterpart`: legitimate work, which must reach it exactly once, at the
  * path its identity names. `recovery`: an attempt whose outcome was lost, on
- * its way to reconciliation. `open`: a case the boundary does not close today.
+ * its way to reconciliation.
  */
-type Kind = "attempt" | "counterpart" | "recovery" | "open";
+type Kind = "attempt" | "counterpart" | "recovery";
 interface Step {
   readonly testCase: string;
   readonly kind: Kind;
@@ -460,7 +476,7 @@ async function step(
     path,
     ok: passed,
   });
-  out(`    ${passed ? (kind === "open" ? "OPEN" : "PASS") : "FAIL"} ${kind}: ${title}`);
+  out(`    ${passed ? "PASS" : "FAIL"} ${kind}: ${title}`);
   out(
     `         ${observed}; ${kind === "counterpart" && path !== null ? `requests at its path ${arrivalsAt(path)}` : `reached the target ${arrivals}`}`,
   );
@@ -525,6 +541,26 @@ async function refused(
   };
 }
 
+/**
+ * A proposal the authority refuses at decision because the held allowance
+ * has no unit left, whatever the published signal says: the reason is the
+ * allowance's, not the policy's.
+ */
+async function exhausted(
+  lane: ReturnType<typeof laneFor>,
+  proposal: AgentProposal,
+  label: string,
+): Promise<{ observed: string; ok: boolean }> {
+  const { decision, result } = await propose(lane, proposal, identity(label));
+  return {
+    observed: `authority ${decision.verdict} ${decision.reasonCodes.join(" ")}; executor ${outcomeOf(result)}; the published allowance reads ${world.allowance}`,
+    ok:
+      decision.verdict === "BLOCK" &&
+      decision.reasonCodes.includes("ALLOWANCE_EXHAUSTED") &&
+      result.outcome === "BLOCKED",
+  };
+}
+
 /** A legitimate proposal that has to complete, once, at the path its identity names. */
 async function completes(
   lane: ReturnType<typeof laneFor>,
@@ -553,6 +589,7 @@ function pathOf(proposal: AgentProposal, key: string): string {
 await target.start();
 await authority.start();
 publishWorld();
+holdCapacity(100);
 const lane = laneFor(ORG_KEY);
 
 out("Changed conditions demo: the Changed Conditions Test");
@@ -1007,27 +1044,50 @@ begin(
 begin(
   12,
   "The allowance is published after the commit, not with it",
-  "The same race as case 3, with a producer that publishes on its own schedule: the second rollout is claimed after the first committed and before the consumed allowance is published.",
+  "The same race as case 3, with a producer that publishes on its own schedule. The signal alone would let a rollout claimed after the first commit, and before the consumed allowance is published, read the old value; the authority also holds the allowance, with one unit left.",
 );
 {
   setAllowance(1);
-  const first = await decide(lane, rollout("2.5.1"), identity("late-first"));
-  const second = await decide(lane, rollout("2.5.2"), identity("late-second"));
+  holdCapacity(1);
   producer.lag();
+  const first = await decide(lane, rollout("2.5.1"), identity("late-first"));
   await step(
-    "open",
-    "both rollouts, inside the window between a commit and its publication",
-    "today: both commit; a reservation taken with the grant closes it",
+    "attempt",
+    "a second rollout, proposed while the first's grant holds the last unit",
+    "BLOCK ALLOWANCE_EXHAUSTED at the decision",
+    () => exhausted(lane, rollout("2.5.2"), "late-second"),
+  );
+  await step(
+    "counterpart",
+    "the first rollout completes; the deploy API publishes the allowance later",
+    "COMPLETED, one rollout",
     async () => {
-      const a = await run(lane, first);
-      const b = await run(lane, second);
-      producer.catchUp();
+      const result = await run(lane, first);
+      const committed = grantOf(first.decision)?.finalized === "COMMITTED";
       return {
-        observed: `first ${outcomeOf(a)}, second ${outcomeOf(b)}; the allowance, published late, reads ${world.allowance}`,
-        ok: a.outcome === "COMPLETED" && b.outcome === "COMPLETED",
+        observed: `executor ${outcomeOf(result)}; recorded COMMITTED ${committed}; the published allowance still reads ${world.allowance}`,
+        ok: result.outcome === "COMPLETED" && committed && world.allowance === 1,
+        path: rolloutPath("checkout", first.captured.intent.idempotencyKey),
       };
     },
-    2,
+  );
+  await step(
+    "attempt",
+    "the second rollout, proposed again inside the window, while the published allowance still reads 1",
+    "BLOCK ALLOWANCE_EXHAUSTED: the authority counted the commit",
+    async () => {
+      const answer = await exhausted(lane, rollout("2.5.2"), "late-window");
+      return { ...answer, ok: answer.ok && world.allowance === 1 };
+    },
+  );
+  producer.catchUp();
+  setAllowance(10);
+  holdCapacity(10);
+  await step(
+    "counterpart",
+    "a valid renewal after a top-up: tomorrow's allowance is published and held, and the second rollout proceeds",
+    "ALLOW, one rollout",
+    () => completes(lane, rollout("2.5.2"), "late-renewed"),
   );
 }
 
@@ -1040,27 +1100,20 @@ for (const title of cases) {
   const of = (kind: Kind): Step[] => own.filter((entry) => entry.kind === kind);
   const held = (kind: Kind): string =>
     `${of(kind).filter((entry) => entry.ok).length} of ${of(kind).length}`;
-  const label = own.every((entry) => entry.ok) ? (of("open").length > 0 ? "OPEN" : "PASS") : "FAIL";
-  const tally =
-    of("open").length > 0
-      ? `${own.reduce((sum, entry) => sum + entry.arrivals, 0)} committed against an allowance of 1`
-      : `${held("attempt")} refused, ${held("counterpart")} completed`;
+  const label = own.every((entry) => entry.ok) ? "PASS" : "FAIL";
+  const tally = `${held("attempt")} refused, ${held("counterpart")} completed`;
   out(`    ${label}  ${title.padEnd(width)}  ${tally}`);
 }
 const attempts = steps.filter((entry) => entry.kind === "attempt");
 const counterparts = steps.filter((entry) => entry.kind === "counterpart");
-const openCases = steps.filter((entry) => entry.kind === "open");
 const staleCommits = attempts.reduce((sum, entry) => sum + entry.arrivals, 0);
-const openCommits = openCases.reduce((sum, entry) => sum + entry.arrivals, 0);
 // Read again at the end: no later step sent a counterpart a second time.
 const owned = new Set(counterparts.flatMap((entry) => (entry.path === null ? [] : [entry.path])));
 const exactlyOnce = [...owned].filter((path) => arrivalsAt(path) === 1).length;
-// Every request the target ever received belongs to a counterpart's identity
-// or to the open case; anything else reached it without a step that owns it.
+// Every request the target ever received belongs to a counterpart's identity;
+// anything else reached it without a step that owns it.
 const unowned =
-  target.received.length -
-  [...owned].reduce((sum, path) => sum + arrivalsAt(path), 0) -
-  openCommits;
+  target.received.length - [...owned].reduce((sum, path) => sum + arrivalsAt(path), 0);
 const allOk =
   steps.every((entry) => entry.ok) &&
   staleCommits === 0 &&
@@ -1075,12 +1128,9 @@ out(
 out(
   `    legitimate counterparts: ${counterparts.length}, reached it exactly once under their own identity: ${exactlyOnce}`,
 );
-out(`    the open case: ${openCommits} requests; requests no step accounts for: ${unowned}`);
+out(`    requests no step accounts for: ${unowned}`);
 out(
   `\n${allOk ? "PROVEN" : "NOT PROVEN"}: ${attempts.length} changed-condition attempts, ${staleCommits} stale commits; ${exactlyOnce} legitimate counterparts completed, each exactly once.`,
-);
-out(
-  `OPEN: ${openCases.length} case the boundary does not close today: with the allowance published after the commit instead of with it, ${openCommits} rollouts committed against an allowance of 1. That window, and any limit nobody publishes as a signal, need a reservation the authority takes with the grant.`,
 );
 process.exitCode = allOk ? 0 : 1;
 
