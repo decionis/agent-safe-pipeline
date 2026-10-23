@@ -285,6 +285,25 @@ direct call to the cluster: nothing executes, because authority was bound to the
 not to the identity. See [`examples/infra-scale-demo`](./examples/infra-scale-demo) and the
 [Compromised Principal Test](./THREAT-MODEL.md#the-compromised-principal-test).
 
+And its counterpart, where the principal is honest and the world changes between the decision and
+the commit:
+
+```bash
+pnpm --filter @decionis/agent-safe-example-changed-conditions demo
+```
+
+A deploy agent's queued canary meets a configuration changed at the path it read, a target group
+that grew, a second rollout racing for the last unit of the allowance, a withdrawn change approval, a policy
+release, and a security group reclassified as production; a grant is replayed, substituted, and
+carried into another organisation, and the agent tries to raise its own ceiling. Every one is
+refused at the commit, every legitimate counterpart (a renewal, a safe retry under the same
+identity, reauthorized work after a repair) completes exactly once, and a lost acknowledgement is
+reconciled without a second send. The recording target behind `agentsafe test` counts what reached
+it. The race is refused because the allowance is a material signal the deploy API re-versions with
+each commit; the one case reported open is an allowance published after the commit instead of with
+it, where a claim inside that window reads the old value. See [`examples/changed-conditions-demo`](./examples/changed-conditions-demo) and the
+[Changed Conditions Test](./docs/changed-conditions-test.md).
+
 ## Execution lifecycle
 
 For a consequential action, in every distribution and in the library alike:
@@ -527,8 +546,9 @@ Which examples do what: `basic-agent`, `shopify-refund-agent`, `github-deploy-ag
 `mcp-tool-gate` and `procurement-agent` evaluate their one proposal beside the fixture;
 `golden-adversarial-demo`, `whisper-boundary-demo`, `crm-outreach-demo`, `infra-scale-demo` and `local-escalation` run
 their adversarial attempts locally by design and end with the golden proposal evaluated by
-Decionis; `trusted-executor` runs the executor process once more in shadow against Decionis; the
-two Presence examples need an owned organization with an enrolled approver, and say so when given
+Decionis; `changed-conditions-demo` runs against the loopback double alone, because what it changes
+(policy releases, published signals) is the authority's own state; `trusted-executor` runs the
+executor process once more in shadow against Decionis; the two Presence examples need an owned organization with an enrolled approver, and say so when given
 a provisional workspace.
 
 #### How it is wired
@@ -628,6 +648,7 @@ Companion notes on the Execution Authority model, the authorization protocol, Pr
 - [`examples/whisper-boundary-demo`](./examples/whisper-boundary-demo) — the same proof for a shopping agent: merchant-text steering, a cross-session credential lookup, a cart changed after signing, constraints lost in context compaction, and principal loss across a delegation hop — six attacks, zero unauthorized effects.
 - [`examples/crm-outreach-demo`](./examples/crm-outreach-demo) — the same proof for a sales-development agent: who can approve a CRM update or an outbound message, a recipient changed after approval, an off-template message, an opted-out contact, an expired approval, and a provider response lost after dispatch that is reconciled once and never re-sent — six attacks, zero unauthorized effects.
 - [`examples/infra-scale-demo`](./examples/infra-scale-demo) — the Compromised Principal Test: an infrastructure agent whose identity, credential and API are all valid proposes a `deployment.scale` it is not authorised for — 960 replicas, another service, another cluster, a post-authorization mutation, a swapped approval, a replayed grant, a direct call to the cluster — seven attacks, zero unauthorized effects.
+- [`examples/changed-conditions-demo`](./examples/changed-conditions-demo) — the Changed Conditions Test: an honest deploy agent's queued work meets a world that changed — a configuration at the same path, a grown target group, an allowance another rollout took, a withdrawn approval, a policy release, a reclassified security group — nineteen attempts refused at the commit, thirteen legitimate counterparts completed exactly once, and one case (an allowance published after the commit rather than with it) reported open.
 - [`examples/basic-agent`](./examples/basic-agent) — the smallest BLOCK flow.
 - [`examples/shopify-refund-agent`](./examples/shopify-refund-agent) — amount-based ALLOW / ESCALATE / BLOCK.
 - [`examples/github-deploy-agent`](./examples/github-deploy-agent) — environment and force-push controls.
