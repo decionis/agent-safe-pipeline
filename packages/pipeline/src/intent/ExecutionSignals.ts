@@ -32,11 +32,11 @@ const token = z
 export const RESERVED_CONTEXT_BOUNDARY = "enforcement_boundary";
 export const RESERVED_CONTEXT_WORKLOAD = "workload";
 /**
- * What the trusted runtime states about the action's own circumstances,
- * rather than about itself: the target's state version it read
- * (`agent_safe.precondition`). The Decionis authority keeps facts of its own
- * under the same name in what policy reads, and copies only the sub-keys it
- * validates from an intent's context into them.
+ * The namespace the authority rebuilds for itself on every evaluation (the
+ * verified approval, signed signals, plan facts). The runtime writes two
+ * entries into it, each only when it has one: `plan`, the step of a governed
+ * plan an intent is, and `precondition`, the target's state version it read
+ * before asking. The authority copies only the entries it validates.
  */
 export const RESERVED_CONTEXT_AGENT_SAFE = "agent_safe";
 

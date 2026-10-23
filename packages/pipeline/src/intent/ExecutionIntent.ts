@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { JsonObjectSchema, type JsonObject } from "./JsonValue.js";
 import { ExecutionSignalsSchema } from "./ExecutionSignals.js";
+import { PlanStepReferenceSchema } from "../plan/PlanStepReference.js";
 import { TargetPreconditionSchema } from "./TargetPrecondition.js";
 
 const boundedId = z.string().trim().min(1).max(200);
@@ -87,6 +88,13 @@ export const TrustedIntentContextSchema = z
      * under reserved keys; a caller may not write those keys by hand.
      */
     signals: ExecutionSignalsSchema.optional(),
+    /**
+     * The step of a governed plan this intent is, after the runtime matched
+     * the proposal to it (`matchPlanStep`). The capture stamps it into the
+     * hashed context as `agent_safe.plan`; the authority derives the step's
+     * facts from its own records, never from this reference alone.
+     */
+    plan: PlanStepReferenceSchema.optional(),
     /**
      * The target's state version, as the runtime read it before asking: the
      * capture stamps it into the hashed context as `agent_safe.precondition`,

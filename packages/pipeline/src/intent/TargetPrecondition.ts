@@ -48,13 +48,6 @@ export const TargetPreconditionSchema = z.strictObject({
 
 export type TargetPrecondition = z.infer<typeof TargetPreconditionSchema>;
 
-/** The reserved entry a precondition contributes to a context. */
-export function preconditionContext(precondition: TargetPrecondition): JsonObject {
-  return {
-    [RESERVED_CONTEXT_AGENT_SAFE]: { precondition: TargetPreconditionSchema.parse(precondition) },
-  } as JsonObject;
-}
-
 /**
  * The precondition an intent was captured with, read back from its context.
  * Anything that does not parse is no precondition rather than a partial one.

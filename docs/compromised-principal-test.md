@@ -81,7 +81,10 @@ under the [Agent-Safe Intent v1](../spec/intent/v1/README.md) specification.
 | The hash vector         | The binding covers every field a principal could change, and two implementations that agree on the vectors agree on the hash                                     | Anything about enforcement: a hash is what authority is bound to, not the act of binding                                                                                                                                                                                                                               |
 
 None of them proves that the host running the executor is uncompromised; the
-[threat model](../THREAT-MODEL.md#accepted-risks) says what is assumed and what is accepted.
+[threat model](../THREAT-MODEL.md#accepted-risks) says what is assumed and what is accepted. None of
+them changes the world under a valid decision either: that is the
+[Changed Conditions Test](./changed-conditions-test.md), where the principal is honest and the
+conditions its authorization rested on change before the commit.
 
 ## Why the binding, and not a better identity check
 

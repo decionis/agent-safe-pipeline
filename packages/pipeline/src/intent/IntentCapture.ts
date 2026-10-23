@@ -9,8 +9,11 @@ import {
   type CapturedIntent,
   type TrustedIntentContext,
 } from "./ExecutionIntent.js";
-import { RESERVED_CONTEXT_KEYS, signalContext } from "./ExecutionSignals.js";
-import { preconditionContext } from "./TargetPrecondition.js";
+import {
+  RESERVED_CONTEXT_AGENT_SAFE,
+  RESERVED_CONTEXT_KEYS,
+  signalContext,
+} from "./ExecutionSignals.js";
 import { CanonicalIntentHasher } from "./CanonicalIntentHasher.js";
 
 export interface IntentCaptureOptions {
@@ -48,6 +51,13 @@ export class IntentCapture {
     if (reserved.some((key) => Object.hasOwn(trusted.context, key))) {
       throw new Error("INTENT_CONTEXT_KEY_RESERVED");
     }
+    // The runtime's entries in the `agent_safe` namespace, each only when it
+    // has one, so an intent with neither carries no such key and hashes as
+    // it did before either existed.
+    const agentSafe = {
+      ...(trusted.plan === undefined ? {} : { plan: { ...trusted.plan } }),
+      ...(trusted.precondition === undefined ? {} : { precondition: { ...trusted.precondition } }),
+    };
     const capturedAt = this.clock();
     const expiresAt = new Date(capturedAt.valueOf() + this.ttlSeconds * 1_000);
     const intent = ExecutionIntentSchema.parse({
@@ -64,7 +74,9 @@ export class IntentCapture {
       context: {
         ...trusted.context,
         ...(trusted.signals === undefined ? {} : signalContext(trusted.signals)),
-        ...(trusted.precondition === undefined ? {} : preconditionContext(trusted.precondition)),
+        ...(Object.keys(agentSafe).length === 0
+          ? {}
+          : { [RESERVED_CONTEXT_AGENT_SAFE]: agentSafe }),
       },
       ...(trusted.correlationId === undefined ? {} : { correlationId: trusted.correlationId }),
       ...(trusted.expectedEffectDigest === undefined

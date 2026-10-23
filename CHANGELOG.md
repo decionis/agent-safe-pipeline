@@ -13,8 +13,8 @@ intent without a precondition hashes byte for byte as before.
 
 - `NativeExecutor.readState`, optional: the runner reads the target once before asking and binds
   `context.agent_safe.precondition` (`version`, `state`, `source`, `read_at`) into the hashed
-  intent. A read that fails refuses the submission with `TARGET_STATE_UNREADABLE`. `agent_safe` is
-  a reserved context key (`INTENT_CONTEXT_KEY_RESERVED` when set by hand).
+  intent, beside a governed plan's `plan` when there is one. A read that fails refuses the
+  submission with `TARGET_STATE_UNREADABLE`.
 - An API profile's write may name a `precondition`: the read that states its target's version and
   state. `ApiProfile.stateRead` and `ApiProfile.precondition` make the read from the write's call
   and read its answer. Business Central's `customers.update` names `customers.get`'s
@@ -28,6 +28,83 @@ intent without a precondition hashes byte for byte as before.
 - `LocalAuthority` carries the version into its attestations and refuses a malformed precondition
   (`INTENT_PRECONDITION_INVALID`), as hosted Decionis does.
 - [Target state](docs/authority/target-state.md) says how the pieces fit, and what they do not do.
+
+## Library (unreleased): held allowances in the local authority
+
+Decionis is adding allowances it holds itself: named counters for an organisation that a policy
+rule draws on, reserved with the grant, converted at the claim and settled by the outcome. A draw
+that does not fit is refused as `BLOCK` with `ALLOWANCE_EXHAUSTED`, `ALLOWANCE_UNDEFINED` or
+`ALLOWANCE_AMOUNT_INVALID`, and no grant is issued. The loopback authority models it, so the race
+for the last unit of a limit nobody publishes, or publishes late, can be tested offline.
+
+**Nothing to do**: a `LocalAuthority` built as before draws on no allowance. No production code path
+changed, and a client reads the refusal as any other `BLOCK`.
+
+- **`LocalAuthority`** (`@decionis/agent-safe-pipeline/testing`): the `allowanceDraws` option names
+  what an approval draws on, `setAllowance(key, limit)` defines an allowance or tops it up, and
+  `allowanceUsage(key)` reports what it has reserved, held, consumed and left.
+  [docs/local-testing.md](docs/local-testing.md#held-allowances) says what it models and what it
+  does not.
+- **`HardLimits`** stays the host's backstop. Its documentation and
+  [the card guide](docs/banking/card-authorization.md#card-limits-and-the-hosted-allowance) say where
+  a limit that must hold across replicas belongs, and why card holds do not move onto an allowance
+  yet.
+- **`examples/changed-conditions-demo`**: the case the Changed Conditions Test reported open, an
+  allowance published after the commit instead of with it, is refused now. The authority holds the
+  canary allowance too, so a second rollout is refused with `ALLOWANCE_EXHAUSTED` while the first's
+  grant holds the last unit and again inside the window before the late publication, and it
+  completes after a top-up. The run has no `OPEN:` line:
+  `PROVEN: 21 changed-condition attempts, 0 stale commits; 15 legitimate counterparts completed,
+each exactly once.`
+
+## Library (unreleased): governed plans
+
+One change carried out as several governed steps: `agent-safe.plan/1`, and the step stamp an
+executor binds into each step's intent ([ADR 0008](docs/architecture/decisions/0008-governed-plans.md)).
+
+**Nothing to do** to keep things as they are: an intent that states no plan carries no `agent_safe`
+key and hashes as before. A trusted context that already wrote `agent_safe` by hand is now refused
+with `INTENT_CONTEXT_KEY_RESERVED`; nothing in this repository wrote it.
+
+- `GovernedPlanSchema` and `planDigest` (steps, `ordered` / `all_or_escalate` / `independent`
+  edges, a partial-commit rule and compensation steps); `matchPlanStep` refuses a proposal outside
+  its step before anything is captured.
+- **`TrustedIntentContext.plan`** (optional): `{plan_id, plan_digest, step_id}`, stamped by
+  `IntentCapture` as `context.agent_safe.plan`. `agent_safe` joins the reserved context keys.
+- `derivePlanStepFacts`, `planStepStatuses` and `planState`: the reference derivation of a step's
+  plan facts from finalization records, which Decionis mirrors, and the per-step signal its claim
+  revalidates. A plan step's grant is the authority's to issue: registering a plan authorizes
+  nothing.
+- `LocalPlans` (testing): a plan registry beside `LocalAuthority`, deriving facts from its claims
+  and finalizations for a policy hook. It does not re-derive them at the claim.
+- `examples/staged-change-demo`, in `pnpm examples:prove`. The SCITT mapping gains
+  `partially_completed` for a `PARTIAL` plan.
+
+## Library and runtime (unreleased): the Changed Conditions Test
+
+The loopback authority re-derives authority at the claim as hosted Decionis does, and a new
+self-checking corpus shows changed conditions refused while legitimate work completes.
+
+**Nothing to do**: a `LocalAuthority` built as before decides, claims and finalizes as before. No
+production code path changed.
+
+- **`LocalAuthority`** (`@decionis/agent-safe-pipeline/testing`): `releasePolicy()` activates the
+  next policy release, and a grant decided under an earlier one fails at claim with
+  `POLICY_VERSION_STALE`; `publishSignal()` ingests a material signal, the `materialSignals` option
+  names the ones a request rests on, their values reach the policy hook as `material_signals`, and a
+  grant whose signal was published again fails `SIGNAL_VERSION_STALE`. Each signal is a concurrency
+  scope: a claim fails `AUTHORIZATION_SCOPE_BUSY` while another holds it and
+  `CURRENT_STATE_UNRESOLVED` behind an `INDETERMINATE` one until it is reconciled. None of these
+  consumes the grant. `tenantKeys` binds keys to one organisation (403 `AUTHORITY_TENANT_MISMATCH`,
+  `TENANT_MISMATCH`); `/v1/policies` answers 401 `ACCOUNT_SESSION_REQUIRED` to any key;
+  `addressableGrants` mints hosted-shaped tokens so a client reaches the reconciliations resource.
+- **`RecordingTarget`** is exported from `@decionis/agentsafe`: the loopback target behind
+  `agentsafe test`, for a corpus that counts what reached the target.
+- **`examples/changed-conditions-demo`**, in `pnpm examples:prove`: nineteen attempts on changed
+  conditions, none of which reaches the target, thirteen legitimate counterparts that each reach it
+  exactly once, and one case reported open: an allowance published after the commit instead of with
+  it. The race for its last unit is refused when it is published with each commit.
+  [docs/changed-conditions-test.md](docs/changed-conditions-test.md) is the page.
 
 ## Runtime (unreleased): MCP tools as data
 

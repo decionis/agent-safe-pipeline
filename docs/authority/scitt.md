@@ -71,7 +71,22 @@ The outcomes map onto `outcome_state` only where something was dispatched:
 | `FAILED_BEFORE_DISPATCH`  | none: nothing reached the provider                                   |
 | `BLOCKED`, `HELD`         | none: nothing was executed, and the draft has no value for a refusal |
 
-`partially_completed` and `reversed` have no counterpart here.
+A single action has no partial outcome: it committed, it did not, or nobody knows yet. A change
+carried out as a governed plan ([ADR 0008](../architecture/decisions/0008-governed-plans.md)) does,
+and the state of the plan, derived by the authority from the finalization records of its steps,
+maps onto the plan as a whole:
+
+| Plan state  | `outcome_state`                                                                        |
+| ----------- | -------------------------------------------------------------------------------------- |
+| `COMPLETE`  | `completed`: every ordinary step committed with a confirmed effect                     |
+| `PARTIAL`   | `partially_completed`: a step failed after others committed; it stays so once reached  |
+| `SUSPENDED` | `pending_confirmation`, until reconciliation settles the step whose outcome is unknown |
+| `ACTIVE`    | none: the plan has not finished                                                        |
+
+Each step keeps its own record and its own outcome above; the plan's is a record about the
+change, correlated to its steps by `plan_id`. A compensation that committed (a rollback) leaves the
+plan `PARTIAL`: compensating restores a state, it does not make the change complete as approved.
+`reversed` has no counterpart here.
 
 ## Integrity and custody
 
