@@ -58,6 +58,7 @@ COPY examples/presence-live-approval/package.json ./examples/presence-live-appro
 COPY examples/presence-managed-approval/package.json ./examples/presence-managed-approval/
 COPY examples/procurement-agent/package.json ./examples/procurement-agent/
 COPY examples/shopify-refund-agent/package.json ./examples/shopify-refund-agent/
+COPY examples/staged-change-demo/package.json ./examples/staged-change-demo/
 COPY examples/trusted-executor/package.json ./examples/trusted-executor/
 COPY examples/whisper-boundary-demo/package.json ./examples/whisper-boundary-demo/
 COPY tests/integration/contract/package.json ./tests/integration/contract/

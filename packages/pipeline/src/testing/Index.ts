@@ -55,6 +55,7 @@ export {
   type LocalMaterialSignal,
   type LocalRouteOverride,
 } from "./LocalAuthority.js";
+export { LocalPlans } from "./LocalPlans.js";
 export {
   SIGNED_SIGNAL_MAX_LIFETIME_SECONDS,
   SIGNED_SIGNAL_REFUSAL_CODES,

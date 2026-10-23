@@ -9,7 +9,11 @@ import {
   type CapturedIntent,
   type TrustedIntentContext,
 } from "./ExecutionIntent.js";
-import { RESERVED_CONTEXT_KEYS, signalContext } from "./ExecutionSignals.js";
+import {
+  RESERVED_CONTEXT_AGENT_SAFE,
+  RESERVED_CONTEXT_KEYS,
+  signalContext,
+} from "./ExecutionSignals.js";
 import { CanonicalIntentHasher } from "./CanonicalIntentHasher.js";
 
 export interface IntentCaptureOptions {
@@ -60,10 +64,13 @@ export class IntentCapture {
       target: proposal.target,
       parameters: proposal.parameters,
       downstreamTarget: trusted.downstreamTarget,
-      context:
-        trusted.signals === undefined
-          ? trusted.context
-          : { ...trusted.context, ...signalContext(trusted.signals) },
+      context: {
+        ...trusted.context,
+        ...(trusted.signals === undefined ? {} : signalContext(trusted.signals)),
+        ...(trusted.plan === undefined
+          ? {}
+          : { [RESERVED_CONTEXT_AGENT_SAFE]: { plan: { ...trusted.plan } } }),
+      },
       ...(trusted.correlationId === undefined ? {} : { correlationId: trusted.correlationId }),
       ...(trusted.expectedEffectDigest === undefined
         ? {}
