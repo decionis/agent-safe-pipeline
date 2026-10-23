@@ -198,6 +198,12 @@ importers:
         specifier: ^4.5.4
         version: 4.5.4
 
+  examples/staged-change-demo:
+    dependencies:
+      '@decionis/agent-safe-pipeline':
+        specifier: workspace:*
+        version: link:../../packages/pipeline
+
   examples/trusted-executor:
     dependencies:
       '@decionis/agent-safe-pipeline':
