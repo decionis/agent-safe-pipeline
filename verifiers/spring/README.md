@@ -44,6 +44,25 @@ since the profile verifies the path as received.
 `VerifyingProvider.verify` is the procedure itself, for a framework other than servlets; the
 filter is forty lines around it.
 
+## The target's version
+
+An attestation may name the target's version the grant was decided against,
+`binding.expected_state_version`: an ETag with its quotes, or a resource version. A provider that
+reads the target before effecting passes what it read, `verify(request, ProviderTarget.at(etag))`,
+or `ProviderTarget.gone()` when the target no longer exists. Any other version, compared byte for
+byte as a strong `If-Match` compares, is `TARGET_STATE_CHANGED`. That is step 9, after the grant
+is recorded, so the grant is spent; its verdict is the one refusal that carries the attestation.
+A provider that reads no target calls `verify(request)` and makes
+`verdict.attestation().expectedStateVersion()` the precondition of its own conditional write. An
+attestation that names no version states no precondition, and the target is not compared.
+
+The filter reads no target. It hands the verified attestation to the handler as the request
+attribute `VerifyingProviderFilter.ATTESTATION_ATTRIBUTE`,
+`com.decionis.verifyingprovider.attestation`, null for a read verified at VP-1 alone. An endpoint
+whose write must hold to the version applies `expected_state_version` as its write's
+precondition, a conditional write such as `If-Match`, atomically with the effect. Or it calls
+`verify(request, target)` itself with the target's current version.
+
 ## Apigee
 
 An Apigee Java callout holds the same class: read the request's method, path, headers and body
@@ -76,6 +95,9 @@ String token = new EffectReceipt(
     .sign(privateKey);
 response.setHeader(EffectReceipt.HEADER, token);
 ```
+
+A `TARGET_STATE_CHANGED` verdict carries the attestation too, so the provider receipts that
+refusal the same way, with `EffectReceipt.Status.REFUSED`.
 
 The header and the claims are RFC 8785 canonical before signing, so the receipt vectors hold every
 implementation to the same bytes.

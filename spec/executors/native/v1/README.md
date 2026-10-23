@@ -51,7 +51,8 @@ the Decionis execution-authority contract.
 ## 3. The executor interface
 
 An executor states `platform`, `version`, `style` (`dispatch` or `permit`) and the `actionTypes` it
-answers for, and implements five operations.
+answers for, and implements five operations, and a sixth, `readState`, when it can read its target
+before it writes.
 
 | Operation                   | Called                                                       | It MUST                                                                                                                                                                                                            |
 | --------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -63,6 +64,17 @@ answers for, and implements five operations.
 
 An executor MUST NOT call the authority, sign anything, map a verdict, retry a write, or decide an
 outcome. Those are the runner's (§4), so that no platform's code can weaken them.
+
+`readState(action, prepared, scope)` is optional. An executor that implements it reads its target
+once, read-only, after `prepare` and before the authority is asked, and returns the target's state
+version (`version`, compared byte for byte; optional `state`; `source`, which read; `read_at`), or
+null when the action names no existing target, a create. It is the only I/O before a decision. The
+runner binds what it returns into the intent as `context.agent_safe.precondition`
+([target state](../../../../docs/authority/target-state.md)); the authority carries the version to
+a verifying provider, which refuses the write once the target moved on, and an executor whose
+platform takes a conditional write sends it as the write's own precondition (`If-Match`). A read
+that throws, or answers anything but a precondition or null, refuses the submission with
+`TARGET_STATE_UNREADABLE` before anything is decided.
 
 When the authority's policy names a write other than by its action type, `prepare` also states the
 policy projection (`decision_type`, `transaction_type`, `workflow_key`, `channel`), which the runner

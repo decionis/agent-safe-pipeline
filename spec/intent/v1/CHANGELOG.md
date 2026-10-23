@@ -4,6 +4,19 @@ Every entry names the pull request that made it and the vector that pins it. The
 and hash have not changed for any existing binding since the first vector; the additions were
 optional and absent by default (see §9 of the [specification](./README.md)).
 
+## 2026-10-23: `context.agent_safe.precondition`
+
+- A reserved key inside `context`, not a property of the binding: `agent_safe`, whose
+  `precondition` is the target's state as the producer read it immediately before asking
+  (`version`, compared byte for byte; optional `state`; `source`, which read; `read_at`). The
+  producer stamps it from its trusted input and refuses a trusted context that sets `agent_safe`
+  by hand (`INTENT_CONTEXT_KEY_RESERVED`). A binding without one carries no `agent_safe` key at
+  all, so `conformance/agent-safe-intent-v1.json` and every other vector reproduce unchanged.
+- `conformance/vectors/target-precondition.json`: a Business Central customer about to be
+  blocked, read at its `@odata.etag`, and four mutations (the version, the state and the read time
+  changed, and the precondition removed), five distinct hashes. The removal is exactly the intent
+  captured with no precondition.
+
 ## 2026-10-20: `policy_projection`
 
 - An optional top-level property, exactly the Decionis contract's: `decision_type`, and

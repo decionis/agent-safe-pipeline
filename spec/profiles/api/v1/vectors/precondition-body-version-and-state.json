@@ -1,0 +1,74 @@
+{
+  "description": "The version and the state from the read's JSON body, under a prefix with its own placeholder: each placeholder of the read is filled with the write's text for it exactly as the call wrote it, an OData quoted key with its quotes and its percent-encoding.",
+  "definition": {
+    "profile": "agent-safe.profile.api/1",
+    "id": "example/api/v1",
+    "platform": "example",
+    "title": "Example API",
+    "prefixes": ["/v2.0/{environment}/api"],
+    "operations": [
+      {
+        "id": "items.update",
+        "method": "PATCH",
+        "path": "/companies({companyId})/items({itemId})",
+        "action": "item.update",
+        "summary": "Change an item.",
+        "facts": {
+          "item_id": "/path/itemId"
+        },
+        "policy_projection": null,
+        "precondition": {
+          "read": "items.get",
+          "version": "/body/@odata.etag",
+          "state": "/body/status"
+        }
+      },
+      {
+        "id": "items.get",
+        "method": "GET",
+        "path": "/companies({companyId})/items({itemId})",
+        "action": "item.read",
+        "summary": "Read one item.",
+        "facts": {},
+        "policy_projection": null,
+        "subject": {
+          "response": "/body/owner"
+        }
+      }
+    ]
+  },
+  "request": {
+    "method": "PATCH",
+    "path": "/v2.0/sandbox/api/companies(c-1)/items('A%201')",
+    "body": {
+      "status": "retired"
+    }
+  },
+  "expected": {
+    "operation": "items.update",
+    "action": "item.update",
+    "facts": {
+      "item_id": "A 1"
+    },
+    "policy_projection": null
+  },
+  "state_read": {
+    "method": "GET",
+    "path": "/v2.0/sandbox/api/companies(c-1)/items('A%201')"
+  },
+  "state_answer": {
+    "headers": {},
+    "body": {
+      "@odata.etag": "W/\"JzQ0O0NHTVZ3Q3hLY2s9MTsn\"",
+      "owner": "synthetic-owner-1",
+      "status": "active"
+    }
+  },
+  "read_at": "2026-10-23T12:00:00.000Z",
+  "precondition": {
+    "version": "W/\"JzQ0O0NHTVZ3Q3hLY2s9MTsn\"",
+    "state": "active",
+    "source": "example/api/v1#items.get",
+    "read_at": "2026-10-23T12:00:00.000Z"
+  }
+}

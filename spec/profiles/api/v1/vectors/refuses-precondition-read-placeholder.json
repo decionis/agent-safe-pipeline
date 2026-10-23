@@ -1,0 +1,40 @@
+{
+  "description": "A precondition's read is made from the write's own call, so every placeholder in its path must be one the write's path has.",
+  "definition": {
+    "profile": "agent-safe.profile.api/1",
+    "id": "example/api/v1",
+    "platform": "example",
+    "title": "Example API",
+    "prefixes": [""],
+    "operations": [
+      {
+        "id": "items.update",
+        "method": "PATCH",
+        "path": "/items/{itemId}",
+        "action": "item.update",
+        "summary": "Change an item.",
+        "facts": {
+          "item_id": "/path/itemId"
+        },
+        "policy_projection": null,
+        "precondition": {
+          "read": "items.version",
+          "version": "/headers/etag"
+        }
+      },
+      {
+        "id": "items.version",
+        "method": "GET",
+        "path": "/items/{itemId}/versions/{versionId}",
+        "action": "item.read",
+        "summary": "Read one version.",
+        "facts": {},
+        "policy_projection": null,
+        "subject": {
+          "response": "/body/owner"
+        }
+      }
+    ]
+  },
+  "error": "API_PROFILE_INVALID"
+}

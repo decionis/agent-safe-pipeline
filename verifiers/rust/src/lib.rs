@@ -50,18 +50,23 @@ const KNOWN_COMPONENTS: [&str; 8] = [
     "x-agent-safe-claim-attestation",
 ];
 
-/// The refusal codes the profile names.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// The refusals the profile names, by their codes.
+#[derive(Debug, Clone, PartialEq)]
 pub enum Refusal {
     SignatureInvalidOrIncomplete,
     AttestationInvalid,
     AttestationDoesNotDescribeThisRequest,
     GrantReplayed,
+    /// The provider's own refusal of a genuine, now spent, attestation: the
+    /// target moved on. The claims are handed back, boxed as an acceptance's
+    /// are, since a provider at VP-3 signs its refusal as a receipt built
+    /// from them.
+    TargetStateChanged(Box<ClaimAttestation>),
 }
 
 impl Refusal {
     /// The code as the profile spells it.
-    pub fn code(self) -> &'static str {
+    pub fn code(&self) -> &'static str {
         match self {
             Refusal::SignatureInvalidOrIncomplete => "SIGNATURE_INVALID_OR_INCOMPLETE",
             Refusal::AttestationInvalid => "ATTESTATION_INVALID",
@@ -69,11 +74,12 @@ impl Refusal {
                 "ATTESTATION_DOES_NOT_DESCRIBE_THIS_REQUEST"
             }
             Refusal::GrantReplayed => "GRANT_REPLAYED",
+            Refusal::TargetStateChanged(_) => "TARGET_STATE_CHANGED",
         }
     }
 
     /// The refusal body the profile names; the status is the provider's, 409 in the references.
-    pub fn body(self) -> String {
+    pub fn body(&self) -> String {
         format!(r#"{{"status":"REJECTED","reason_code":"{}"}}"#, self.code())
     }
 }
@@ -259,9 +265,25 @@ pub struct ClaimAttestation {
     pub intent_hash: String,
     pub execution_payload_digest: String,
     pub execution_payload_canonicalization_profile: String,
+    /// The target's version the grant was decided against, when the
+    /// attestation names one: the precondition of the write, compared as a
+    /// strong `If-Match` compares.
+    pub expected_state_version: Option<String>,
     pub claim_token_digest: String,
     pub jti: String,
     pub exp: f64,
+}
+
+/// What a request would change, as the provider reads it under the lock its
+/// effect takes, for step 9. A provider that cannot read it before effecting
+/// passes none, and applies the attestation's `expected_state_version` as its
+/// write's own precondition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Target<'a> {
+    /// The target's version now: an entity tag with its quotes, a resource version.
+    At(&'a str),
+    /// The target no longer exists, so it is at no version.
+    Gone,
 }
 
 /// The outcome of the procedure for one request. `Accepted(None)` is a read
@@ -282,8 +304,11 @@ pub fn content_digest(body: Option<&[u8]>) -> String {
     )
 }
 
-/// The whole procedure for one received request.
-pub fn verify(request: &Request<'_>, options: &Options) -> Verdict {
+/// The whole procedure for one received request. `target` is the provider's
+/// own read of what the request would change, for step 9; without it the step
+/// is the provider's, at its write, with the accepted claims'
+/// `expected_state_version`.
+pub fn verify(request: &Request<'_>, options: &Options, target: Option<Target<'_>>) -> Verdict {
     let now = (options.now)();
     if !signature_holds(request, options, now) {
         return Verdict::Refused(Refusal::SignatureInvalidOrIncomplete);
@@ -305,6 +330,18 @@ pub fn verify(request: &Request<'_>, options: &Options) -> Verdict {
         .record(&attestation.sub, attestation.exp as u64)
     {
         return Verdict::Refused(Refusal::GrantReplayed);
+    }
+    // Step 9, after the presentation is recorded: the attestation is genuine
+    // and now spent, and what refuses is the provider's own state, compared
+    // byte for byte as a strong If-Match compares. A target that no longer
+    // exists is at no version.
+    let changed = match (attestation.expected_state_version.as_deref(), target) {
+        (Some(expected), Some(Target::At(version))) => version != expected,
+        (Some(_), Some(Target::Gone)) => true,
+        (None, _) | (_, None) => false,
+    };
+    if changed {
+        return Verdict::Refused(Refusal::TargetStateChanged(Box::new(attestation)));
     }
     Verdict::Accepted(Some(Box::new(attestation)))
 }
@@ -465,6 +502,13 @@ fn attestation_of(compact: Option<&String>, options: &Options) -> Option<ClaimAt
     let text =
         |value: &Value, name: &str| value.get(name).and_then(Value::as_str).map(str::to_owned);
     let binding = claims.get("binding")?;
+    // The version the grant was decided against is optional, and a string
+    // when it is there; null is not one.
+    let expected_state_version = match binding.get("expected_state_version") {
+        None => None,
+        Some(Value::String(version)) => Some(version.clone()),
+        Some(_) => return None,
+    };
     let attestation = ClaimAttestation {
         iss: text(&claims, "iss")?,
         sub: text(&claims, "sub")?,
@@ -476,6 +520,7 @@ fn attestation_of(compact: Option<&String>, options: &Options) -> Option<ClaimAt
             binding,
             "execution_payload_canonicalization_profile",
         )?,
+        expected_state_version,
         claim_token_digest: text(&claims, "claim_token_digest")?,
         jti: text(&claims, "jti")?,
         exp: claims.get("exp").and_then(Value::as_f64)?,

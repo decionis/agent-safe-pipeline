@@ -2,6 +2,16 @@
 
 Every entry names the pull request that made it and the vectors that pin it.
 
+## 2026-10-23: the target's state version
+
+- An optional sixth operation, `readState(action, prepared, scope)`: the executor reads its target
+  once, read-only, after `prepare` and before the authority is asked. `GovernedExecutionRunner.submit`
+  binds what it returns into the intent as `context.agent_safe.precondition`
+  ([Agent-Safe Intent v1](../../../intent/v1/CHANGELOG.md)), and refuses a read that fails, or
+  answers anything but a precondition or null, with `TARGET_STATE_UNREADABLE` before anything is
+  decided. An executor that does not implement it is unchanged, and so are the wire profile and its
+  vectors.
+
 ## 2026-10-20: the policy projection
 
 - `prepare` may state the policy path the authority decides the action under (`PreparedAction`'s

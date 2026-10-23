@@ -1,8 +1,10 @@
 # Verifying Provider Profile
 
-`agent-safe.verifying-provider/1`, version 0.2, status **draft**. Section 7, the effect receipt, is
-normative as of this version: the Decionis OpenAPI document carries it, the executor forwards it,
-and five implementations build one from the same vectors.
+`agent-safe.verifying-provider/1`, version 0.3, status **draft**. Section 7, the effect receipt, is
+normative as of version 0.2: the Decionis OpenAPI document carries it, the executor forwards it,
+and five implementations build one from the same vectors. Step 9, the target's state version, is
+new in 0.3: the attestation carries the version of the target the grant was decided against, and
+the same five implementations hold the write to it from the same vectors.
 
 A system of record is the only party that can _refuse_ an instruction rather than merely fail to
 receive it. [Bypass resistance](../bypass-resistance.md) ranks the three chokepoints an execution
@@ -71,9 +73,10 @@ vectors demonstrates the procedure; the tier's conditions are the operator's.
   authority claimed anything.
 - **VP-2, attested claim.** VP-1, and the provider verifies the authority's attestation against
   the authority's published keys, checks that the request in hand is the one the attestation
-  describes (grant, decision, intent hash, canonical parameter digest, expiry), and refuses a
-  second presentation of the grant within the lease. A provider at VP-2 refuses what the authority
-  never claimed. **This is the level a system of record needs.**
+  describes (grant, decision, intent hash, canonical parameter digest, expiry), refuses a second
+  presentation of the grant within the lease, and, when the grant was decided against a version of
+  the target, effects only while the target is still at it. A provider at VP-2 refuses what the
+  authority never claimed. **This is the level a system of record needs.**
 - **VP-3, effect receipt.** VP-2, and the provider signs what it effected, or refused, keyed by the
   grant and the claim, and returns it with its answer, so the effect plane becomes
   provider-attested rather than executor-reconciled. Section 7.
@@ -170,8 +173,9 @@ a JSON object, the claims. It MUST carry strings `iss`, `sub`, `decision_id`, `d
 `claim_token_digest` and `jti`, a number `exp`, and an object `binding` with strings
 `intent_hash`, `execution_payload_digest` and `execution_payload_canonicalization_profile`: the
 claims step 7 compares and the ones a receipt (section 7) is built from; an attestation without them
-is not one. `iss` MUST equal the issuer of the authority the provider trusts, `https://decionis.com`
-for Decionis. Any failure is `ATTESTATION_INVALID`.
+is not one. `binding.expected_state_version` is optional, and a string when present: the version
+step 9 holds the write to. `iss` MUST equal the issuer of the authority the provider trusts,
+`https://decionis.com` for Decionis. Any failure is `ATTESTATION_INVALID`.
 
 **Step 7, the attestation describes this request.** All of the following MUST hold, else the
 refusal is `ATTESTATION_DOES_NOT_DESCRIBE_THIS_REQUEST`:
@@ -202,6 +206,23 @@ the attestation was issued; the step guards the one thing an attestation cannot,
 presentation of that one consumption inside its lease, which is why the record needs no life beyond
 `exp`.
 
+**Step 9, the target's state version.** When `binding.expected_state_version` is present, the
+grant was decided against that version of the target: the runtime read it immediately before
+asking ([target state](./target-state.md)), the policy decided on what the read said, and the
+authority bound it into the grant. The provider effects only while the target is still at exactly
+that version, compared byte for byte as a strong `If-Match` compares (a weak tag of the same value
+is another version, and a target that no longer exists is at no version), and atomically with the
+effect: by a conditional write the system of record applies, or under the lock its effect takes.
+A target at another version is `TARGET_STATE_CHANGED`, and nothing is effected. Absent, the grant
+names no version and this step does not apply, whatever the target's version is. The step comes
+after step 8 on purpose: the attestation was genuine and is now spent, so the same attestation
+presented again is `GRANT_REPLAYED`, and the refusal is the provider's own, about its own state,
+which a provider at VP-3 signs as a `REFUSED` receipt.
+
+Revalidation at the claim catches a policy or a signal that changed between the grant and the
+commit. It cannot catch a target that changed underneath an unchanged policy, someone else's write
+to the same record in between; this step is what does.
+
 **Accept.** Effect exactly once and answer `2xx`. A provider at VP-3 answers with its receipt
 (section 7), on a `2xx` and on a `4xx` of its own alike.
 
@@ -217,6 +238,7 @@ attestation.
 | `ATTESTATION_INVALID`                        | Not the authority's attestation                                                                |
 | `ATTESTATION_DOES_NOT_DESCRIBE_THIS_REQUEST` | The authority's attestation, but of another grant, decision, intent, body, or time             |
 | `GRANT_REPLAYED`                             | The authority's attestation of this request, already accepted once                             |
+| `TARGET_STATE_CHANGED`                       | The authority's attestation of this request, but the target moved on since it was decided      |
 
 ## 6. What each level guarantees
 
@@ -230,6 +252,10 @@ attestation cannot be presented again inside the lease, and never carried the cl
 digest, so it finalizes nothing. Together: no instruction effects at the provider that the
 authority did not claim for exactly these parameters, which is the property the first row of the
 bypass-resistance table names.
+
+When the grant names a version, the effect is also made against the target's state the decision
+was made on, or not at all: a write decided while the target was at one version cannot land after
+it moved to another.
 
 **What VP-2 does not give.** That the effect matched the parameters. The provider is trusted for
 that; the executor's effect plane ([BEAP conformance](../beap-conformance.md)) reconciles its
@@ -291,8 +317,8 @@ dot, and the second part.
 
 **Transport.** The response header `x-agent-safe-effect-receipt`, on every response to a request
 the provider accepted at step 8: the `2xx` of an effect and the `4xx` of the provider's own refusal
-alike. A signed refusal is evidence too. A response to a request refused at steps 0 to 8 carries no
-receipt: nothing was claimed of the provider.
+alike, a step 9 refusal included. A signed refusal is evidence too. A response to a request refused
+at steps 0 to 8 carries no receipt: nothing was claimed of the provider.
 
 **What the executor does.** `@decionis/agentsafe` verifies nothing in the receipt. It forwards the
 header's value verbatim as `effect_receipt` in `finalize-token`, whatever the attempt's outcome,
@@ -332,7 +358,8 @@ receipt is the provider's statement beside it, compared with it, not a replaceme
 [`conformance/provider`](../../conformance/provider/README.md) holds one JSON file per case. Each
 is self-contained: the provider's settings (whether it effects, its clock window, the time to
 verify at, the issuer it trusts), the executor keys it knows, the authority JWKS, and a sequence of
-requests, each with the outcome the procedure MUST reach. Every vector is generated by the
+requests, each with the outcome the procedure MUST reach and, for step 9, the target's version as
+the provider read it and the version the attestation hands back. Every vector is generated by the
 executor's own signer and an independent signer for the attestation, and is run, in this
 repository, by the reference verifier in `@decionis/agentsafe` (`verifyProviderRequest`), by the
 Go implementation in `verifiers/envoy`, by the Java implementation in `verifiers/spring`, by the
@@ -368,6 +395,15 @@ tier (section 1) at which it is deployed, since the vectors cannot.
   answers the check with the refusal status and body above, which Envoy returns to the executor.
   In Kong, the plugin in `verifiers/kong` reads the body itself and runs the same Go verifier.
 - **Paths.** Verify with the path as received, before any rewrite the hop applies.
+- **Target versions.** Step 9 is the effecting layer's, because only it can make the comparison
+  atomic with the write. A provider that reads its record under the lock its write takes passes
+  that version to the procedure; one that cannot hands the attested version to its write as the
+  write's own precondition: `If-Match` when the version is an entity tag, a compare of its own
+  version field otherwise. The references hand it on: the in-process adapters (Spring, ASP.NET
+  Core, tower) put the verified attestation in the request for the application, and the hops
+  (Envoy, Kong) set `x-agent-safe-expected-state-version` on the upstream request to the attested
+  version, removing any the client sent. The upstream trusts that header only because the hop
+  holds its sole credential (section 1, owner-native).
 - **Receipt keys.** Keep the receipt key with the same care as the credential the system of record
   accepts: a receipt is the provider's signature. Register the public half with the authority
   before the first receipt is signed, since a receipt under an unregistered `kid` is recorded as
@@ -396,6 +432,10 @@ tier (section 1) at which it is deployed, since the vectors cannot.
   is the intended division: the executor vouches for the bytes, the authority for the parameters.
 - **Refusals are informative.** The reason code is for the executor's record; the response carries
   nothing else from the request.
+- **A version compared before the write is not enough.** Reading the target's version, comparing
+  it, and then writing leaves a window in which another write lands. The comparison is atomic with
+  the effect, or it is the write's own precondition; a provider that compares and then writes
+  without a lock has implemented step 9's code, not its guarantee.
 - **A receipt is public too.** It is verifiable by anyone who holds the registered public key and a
   bearer for nothing: it names identifiers and digests, never parameters or the claim token. What
   it commits the provider to is what it says it did.

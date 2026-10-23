@@ -26,3 +26,13 @@ public sealed record ProviderOptions(
 /// map. <see cref="Body"/> is null when the request carried none.
 /// </summary>
 public sealed record ProviderRequest(string Method, string Path, byte[]? Body, IReadOnlyDictionary<string, string> Headers);
+
+/// <summary>
+/// The target a request would change, as the provider reads it under the lock
+/// its effect takes: its version now (an ETag with its quotes, a resource
+/// version), or null when it no longer exists. A provider that cannot read it
+/// before effecting passes none to <see cref="VerifyingProvider.Verify"/>, and
+/// applies the attestation's <see cref="ClaimAttestation.ExpectedStateVersion"/>
+/// as its write's own precondition.
+/// </summary>
+public sealed record ProviderTarget(string? Version);

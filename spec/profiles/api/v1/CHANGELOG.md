@@ -2,6 +2,19 @@
 
 Every entry names the pull request that made it and the vectors that pin it.
 
+## 2026-10-23: preconditions
+
+- A write may name a `precondition`: the read in the same profile that states the target's
+  version, and pointers into that read's answer (`{ headers, body }`) for the version and, when a
+  transition rule reads one, the target's state (§8). The read is made from the write's own call.
+  A read naming one, a read that is not one, a placeholder the write lacks, a pointer through `*`
+  or rooted elsewhere are refused (§2.3).
+- [`schema.json`](./schema.json): an operation admits `precondition`.
+- [`vectors/`](./vectors): the version from an ETag header, from a body with the state beside it
+  under a prefix with its own placeholder, as a number, an answer that states none, a write that
+  names none, and five definition refusals. The Business Central profile's `customers.update`
+  names `customers.get`, its `@odata.etag` and `blocked`.
+
 ## 2026-10-22: subject queries, parameters, envelopes and write answers
 
 The subjects of 2026-10-21 had not been released. Review found two ways around them, closed here

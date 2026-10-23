@@ -14,8 +14,9 @@ import {
  * numbers is a step here, in the profile's order, and the first failing step
  * names the refusal. The signature half is `SignedRequestCredential.verify`,
  * unchanged; this adds what a provider does around it: the freshness window,
- * the key registry, the attestation, the canonical body digest, and the
- * single presentation of a grant. It is held to the same mutation gate,
+ * the key registry, the attestation, the canonical body digest, the single
+ * presentation of a grant, and the target's state version the grant was
+ * decided against. It is held to the same mutation gate,
  * because a mutant that accepts what it should refuse is a provider that
  * effects what the authority never claimed.
  */
@@ -23,7 +24,8 @@ export type ProviderRefusalCode =
   | "SIGNATURE_INVALID_OR_INCOMPLETE"
   | "ATTESTATION_INVALID"
   | "ATTESTATION_DOES_NOT_DESCRIBE_THIS_REQUEST"
-  | "GRANT_REPLAYED";
+  | "GRANT_REPLAYED"
+  | "TARGET_STATE_CHANGED";
 
 export const ATTESTATION_TYPE = "decionis-claim-attestation+jwt";
 export const JCS_PROFILE = "RFC8785/JCS";
@@ -48,10 +50,25 @@ export interface ClaimAttestationClaims {
     readonly intent_hash: string;
     readonly execution_payload_digest: string;
     readonly execution_payload_canonicalization_profile: string;
+    /**
+     * The target's version the grant was decided against, when it names one:
+     * the precondition of the write, compared as a strong `If-Match` is.
+     */
+    readonly expected_state_version?: string;
   };
   readonly claim_token_digest: string;
   readonly jti: string;
   readonly exp: number;
+}
+
+/**
+ * The target a request would change, as the provider reads it under the lock
+ * its effect takes: its version now, or null when it no longer exists. A
+ * provider that cannot read it before effecting passes none, and applies the
+ * attestation's `expected_state_version` as its write's own precondition.
+ */
+export interface ProviderTarget {
+  readonly version: string | null;
 }
 
 /**
@@ -96,8 +113,18 @@ export type ProviderVerdict =
     }
   | {
       readonly accepted: false;
-      readonly reasonCode: ProviderRefusalCode;
+      readonly reasonCode: Exclude<ProviderRefusalCode, "TARGET_STATE_CHANGED">;
       readonly attestation: null;
+    }
+  | {
+      /**
+       * The provider's own refusal of a genuine, now spent, attestation: the
+       * target moved on. The claims are handed back, since a provider at VP-3
+       * signs its refusal as a receipt built from them.
+       */
+      readonly accepted: false;
+      readonly reasonCode: "TARGET_STATE_CHANGED";
+      readonly attestation: ClaimAttestationClaims;
     };
 
 // The executor writes its parameters in one order, `created`, `keyid`, `alg`
@@ -121,6 +148,7 @@ const Claims = z.looseObject({
     intent_hash: z.string(),
     execution_payload_digest: z.string(),
     execution_payload_canonicalization_profile: z.string(),
+    expected_state_version: z.string().optional(),
   }),
   claim_token_digest: z.string(),
   jti: z.string(),
@@ -128,7 +156,9 @@ const Claims = z.looseObject({
 });
 type ParsedClaims = z.infer<typeof Claims>;
 
-const REFUSE = (reasonCode: ProviderRefusalCode): ProviderVerdict => ({
+const REFUSE = (
+  reasonCode: Exclude<ProviderRefusalCode, "TARGET_STATE_CHANGED">,
+): ProviderVerdict => ({
   accepted: false,
   reasonCode,
   attestation: null,
@@ -142,7 +172,7 @@ function signatureRefusal(
   received: ReceivedRequest,
   options: VerifyingProviderOptions,
   nowSeconds: number,
-): ProviderRefusalCode | null {
+): "SIGNATURE_INVALID_OR_INCOMPLETE" | null {
   const input = String(received.headers["signature-input"]);
   const keyId = SIGNATURE_KEY_ID.exec(input)?.[1];
   const key = options.executorKeys.find((candidate) => candidate.keyId === keyId);
@@ -303,6 +333,9 @@ function described(
       execution_payload_digest: binding.execution_payload_digest,
       execution_payload_canonicalization_profile:
         binding.execution_payload_canonicalization_profile,
+      ...(binding.expected_state_version === undefined
+        ? {}
+        : { expected_state_version: binding.expected_state_version }),
     },
     claim_token_digest,
     jti,
@@ -314,11 +347,14 @@ function described(
  * The whole procedure for one received request. An accepted verdict carries
  * the attestation's claims for the provider's own record, or null for a read
  * a non-effecting provider verified at VP-1 alone; a refusal carries the code
- * the response body names.
+ * the response body names. `target` is the provider's own read of what the
+ * request would change, for step 9; without it the step is the provider's,
+ * at its write, with the accepted claims' `expected_state_version`.
  */
 export function verifyProviderRequest(
   received: ReceivedRequest,
   options: VerifyingProviderOptions,
+  target?: ProviderTarget,
 ): ProviderVerdict {
   const nowSeconds = Math.floor((options.now ?? Date.now)() / 1_000);
   const refusal = signatureRefusal(received, options, nowSeconds);
@@ -343,6 +379,14 @@ export function verifyProviderRequest(
   if (attestation === null) return REFUSE("ATTESTATION_DOES_NOT_DESCRIBE_THIS_REQUEST");
   if (!options.replay.record(attestation.sub, attestation.exp * 1_000)) {
     return REFUSE("GRANT_REPLAYED");
+  }
+  // Step 9, after the presentation is recorded: the attestation is genuine
+  // and now spent, and what refuses is the provider's own state, compared
+  // byte for byte as a strong If-Match compares. A target that no longer
+  // exists is at no version.
+  const expected = attestation.binding.expected_state_version;
+  if (expected !== undefined && target !== undefined && target.version !== expected) {
+    return { accepted: false, reasonCode: "TARGET_STATE_CHANGED", attestation };
   }
   return { accepted: true, reasonCode: null, attestation };
 }

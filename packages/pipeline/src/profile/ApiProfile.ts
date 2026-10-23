@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { JsonObject, JsonPrimitive, JsonValue } from "../intent/JsonValue.js";
+import { TargetPreconditionSchema, type TargetPrecondition } from "../intent/TargetPrecondition.js";
 
 /**
  * `agent-safe.profile.api/1`: a platform API described as data, so that every
@@ -15,6 +16,11 @@ import type { JsonObject, JsonPrimitive, JsonValue } from "../intent/JsonValue.j
  * that pins a session to one subject checks a read against it, and states the
  * subject to the authority for a write. A read is an operation only for that:
  * it is checked, never decided.
+ *
+ * A write may also name the read that states its target's version (an ETag,
+ * a row version), and where that read's answer states it: a component that
+ * binds the target's state reads it once before the authority is asked, and
+ * the version rides into the intent as its precondition.
  */
 export const API_PROFILE_CONTRACT = "agent-safe.profile.api/1";
 
@@ -83,6 +89,8 @@ const PLACEHOLDER = /\{([A-Z]\w{0,63})\}/gi;
 const TEMPLATE = /^(\/[^/?#%\\\s]+)+$/;
 const POINTER = /^\/(path|query|body)(\/.*)?$/;
 const RESPONSE_POINTER = /^\/body(\/.*)?$/;
+/** Into a read's answer: its JSON body, or one response header by its lower-case name. */
+const STATE_POINTER = /^\/(body(\/.*)?|headers\/[a-z0-9][a-z0-9-]{0,63})$/;
 
 const name = z.string().regex(/^[a-z][a-z0-9_]{0,63}$/);
 const projectionText = z.string().trim().min(1).max(120);
@@ -124,12 +132,27 @@ export const ApiSubjectSchema = z.strictObject({
   envelope: z.array(z.string().min(1).max(100)).max(32).optional(),
 });
 
+const operationId = z
+  .string()
+  .regex(/^[a-z][A-Za-z0-9]*(\.[a-z][A-Za-z0-9]*)*$/)
+  .max(120);
+
+/**
+ * Where a write's target states its version: `read`, a read in the same
+ * profile whose path placeholders the write's path also has, so the read can
+ * be made from the write's own call; `version`, a pointer into the read's
+ * answer, `{ body, headers }`, with no `*`; and `state`, where the same answer
+ * states the target's state, when a transition rule reads one.
+ */
+export const ApiPreconditionSchema = z.strictObject({
+  read: operationId,
+  version: z.string().max(300).regex(STATE_POINTER),
+  state: z.string().max(300).regex(STATE_POINTER).optional(),
+});
+
 export const ApiOperationSchema = z.strictObject({
   /** The operation's name in the profile, unique, dotted lower camel case. */
-  id: z
-    .string()
-    .regex(/^[a-z][A-Za-z0-9]*(\.[a-z][A-Za-z0-9]*)*$/)
-    .max(120),
+  id: operationId,
   method: z.enum([...API_PROFILE_METHODS, API_PROFILE_READ_METHOD]),
   /** A path template: literal text and `{name}` placeholders, each within one segment. */
   path: z.string().max(500).regex(TEMPLATE),
@@ -147,6 +170,8 @@ export const ApiOperationSchema = z.strictObject({
   policy_projection: ApiPolicyProjectionSchema.nullable(),
   /** Where the call's subject sits; required of a read, optional for a write. */
   subject: ApiSubjectSchema.optional(),
+  /** For a write, the read that states its target's version. */
+  precondition: ApiPreconditionSchema.optional(),
 });
 
 export const ApiProfileDefinitionSchema = z.strictObject({
@@ -171,6 +196,7 @@ export const ApiProfileDefinitionSchema = z.strictObject({
 
 export type ApiPolicyProjection = z.infer<typeof ApiPolicyProjectionSchema>;
 export type ApiSubject = z.infer<typeof ApiSubjectSchema>;
+export type ApiPrecondition = z.infer<typeof ApiPreconditionSchema>;
 export type ApiOperationDefinition = z.infer<typeof ApiOperationSchema>;
 export type ApiProfileDefinition = z.infer<typeof ApiProfileDefinitionSchema>;
 
@@ -180,6 +206,14 @@ export interface ApiRequest {
   /** The URL path, as sent (percent-encoded); without query or fragment. */
   readonly path: string;
   readonly query?: { readonly [key: string]: string | readonly string[] };
+  /** The parsed JSON body, when there is one. */
+  readonly body?: JsonValue;
+}
+
+/** A read's answer, as a component that binds a precondition received it. */
+export interface ApiAnswer {
+  /** Header names in lower case. */
+  readonly headers: { readonly [name: string]: string };
   /** The parsed JSON body, when there is one. */
   readonly body?: JsonValue;
 }
@@ -274,6 +308,7 @@ export class ApiProfile {
       for (const pointer of Object.values(operation.facts))
         ApiProfile.pointerSegments(pointer, operation.id);
       ApiProfile.subjectRules(operation);
+      ApiProfile.preconditionRules(operation, definition.operations);
       const matchers: RegExp[] = [];
       const placeholders: string[][] = [];
       for (const prefix of definition.prefixes) {
@@ -557,11 +592,74 @@ export class ApiProfile {
     };
   }
 
+  /**
+   * The read a write's precondition names, as the call to make: `GET`, the
+   * read's path under the prefix the write matched, each placeholder filled
+   * with the write's own text for it, exactly as the write's call wrote it.
+   * Null when the call matches no write, or its operation names no
+   * precondition. The component makes the read; the profile makes no call.
+   */
+  public stateRead(request: ApiRequest): ApiRequest | null {
+    const selected = this.select(request.method, request.path, request.query ?? {});
+    const precondition = selected?.operation.definition.precondition;
+    if (selected === null || precondition === undefined) return null;
+    const read = this.operation(precondition.read)!;
+    const template = `${this.definition.prefixes[selected.prefix]!}${read.path}`;
+    return {
+      method: API_PROFILE_READ_METHOD,
+      path: template.replace(PLACEHOLDER, (_, name: string) => selected.raw[name]!),
+      ...(read.query === undefined ? {} : { query: { ...read.query } }),
+    };
+  }
+
+  /**
+   * The precondition a write's read answered: the version at the operation's
+   * pointer, a string or a finite number as a string, within the
+   * precondition's bounds; the state beside it when the operation names
+   * where; which read said so, as `<profile>#<read>`; and when. Null when the
+   * operation names no precondition, or the answer states no usable version:
+   * a component that binds the target's state refuses then, rather than bind
+   * none. A state the answer does not state is left out.
+   */
+  public precondition(
+    operationId: string,
+    answer: ApiAnswer,
+    readAt: Date,
+  ): TargetPrecondition | null {
+    const declared = this.operation(operationId)?.precondition;
+    if (declared === undefined) return null;
+    const root: JsonObject = {
+      headers: { ...answer.headers },
+      ...(answer.body === undefined ? {} : { body: answer.body }),
+    };
+    const at = (pointer: string | undefined): string | undefined => {
+      if (pointer === undefined) return undefined;
+      const value = ApiProfile.walk(root, ApiProfile.pointerSegments(pointer, operationId));
+      if (typeof value === "string") return value;
+      return typeof value === "number" && Number.isFinite(value) ? String(value) : undefined;
+    };
+    const state = at(declared.state);
+    const parsed = TargetPreconditionSchema.safeParse({
+      version: at(declared.version),
+      ...(state === undefined ? {} : { state }),
+      source: `${this.definition.id}#${declared.read}`,
+      read_at: readAt.toISOString(),
+    });
+    return parsed.success ? parsed.data : null;
+  }
+
   private select(
     method: string,
     path: string,
     query: NonNullable<ApiRequest["query"]>,
-  ): { operation: CompiledOperation; parameters: JsonObject } | null {
+  ): {
+    operation: CompiledOperation;
+    parameters: JsonObject;
+    /** Which of the profile's prefixes the path matched under. */
+    prefix: number;
+    /** Each placeholder's text as the path wrote it, before decoding. */
+    raw: Record<string, string>;
+  } | null {
     const upper = method.toUpperCase();
     if (!path.startsWith("/") || /[?#]/.test(path)) return null;
     for (const operation of this.compiled) {
@@ -571,13 +669,16 @@ export class ApiProfile {
         const found = operation.matchers[index]!.exec(path);
         if (found === null) continue;
         const parameters: JsonObject = {};
+        const raw: Record<string, string> = {};
         let decodable = true;
         operation.placeholders[index]!.forEach((placeholder, position) => {
-          const decoded = ApiProfile.decode(found[position + 1] ?? "");
+          const text = found[position + 1] ?? "";
+          const decoded = ApiProfile.decode(text);
+          raw[placeholder] = text;
           if (decoded === null) decodable = false;
           else parameters[placeholder] = decoded;
         });
-        if (decodable) return { operation, parameters };
+        if (decodable) return { operation, parameters, prefix: index, raw };
       }
     }
     return null;
@@ -688,6 +789,36 @@ export class ApiProfile {
       refuse("has a subject query template that does not state {subject} once");
     if (subject?.envelope !== undefined && !(response ?? []).includes("*"))
       refuse("names an envelope without a list to stand beside");
+  }
+
+  /**
+   * What a precondition must be: a write's, naming a read in the same
+   * profile, whose path placeholders the write's path all has, so the read
+   * is made from the write's own call; and pointers through no `*`, since a
+   * version is one value.
+   */
+  private static preconditionRules(
+    operation: ApiOperationDefinition,
+    operations: readonly ApiOperationDefinition[],
+  ): void {
+    const precondition = operation.precondition;
+    if (precondition === undefined) return;
+    const refuse = (detail: string): never => {
+      throw new ApiProfileError("API_PROFILE_INVALID", `operation ${operation.id} ${detail}`);
+    };
+    if (ApiProfile.isRead(operation)) refuse("is a read: only a write names a precondition");
+    const read = operations.find((candidate) => candidate.id === precondition.read);
+    if (read === undefined || !ApiProfile.isRead(read))
+      refuse(`names a precondition read ${precondition.read} that is not a read in the profile`);
+    const placeholders = (path: string): string[] =>
+      [...path.matchAll(PLACEHOLDER)].map((found) => found[1]!);
+    const own = placeholders(operation.path);
+    if (placeholders(read!.path).some((name) => !own.includes(name)))
+      refuse(`names a precondition read whose path has a placeholder the write's has not`);
+    for (const pointer of [precondition.version, precondition.state]) {
+      if (pointer !== undefined && ApiProfile.pointerSegments(pointer, operation.id).includes("*"))
+        refuse("names a precondition pointer through *");
+    }
   }
 
   /** A subject as stated: a string or a finite number, as a string, within the bound; else null. */

@@ -161,6 +161,64 @@ describe("agent-safe.intent/1 conformance", () => {
     ]);
   });
 
+  it("captures the target-precondition vector from an intent, and the same intent without it", async () => {
+    const vector = JSON.parse(
+      await readFile(new URL("target-precondition.json", VECTORS_DIR), "utf8"),
+    ) as Required<ConformanceVector>;
+    const intents = new IntentCapture({
+      clock: () => new Date("2026-10-23T12:00:00.000Z"),
+      createId: () => "55555555-5555-4555-8555-555555555555",
+      ttlSeconds: 60,
+    });
+    const proposal = {
+      action: "customer.update",
+      target: "businesscentral/customers/9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+      parameters: { blocked: "All" },
+    };
+    const trusted: TrustedIntentContext = {
+      tenantId: "00000000-0000-4000-8000-000000000002",
+      actor: {
+        id: "synthetic-collections-agent",
+        type: "AI_AGENT",
+        runtime: "business-central-connector",
+      },
+      downstreamTarget: {
+        system: "business-central",
+        operation: "PATCH /companies({companyId})/customers({customerId})",
+        environment: "sandbox",
+      },
+      context: { lane: "sandbox", source: "conformance" },
+      idempotencyKey: "business-central:customer.update:9a8b7c6d:1",
+    };
+
+    const read = intents.capture(proposal, {
+      ...trusted,
+      precondition: {
+        version: 'W/"JzE5OzEyMzQ1Njc4OTAxMjM0NTY3ODkwOzAwOyc="',
+        state: " ",
+        source: "businesscentral/api/v2#customers.get",
+        read_at: "2026-10-23T11:59:59.000Z",
+      },
+    });
+    expect(CanonicalIntentHasher.bindingOf(read.intent)).toEqual(vector.binding);
+    expect(read.canonicalIntent).toBe(vector.canonical_json);
+    expect(read.intentHash).toBe(vector.intent_hash);
+
+    // Without a precondition the capture writes no agent_safe key at all, so
+    // the intent is the one it was before preconditions existed.
+    const without = intents.capture(proposal, trusted);
+    const removed = vector.mutations.find((mutation) => mutation.path === "context.agent_safe");
+    expect(without.intent.context).not.toHaveProperty("agent_safe");
+    expect(removed?.binding).toEqual(CanonicalIntentHasher.bindingOf(without.intent));
+    expect(removed?.intent_hash).toBe(without.intentHash);
+    expect(vector.mutations.map((mutation) => mutation.path)).toEqual([
+      "context.agent_safe.precondition.version",
+      "context.agent_safe.precondition.state",
+      "context.agent_safe.precondition.read_at",
+      "context.agent_safe",
+    ]);
+  });
+
   it("keeps composed and decomposed text intentionally distinct (no NFC)", async () => {
     const nfc = CanonicalIntentHasher.stringify({ text: "caf\u00e9" });
     const nfd = CanonicalIntentHasher.stringify({ text: "cafe\u0301" });

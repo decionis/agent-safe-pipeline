@@ -33,8 +33,10 @@ export const RESERVED_CONTEXT_BOUNDARY = "enforcement_boundary";
 export const RESERVED_CONTEXT_WORKLOAD = "workload";
 /**
  * The namespace the authority rebuilds for itself on every evaluation (the
- * verified approval, signed signals, plan facts). The runtime writes one
- * entry into it, `plan`, the step of a governed plan an intent is.
+ * verified approval, signed signals, plan facts). The runtime writes two
+ * entries into it, each only when it has one: `plan`, the step of a governed
+ * plan an intent is, and `precondition`, the target's state version it read
+ * before asking. The authority copies only the entries it validates.
  */
 export const RESERVED_CONTEXT_AGENT_SAFE = "agent_safe";
 

@@ -30,8 +30,16 @@ import java.util.Map;
  * and body or hands the request on with the body intact. The hop this runs
  * in is a verifying provider only when the system of record admits nothing
  * but that hop (the profile's section 1).
+ *
+ * <p>An accepted request reaches the handler with the verified {@link ClaimAttestation} as the
+ * request attribute {@link #ATTESTATION_ATTRIBUTE}, null for a read verified at VP-1 alone. A
+ * handler whose write must hold to the target's version applies its {@code expectedStateVersion}
+ * as that write's precondition, and builds a VP-3 receipt from it.
  */
 public final class VerifyingProviderFilter implements Filter {
+  /** The request attribute an accepted request carries its verified attestation in. */
+  public static final String ATTESTATION_ATTRIBUTE = "com.decionis.verifyingprovider.attestation";
+
   static final List<String> COVERED = List.of(
       "content-digest", "idempotency-key", "x-agent-safe-intent-hash",
       "x-agent-safe-grant-id", "x-agent-safe-decision-id", "x-agent-safe-claim-attestation",
@@ -72,11 +80,14 @@ public final class VerifyingProviderFilter implements Filter {
     }
     ProviderRequest received = new ProviderRequest(
         request.getMethod(), request.getRequestURI(), body.length == 0 ? null : body, headers);
+    // The filter reads no target, so it passes none, and step 9 is left to the write behind it,
+    // with the attestation it is handed.
     Verdict verdict = provider.verify(received);
     if (!verdict.accepted()) {
       refuse(response, 409, verdict.reasonCode());
       return;
     }
+    request.setAttribute(ATTESTATION_ATTRIBUTE, verdict.attestation());
     chain.doFilter(new Replayable(request, body), response);
   }
 

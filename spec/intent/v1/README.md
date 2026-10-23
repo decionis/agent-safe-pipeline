@@ -87,6 +87,13 @@ Rules:
   reserved key `idempotency_key` because the authority contract has no top-level property for it
   and refuses unknown properties; it is inside the hash for that reason, so a retry is the same
   intent and a new attempt is a new one.
+- What the producer states about itself and about the action's circumstances rides inside
+  `context` under reserved keys for the same reason: `enforcement_boundary` and `workload`, and
+  `agent_safe`, whose `precondition` is the target's state as the producer read it before asking
+  (`version`, optional `state`, `source`, `read_at`;
+  [target state](../../../docs/authority/target-state.md)). A producer MUST refuse a trusted
+  context that sets a reserved key by hand, and writes one only when it has something to state, so
+  a binding without it carries no such key at all.
 - Numbers MUST be finite. Objects MUST be plain: a key named `__proto__`, `constructor` or
   `prototype`, a non-object prototype, or a cycle is refused before anything is hashed.
 - A producer MUST refuse, never truncate or repair, a binding beyond these bounds: 100 KiB of
@@ -220,7 +227,10 @@ not implement rather than interpret it.
 Within `/1`, a change MAY add an optional property that is absent by default and leaves the
 bytes and the hash of every existing binding unchanged; `expected_effect_digest` was added that
 way on 2026-09-12, and `policy_projection` on 2026-10-20. Such a change MUST come with a vector that pins a binding carrying the
-property and with the statement, tested, that the pinned vector reproduces unchanged.
+property and with the statement, tested, that the pinned vector reproduces unchanged. A new
+reserved key inside `context` changes no property of the binding at all, since `context` is any
+JSON object the producer trusts; it is held to the same rule anyway (`context.agent_safe`, on
+2026-10-23).
 
 A change that alters the bytes of any existing binding, the canonical form, the digest, or the
 meaning or constraint of an existing property is `agent-safe.intent/2`, published beside `/1`,

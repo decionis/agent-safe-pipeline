@@ -543,6 +543,7 @@ export {
   type ClaimAttestationClaims,
   type ExecutorKey,
   type ProviderRefusalCode,
+  type ProviderTarget,
   type ProviderVerdict,
   type ReceivedRequest,
   type ReplayStore,

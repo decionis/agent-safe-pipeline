@@ -213,6 +213,48 @@
       "containsCustomerData": false
     },
     {
+      "path": "conformance/provider/vectors/state-version-changed-refused.json",
+      "family": "Verifying provider conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "conformance/provider/vectors/state-version-compared-strongly.json",
+      "family": "Verifying provider conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "conformance/provider/vectors/state-version-left-to-the-write.json",
+      "family": "Verifying provider conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "conformance/provider/vectors/state-version-not-a-string.json",
+      "family": "Verifying provider conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "conformance/provider/vectors/state-version-not-named-ignores-target.json",
+      "family": "Verifying provider conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "conformance/provider/vectors/state-version-target-gone-refused.json",
+      "family": "Verifying provider conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "conformance/provider/vectors/state-version-unchanged-accepts.json",
+      "family": "Verifying provider conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "conformance/provider/vectors/unknown-keyid.json",
       "family": "Verifying provider conformance vector",
       "source": "synthetic",
@@ -262,6 +304,12 @@
     },
     {
       "path": "conformance/vectors/policy-projection.json",
+      "family": "Intent conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "conformance/vectors/target-precondition.json",
       "family": "Intent conformance vector",
       "source": "synthetic",
       "containsCustomerData": false
@@ -1516,6 +1564,12 @@
     },
     {
       "path": "packages/agentsafe/test/verify/EffectReceipt.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/verify/TargetStateVersion.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false

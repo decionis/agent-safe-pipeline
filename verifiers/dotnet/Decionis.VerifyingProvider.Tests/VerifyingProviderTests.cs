@@ -34,7 +34,7 @@ public class VerifyingProviderTests
         for (var index = 0; index < vector.Requests.Count; index++)
         {
             var request = vector.Requests[index];
-            var verdict = provider.Verify(new ProviderRequest(request.Method, request.Path, request.Body, request.Headers));
+            var verdict = provider.Verify(request.Received(), request.Target);
             var where = $"{vector.Name} request {index}";
             if (request.Outcome == "ACCEPT")
             {
@@ -43,7 +43,15 @@ public class VerifyingProviderTests
                 if (vector.Effects)
                 {
                     Assert.NotNull(verdict.Attestation);
+                    Assert.Equal(request.ExpectedStateVersion, verdict.Attestation.ExpectedStateVersion);
                 }
+            }
+            else if (request.ReasonCode == Verdict.TargetStateChanged)
+            {
+                Assert.False(verdict.Accepted, where);
+                Assert.Equal(Verdict.TargetStateChanged, verdict.ReasonCode);
+                Assert.NotNull(verdict.Attestation);
+                Assert.Equal(request.ExpectedStateVersion, verdict.Attestation.ExpectedStateVersion);
             }
             else
             {
@@ -52,6 +60,52 @@ public class VerifyingProviderTests
                 Assert.Null(verdict.Attestation);
             }
         }
+    }
+
+    private static (VerifyingProvider Provider, ProviderRequest Request) First(string name)
+    {
+        var vector = Vector.Load(System.IO.Path.Combine(Vector.Directory(), name + ".json"));
+        return (new VerifyingProvider(vector.Options()), vector.Requests[0].Received());
+    }
+
+    [Fact]
+    public void StepNineAcceptsTheVersionTheGrantWasDecidedOnOrNoReadOfTheTarget()
+    {
+        var (provider, request) = First("state-version-unchanged-accepts");
+        var read = provider.Verify(request, new ProviderTarget("\"17\""));
+        Assert.True(read.Accepted, read.ReasonCode);
+        Assert.Equal("\"17\"", read.Attestation!.ExpectedStateVersion);
+        var (fresh, _) = First("state-version-unchanged-accepts");
+        var unread = fresh.Verify(request);
+        Assert.True(unread.Accepted, unread.ReasonCode);
+        Assert.Equal(read.Attestation, unread.Attestation);
+    }
+
+    [Theory]
+    [InlineData("\"18\"")]
+    [InlineData("W/\"17\"")]
+    [InlineData("17")]
+    [InlineData(null)]
+    public void StepNineRefusesAnyOtherVersionAfterRecordingThePresentation(string? version)
+    {
+        var (unread, request) = First("state-version-unchanged-accepts");
+        var claimed = unread.Verify(request).Attestation;
+        var (provider, _) = First("state-version-unchanged-accepts");
+        var refused = provider.Verify(request, new ProviderTarget(version));
+        Assert.Equal(new Verdict(false, Verdict.TargetStateChanged, claimed), refused);
+        Assert.Equal("{\"status\":\"REJECTED\",\"reason_code\":\"TARGET_STATE_CHANGED\"}", refused.RefusalBody());
+        Assert.Equal(new Verdict(false, Verdict.GrantReplayed, null), provider.Verify(request, new ProviderTarget("\"17\"")));
+    }
+
+    [Theory]
+    [InlineData("\"8\"")]
+    [InlineData(null)]
+    public void StepNineIgnoresTheTargetWhenTheAttestationNamesNoVersion(string? version)
+    {
+        var (provider, request) = First("state-version-not-named-ignores-target");
+        var verdict = provider.Verify(request, new ProviderTarget(version));
+        Assert.True(verdict.Accepted, verdict.ReasonCode);
+        Assert.Null(verdict.Attestation!.ExpectedStateVersion);
     }
 
     [Theory]

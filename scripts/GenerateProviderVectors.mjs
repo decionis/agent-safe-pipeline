@@ -9,7 +9,10 @@
  * independent. Keys are fresh on every run and only the public halves are
  * written: a vector holds nothing that was ever a credential.
  *
- *   node scripts/GenerateProviderVectors.mjs
+ * Named vectors are written alone, and the others left as they are, so adding
+ * a case does not re-sign every published one:
+ *
+ *   node scripts/GenerateProviderVectors.mjs [vector-name ...]
  */
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
@@ -147,11 +150,21 @@ async function signed({
 
 const accept = { outcome: "ACCEPT" };
 const refuse = (code) => ({ outcome: "REFUSE", reason_code: code });
-const request = (headers, expect, { method = "POST", path = PATH, body = BODY } = {}) => ({
+/**
+ * `target_version` is the provider's own read of the target, for step 9: a
+ * string, or null for a target that no longer exists; absent, the provider
+ * states none and applies the attested version at its write.
+ */
+const request = (
+  headers,
+  expect,
+  { method = "POST", path = PATH, body = BODY, targetVersion } = {},
+) => ({
   method,
   path,
   headers,
   body,
+  ...(targetVersion === undefined ? {} : { target_version: targetVersion }),
   expect,
 });
 
@@ -530,9 +543,80 @@ vector(
   );
 }
 
-rmSync(out, { recursive: true, force: true });
+{
+  // Step 9: the grant was decided against the target at version "17", an
+  // entity tag with its quotes, and the authority attested that version.
+  const VERSION_17 = '"17"';
+  const versioned = (version) =>
+    attest(claimsFor({ binding: { ...claimsFor().binding, expected_state_version: version } }));
+  const at17 = await signed({
+    grant: { id: GRANT_ID, decisionId: DECISION_ID, claimAttestation: versioned(VERSION_17) },
+  });
+  const named = (outcome) => ({ ...outcome, expected_state_version: VERSION_17 });
+  vector(
+    "state-version-unchanged-accepts",
+    "VP-2",
+    "The attestation names the target's version the grant was decided against, and the target is still at it: accepted, with the version handed back for the write's own precondition.",
+    [request(at17, named(accept), { targetVersion: VERSION_17 })],
+  );
+  vector(
+    "state-version-changed-refused",
+    "VP-2",
+    "The target changed between the grant and the commit: the provider reads another version and refuses, effecting nothing. The presentation was recorded first, so the same attestation presented again is a replay, whatever the target's version then.",
+    [
+      request(at17, named(refuse("TARGET_STATE_CHANGED")), { targetVersion: '"18"' }),
+      request(at17, refuse("GRANT_REPLAYED"), { targetVersion: VERSION_17 }),
+    ],
+  );
+  vector(
+    "state-version-target-gone-refused",
+    "VP-2",
+    "The target no longer exists, so it is at no version: refused as a change.",
+    [request(at17, named(refuse("TARGET_STATE_CHANGED")), { targetVersion: null })],
+  );
+  vector(
+    "state-version-compared-strongly",
+    "VP-2",
+    "The version is compared byte for byte, as a strong If-Match compares: the weak tag of the same value is another version.",
+    [request(at17, named(refuse("TARGET_STATE_CHANGED")), { targetVersion: 'W/"17"' })],
+  );
+  vector(
+    "state-version-left-to-the-write",
+    "VP-2",
+    "A provider that states no version of its own accepts, and is handed the attested version to apply as its conditional write's precondition, atomically with the effect.",
+    [request(at17, named(accept))],
+  );
+  vector(
+    "state-version-not-named-ignores-target",
+    "VP-2",
+    "An attestation that names no version states no precondition: the provider's own version of the target changes nothing.",
+    [request(dispatch, accept, { targetVersion: '"18"' })],
+  );
+  vector(
+    "state-version-not-a-string",
+    "VP-2",
+    "An attestation whose expected_state_version is not a string is not one the authority issues.",
+    [
+      request(
+        await signed({
+          grant: { id: GRANT_ID, decisionId: DECISION_ID, claimAttestation: versioned(17) },
+        }),
+        refuse("ATTESTATION_INVALID"),
+        { targetVersion: "17" },
+      ),
+    ],
+  );
+}
+
+const only = process.argv.slice(2);
+const unknown = only.filter((name) => !vectors.some((entry) => entry.vector === name));
+if (unknown.length > 0) throw new Error(`no such vector: ${unknown.join(", ")}`);
+if (only.length === 0) rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 for (const entry of vectors) {
+  if (only.length > 0 && !only.includes(entry.vector)) continue;
   writeFileSync(join(out, `${entry.vector}.json`), `${JSON.stringify(entry, null, 2)}\n`);
 }
-console.log(`${String(readdirSync(out).length)} vectors written to ${out}`);
+console.log(
+  `${String(only.length === 0 ? vectors.length : only.length)} of ${String(readdirSync(out).length)} vectors written to ${out}`,
+);

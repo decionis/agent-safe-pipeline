@@ -22,6 +22,32 @@ action matched by no rule but its default.
   schemas they are admitted against.
 - [CLI reference](docs/reference/cli.md#agentsafe-actions-manifest).
 
+## Library and runtime (unreleased): the target's state version
+
+A write can now be held to the state of the target it was decided against: someone else's write to
+the same record between the grant and the commit refuses it, instead of letting it land.
+
+**Nothing to do** to keep things as they are: an executor that reads nothing binds nothing, and an
+intent without a precondition hashes byte for byte as before.
+
+- `NativeExecutor.readState`, optional: the runner reads the target once before asking and binds
+  `context.agent_safe.precondition` (`version`, `state`, `source`, `read_at`) into the hashed
+  intent, beside a governed plan's `plan` when there is one. A read that fails refuses the
+  submission with `TARGET_STATE_UNREADABLE`.
+- An API profile's write may name a `precondition`: the read that states its target's version and
+  state. `ApiProfile.stateRead` and `ApiProfile.precondition` make the read from the write's call
+  and read its answer. Business Central's `customers.update` names `customers.get`'s
+  `@odata.etag` and `blocked`.
+- Verifying Provider Profile 0.3, step 9: an attestation that names `expected_state_version` is
+  effected only while the target is still at it, else `TARGET_STATE_CHANGED`. `verifyProviderRequest`
+  takes the provider's own read of the target as a third argument and hands the version back on
+  acceptance. All five verifiers pass seven new vectors; the Spring filter, the ASP.NET Core
+  middleware and the tower layer hand the verified attestation to the application, and the Envoy
+  and Kong hops set `x-agent-safe-expected-state-version` on the upstream request.
+- `LocalAuthority` carries the version into its attestations and refuses a malformed precondition
+  (`INTENT_PRECONDITION_INVALID`), as hosted Decionis does.
+- [Target state](docs/authority/target-state.md) says how the pieces fit, and what they do not do.
+
 ## Runtime (unreleased): an observed contradiction holds its scope
 
 The hosted authority now opens an **assumption breach** when a finalization contradicts its grant,

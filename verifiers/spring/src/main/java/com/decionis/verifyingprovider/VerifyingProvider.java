@@ -12,6 +12,7 @@ import java.util.Base64;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -65,8 +66,24 @@ public final class VerifyingProvider {
     }
   }
 
-  /** The whole procedure for one received request. */
+  /**
+   * The whole procedure for one received request, by a provider that reads no target before
+   * effecting: step 9 is then the provider's, at its write, with the accepted claims'
+   * {@code expectedStateVersion}.
+   */
   public Verdict verify(ProviderRequest request) {
+    return verified(request, null);
+  }
+
+  /**
+   * The whole procedure for one received request, with the provider's own read of what the
+   * request would change, for step 9.
+   */
+  public Verdict verify(ProviderRequest request, ProviderTarget target) {
+    return verified(request, Objects.requireNonNull(target, "target"));
+  }
+
+  private Verdict verified(ProviderRequest request, ProviderTarget target) {
     long nowSeconds = options.clock().instant().getEpochSecond();
     if (!signatureHolds(request, nowSeconds)) {
       return Verdict.refuse(Verdict.SIGNATURE_INVALID_OR_INCOMPLETE);
@@ -89,6 +106,14 @@ public final class VerifyingProvider {
     Instant expiresAt = Instant.ofEpochSecond((long) Math.ceil(attestation.exp()));
     if (!options.replay().record(attestation.sub(), expiresAt)) {
       return Verdict.refuse(Verdict.GRANT_REPLAYED);
+    }
+    // Step 9, after the presentation is recorded: the attestation is genuine and now spent, and
+    // what refuses is the provider's own state, compared byte for byte as a strong If-Match
+    // compares. A target that no longer exists is at no version.
+    if (attestation.expectedStateVersion().isPresent()
+        && target != null
+        && !target.version().equals(attestation.expectedStateVersion())) {
+      return new Verdict(false, Verdict.TARGET_STATE_CHANGED, attestation);
     }
     return new Verdict(true, null, attestation);
   }
@@ -255,7 +280,10 @@ public final class VerifyingProvider {
         text(binding, "execution_payload_canonicalization_profile"),
         text(claims, "claim_token_digest"),
         text(claims, "jti"),
-        exp.asDouble());
+        exp.asDouble(),
+        binding.has("expected_state_version")
+            ? Optional.of(text(binding, "expected_state_version"))
+            : Optional.empty());
     if (!options.authorityIssuer().equals(attestation.iss())) {
       throw new IllegalArgumentException("issuer");
     }
