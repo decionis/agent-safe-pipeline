@@ -46,8 +46,13 @@ public sealed class VerifyingProvider
         return "sha-256=:" + Convert.ToBase64String(SHA256.HashData(body ?? Array.Empty<byte>())) + ":";
     }
 
-    /// <summary>The whole procedure for one received request.</summary>
-    public Verdict Verify(ProviderRequest request)
+    /// <summary>
+    /// The whole procedure for one received request. <paramref name="target"/>
+    /// is the provider's own read of what the request would change, for step 9;
+    /// without it the step is the provider's, at its write, with the accepted
+    /// claims' <see cref="ClaimAttestation.ExpectedStateVersion"/>.
+    /// </summary>
+    public Verdict Verify(ProviderRequest request, ProviderTarget? target = null)
     {
         var nowSeconds = options.Now().ToUnixTimeSeconds();
         if (!SignatureHolds(request, nowSeconds))
@@ -80,6 +85,16 @@ public sealed class VerifyingProvider
         if (!options.Replay.Record(attestation.Sub, expiresAt))
         {
             return Verdict.Refuse(Verdict.GrantReplayed);
+        }
+        // Step 9, after the presentation is recorded: the attestation is genuine
+        // and now spent, and what refuses is the provider's own state, compared
+        // byte for byte as a strong If-Match compares. A target that no longer
+        // exists is at no version.
+        if (attestation.ExpectedStateVersion is { } expected
+            && target is not null
+            && !string.Equals(target.Version, expected, StringComparison.Ordinal))
+        {
+            return new Verdict(false, Verdict.TargetStateChanged, attestation);
         }
         return new Verdict(true, null, attestation);
     }
@@ -310,7 +325,8 @@ public sealed class VerifyingProvider
             Required(binding, "execution_payload_canonicalization_profile"),
             Required(claims, "claim_token_digest"),
             Required(claims, "jti"),
-            exp.GetDouble());
+            exp.GetDouble(),
+            binding.TryGetProperty("expected_state_version", out _) ? Required(binding, "expected_state_version") : null);
         if (attestation.Iss != options.AuthorityIssuer)
         {
             throw new ArgumentException("issuer");

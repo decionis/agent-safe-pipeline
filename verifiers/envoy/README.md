@@ -38,7 +38,8 @@ EXECUTOR_KEYS_FILE=executor-keys.json ./extauthz
 The executor names its key with `DOWNSTREAM_SIGNING_KEY_ID`; the file here carries that `keyid`
 with the public half of `DOWNSTREAM_SIGNING_KEY`.
 
-The server answers `200` with no body when the profile accepts the request, and `409` with the
+The server answers `200` with no body when the profile accepts the request, with the attested
+version for the system of record in its headers (step 9, below), and `409` with the
 profile's refusal body, `{"status":"REJECTED","reason_code":"…"}`, when it does not; in HTTP mode
 Envoy returns that status and body to the executor unchanged, which the executor records as
 `DEFINITELY_NOT_EXECUTED`. One instance keeps its replay record in memory; more than one instance
@@ -75,13 +76,40 @@ http_filters:
               - prefix: x-agent-safe-
         authorization_response:
           allowed_upstream_headers:
-            patterns: []
+            patterns:
+              - exact: x-agent-safe-expected-state-version
 ```
 
 `failure_mode_allow: false` keeps the boundary closed when this server is down: an unreachable
 verifier refuses, it never waves through. Verify with the path as Envoy received it, before any
 rewrite: put this filter ahead of rewrites in the chain, or hand it the same `path_prefix` you
-set here.
+set here. `allowed_upstream_headers` must name `x-agent-safe-expected-state-version`, or Envoy
+drops the version the server hands on.
+
+## The target's version (step 9)
+
+An attestation may name `binding.expected_state_version`, the target's version the grant was
+decided against: an entity tag with its quotes, a resource version. This server cannot read the
+target, so it passes none to `verifier.Verify`, and the step is the system of record's.
+
+The server hands the version on. When the accepted attestation names one, the `200` carries it,
+verbatim, in `x-agent-safe-expected-state-version`, and Envoy sets that header on the upstream
+request in place of any the client sent. When it names none, the `200` carries
+`x-envoy-auth-headers-to-remove: x-agent-safe-expected-state-version`, and Envoy removes any the
+client sent. A header is set or removed, never both, so the order Envoy applies them in does not
+matter.
+
+The system of record applies the version as its write's precondition, atomically with the
+effect: a conditional write such as `If-Match` when the version is an entity tag, or a compare
+of its own version field. It refuses `TARGET_STATE_CHANGED` when the target moved on. It trusts
+the header only because this hop holds its sole credential, the owner-native tier above; a
+system of record that anything else can reach has no reason to believe it.
+
+A service that can read the target under the lock its write takes passes it:
+`&verifier.Target{Version: &etag}`, or a nil `Version` when the target no longer exists. Unless
+the target is at exactly that version, byte for byte, the verdict is `TARGET_STATE_CHANGED`. The
+grant is recorded first, so it is spent. It is the one refusal that carries the attestation,
+for a receipt that says `REFUSED`.
 
 ## The receipt (VP-3)
 

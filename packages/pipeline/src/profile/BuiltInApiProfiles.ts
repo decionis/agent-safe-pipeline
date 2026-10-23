@@ -159,6 +159,11 @@ export const BUILT_IN_API_PROFILES: readonly ApiProfileDefinition[] = [
         subject: {
           response: "/body/number",
         },
+        precondition: {
+          read: "customers.get",
+          version: "/body/@odata.etag",
+          state: "/body/blocked",
+        },
       },
       {
         id: "customers.list",

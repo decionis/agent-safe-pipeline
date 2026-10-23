@@ -130,6 +130,45 @@ func TestHandlerAnswersTheVectorsOutcomes(t *testing.T) {
 	}
 }
 
+func TestHandlerHandsOnTheAttestedStateVersionAndNoOtherOne(t *testing.T) {
+	sent := `"99"`
+	cases := []struct {
+		vector, client, set string
+	}{
+		{"state-version-left-to-the-write", "", `"17"`},
+		{"state-version-left-to-the-write", sent, `"17"`},
+		{"dispatch-attested-accepts", sent, ""},
+	}
+	for _, c := range cases {
+		v := loadVector(t, c.vector)
+		request := v.Requests[0]
+		headers := map[string]string{}
+		for name, value := range request.Headers {
+			headers[name] = value
+		}
+		if c.client != "" {
+			headers["x-agent-safe-expected-state-version"] = c.client
+		}
+		request.Headers = headers
+		w := serve(providerFor(t, v), request)
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s: %d %s", c.vector, w.Code, w.Body.String())
+		}
+		// Envoy sets an allowed upstream header in place of the client's, so
+		// an attested version overwrites one the client sent; without one,
+		// Envoy is told to remove it.
+		remove := ""
+		if c.set == "" {
+			remove = "x-agent-safe-expected-state-version"
+		}
+		set := w.Header().Get("x-agent-safe-expected-state-version")
+		removed := w.Header().Get("x-envoy-auth-headers-to-remove")
+		if set != c.set || removed != remove {
+			t.Fatalf("%s, client %q: set %q, removed %q", c.vector, c.client, set, removed)
+		}
+	}
+}
+
 func TestHandlerRefusesACoveredHeaderReceivedTwiceAndABodyBeyondTheBound(t *testing.T) {
 	v := loadVector(t, "dispatch-attested-accepts")
 	p := providerFor(t, v)

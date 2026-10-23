@@ -42,6 +42,15 @@ bytes and hash `@decionis/agent-safe-pipeline` 0.4.0 produced for that intent,
 before the projection could be stated: an intent that states none is
 unchanged.
 
+## The target precondition
+
+`target-precondition.json` is a Business Central customer about to be blocked, captured with the
+target's state as the producer read it before asking: its `@odata.etag` and `blocked` value, under
+the reserved context key `agent_safe`. Its four mutations change the version (someone else wrote to
+the record), the state, and the read time, and remove the precondition, five distinct hashes: a
+grant decided against one version of the target authorises a write against no other. The removal
+is the same intent captured with no precondition, which carries no `agent_safe` key at all.
+
 ## Intentional text distinctions (no normalization)
 
 The canonicalizer performs **no Unicode normalization** — it sorts object

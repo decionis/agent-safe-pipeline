@@ -1,0 +1,212 @@
+{
+  "description": "A binding that states the target's state as the runtime read it before asking: a Business Central customer about to be blocked, read at its @odata.etag with blocked empty. The precondition is inside the hash, under the reserved context key agent_safe, so a grant decided against one version of the target authorises a write against no other. Every mutation MUST hash differently from the base and from every other; the last, the precondition removed, is the same intent captured with none, which carries no agent_safe key at all.",
+  "binding": {
+    "protocol_version": "agent-safe.intent/1",
+    "tenant_id": "00000000-0000-4000-8000-000000000002",
+    "intent_id": "55555555-5555-4555-8555-555555555555",
+    "captured_at": "2026-10-23T12:00:00.000Z",
+    "expires_at": "2026-10-23T12:01:00.000Z",
+    "actor": {
+      "id": "synthetic-collections-agent",
+      "type": "AI_AGENT",
+      "runtime": "business-central-connector"
+    },
+    "action": {
+      "type": "customer.update",
+      "resource": "businesscentral/customers/9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+      "parameters": {
+        "blocked": "All"
+      }
+    },
+    "context": {
+      "lane": "sandbox",
+      "source": "conformance",
+      "agent_safe": {
+        "precondition": {
+          "version": "W/\"JzE5OzEyMzQ1Njc4OTAxMjM0NTY3ODkwOzAwOyc=\"",
+          "state": " ",
+          "source": "businesscentral/api/v2#customers.get",
+          "read_at": "2026-10-23T11:59:59.000Z"
+        }
+      },
+      "idempotency_key": "business-central:customer.update:9a8b7c6d:1"
+    },
+    "downstream_target": {
+      "system": "business-central",
+      "operation": "PATCH /companies({companyId})/customers({customerId})",
+      "environment": "sandbox"
+    }
+  },
+  "canonical_json": "{\"action\":{\"parameters\":{\"blocked\":\"All\"},\"resource\":\"businesscentral/customers/9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d\",\"type\":\"customer.update\"},\"actor\":{\"id\":\"synthetic-collections-agent\",\"runtime\":\"business-central-connector\",\"type\":\"AI_AGENT\"},\"captured_at\":\"2026-10-23T12:00:00.000Z\",\"context\":{\"agent_safe\":{\"precondition\":{\"read_at\":\"2026-10-23T11:59:59.000Z\",\"source\":\"businesscentral/api/v2#customers.get\",\"state\":\" \",\"version\":\"W/\\\"JzE5OzEyMzQ1Njc4OTAxMjM0NTY3ODkwOzAwOyc=\\\"\"}},\"idempotency_key\":\"business-central:customer.update:9a8b7c6d:1\",\"lane\":\"sandbox\",\"source\":\"conformance\"},\"downstream_target\":{\"environment\":\"sandbox\",\"operation\":\"PATCH /companies({companyId})/customers({customerId})\",\"system\":\"business-central\"},\"expires_at\":\"2026-10-23T12:01:00.000Z\",\"intent_id\":\"55555555-5555-4555-8555-555555555555\",\"protocol_version\":\"agent-safe.intent/1\",\"tenant_id\":\"00000000-0000-4000-8000-000000000002\"}",
+  "intent_hash": "sha256:b0284a98f9a0dfebbc6dfb6db6cdf1d1744f6994e24dd61b568ffec68dbce67e",
+  "mutations": [
+    {
+      "path": "context.agent_safe.precondition.version",
+      "value": "W/\"JzIwOzEyMzQ1Njc4OTAxMjM0NTY3ODkwOzAwOyc=\"",
+      "description": "another version of the customer: someone else wrote to the record after it was read",
+      "binding": {
+        "protocol_version": "agent-safe.intent/1",
+        "tenant_id": "00000000-0000-4000-8000-000000000002",
+        "intent_id": "55555555-5555-4555-8555-555555555555",
+        "captured_at": "2026-10-23T12:00:00.000Z",
+        "expires_at": "2026-10-23T12:01:00.000Z",
+        "actor": {
+          "id": "synthetic-collections-agent",
+          "type": "AI_AGENT",
+          "runtime": "business-central-connector"
+        },
+        "action": {
+          "type": "customer.update",
+          "resource": "businesscentral/customers/9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+          "parameters": {
+            "blocked": "All"
+          }
+        },
+        "context": {
+          "lane": "sandbox",
+          "source": "conformance",
+          "agent_safe": {
+            "precondition": {
+              "version": "W/\"JzIwOzEyMzQ1Njc4OTAxMjM0NTY3ODkwOzAwOyc=\"",
+              "state": " ",
+              "source": "businesscentral/api/v2#customers.get",
+              "read_at": "2026-10-23T11:59:59.000Z"
+            }
+          },
+          "idempotency_key": "business-central:customer.update:9a8b7c6d:1"
+        },
+        "downstream_target": {
+          "system": "business-central",
+          "operation": "PATCH /companies({companyId})/customers({customerId})",
+          "environment": "sandbox"
+        }
+      },
+      "canonical_json": "{\"action\":{\"parameters\":{\"blocked\":\"All\"},\"resource\":\"businesscentral/customers/9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d\",\"type\":\"customer.update\"},\"actor\":{\"id\":\"synthetic-collections-agent\",\"runtime\":\"business-central-connector\",\"type\":\"AI_AGENT\"},\"captured_at\":\"2026-10-23T12:00:00.000Z\",\"context\":{\"agent_safe\":{\"precondition\":{\"read_at\":\"2026-10-23T11:59:59.000Z\",\"source\":\"businesscentral/api/v2#customers.get\",\"state\":\" \",\"version\":\"W/\\\"JzIwOzEyMzQ1Njc4OTAxMjM0NTY3ODkwOzAwOyc=\\\"\"}},\"idempotency_key\":\"business-central:customer.update:9a8b7c6d:1\",\"lane\":\"sandbox\",\"source\":\"conformance\"},\"downstream_target\":{\"environment\":\"sandbox\",\"operation\":\"PATCH /companies({companyId})/customers({customerId})\",\"system\":\"business-central\"},\"expires_at\":\"2026-10-23T12:01:00.000Z\",\"intent_id\":\"55555555-5555-4555-8555-555555555555\",\"protocol_version\":\"agent-safe.intent/1\",\"tenant_id\":\"00000000-0000-4000-8000-000000000002\"}",
+      "intent_hash": "sha256:e1da0941b50bae23ebdbc436752a6630503de6304e1fdca153718196989c249a"
+    },
+    {
+      "path": "context.agent_safe.precondition.state",
+      "value": "Invoice",
+      "description": "another state read: the customer was already blocked for invoicing, a different transition",
+      "binding": {
+        "protocol_version": "agent-safe.intent/1",
+        "tenant_id": "00000000-0000-4000-8000-000000000002",
+        "intent_id": "55555555-5555-4555-8555-555555555555",
+        "captured_at": "2026-10-23T12:00:00.000Z",
+        "expires_at": "2026-10-23T12:01:00.000Z",
+        "actor": {
+          "id": "synthetic-collections-agent",
+          "type": "AI_AGENT",
+          "runtime": "business-central-connector"
+        },
+        "action": {
+          "type": "customer.update",
+          "resource": "businesscentral/customers/9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+          "parameters": {
+            "blocked": "All"
+          }
+        },
+        "context": {
+          "lane": "sandbox",
+          "source": "conformance",
+          "agent_safe": {
+            "precondition": {
+              "version": "W/\"JzE5OzEyMzQ1Njc4OTAxMjM0NTY3ODkwOzAwOyc=\"",
+              "state": "Invoice",
+              "source": "businesscentral/api/v2#customers.get",
+              "read_at": "2026-10-23T11:59:59.000Z"
+            }
+          },
+          "idempotency_key": "business-central:customer.update:9a8b7c6d:1"
+        },
+        "downstream_target": {
+          "system": "business-central",
+          "operation": "PATCH /companies({companyId})/customers({customerId})",
+          "environment": "sandbox"
+        }
+      },
+      "canonical_json": "{\"action\":{\"parameters\":{\"blocked\":\"All\"},\"resource\":\"businesscentral/customers/9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d\",\"type\":\"customer.update\"},\"actor\":{\"id\":\"synthetic-collections-agent\",\"runtime\":\"business-central-connector\",\"type\":\"AI_AGENT\"},\"captured_at\":\"2026-10-23T12:00:00.000Z\",\"context\":{\"agent_safe\":{\"precondition\":{\"read_at\":\"2026-10-23T11:59:59.000Z\",\"source\":\"businesscentral/api/v2#customers.get\",\"state\":\"Invoice\",\"version\":\"W/\\\"JzE5OzEyMzQ1Njc4OTAxMjM0NTY3ODkwOzAwOyc=\\\"\"}},\"idempotency_key\":\"business-central:customer.update:9a8b7c6d:1\",\"lane\":\"sandbox\",\"source\":\"conformance\"},\"downstream_target\":{\"environment\":\"sandbox\",\"operation\":\"PATCH /companies({companyId})/customers({customerId})\",\"system\":\"business-central\"},\"expires_at\":\"2026-10-23T12:01:00.000Z\",\"intent_id\":\"55555555-5555-4555-8555-555555555555\",\"protocol_version\":\"agent-safe.intent/1\",\"tenant_id\":\"00000000-0000-4000-8000-000000000002\"}",
+      "intent_hash": "sha256:876f6744d8b9915ba3e8833452d5c8c07365478ca8238799e76064d7b31a11cd"
+    },
+    {
+      "path": "context.agent_safe.precondition.read_at",
+      "value": "2026-10-23T11:59:00.000Z",
+      "description": "another read of the same version: when it was read is inside the hash too",
+      "binding": {
+        "protocol_version": "agent-safe.intent/1",
+        "tenant_id": "00000000-0000-4000-8000-000000000002",
+        "intent_id": "55555555-5555-4555-8555-555555555555",
+        "captured_at": "2026-10-23T12:00:00.000Z",
+        "expires_at": "2026-10-23T12:01:00.000Z",
+        "actor": {
+          "id": "synthetic-collections-agent",
+          "type": "AI_AGENT",
+          "runtime": "business-central-connector"
+        },
+        "action": {
+          "type": "customer.update",
+          "resource": "businesscentral/customers/9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+          "parameters": {
+            "blocked": "All"
+          }
+        },
+        "context": {
+          "lane": "sandbox",
+          "source": "conformance",
+          "agent_safe": {
+            "precondition": {
+              "version": "W/\"JzE5OzEyMzQ1Njc4OTAxMjM0NTY3ODkwOzAwOyc=\"",
+              "state": " ",
+              "source": "businesscentral/api/v2#customers.get",
+              "read_at": "2026-10-23T11:59:00.000Z"
+            }
+          },
+          "idempotency_key": "business-central:customer.update:9a8b7c6d:1"
+        },
+        "downstream_target": {
+          "system": "business-central",
+          "operation": "PATCH /companies({companyId})/customers({customerId})",
+          "environment": "sandbox"
+        }
+      },
+      "canonical_json": "{\"action\":{\"parameters\":{\"blocked\":\"All\"},\"resource\":\"businesscentral/customers/9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d\",\"type\":\"customer.update\"},\"actor\":{\"id\":\"synthetic-collections-agent\",\"runtime\":\"business-central-connector\",\"type\":\"AI_AGENT\"},\"captured_at\":\"2026-10-23T12:00:00.000Z\",\"context\":{\"agent_safe\":{\"precondition\":{\"read_at\":\"2026-10-23T11:59:00.000Z\",\"source\":\"businesscentral/api/v2#customers.get\",\"state\":\" \",\"version\":\"W/\\\"JzE5OzEyMzQ1Njc4OTAxMjM0NTY3ODkwOzAwOyc=\\\"\"}},\"idempotency_key\":\"business-central:customer.update:9a8b7c6d:1\",\"lane\":\"sandbox\",\"source\":\"conformance\"},\"downstream_target\":{\"environment\":\"sandbox\",\"operation\":\"PATCH /companies({companyId})/customers({customerId})\",\"system\":\"business-central\"},\"expires_at\":\"2026-10-23T12:01:00.000Z\",\"intent_id\":\"55555555-5555-4555-8555-555555555555\",\"protocol_version\":\"agent-safe.intent/1\",\"tenant_id\":\"00000000-0000-4000-8000-000000000002\"}",
+      "intent_hash": "sha256:53e2547110aecfeda0ea2f7734083613d89b20b04e51f67d62316582d9b7d628"
+    },
+    {
+      "path": "context.agent_safe",
+      "value": null,
+      "description": "the precondition removed: the intent an executor that binds no target state captures",
+      "binding": {
+        "protocol_version": "agent-safe.intent/1",
+        "tenant_id": "00000000-0000-4000-8000-000000000002",
+        "intent_id": "55555555-5555-4555-8555-555555555555",
+        "captured_at": "2026-10-23T12:00:00.000Z",
+        "expires_at": "2026-10-23T12:01:00.000Z",
+        "actor": {
+          "id": "synthetic-collections-agent",
+          "type": "AI_AGENT",
+          "runtime": "business-central-connector"
+        },
+        "action": {
+          "type": "customer.update",
+          "resource": "businesscentral/customers/9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+          "parameters": {
+            "blocked": "All"
+          }
+        },
+        "context": {
+          "lane": "sandbox",
+          "source": "conformance",
+          "idempotency_key": "business-central:customer.update:9a8b7c6d:1"
+        },
+        "downstream_target": {
+          "system": "business-central",
+          "operation": "PATCH /companies({companyId})/customers({customerId})",
+          "environment": "sandbox"
+        }
+      },
+      "canonical_json": "{\"action\":{\"parameters\":{\"blocked\":\"All\"},\"resource\":\"businesscentral/customers/9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d\",\"type\":\"customer.update\"},\"actor\":{\"id\":\"synthetic-collections-agent\",\"runtime\":\"business-central-connector\",\"type\":\"AI_AGENT\"},\"captured_at\":\"2026-10-23T12:00:00.000Z\",\"context\":{\"idempotency_key\":\"business-central:customer.update:9a8b7c6d:1\",\"lane\":\"sandbox\",\"source\":\"conformance\"},\"downstream_target\":{\"environment\":\"sandbox\",\"operation\":\"PATCH /companies({companyId})/customers({customerId})\",\"system\":\"business-central\"},\"expires_at\":\"2026-10-23T12:01:00.000Z\",\"intent_id\":\"55555555-5555-4555-8555-555555555555\",\"protocol_version\":\"agent-safe.intent/1\",\"tenant_id\":\"00000000-0000-4000-8000-000000000002\"}",
+      "intent_hash": "sha256:d0856e043f28eda20dda0a8fd985cf4f0658fabcb4f440c2ff7c9791f6609fdf"
+    }
+  ]
+}

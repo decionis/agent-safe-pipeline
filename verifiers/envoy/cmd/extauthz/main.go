@@ -6,6 +6,10 @@
 // runs beside is a verifying provider only when the system of record admits
 // nothing but that hop (docs/authority/verifying-provider.md, section 1).
 //
+// An accepted answer hands the attestation's expected_state_version on to
+// the system of record in x-agent-safe-expected-state-version, verbatim, and
+// has Envoy remove any the client sent when the attestation names none.
+//
 // Configuration is the environment:
 //
 //	LISTEN                the address to listen on (127.0.0.1:9001)
@@ -50,6 +54,15 @@ const (
 	defaultIssuer = "https://decionis.com"
 	refreshEvery  = 10 * time.Minute
 	refreshAtMost = time.Minute
+)
+
+// The header the hop hands the attested version on in, for the system of
+// record to hold its write to. Envoy sets on the upstream request each header
+// of an OK answer that allowed_upstream_headers names, replacing what the
+// client sent, and removes each one x-envoy-auth-headers-to-remove lists.
+const (
+	expectedStateVersionHeader = "x-agent-safe-expected-state-version"
+	headersToRemoveHeader      = "x-envoy-auth-headers-to-remove"
 )
 
 // The headers the signature may cover; received twice, any of them is a refusal.
@@ -242,18 +255,32 @@ func (p *provider) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Body:    body,
 		Headers: headers,
 	}
-	verdict := verifier.Verify(request, p.options())
+	// The hop cannot read the target, so it states none: step 9 is the
+	// system of record's, at its write, with the version handed on below.
+	verdict := verifier.Verify(request, p.options(), nil)
 	if verdict.ReasonCode == verifier.AttestationInvalid && p.authority.refreshOnce() {
-		verdict = verifier.Verify(request, p.options())
+		verdict = verifier.Verify(request, p.options(), nil)
 	}
 	grant := headers["x-agent-safe-grant-id"]
 	if verdict.Accepted {
 		log.Printf(`{"event":"PROVIDER_ACCEPTED","method":%q,"path":%q,"grant_id":%q}`, request.Method, request.Path, grant)
+		handOnStateVersion(w.Header(), verdict)
 		w.WriteHeader(http.StatusOK)
 		return
 	}
 	log.Printf(`{"event":"PROVIDER_REFUSED","reason_code":%q,"method":%q,"path":%q,"grant_id":%q}`, verdict.ReasonCode, request.Method, request.Path, grant)
 	refuse(w, http.StatusConflict, verdict.ReasonCode)
+}
+
+// The version the system of record holds its write to: the attested one, or
+// no header at all, so a client cannot state one of its own. It is set or
+// removed, never both, so the order Envoy applies the two in cannot drop it.
+func handOnStateVersion(answer http.Header, verdict verifier.Verdict) {
+	if verdict.Attestation != nil && verdict.Attestation.Binding.ExpectedStateVersion != nil {
+		answer.Set(expectedStateVersionHeader, *verdict.Attestation.Binding.ExpectedStateVersion)
+		return
+	}
+	answer.Set(headersToRemoveHeader, expectedStateVersionHeader)
 }
 
 func refuse(w http.ResponseWriter, status int, code string) {

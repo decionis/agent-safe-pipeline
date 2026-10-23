@@ -2,7 +2,7 @@
 //! the tests need no derive macro either.
 #![allow(dead_code)]
 
-use decionis_verifying_provider::{ExecutorKey, Jwks, MemoryReplayStore, Options};
+use decionis_verifying_provider::{ExecutorKey, Jwks, MemoryReplayStore, Options, Request, Target};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -25,8 +25,34 @@ pub struct VectorRequest {
     pub path: String,
     pub headers: HashMap<String, String>,
     pub body: Option<String>,
+    /// The provider's own read of the target, for step 9: `None` for none,
+    /// `Some(None)` when it no longer exists.
+    pub target_version: Option<Option<String>>,
     pub outcome: String,
     pub reason_code: Option<String>,
+    /// The version the attestation names, handed back on an acceptance or a
+    /// step 9 refusal.
+    pub expected_state_version: Option<String>,
+}
+
+impl VectorRequest {
+    /// The request as the provider received it.
+    pub fn received(&self) -> Request<'_> {
+        Request {
+            method: &self.method,
+            path: &self.path,
+            body: self.body.as_deref().map(str::as_bytes),
+            headers: &self.headers,
+        }
+    }
+
+    /// The target as the provider read it, when the vector gives one.
+    pub fn target(&self) -> Option<Target<'_>> {
+        self.target_version.as_ref().map(|version| match version {
+            Some(version) => Target::At(version),
+            None => Target::Gone,
+        })
+    }
 }
 
 /// The vectors live at the repository root; walk up to them from this crate.
@@ -75,8 +101,15 @@ pub fn load(path: &Path) -> Vector {
                 .map(|(name, value)| (name.clone(), value.as_str().expect("header").to_owned()))
                 .collect(),
             body: request["body"].as_str().map(str::to_owned),
+            target_version: request.get("target_version").map(|version| match version {
+                Value::Null => None,
+                version => Some(version.as_str().expect("target_version").to_owned()),
+            }),
             outcome: text(&request["expect"], "outcome"),
             reason_code: request["expect"]["reason_code"].as_str().map(str::to_owned),
+            expected_state_version: request["expect"]["expected_state_version"]
+                .as_str()
+                .map(str::to_owned),
         })
         .collect();
     Vector {

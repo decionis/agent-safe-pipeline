@@ -10,6 +10,7 @@ import { CanonicalIntentHasher } from "../intent/CanonicalIntentHasher.js";
 import type { CapturedIntent, IntentActor, PolicyProjection } from "../intent/ExecutionIntent.js";
 import { boundaryOf, workloadOf } from "../intent/ExecutionSignals.js";
 import { IntentCapture } from "../intent/IntentCapture.js";
+import { TargetPreconditionSchema, type TargetPrecondition } from "../intent/TargetPrecondition.js";
 import type { JsonObject, JsonValue } from "../intent/JsonValue.js";
 import { PreDispatchRefusal, ProviderRefusal, type ProviderDispatch } from "./ActionRegistry.js";
 import type {
@@ -274,6 +275,7 @@ export class GovernedExecutionRunner {
   ): Promise<SubmitResult<TResult>> {
     if (this.authority === undefined) throw new Error("RUNNER_AUTHORITY_MISSING");
     const prepared = await executor.prepare(request.action, request.scope);
+    const precondition = await GovernedExecutionRunner.readState(executor, request, prepared);
     const captured = this.capture.capture(prepared.proposal, {
       tenantId: request.scope.orgId,
       actor: request.actor,
@@ -286,6 +288,7 @@ export class GovernedExecutionRunner {
       ...(prepared.policyProjection === undefined
         ? {}
         : { policyProjection: prepared.policyProjection }),
+      ...(precondition === null ? {} : { precondition }),
       // Stryker disable next-line ConditionalExpression: the capture drops an undefined correlation itself; the condition only satisfies the strict optional type.
       ...(request.correlationId === undefined ? {} : { correlationId: request.correlationId }),
     });
@@ -302,6 +305,32 @@ export class GovernedExecutionRunner {
       scope: request.scope,
     });
     return { captured, decision, result };
+  }
+
+  /**
+   * The executor's read of the target's state version, when it makes one.
+   * A read that throws, or answers anything but a precondition or null, is
+   * refused here with one stable code, before anything is decided: an intent
+   * captured without the version the executor said it would bind would carry
+   * a grant no provider could hold to the state it was decided on.
+   */
+  private static async readState<TAction>(
+    executor: NativeExecutor<TAction, unknown, unknown>,
+    request: SubmitRequest<TAction>,
+    prepared: PreparedAction,
+  ): Promise<TargetPrecondition | null> {
+    if (executor.readState === undefined) return null;
+    let read: unknown;
+    try {
+      read = await executor.readState(request.action, prepared, request.scope);
+    } catch {
+      // A read that throws states nothing, and is refused below with any
+      // other answer that is not a precondition: its error never leaves.
+    }
+    if (read === null) return null;
+    const parsed = TargetPreconditionSchema.safeParse(read);
+    if (!parsed.success) throw new Error("TARGET_STATE_UNREADABLE");
+    return parsed.data;
   }
 
   /**

@@ -71,8 +71,10 @@ public sealed class Vector
                 Path = request.GetProperty("path").GetString()!,
                 Headers = headers,
                 Body = body.ValueKind == JsonValueKind.Null ? null : Encoding.UTF8.GetBytes(body.GetString()!),
+                Target = request.TryGetProperty("target_version", out var target) ? new ProviderTarget(target.ValueKind == JsonValueKind.Null ? null : target.GetString()) : null,
                 Outcome = expect.GetProperty("outcome").GetString()!,
                 ReasonCode = expect.TryGetProperty("reason_code", out var code) ? code.GetString() : null,
+                ExpectedStateVersion = expect.TryGetProperty("expected_state_version", out var version) ? version.GetString() : null,
             });
         }
         return new Vector
@@ -103,6 +105,15 @@ public sealed class VectorRequest
     public required string Path { get; init; }
     public required Dictionary<string, string> Headers { get; init; }
     public required byte[]? Body { get; init; }
+
+    /// <summary>The provider's own read of the target, for step 9: null when none is given, a null version when it no longer exists.</summary>
+    public required ProviderTarget? Target { get; init; }
+
     public required string Outcome { get; init; }
     public required string? ReasonCode { get; init; }
+
+    /// <summary>The version the attestation names, handed back on an acceptance or a step 9 refusal.</summary>
+    public required string? ExpectedStateVersion { get; init; }
+
+    public ProviderRequest Received() => new(Method, Path, Body, Headers);
 }

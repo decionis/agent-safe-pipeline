@@ -53,6 +53,45 @@ const MAX_RECORDED_BODY_CHARS = 4_096;
 const SOCKET_TIMEOUT_MS = 10_000;
 const GRANT_TTL_MS = 60_000;
 const CLAIM_LEASE_MS = 30_000;
+
+/**
+ * `ExecutionTargetPrecondition`, the contract's, written here again rather
+ * than imported, so the fixture checks the package's precondition with an
+ * independent reading: what a runtime states in `context.agent_safe` about
+ * the target's state before asking.
+ */
+const TargetPreconditionContract = z
+  .object({
+    version: z.string().regex(/^[\x21-\x7e]{1,256}$/),
+    state: z
+      .string()
+      .min(1)
+      .max(200)
+      .regex(/^\P{Cc}+$/u)
+      .optional(),
+    source: z
+      .string()
+      .min(1)
+      .max(200)
+      .regex(/^[a-z0-9][\w.:/#-]*$/i),
+    read_at: z.string().datetime(),
+  })
+  .strict();
+
+/**
+ * The precondition an intent's context states: the parsed contract, null when
+ * it states none, or `undefined` when it states one the contract refuses.
+ */
+function preconditionIn(
+  context: Record<string, unknown>,
+): z.infer<typeof TargetPreconditionContract> | null | undefined {
+  const namespace = context["agent_safe"];
+  if (namespace === null || typeof namespace !== "object" || Array.isArray(namespace)) return null;
+  const raw = (namespace as Record<string, unknown>)["precondition"];
+  if (raw === undefined) return null;
+  const parsed = TargetPreconditionContract.safeParse(raw);
+  return parsed.success ? parsed.data : undefined;
+}
 /** The issuer the fixture's grants and attestations name; a provider double checks it. */
 export const LOCAL_AUTHORITY_ISSUER = "synthetic-authority";
 /** Where the fixture publishes its attestation key, at the path Decionis documents. */
@@ -366,6 +405,8 @@ export interface LocalGrantRecord {
   readonly payloadDigest: string;
   /** The expected-effect digest committed at enforce-and-bind; null when none was bound. */
   readonly expectedEffectDigest: string | null;
+  /** The target's version the intent's precondition stated; null when it stated none. */
+  readonly expectedStateVersion: string | null;
   /** Present for direct grants issued on client-supplied evidence; null for managed grants. */
   readonly receiptDossierId: string | null;
   /** The policy release the grant was decided under. */
@@ -567,6 +608,8 @@ export interface LocalClaimAttestationClaims {
     readonly execution_payload_digest: string;
     readonly execution_payload_canonicalization_profile: string;
     readonly expected_effect_digest?: string;
+    /** The target's version the grant was decided against, when the intent stated one. */
+    readonly expected_state_version?: string;
     readonly execution_nonce: string;
     readonly execution_correlation_id: string;
   };
@@ -752,6 +795,9 @@ export class LocalAuthority {
         ...(grant.expectedEffectDigest === null
           ? {}
           : { expected_effect_digest: grant.expectedEffectDigest }),
+        ...(grant.expectedStateVersion === null
+          ? {}
+          : { expected_state_version: grant.expectedStateVersion }),
         execution_nonce: grant.nonce,
         execution_correlation_id: grant.correlationId ?? "",
       },
@@ -1564,6 +1610,7 @@ export class LocalAuthority {
       bindingDigest,
       payloadDigest: hashBinding(request.action.parameters),
       expectedEffectDigest: request.expected_effect_digest ?? null,
+      expectedStateVersion: preconditionIn(request.context)?.version ?? null,
       receiptDossierId: approval?.receiptDossierId ?? null,
       policyVersion: this.policyVersion,
       materialSignals,
@@ -1951,6 +1998,9 @@ export class LocalAuthority {
             ...(grant.expectedEffectDigest === null
               ? {}
               : { expected_effect_digest: grant.expectedEffectDigest }),
+            ...(grant.expectedStateVersion === null
+              ? {}
+              : { expected_state_version: grant.expectedStateVersion }),
           },
           jti: grant.jti,
           iat: grant.issuedAt,
@@ -2120,6 +2170,7 @@ export class LocalAuthority {
     if (expiresAt <= now) return "INTENT_EXPIRED";
     if (expiresAt <= capturedAt) return "INTENT_TIME_ORDER_INVALID";
     if (expiresAt - capturedAt > 300_000) return "INTENT_LIFETIME_TOO_LONG";
+    if (preconditionIn(request.context) === undefined) return "INTENT_PRECONDITION_INVALID";
     return null;
   }
 

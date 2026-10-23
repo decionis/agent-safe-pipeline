@@ -26,6 +26,7 @@ const BINDINGS = new Set([
   "compromised-principal.json",
   "policy-projection.json",
   "policy-projection-absent.json",
+  "target-precondition.json",
 ]);
 
 describe("verifyIntentVector", () => {
@@ -45,6 +46,10 @@ describe("verifyIntentVector", () => {
     // removal are mutations, each with a hash of its own.
     const projected = verifyIntentVector(await vector("policy-projection.json"));
     expect(projected).toMatchObject({ kind: "binding", ok: true, mutations: 5, hashes: 6 });
+    // A precondition is inside the hash like any context fact: its version,
+    // its state, its read time and its removal are each another intent.
+    const read = verifyIntentVector(await vector("target-precondition.json"));
+    expect(read).toMatchObject({ kind: "binding", ok: true, mutations: 4, hashes: 5 });
     const pinned = verifyIntentVector(JSON.parse(await readFile(PINNED, "utf8")));
     expect(pinned).toMatchObject({ kind: "binding", ok: true, pinned: true, hashes: 1 });
   });

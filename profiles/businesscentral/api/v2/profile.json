@@ -147,6 +147,11 @@
       "policy_projection": null,
       "subject": {
         "response": "/body/number"
+      },
+      "precondition": {
+        "read": "customers.get",
+        "version": "/body/@odata.etag",
+        "state": "/body/blocked"
       }
     },
     {

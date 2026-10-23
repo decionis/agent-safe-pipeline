@@ -29,6 +29,7 @@ const (
 	AttestationInvalid                    = "ATTESTATION_INVALID"
 	AttestationDoesNotDescribeThisRequest = "ATTESTATION_DOES_NOT_DESCRIBE_THIS_REQUEST"
 	GrantReplayed                         = "GRANT_REPLAYED"
+	TargetStateChanged                    = "TARGET_STATE_CHANGED"
 )
 
 const (
@@ -110,6 +111,19 @@ type Binding struct {
 	IntentHash                              string `json:"intent_hash"`
 	ExecutionPayloadDigest                  string `json:"execution_payload_digest"`
 	ExecutionPayloadCanonicalizationProfile string `json:"execution_payload_canonicalization_profile"`
+	// The target's version the grant was decided against, when the
+	// attestation names one: the precondition of the write, compared as a
+	// strong If-Match compares. Nil when it names none.
+	ExpectedStateVersion *string `json:"expected_state_version,omitempty"`
+}
+
+// Target is what a request would change, as the provider reads it under the
+// lock its effect takes: its version now, or a nil Version when it no longer
+// exists. A provider that cannot read it before effecting passes none, and
+// applies the attestation's ExpectedStateVersion as its write's own
+// precondition.
+type Target struct {
+	Version *string
 }
 
 // Claims is the part of the attestation the provider reads; the authority's
@@ -128,7 +142,9 @@ type Claims struct {
 
 // Verdict is the outcome of the procedure for one request. Attestation is
 // set on an accepted dispatch, and nil for a read a non-effecting provider
-// verified at VP-1 alone.
+// verified at VP-1 alone. A refusal carries none, except TargetStateChanged:
+// the provider's own refusal of a genuine, now spent, attestation, whose
+// claims a provider at VP-3 signs its refusal as a receipt from.
 type Verdict struct {
 	Accepted    bool
 	ReasonCode  string
@@ -137,8 +153,11 @@ type Verdict struct {
 
 func refuse(code string) Verdict { return Verdict{ReasonCode: code} }
 
-// Verify runs the whole procedure for one received request.
-func Verify(request Request, options Options) Verdict {
+// Verify runs the whole procedure for one received request. target is the
+// provider's own read of what the request would change, for step 9; nil
+// leaves the step to the provider, at its write, with the accepted claims'
+// ExpectedStateVersion.
+func Verify(request Request, options Options, target *Target) Verdict {
 	now := time.Now
 	if options.Now != nil {
 		now = options.Now
@@ -159,6 +178,14 @@ func Verify(request Request, options Options) Verdict {
 	}
 	if !options.Replay.Record(claims.Sub, time.Unix(int64(claims.Exp), 0)) {
 		return refuse(GrantReplayed)
+	}
+	// Step 9, after the presentation is recorded: the attestation is genuine
+	// and now spent, and what refuses is the provider's own state, compared
+	// byte for byte as a strong If-Match compares. A target that no longer
+	// exists is at no version.
+	expected := claims.Binding.ExpectedStateVersion
+	if expected != nil && target != nil && (target.Version == nil || *target.Version != *expected) {
+		return Verdict{ReasonCode: TargetStateChanged, Attestation: claims}
 	}
 	return Verdict{Accepted: true, Attestation: claims}
 }
@@ -349,9 +376,10 @@ func attestationOf(compact string, options Options) (*Claims, error) {
 		DecisionID *string `json:"decision_id"`
 		DossierID  *string `json:"dossier_id"`
 		Binding    *struct {
-			IntentHash                              *string `json:"intent_hash"`
-			ExecutionPayloadDigest                  *string `json:"execution_payload_digest"`
-			ExecutionPayloadCanonicalizationProfile *string `json:"execution_payload_canonicalization_profile"`
+			IntentHash                              *string         `json:"intent_hash"`
+			ExecutionPayloadDigest                  *string         `json:"execution_payload_digest"`
+			ExecutionPayloadCanonicalizationProfile *string         `json:"execution_payload_canonicalization_profile"`
+			ExpectedStateVersion                    json.RawMessage `json:"expected_state_version"`
 		} `json:"binding"`
 		ClaimTokenDigest *string  `json:"claim_token_digest"`
 		JTI              *string  `json:"jti"`
@@ -370,6 +398,20 @@ func attestationOf(compact string, options Options) (*Claims, error) {
 	if *shape.Iss != options.AuthorityIssuer {
 		return nil, errors.New("issuer")
 	}
+	// The version the grant was decided against is optional, and a string
+	// when it is there; null is not one.
+	var expected *string
+	if shape.Binding.ExpectedStateVersion != nil {
+		var version any
+		if err := json.Unmarshal(shape.Binding.ExpectedStateVersion, &version); err != nil {
+			return nil, err
+		}
+		text, ok := version.(string)
+		if !ok {
+			return nil, errors.New("shape")
+		}
+		expected = &text
+	}
 	return &Claims{
 		Iss:        *shape.Iss,
 		Sub:        *shape.Sub,
@@ -379,6 +421,7 @@ func attestationOf(compact string, options Options) (*Claims, error) {
 			IntentHash:                              *shape.Binding.IntentHash,
 			ExecutionPayloadDigest:                  *shape.Binding.ExecutionPayloadDigest,
 			ExecutionPayloadCanonicalizationProfile: *shape.Binding.ExecutionPayloadCanonicalizationProfile,
+			ExpectedStateVersion:                    expected,
 		},
 		ClaimTokenDigest: *shape.ClaimTokenDigest,
 		JTI:              *shape.JTI,

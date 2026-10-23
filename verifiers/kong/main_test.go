@@ -137,6 +137,38 @@ func TestThePluginAnswersTheVectorsOutcomes(t *testing.T) {
 	}
 }
 
+func TestThePluginHandsOnTheAttestedStateVersionAndNoOtherOne(t *testing.T) {
+	cases := []struct {
+		vector, client, set string
+	}{
+		{"state-version-left-to-the-write", "", `"17"`},
+		{"state-version-left-to-the-write", `"99"`, `"17"`},
+		{"dispatch-attested-accepts", `"99"`, ""},
+	}
+	for _, c := range cases {
+		v := loadVector(t, c.vector)
+		request := v.Requests[0]
+		headers := http.Header{}
+		for name, value := range request.Headers {
+			headers.Set(name, value)
+		}
+		if c.client != "" {
+			headers.Set(expectedStateVersionHeader, c.client)
+		}
+		env, err := test.New(t, test.Request{Method: request.Method, Url: "http://provider.invalid" + request.Path, Headers: headers, Body: []byte(*request.Body)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		env.DoAccess(configFor(t, v))
+		if env.ClientRes.Status != 0 && env.ClientRes.Status != http.StatusOK {
+			t.Fatalf("%s: %d %s", c.vector, env.ClientRes.Status, env.ClientRes.Body)
+		}
+		if got := env.ServiceReq.Headers.Values(expectedStateVersionHeader); strings.Join(got, ",") != c.set {
+			t.Fatalf("%s, client %q: the upstream received %q", c.vector, c.client, got)
+		}
+	}
+}
+
 func TestThePluginRefusesACoveredHeaderReceivedTwiceAndABodyBeyondTheBound(t *testing.T) {
 	v := loadVector(t, "dispatch-attested-accepts")
 	request := v.Requests[0]

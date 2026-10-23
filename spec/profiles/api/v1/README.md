@@ -60,6 +60,7 @@ An operation:
 | `facts`             | Fact name → RFC 6901 JSON pointer into the call (§4).                                                                             |
 | `policy_projection` | The policy path the authority decides the call under (`decision_type`, `transaction_type`, `workflow_key`, `channel`), or `null`. |
 | `subject`           | Optional; required of a read. Where the call's subject sits (`request`, `response`, `query`) and what may stand around it (§7).   |
+| `precondition`      | Optional, for a write. The read that states the target's version, and where its answer states it and the target's state (§8).     |
 
 ### 2.2 Templates
 
@@ -82,7 +83,10 @@ A definition MUST be refused (`API_PROFILE_INVALID`) when:
 - a subject names none of `request`, `response` and `query`; a `request` pointer is not rooted like
   a fact's or has a `*` token; a `response` pointer is not rooted at `/body` or has more than one
   `*` token; a `query` template does not hold `{subject}` exactly once; or an `envelope` stands
-  without a `response` pointer through `*`.
+  without a `response` pointer through `*`;
+- a read names a `precondition`; a precondition's `read` is not a read in the profile, or its path
+  has a placeholder the write's path has not; or a `version` or `state` pointer is not rooted at
+  `/body` or `/headers/<lower-case name>`, or has a `*` token.
 
 ## 3. Matching
 
@@ -140,8 +144,10 @@ which is why an operation's facts are the whole of what an authority can decide 
 profile carries its own vectors in `profiles/<id>/vectors/`, in the same form with `profile`
 naming it. A vector may also pin a `session` (the subject a session holds) and state the
 `request_check` of the call against it, and a `response` (the answer's JSON body) with its
-`response_check` (§7.2). An implementation conforms when, for every vector, it returns the expected
-match exactly and the expected checks, or refuses the definition with the expected code.
+`response_check` (§7.2), and a `state_read` (the read a write's precondition makes, or `null`) with
+a `state_answer` (the read's headers and body), the `read_at` instant and the `precondition` it
+states (§8). An implementation conforms when, for every vector, it returns the expected match
+exactly and the expected checks, or refuses the definition with the expected code.
 
 ## 6. Profiles this build ships
 
@@ -220,3 +226,31 @@ a component that holds sessions to a subject SHOULD refuse it by default: a read
 operation's (a count, a navigation), and a write, a batch of calls included, whose parts it could
 not check. It SHOULD refuse a read whose path only resembles a checked one (another letter case, or
 a literal percent-encoded), since the platform may serve it as that operation.
+
+## 8. Preconditions
+
+A write's `precondition` says how a component reads the target's state version before the
+authority is asked, so that the grant is decided against that version and a verifying provider can
+hold the write to it ([target state](../../../../docs/authority/target-state.md)):
+
+```json
+"precondition": { "read": "customers.get", "version": "/body/@odata.etag", "state": "/body/blocked" }
+```
+
+- `read` names a read in the same profile. The read's call is `GET`, the read's path under the
+  prefix the write's path matched, each placeholder filled with the write's own text for it, exactly
+  as the write's call wrote it (an OData quoted key keeps its quotes and its percent-encoding), and
+  the read's exact `query` values, when it names any.
+- `version` and `state` are RFC 6901 pointers into the read's answer,
+  `{ "headers": <lower-case names>, "body": <JSON body> }`, with no `*`: `/headers/etag` for an
+  entity tag, `/body/@odata.etag`, `/body/metadata/resourceVersion`.
+- The precondition the answer states is `version` (a string, or a finite number as its decimal
+  string, of 1 to 256 visible ASCII characters, so an entity tag keeps its quotes and its `W/`), the
+  `state` beside it when the operation names where and the answer states one (1 to 200 characters,
+  no control character), `source` (`<profile id>#<read>`) and `read_at`. An answer that states no
+  usable version states no precondition, and a component that binds the target's state refuses
+  then rather than bind none.
+
+A component that binds the target's state makes the read itself; the profile makes no call. The
+reference implementation is `ApiProfile.stateRead` and `ApiProfile.precondition`. The reference
+gateway does not make the read yet.

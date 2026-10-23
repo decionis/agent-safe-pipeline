@@ -1,11 +1,13 @@
 //! A tower layer that runs the profile in front of any service that speaks
 //! `http::Request`: axum, hyper, tonic's HTTP side. It buffers the body up
 //! to a bound, verifies, and either answers with the profile's status and
-//! body or hands the request on with its body intact. The hop this runs in is
-//! a verifying provider only when the system of record admits nothing but
-//! that hop (the profile's section 1).
+//! body or hands the request on with its body intact and the accepted
+//! [`ClaimAttestation`] in its extensions, where the application reads the
+//! `expected_state_version` its write is held to. The hop this runs in is a
+//! verifying provider only when the system of record admits nothing but that
+//! hop (the profile's section 1).
 
-use crate::{verify, Options, Refusal, Request, Verdict};
+use crate::{verify, ClaimAttestation, Options, Refusal, Request, Verdict};
 use bytes::Bytes;
 use http::{header, HeaderMap, Request as HttpRequest, Response, StatusCode};
 use http_body_util::{BodyExt, Full, Limited};
@@ -95,7 +97,7 @@ where
         let options = self.options.clone();
         let max_body_bytes = self.max_body_bytes;
         Box::pin(async move {
-            let (parts, body) = request.into_parts();
+            let (mut parts, body) = request.into_parts();
             let body = match Limited::new(body, max_body_bytes).collect().await {
                 Ok(collected) => collected.to_bytes(),
                 Err(_) => return Ok(refuse(StatusCode::PAYLOAD_TOO_LARGE, "BODY_BEYOND_BOUND")),
@@ -109,6 +111,9 @@ where
                     ))
                 }
             };
+            // The layer cannot read the target, so it states none: step 9 is
+            // the inner service's, at its write, with the attestation it is
+            // handed in the request's extensions.
             let verdict = verify(
                 &Request {
                     method: parts.method.as_str(),
@@ -117,9 +122,13 @@ where
                     headers: &headers,
                 },
                 &options,
+                None,
             );
             match verdict {
-                Verdict::Accepted(_) => {
+                Verdict::Accepted(attestation) => {
+                    if let Some(attestation) = attestation {
+                        parts.extensions.insert::<ClaimAttestation>(*attestation);
+                    }
                     inner
                         .call(HttpRequest::from_parts(parts, Full::new(body)))
                         .await

@@ -50,8 +50,14 @@ reach for each.
 - `requests` run in order against one replay store, which is how the replay vector expresses a
   second presentation. Header names are lower case. `body` is `null` for a request that carried
   none; otherwise it is the exact text, whose bytes the content digest covers.
-- `expect.outcome` is `ACCEPT` or `REFUSE`; a refusal names its `reason_code`, one of the four the
-  profile defines.
+- `target_version`, when present, is the provider's own read of the target the request would
+  change, for step 9: a string, or `null` for a target that no longer exists. Absent, the provider
+  states none and applies the attested version at its own write. It is ignored when the
+  attestation names no version.
+- `expect.outcome` is `ACCEPT` or `REFUSE`; a refusal names its `reason_code`, one of the five the
+  profile defines. `expect.expected_state_version`, on an acceptance or a `TARGET_STATE_CHANGED`
+  refusal, is the version the verdict's attestation MUST hand back; where `expect` names none, an
+  accepted attestation MUST carry none. The `state-version-*` vectors pin step 9.
 
 A receipt vector carries what a provider signs after effecting and what every implementation MUST
 produce from it:
@@ -116,7 +122,7 @@ each names, and says so in the terms of the profile's section 8.
 ## Regenerating them
 
 ```bash
-node scripts/GenerateProviderVectors.mjs
+node scripts/GenerateProviderVectors.mjs [vector-name ...]
 node scripts/GenerateReceiptVectors.mjs
 ```
 
@@ -129,37 +135,47 @@ executor's wire format or the profile changes, never to make a failing implement
 
 ## What the cases cover
 
-| Vector                                               | Level | Refuses with, or accepts                     |
-| ---------------------------------------------------- | ----- | -------------------------------------------- |
-| `dispatch-attested-accepts`                          | VP-2  | accept                                       |
-| `dispatch-replayed-within-lease`                     | VP-2  | accept, then `GRANT_REPLAYED`                |
-| `dispatch-hmac-attested-accepts`                     | VP-2  | accept                                       |
-| `attestation-digest-is-canonical-not-raw`            | VP-2  | accept                                       |
-| `read-base-components-accepts-for-read`              | VP-1  | accept, for a provider that effects nothing  |
-| `read-base-components-refused-by-effecting-provider` | VP-1  | `SIGNATURE_INVALID_OR_INCOMPLETE`            |
-| `copied-headers-unsigned`                            | VP-1  | `SIGNATURE_INVALID_OR_INCOMPLETE`            |
-| `body-altered-after-signing`                         | VP-1  | `SIGNATURE_INVALID_OR_INCOMPLETE`            |
-| `covered-header-altered-after-signing`               | VP-1  | `SIGNATURE_INVALID_OR_INCOMPLETE`            |
-| `signature-omits-grant-components`                   | VP-1  | `SIGNATURE_INVALID_OR_INCOMPLETE`            |
-| `unknown-keyid`                                      | VP-1  | `SIGNATURE_INVALID_OR_INCOMPLETE`            |
-| `created-outside-window`                             | VP-1  | `SIGNATURE_INVALID_OR_INCOMPLETE`            |
-| `dispatch-hmac-wrong-material`                       | VP-1  | `SIGNATURE_INVALID_OR_INCOMPLETE`            |
-| `attestation-signed-by-unknown-key`                  | VP-2  | `ATTESTATION_INVALID`                        |
-| `attestation-wrong-typ`                              | VP-2  | `ATTESTATION_INVALID`                        |
-| `attestation-payload-tampered`                       | VP-2  | `ATTESTATION_INVALID`                        |
-| `attestation-issuer-differs`                         | VP-2  | `ATTESTATION_INVALID`                        |
-| `attestation-lacks-claim-token-digest`               | VP-2  | `ATTESTATION_INVALID`                        |
-| `attestation-for-another-grant`                      | VP-2  | `ATTESTATION_DOES_NOT_DESCRIBE_THIS_REQUEST` |
-| `attestation-for-another-decision`                   | VP-2  | `ATTESTATION_DOES_NOT_DESCRIBE_THIS_REQUEST` |
-| `attestation-intent-hash-differs`                    | VP-2  | `ATTESTATION_DOES_NOT_DESCRIBE_THIS_REQUEST` |
-| `payload-changed-after-claim`                        | VP-2  | `ATTESTATION_DOES_NOT_DESCRIBE_THIS_REQUEST` |
-| `attestation-expired`                                | VP-2  | `ATTESTATION_DOES_NOT_DESCRIBE_THIS_REQUEST` |
-| `attestation-canonicalization-profile-unknown`       | VP-2  | `ATTESTATION_DOES_NOT_DESCRIBE_THIS_REQUEST` |
-| `body-not-i-json`                                    | VP-2  | `ATTESTATION_DOES_NOT_DESCRIBE_THIS_REQUEST` |
+| Vector                                               | Level | Refuses with, or accepts                      |
+| ---------------------------------------------------- | ----- | --------------------------------------------- |
+| `dispatch-attested-accepts`                          | VP-2  | accept                                        |
+| `dispatch-replayed-within-lease`                     | VP-2  | accept, then `GRANT_REPLAYED`                 |
+| `dispatch-hmac-attested-accepts`                     | VP-2  | accept                                        |
+| `attestation-digest-is-canonical-not-raw`            | VP-2  | accept                                        |
+| `read-base-components-accepts-for-read`              | VP-1  | accept, for a provider that effects nothing   |
+| `read-base-components-refused-by-effecting-provider` | VP-1  | `SIGNATURE_INVALID_OR_INCOMPLETE`             |
+| `copied-headers-unsigned`                            | VP-1  | `SIGNATURE_INVALID_OR_INCOMPLETE`             |
+| `body-altered-after-signing`                         | VP-1  | `SIGNATURE_INVALID_OR_INCOMPLETE`             |
+| `covered-header-altered-after-signing`               | VP-1  | `SIGNATURE_INVALID_OR_INCOMPLETE`             |
+| `signature-omits-grant-components`                   | VP-1  | `SIGNATURE_INVALID_OR_INCOMPLETE`             |
+| `unknown-keyid`                                      | VP-1  | `SIGNATURE_INVALID_OR_INCOMPLETE`             |
+| `created-outside-window`                             | VP-1  | `SIGNATURE_INVALID_OR_INCOMPLETE`             |
+| `dispatch-hmac-wrong-material`                       | VP-1  | `SIGNATURE_INVALID_OR_INCOMPLETE`             |
+| `attestation-signed-by-unknown-key`                  | VP-2  | `ATTESTATION_INVALID`                         |
+| `attestation-wrong-typ`                              | VP-2  | `ATTESTATION_INVALID`                         |
+| `attestation-payload-tampered`                       | VP-2  | `ATTESTATION_INVALID`                         |
+| `attestation-issuer-differs`                         | VP-2  | `ATTESTATION_INVALID`                         |
+| `attestation-lacks-claim-token-digest`               | VP-2  | `ATTESTATION_INVALID`                         |
+| `attestation-for-another-grant`                      | VP-2  | `ATTESTATION_DOES_NOT_DESCRIBE_THIS_REQUEST`  |
+| `attestation-for-another-decision`                   | VP-2  | `ATTESTATION_DOES_NOT_DESCRIBE_THIS_REQUEST`  |
+| `attestation-intent-hash-differs`                    | VP-2  | `ATTESTATION_DOES_NOT_DESCRIBE_THIS_REQUEST`  |
+| `payload-changed-after-claim`                        | VP-2  | `ATTESTATION_DOES_NOT_DESCRIBE_THIS_REQUEST`  |
+| `attestation-expired`                                | VP-2  | `ATTESTATION_DOES_NOT_DESCRIBE_THIS_REQUEST`  |
+| `attestation-canonicalization-profile-unknown`       | VP-2  | `ATTESTATION_DOES_NOT_DESCRIBE_THIS_REQUEST`  |
+| `body-not-i-json`                                    | VP-2  | `ATTESTATION_DOES_NOT_DESCRIBE_THIS_REQUEST`  |
+| `state-version-unchanged-accepts`                    | VP-2  | accept, handing the version back              |
+| `state-version-left-to-the-write`                    | VP-2  | accept, handing the version to the write      |
+| `state-version-not-named-ignores-target`             | VP-2  | accept                                        |
+| `state-version-changed-refused`                      | VP-2  | `TARGET_STATE_CHANGED`, then `GRANT_REPLAYED` |
+| `state-version-compared-strongly`                    | VP-2  | `TARGET_STATE_CHANGED`                        |
+| `state-version-target-gone-refused`                  | VP-2  | `TARGET_STATE_CHANGED`                        |
+| `state-version-not-a-string`                         | VP-2  | `ATTESTATION_INVALID`                         |
 
 `payload-changed-after-claim` is the case the profile exists for: the amount raised after the
 claim, the executor's signature valid over the changed body, the authority's attestation valid
 over the original parameters, and the two digests disagreeing at the provider.
+`state-version-changed-refused` is its counterpart for the target: the parameters are exactly the
+ones decided, but someone else wrote to the record between the grant and the commit, so the
+provider reads another version and effects nothing.
 
 The receipt vectors:
 

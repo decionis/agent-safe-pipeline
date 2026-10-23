@@ -2,9 +2,11 @@
 // plugin server, that runs the Verifying Provider Profile on every request
 // bound for the system of record behind a route: it answers 409 with the
 // profile's refusal body when the profile refuses, and lets the request
-// through unchanged when it accepts. The route this guards is a verifying
-// provider only when the system of record admits nothing but Kong
-// (docs/authority/verifying-provider.md, section 1).
+// through when it accepts, changed in one header only: the attestation's
+// expected_state_version, handed on to the system of record verbatim in
+// x-agent-safe-expected-state-version, and any the client sent removed. The
+// route this guards is a verifying provider only when the system of record
+// admits nothing but Kong (docs/authority/verifying-provider.md, section 1).
 //
 // With a receipt key configured, the plugin also signs the profile's effect
 // receipt (VP-3) in its response phase, from what the system of record
@@ -66,6 +68,9 @@ const (
 	effectReferenceHeader = "x-agent-safe-effect-reference"
 	effectDigestHeader    = "x-agent-safe-effect-digest"
 	effectedAtHeader      = "x-agent-safe-effected-at"
+	// The header the access phase hands the attested version on in, for the
+	// system of record to hold its write to.
+	expectedStateVersionHeader = "x-agent-safe-expected-state-version"
 	// What the access phase leaves for the response phase: the attestation
 	// it accepted and the idempotency key, as JSON, under this shared key.
 	acceptedContextKey = "verifying-provider.accepted"
@@ -241,12 +246,20 @@ func (conf *Config) Access(kong *pdk.PDK) {
 	method, _ := kong.Request.GetMethod()
 	path, _ := kong.Request.GetPath()
 	request := verifier.Request{Method: method, Path: path, Body: body, Headers: headers}
-	verdict := verifier.Verify(request, conf.options())
+	// The plugin cannot read the target, so it states none: step 9 is the
+	// system of record's, at its write, with the version handed on below.
+	verdict := verifier.Verify(request, conf.options(), nil)
 	if verdict.ReasonCode == verifier.AttestationInvalid && conf.authority.refreshOnce() {
-		verdict = verifier.Verify(request, conf.options())
+		verdict = verifier.Verify(request, conf.options(), nil)
 	}
 	grant := headers["x-agent-safe-grant-id"]
 	if verdict.Accepted {
+		// A request that cannot carry the version it is held to does not go on.
+		if err := handOnStateVersion(kong, verdict); err != nil {
+			_ = kong.Log.Err(fmt.Sprintf(`{"event":"STATE_VERSION_NOT_HANDED_ON","grant_id":%q,"error":%q}`, grant, err.Error()))
+			refuse(kong, http.StatusServiceUnavailable, "STATE_VERSION_NOT_HANDED_ON")
+			return
+		}
 		_ = kong.Log.Info(fmt.Sprintf(`{"event":"PROVIDER_ACCEPTED","method":%q,"path":%q,"grant_id":%q}`, method, path, grant))
 		// A receipt answers an attested dispatch and nothing else: a read
 		// verified at VP-1 alone leaves nothing for the response phase.
@@ -258,6 +271,18 @@ func (conf *Config) Access(kong *pdk.PDK) {
 	}
 	_ = kong.Log.Notice(fmt.Sprintf(`{"event":"PROVIDER_REFUSED","reason_code":%q,"method":%q,"path":%q,"grant_id":%q}`, verdict.ReasonCode, method, path, grant))
 	refuse(kong, http.StatusConflict, verdict.ReasonCode)
+}
+
+// The version the system of record holds its write to: the attested one, or
+// no header at all, so a client cannot state one of its own.
+func handOnStateVersion(kong *pdk.PDK, verdict verifier.Verdict) error {
+	if err := kong.ServiceRequest.ClearHeader(expectedStateVersionHeader); err != nil {
+		return err
+	}
+	if verdict.Attestation == nil || verdict.Attestation.Binding.ExpectedStateVersion == nil {
+		return nil
+	}
+	return kong.ServiceRequest.SetHeader(expectedStateVersionHeader, *verdict.Attestation.Binding.ExpectedStateVersion)
 }
 
 // Response signs the effect receipt (VP-3) once the upstream has answered a
