@@ -71,7 +71,9 @@ the origin and the code); a gateway's upstream that refused its handshake (`UPST
 apart from `EGRESS_REFUSED`, since the upstream's TLS is its owner's to fix); a hosted upstream's
 proof gone, its tenant's traffic stopped for want of it, and the proof served again
 (`UPSTREAM_PROOF_MISSING`, `UPSTREAM_UNVERIFIED`, `UPSTREAM_PROOF_RESTORED`, each with the origin); the listener's TLS context replaced; the executor stopped or started
-taking work (`HALTED`, `RESUMED`, each with the trigger and the reason); a ceiling that refused a
+taking work (`HALTED`, `RESUMED`, each with the trigger and the reason, and
+`UNKNOWN_ATTEMPTS_OVERRIDDEN`, with the count and the operator's reason, when a resume went ahead
+over attempts whose outcome nobody knew); a ceiling that refused a
 proposal (`HARD_LIMIT_REFUSED`); a clock too far from the authority's (`CLOCK_SKEW_EXCEEDED`); a
 journal record that could not be written (`JOURNAL_WRITE_FAILED`); an attempt the last process
 left open and how it was resolved (`OPEN_ATTEMPT_FOUND_AT_STARTUP`, `OPEN_ATTEMPT_RESOLVED`); and

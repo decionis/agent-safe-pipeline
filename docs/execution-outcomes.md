@@ -244,6 +244,42 @@ plane says the rest:
 
 `agent-safe.audit/1` lines are unchanged by any of this.
 
+### What the authority does with it
+
+The hosted authority reads the same finalization and opens an **assumption breach** when it
+contradicts the grant: the executor's own observation names an effect other than the expected one
+(`EFFECT_MISMATCH`), or the provider's receipt verifies and says it effected something else,
+effected what the executor reports `FAILED`, or refused what it reports `COMMITTED`
+(`EFFECT_RECEIPT_CONTRADICTION`). The finalization's answer carries it as `assumption_breach`
+(`breach_id`, `trigger`, `created`) and is otherwise unchanged; nothing in this package needs to read
+it.
+
+The breach holds one scope: that action type at that target (the downstream system, its environment
+and the action's resource). While it is open, policy sees it as `history.assumption_breach` and the
+starter policy escalates: the next proposal in the scope becomes `ESCALATE`, and a grant issued in the
+scope before the contradiction fails its claim with `POLICY_STATE_CHANGED`. Other actions and other
+targets go on as before. It clears only through a governed policy release or an independent recovery
+review that cites the breach and every piece of its evidence. The breach is a fact policy reads, never
+a material signal, so it adds no claim concurrency scope.
+
+So two holds stand beside each other. The local halt (`EXECUTOR_ON_EFFECT_MISMATCH=HALT`, the
+default) stops this one executor, whatever it would do next; the authority's breach sends that action
+at that target to a person, for every executor of the organisation. The halt stays the default
+backstop: it needs no policy and no network, and it still holds when the authority cannot be reached.
+`ALERT`, with a hosted policy that reads the breach, narrows the stop to the scope that failed.
+
+### The gateway opens no breach of its own
+
+The gateway path (`agentsafe gateway`) forwards a call and relays the answer. It has no effect plane:
+its grants bind no expected effect, it reads nothing back and it sends no effect evidence, so nothing
+it observes can contradict a grant, and **it opens no assumption breach from its own observation**.
+The one breach a gateway attempt can open comes from the upstream: a verifying provider's receipt
+rides on the attempt, and when it verifies and contradicts the outcome the gateway reports (a 2xx
+whose receipt says `REFUSED`, or a refusal whose receipt says `EFFECTED`), the authority opens one.
+In front of an upstream that signs no receipts, the gateway opens none. Actions whose outcome must be
+able to hold their scope belong on an adapter family with an effect plane: banking, cards, or an
+`EffectAdapter` of your own.
+
 ## A refusal after dispatch
 
 When the provider was reached and refused deterministically, the adapter registers what it
