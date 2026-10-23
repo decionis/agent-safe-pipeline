@@ -3,6 +3,34 @@
 Releases of `@decionis/agent-safe-pipeline` (the library) and `@decionis/agentsafe` (the runtime).
 Each entry names what an adopter can rely on and what they must do, if anything.
 
+## Library (unreleased): held allowances in the local authority
+
+Decionis is adding allowances it holds itself: named counters for an organisation that a policy
+rule draws on, reserved with the grant, converted at the claim and settled by the outcome. A draw
+that does not fit is refused as `BLOCK` with `ALLOWANCE_EXHAUSTED`, `ALLOWANCE_UNDEFINED` or
+`ALLOWANCE_AMOUNT_INVALID`, and no grant is issued. The loopback authority models it, so the race
+for the last unit of a limit nobody publishes, or publishes late, can be tested offline.
+
+**Nothing to do**: a `LocalAuthority` built as before draws on no allowance. No production code path
+changed, and a client reads the refusal as any other `BLOCK`.
+
+- **`LocalAuthority`** (`@decionis/agent-safe-pipeline/testing`): the `allowanceDraws` option names
+  what an approval draws on, `setAllowance(key, limit)` defines an allowance or tops it up, and
+  `allowanceUsage(key)` reports what it has reserved, held, consumed and left.
+  [docs/local-testing.md](docs/local-testing.md#held-allowances) says what it models and what it
+  does not.
+- **`HardLimits`** stays the host's backstop. Its documentation and
+  [the card guide](docs/banking/card-authorization.md#card-limits-and-the-hosted-allowance) say where
+  a limit that must hold across replicas belongs, and why card holds do not move onto an allowance
+  yet.
+- **`examples/changed-conditions-demo`**: the case the Changed Conditions Test reported open, an
+  allowance published after the commit instead of with it, is refused now. The authority holds the
+  canary allowance too, so a second rollout is refused with `ALLOWANCE_EXHAUSTED` while the first's
+  grant holds the last unit and again inside the window before the late publication, and it
+  completes after a top-up. The run has no `OPEN:` line:
+  `PROVEN: 21 changed-condition attempts, 0 stale commits; 15 legitimate counterparts completed,
+each exactly once.`
+
 ## Library (unreleased): governed plans
 
 One change carried out as several governed steps: `agent-safe.plan/1`, and the step stamp an

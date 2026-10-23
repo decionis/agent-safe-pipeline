@@ -43,7 +43,8 @@ pnpm --filter @decionis/agent-safe-example-changed-conditions demo
 ```
 
 A deploy agent's canary rollout meets a configuration changed at the path it read, a canary group
-that grew past the ceiling, a second rollout racing for the last unit of the allowance, a change
+that grew past the ceiling, a second rollout racing for the last unit of the allowance (and the same
+race when the allowance is published after the commit instead of with it), a change
 approval withdrawn while the rollout was queued, and a policy release between its grant and its
 claim. A network agent's firewall rule meets the invariant that no administrative port of a
 production security group opens to every address, at the decision and again at the commit, when
@@ -55,8 +56,7 @@ the deploy API's own record, and are never sent twice. The run exits 0 only if n
 conditions reached the target and every counterpart reached it exactly once:
 
 ```text
-PROVEN: 19 changed-condition attempts, 0 stale commits; 13 legitimate counterparts completed, each exactly once.
-OPEN: 1 case the boundary does not close today: with the allowance published after the commit instead of with it, 2 rollouts committed against an allowance of 1. That window, and any limit nobody publishes as a signal, need a reservation the authority takes with the grant.
+PROVEN: 21 changed-condition attempts, 0 stale commits; 15 legitimate counterparts completed, each exactly once.
 ```
 
 [`examples/changed-conditions-demo`](../examples/changed-conditions-demo) has the case table.
@@ -78,11 +78,11 @@ The corpus does not take any component's word for what happened. The recording t
 deploy and network API, and it records every request that reaches it. Each attempt is judged by
 whether anything arrived while it ran; each counterpart by whether exactly one request arrived
 under the identity it was proposed with; and at the end, every request the target ever received has
-to belong to a counterpart's identity or to the open case. The results are counts: attempts and how
+to belong to a counterpart's identity. The results are counts: attempts and how
 many reached the target, counterparts and how many reached it exactly once, requests no step
 accounts for. They are structural, so they are reported as counts and never as a rate.
 
-## The open case
+## A shared limit and its window
 
 Two rollouts racing for the last unit of an allowance are refused when the allowance is a material
 signal published with each commit. The signal is the claim's concurrency scope, held while a claim
@@ -90,12 +90,24 @@ is open or its outcome unknown, so the second rollout waits (`AUTHORIZATION_SCOP
 first commits, the next claim reads the new version (`SIGNAL_VERSION_STALE`), and a top-up lets the
 second proceed. That is the corpus's third case.
 
-What stays open is narrower. When the system of record publishes the consumed allowance after the
-commit rather than with it, a claim inside that window reads the old value, and for it nothing has
-changed yet: both rollouts commit. A limit nobody publishes as a signal is not seen at all. Closing
-either takes the authority reserving the limit with the grant and settling the reservation at the
-commit, which is not built. The corpus asserts today's result for the window and reports it as open,
-so the day it changes, the case has to be moved rather than quietly passing.
+The signal alone leaves a window. When the system of record publishes the consumed allowance after
+the commit rather than with it, a claim inside that window reads the old value, and for it nothing
+has changed yet: both rollouts would commit. A limit nobody publishes as a signal is not seen at all.
+
+The twelfth case closes the window with a held allowance: the authority holds the allowance itself.
+The rule that approves a canary draws one unit on it. The draw is reserved with the grant, kept by
+the commit, released by a failure, and never a concurrency scope. With one unit left, the second
+rollout is refused at the decision while the first's grant holds that unit: `BLOCK`, with
+`ALLOWANCE_EXHAUSTED`. It is refused again inside the window, after the first commit and while the
+published signal still reads 1, because the authority counted the commit when it happened. A top-up
+then lets it proceed. Without the held allowance, those two attempts reach the target and the run
+reports 2 stale commits.
+
+In the loopback double the held allowance is `LocalAuthority`'s `allowanceDraws` option
+([local testing](./local-testing.md#held-allowances)). Hosted, the same contract is Decionis's held
+allowance at `/v1/authority/allowances`: a policy rule draws on it in `then.allowance`, and a draw
+that does not fit is refused before any grant exists. A deployment whose limits draw on no held
+allowance keeps the window described above.
 
 ## What each proves, and what it does not
 
@@ -124,7 +136,7 @@ conformance to any other specification.
 ## Reproduce, cite, correct
 
 - The corpus runs on every pull request (`pnpm examples:prove`). Name the release tag or commit
-  when you cite a run; the corpus grows, and the open case moves when it closes.
+  when you cite a run; the corpus grows.
 - Archived releases are citable under the Zenodo concept DOI
   [`10.5281/zenodo.22312955`](https://doi.org/10.5281/zenodo.22312955).
 - A run that does not do what this page says is a bug here, not a property of your system:

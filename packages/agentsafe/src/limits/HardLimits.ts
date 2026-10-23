@@ -38,6 +38,15 @@ const ALLOWED = { allowed: true } as const;
  * The window is process memory: a restart forgets it, and two replicas each
  * keep their own. That is stated rather than hidden, and it is why these are
  * a backstop against a policy mistake, not a treasury control.
+ *
+ * A limit that must hold across replicas, executors and restarts belongs to
+ * the authority instead, as a held allowance (`/v1/authority/allowances` in
+ * the hosted contract). The approving rule draws on it, the draw is
+ * reserved with the grant, converted at the claim and settled by the
+ * outcome, and a draw that does not fit is refused as `BLOCK`
+ * (`ALLOWANCE_EXHAUSTED`) before any grant exists. These ceilings stay the
+ * host's backstop beside it: an allowance never widens them, and they do not
+ * count what an allowance counts.
  */
 /** One committed action's place in the window: when, and what it moved. */
 interface WindowEntry {
