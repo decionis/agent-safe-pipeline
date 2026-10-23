@@ -55,7 +55,8 @@ const POLL_SECONDS = 5;
  *
  * Resuming is an operator's act with a reason, and it is refused while the
  * cause still stands: the halt file still there, a posture drift still
- * standing. A process that starts with the halt file present starts halted.
+ * standing, an attempt whose outcome nobody knows. A process that starts
+ * with the halt file present starts halted.
  *
  * A spike threshold is reachable from the agent zone by design: a
  * compromised caller that floods the door with bad credentials stops the
@@ -168,15 +169,38 @@ export class HaltSwitch {
    * Lets work through again, on an operator's word and with a reason. It is
    * refused while the cause stands: the code says which cause, so the
    * operator fixes that rather than retrying.
+   *
+   * It is refused too while `unknownAttempts` (the count
+   * `GET /v1/control/open-attempts` reports) is above zero
+   * (`UNKNOWN_ATTEMPTS_OPEN`): the next proposal would be made against a state
+   * nobody has reconciled. An operator who has resolved them against the
+   * provider's own records, which this process cannot see, gives `override`,
+   * a reason of their own, which is recorded beside the resume.
    */
-  public resume(reason: string): { readonly resumed: boolean; readonly code: string | null } {
+  public resume(
+    reason: string,
+    unknownAttempts = 0,
+    override: string | null = null,
+  ): { readonly resumed: boolean; readonly code: string | null } {
     if (!this.state.halted) return { resumed: false, code: "NOT_HALTED" };
     if (this.haltFilePresent()) return { resumed: false, code: "HALT_CAUSE_PERSISTS" };
     if (this.options.posture?.degraded === true) {
       return { resumed: false, code: "HALT_CAUSE_PERSISTS" };
     }
+    // An override only means something while there is something to override.
+    const overridden = unknownAttempts > 0 ? override : null;
+    if (unknownAttempts > 0 && overridden === null) {
+      return { resumed: false, code: "UNKNOWN_ATTEMPTS_OPEN" };
+    }
     const from = this.state.trigger;
     this.state = { halted: false, trigger: null, reason: null, since: null };
+    if (overridden !== null) {
+      this.options.events.emit({
+        event: "UNKNOWN_ATTEMPTS_OVERRIDDEN",
+        unknown: unknownAttempts,
+        reason: overridden.slice(0, 200),
+      });
+    }
     this.options.events.emit({
       event: "RESUMED",
       // Stryker disable next-line StringLiteral: a halted switch always has a trigger; the fallback satisfies the type.

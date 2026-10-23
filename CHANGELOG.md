@@ -3,6 +3,27 @@
 Releases of `@decionis/agent-safe-pipeline` (the library) and `@decionis/agentsafe` (the runtime).
 Each entry names what an adopter can rely on and what they must do, if anything.
 
+## Runtime (unreleased): an observed contradiction holds its scope
+
+The hosted authority now opens an **assumption breach** when a finalization contradicts its grant,
+and holds that action at that target until a governed release cites it
+([execution outcomes](docs/execution-outcomes.md#what-the-authority-does-with-it)).
+
+**Nothing to do**: the runtime already sends what the authority needs, the executor's observation
+with the digest it observed and the provider's receipt, and the local halt on `EFFECT_MISMATCH`
+stays the default.
+
+- `POST /v1/control/resume` is also refused with `UNKNOWN_ATTEMPTS_OPEN` while
+  `GET /v1/control/open-attempts` reports an attempt whose outcome is unknown. An operator who has
+  resolved them against the provider's records resumes with `override_unknown_attempts`, a reason of
+  their own, recorded as `UNKNOWN_ATTEMPTS_OVERRIDDEN`. `HaltSwitch.resume` takes the count and the
+  override as optional arguments.
+- `LocalAuthority` models the breach: `assumption_breach` on a finalization, `ESCALATE` with
+  `ASSUMPTION_BREACH_OPEN` in a held scope, `POLICY_STATE_CHANGED` at the claim of a grant issued
+  before it, and `assumptionBreaches.clear(citations)` for the release that clears it.
+- The gateway has no effect plane and opens no breach from its own observation; only a verifying
+  upstream's receipt that contradicts its outcome can.
+
 ## Library (unreleased): held allowances in the local authority
 
 Decionis is adding allowances it holds itself: named counters for an organisation that a policy

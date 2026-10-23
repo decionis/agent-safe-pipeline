@@ -89,6 +89,11 @@ export const SecurityEventSchema = z.discriminatedUnion("event", [
   z.strictObject({ event: z.literal("CHAIN_CHECKPOINT"), chain: name, head: sequence }),
   z.strictObject({ event: z.literal("HALTED"), trigger: code, reason: reason }),
   z.strictObject({ event: z.literal("RESUMED"), trigger: code, reason: reason }),
+  z.strictObject({
+    event: z.literal("UNKNOWN_ATTEMPTS_OVERRIDDEN"),
+    unknown: z.number().int().min(1),
+    reason: reason,
+  }),
   z.strictObject({ event: z.literal("HARD_LIMIT_REFUSED"), code, currency: currency.nullable() }),
   z.strictObject({ event: z.literal("CLOCK_SKEW_EXCEEDED"), skew_ms: z.number().int() }),
   z.strictObject({ event: z.literal("JOURNAL_WRITE_FAILED"), record: code }),
