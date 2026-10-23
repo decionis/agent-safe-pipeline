@@ -12,6 +12,13 @@
  * create a request bound to the exact intent hash, wait for the ceremony,
  * verify the receipt, re-evaluate policy, then expose a normal grant.
  *
+ * A claim re-derives authority from current state before it consumes
+ * anything, as the hosted revalidator does: a policy released since the grant
+ * fails `POLICY_VERSION_STALE`, a material signal published since the grant
+ * fails `SIGNAL_VERSION_STALE`, and a concurrency scope another open claim
+ * holds fails `AUTHORIZATION_SCOPE_BUSY` (or `CURRENT_STATE_UNRESOLVED` while
+ * that claim's outcome is unknown). None of them burns the grant.
+ *
  * Grants, claims, escalations, and commit outcomes are synthetic in-memory
  * state. Nothing here is a real policy, tenant, or credential.
  */
@@ -307,14 +314,16 @@ interface Computed {
   readonly body: unknown;
 }
 
-/** Verdict for an intent evaluated without evidence; evidence handling stays generic. */
 /**
- * What a policy hook sees: the request, and the facts of every signed signal
- * it carried, verified, under `signed_signals` by name, as the hosted
- * authority writes them under `agent_safe.signed_signals`.
+ * What a policy hook sees: the request; the facts of every signed signal it
+ * carried, verified, under `signed_signals` by name, as the hosted authority
+ * writes them under `agent_safe.signed_signals`; and the current value of
+ * every published material signal the request names, under
+ * `material_signals` by id, as the hosted policy reads them.
  */
 export type LocalAuthorityPolicyInput = LocalAuthorityRequest & {
   readonly signed_signals?: Readonly<Record<string, SignedSignalFacts>>;
+  readonly material_signals?: Readonly<Record<string, unknown>>;
 };
 export type LocalAuthorityPolicy = (request: LocalAuthorityPolicyInput) => Verdict;
 
@@ -358,6 +367,12 @@ export interface LocalGrantRecord {
   readonly expectedEffectDigest: string | null;
   /** Present for direct grants issued on client-supplied evidence; null for managed grants. */
   readonly receiptDossierId: string | null;
+  /** The policy release the grant was decided under. */
+  readonly policyVersion: string;
+  /** The material signals the decision rested on, at the versions it read them. */
+  readonly materialSignals: readonly LocalMaterialSignal[];
+  /** The concurrency scopes a claim of this grant holds until its outcome is known. */
+  readonly scopes: readonly string[];
   claimed: boolean;
   claimToken: string | null;
   correlationId: string | null;
@@ -365,6 +380,17 @@ export interface LocalGrantRecord {
   finalized: "COMMITTED" | "FAILED" | "INDETERMINATE" | null;
   /** The provider's effect receipt as this authority read it at finalization, when one came. */
   receipt: LocalEffectReceiptRecord | null;
+}
+
+/**
+ * A material signal as the authority last ingested it, in the shape of the
+ * hosted `MaterialSignalReference`. Every ingestion is a new version here.
+ */
+export interface LocalMaterialSignal {
+  readonly signal_id: string;
+  readonly version: string;
+  readonly observed_at: string;
+  readonly value_digest: string;
 }
 
 /** The verdict codes the hosted authority records for a receipt, and this double with it. */
@@ -445,6 +471,33 @@ export interface LocalAuthorityOptions {
    * naming any other id confirms nothing.
    */
   readonly trustedEffectObserverIds?: readonly string[];
+  /**
+   * The material signals a request's decision rests on, by id, as a hosted
+   * policy names them. Their current values reach the policy hook under
+   * `material_signals`; the versions are bound into the grant, and a claim
+   * made after any of them was published again fails `SIGNAL_VERSION_STALE`.
+   * Each one is also a concurrency scope, as the hosted claim store derives
+   * them. Hosted, a grant that binds none holds its execution target as its
+   * scope; here it holds no scope at all.
+   */
+  readonly materialSignals?: (request: LocalAuthorityRequest) => readonly string[];
+  /**
+   * Further API keys, each bound to the one organisation it was issued for,
+   * as every hosted key is. A request a bound key authenticates must name
+   * that organisation, or enforce-and-bind answers 403
+   * `AUTHORITY_TENANT_MISMATCH` and a claim 403 `TENANT_MISMATCH`, so a grant
+   * cannot be carried into another organisation. `apiKey` stays unbound.
+   */
+  readonly tenantKeys?: Readonly<Record<string, string>>;
+  /**
+   * Mint each execution token in the hosted shape, a compact JWT whose `jti`
+   * is the grant's UUID (unsigned here), so a client addresses the grant's
+   * own resources, `/v1/authority/grants/{grantId}/…`, as it does in
+   * production: the reconciliations resource has no legacy alias and is
+   * reachable no other way. Off by default, which keeps the opaque tokens
+   * and the legacy verb routes earlier tests were written against.
+   */
+  readonly addressableGrants?: boolean;
   readonly clock?: () => number;
   /**
    * Attach a verification envelope to every decision, as the hosted
@@ -550,7 +603,17 @@ export class LocalAuthority {
   private readonly presence: LocalPresence | undefined;
   private readonly legacyVerifyReceipt: LocalAuthorityOptions["verifyReceipt"];
   private readonly verifyAttestation: LocalAuthorityOptions["verifyAttestation"];
-  private readonly policy: LocalAuthorityPolicy;
+  private policy: LocalAuthorityPolicy;
+  /** How many policy releases are active or behind; the first is `synthetic-policy-v1`. */
+  private policyReleases = 1;
+  /** Every material signal ingested, by id: the reference and the value it carries. */
+  private readonly signals = new Map<
+    string,
+    { readonly reference: LocalMaterialSignal; readonly value: unknown }
+  >();
+  private readonly materialSignalsOf: (request: LocalAuthorityRequest) => readonly string[];
+  private readonly tenantKeys: Readonly<Record<string, string>>;
+  private readonly addressableGrants: boolean;
   private readonly managedApproverId: string;
   private readonly trustedEffectObserverIds: readonly string[];
   private readonly clock: () => number;
@@ -595,6 +658,9 @@ export class LocalAuthority {
     this.legacyVerifyReceipt = options.verifyReceipt;
     this.verifyAttestation = options.verifyAttestation;
     this.policy = options.policy ?? defaultPolicy;
+    this.materialSignalsOf = options.materialSignals ?? (() => []);
+    this.tenantKeys = options.tenantKeys ?? {};
+    this.addressableGrants = options.addressableGrants === true;
     this.managedApproverId = options.managedApproverId ?? "synthetic-managed-approver";
     this.trustedEffectObserverIds = options.trustedEffectObserverIds ?? [];
     this.clock = options.clock ?? Date.now;
@@ -686,6 +752,59 @@ export class LocalAuthority {
       label: input.label ?? null,
       purpose: input.purpose ?? "effect_receipt",
     });
+  }
+
+  /** The policy release decisions are made under now, as `policy_version` names it. */
+  public get policyVersion(): string {
+    return `synthetic-policy-v${this.policyReleases}`;
+  }
+
+  /**
+   * Activates the next policy release, with a new policy hook or the same
+   * one: the governance authority's own act, which no API key can perform
+   * here or hosted. Every grant decided under an earlier release then fails
+   * at claim with `POLICY_VERSION_STALE`, and a new decision is made under
+   * this one. Returns the release now active.
+   */
+  public releasePolicy(policy?: LocalAuthorityPolicy): string {
+    if (policy !== undefined) this.policy = policy;
+    this.policyReleases += 1;
+    return this.policyVersion;
+  }
+
+  /**
+   * Ingests a material signal's current value, as the hosted
+   * `POST /v1/protocol/signals/envelopes` does for a system of record. Each
+   * call is a new version, so a grant that read an earlier one fails at
+   * claim with `SIGNAL_VERSION_STALE`.
+   */
+  public publishSignal(signalId: string, value: unknown): LocalMaterialSignal {
+    const reference: LocalMaterialSignal = {
+      signal_id: signalId,
+      version: String(Number(this.signals.get(signalId)?.reference.version ?? 0) + 1),
+      observed_at: new Date(this.clock()).toISOString(),
+      value_digest: hashBinding(value),
+    };
+    this.signals.set(signalId, { reference, value });
+    return reference;
+  }
+
+  /** The published material signals a request names, in id order. */
+  private materialSignalsFor(request: LocalAuthorityRequest): {
+    readonly references: readonly LocalMaterialSignal[];
+    readonly values: Readonly<Record<string, unknown>>;
+  } {
+    const ids = [...new Set(this.materialSignalsOf(request))].sort();
+    const published = ids.flatMap((id) => {
+      const signal = this.signals.get(id);
+      return signal === undefined ? [] : [signal];
+    });
+    return {
+      references: published.map((signal) => signal.reference),
+      values: Object.fromEntries(
+        published.map((signal) => [signal.reference.signal_id, signal.value]),
+      ),
+    };
   }
 
   /** The key a signed signal's `kid` names, when it was registered to sign signals. */
@@ -911,7 +1030,14 @@ export class LocalAuthority {
         next: {},
       });
     }
-    if (req.headers.authorization !== `Bearer ${this.apiKey}`) {
+    // The policy lifecycle takes an account session, never an API key, as the
+    // hosted contract says: no key, an agent's or an executor's or this
+    // double's own, can propose, accept or release a policy. This double
+    // holds no account sessions at all; `releasePolicy` is the only way in.
+    if (url.pathname === "/v1/policies" || url.pathname.startsWith("/v1/policies/")) {
+      return this.send(res, record, 401, { error: "ACCOUNT_SESSION_REQUIRED" });
+    }
+    if (req.headers.authorization !== `Bearer ${this.apiKey}` && this.tenantOf(record) === null) {
       return this.send(res, record, 401, { error: "UNAUTHORIZED" });
     }
     const dossierLookup = url.pathname.match(/^\/v1\/protocol\/dossiers\/([^/]+)$/);
@@ -970,6 +1096,14 @@ export class LocalAuthority {
       default:
         return this.send(res, record, 404, { error: "NOT_FOUND" });
     }
+  }
+
+  /** The organisation a request's key is bound to, or null for the unbound `apiKey` or no key. */
+  private tenantOf(record: LocalAuthorityRequestRecord): string | null {
+    const presented = record.headers.authorization?.match(/^Bearer (.+)$/)?.[1];
+    return presented !== undefined && Object.hasOwn(this.tenantKeys, presented)
+      ? (this.tenantKeys[presented] ?? null)
+      : null;
   }
 
   /** A grant resource addressed by an id that is not the presented token's grant: refused, as hosted. */
@@ -1045,6 +1179,10 @@ export class LocalAuthority {
     const parsed = AuthorityRequestSchema.safeParse(record.body);
     if (!parsed.success) return { status: 400, body: { error: "REQUEST_INVALID" } };
     const request = parsed.data;
+    const tenant = this.tenantOf(record);
+    if (tenant !== null && tenant !== request.tenant_id) {
+      return { status: 403, body: { error: "AUTHORITY_TENANT_MISMATCH" } };
+    }
     if (record.headers["idempotency-key"] !== request.intent_id) {
       return { status: 400, body: { error: "IDEMPOTENCY_KEY_MISMATCH" } };
     }
@@ -1146,9 +1284,7 @@ export class LocalAuthority {
     if ("refused" in signed) {
       return { status: "BLOCK", reasonCode: signed.refused, approval: null, error: signed.refused };
     }
-    const verdict = this.policy(
-      signed.facts === undefined ? request : { ...request, signed_signals: signed.facts },
-    );
+    const verdict = this.policy(this.policyInput(request, signed.facts));
     if (verdict === "BLOCK") {
       return { status: "BLOCK", reasonCode: "POLICY_HARD_LIMIT_EXCEEDED", approval: null };
     }
@@ -1187,6 +1323,19 @@ export class LocalAuthority {
     return { status: "ALLOW", reasonCode: "PRESENCE_RECEIPT_VERIFIED", approval: humanApproval };
   }
 
+  /** The request as the policy hook reads it, with the signals that reach it. */
+  private policyInput(
+    request: LocalAuthorityRequest,
+    signedFacts: Readonly<Record<string, SignedSignalFacts>> | undefined,
+  ): LocalAuthorityPolicyInput {
+    const material = this.materialSignalsFor(request).values;
+    return {
+      ...request,
+      ...(signedFacts === undefined ? {} : { signed_signals: signedFacts }),
+      ...(Object.keys(material).length === 0 ? {} : { material_signals: material }),
+    };
+  }
+
   private verifyEvidence(
     approval: { readonly requestId: string; readonly receiptDossierId: string },
     request: LocalAuthorityRequest,
@@ -1217,7 +1366,7 @@ export class LocalAuthority {
       should_execute: false,
       reason_codes: [...reasonCodes],
       action_hash: request.intent_hash,
-      policy_version: "synthetic-policy-v1",
+      policy_version: this.policyVersion,
       mode: request.mode,
       execution_token: null,
       execution_token_expires_at: null,
@@ -1258,9 +1407,19 @@ export class LocalAuthority {
       Math.floor((this.clock() + GRANT_TTL_MS) / 1_000),
       Math.floor(Date.parse(request.expires_at) / 1_000),
     );
-    const jti = `synthetic-jti-${randomUUID()}`;
-    const token = `synthetic-grant.${jti}`;
+    const jti = this.addressableGrants ? randomUUID() : `synthetic-jti-${randomUUID()}`;
+    const encode = (value: unknown): string =>
+      Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
+    const token = this.addressableGrants
+      ? `${encode({ alg: "none", typ: "synthetic-grant" })}.${encode({ jti, org_id: request.tenant_id })}.unsigned`
+      : `synthetic-grant.${jti}`;
     const bindingDigest = `sha256:${createHash("sha256").update(request.intent_hash).digest("hex")}`;
+    const materialSignals = this.materialSignalsFor(request).references;
+    // The hosted claim store's conflict domains, one per material signal the
+    // grant binds. Hosted, a grant that binds none holds its execution target
+    // instead; this double does not, so that flows written before it modelled
+    // scopes, such as two open card claims on one card, keep their behaviour.
+    const scopes = materialSignals.map((signal) => `signal:${signal.signal_id}`);
     this.grants.set(token, {
       jti,
       tenantId: request.tenant_id,
@@ -1277,6 +1436,9 @@ export class LocalAuthority {
       payloadDigest: hashBinding(request.action.parameters),
       expectedEffectDigest: request.expected_effect_digest ?? null,
       receiptDossierId: approval?.receiptDossierId ?? null,
+      policyVersion: this.policyVersion,
+      materialSignals,
+      scopes,
       claimed: false,
       claimToken: null,
       receipt: null,
@@ -1522,9 +1684,7 @@ export class LocalAuthority {
     // PRESENCE_VERIFIED and REAUTHORIZING are passed through within one lookup, as Decionis does.
     const signed = this.signedSignalsOf(managed.request);
     const reevaluated = this.policy(
-      "refused" in signed || signed.facts === undefined
-        ? managed.request
-        : { ...managed.request, signed_signals: signed.facts },
+      this.policyInput(managed.request, "refused" in signed ? undefined : signed.facts),
     );
     if (reevaluated === "BLOCK") return done("BLOCKED", ["REAUTHORIZATION_BLOCKED"]);
     return done("GRANT_READY", ["PRESENCE_RECEIPT_VERIFIED"]);
@@ -1558,6 +1718,9 @@ export class LocalAuthority {
       status,
       body: { valid: false, reason_codes: [reasonCode], claims: null },
     });
+    const tenant = this.tenantOf(record);
+    if (tenant !== null && tenant !== intent.data.tenant_id)
+      return rejected("TENANT_MISMATCH", 403);
     const bindingError = this.assertBinding(
       { ...intent.data, intent_hash: parsed.data.intent_hash },
       record,
@@ -1581,7 +1744,31 @@ export class LocalAuthority {
     ) {
       return rejected("PRESENCE_APPROVAL_STALE");
     }
+    // Authority is re-derived from current state before anything is claimed,
+    // in the hosted order, so a stale grant never burns its nonce: the policy
+    // release first, then every material signal the decision read.
+    if (grant.policyVersion !== this.policyVersion) return rejected("POLICY_VERSION_STALE");
+    if (
+      grant.materialSignals.some(
+        (bound) => this.signals.get(bound.signal_id)?.reference.version !== bound.version,
+      )
+    ) {
+      return rejected("SIGNAL_VERSION_STALE");
+    }
     if (grant.claimed) return rejected("NONCE_REPLAY_DETECTED");
+    // A scope is held from the claim until the outcome is known: a commit or
+    // a failure releases it, an INDETERMINATE keeps it until reconciled.
+    const holders = [...this.grants.values()].filter(
+      (other) =>
+        other.claimed &&
+        other.tenantId === grant.tenantId &&
+        (other.finalized === null || other.finalized === "INDETERMINATE") &&
+        other.scopes.some((scope) => grant.scopes.includes(scope)),
+    );
+    if (holders.some((other) => other.finalized === "INDETERMINATE")) {
+      return rejected("CURRENT_STATE_UNRESOLVED");
+    }
+    if (holders.length > 0) return rejected("AUTHORIZATION_SCOPE_BUSY");
 
     grant.claimed = true;
     grant.claimToken = randomBytes(32).toString("base64url");

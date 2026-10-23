@@ -52,6 +52,7 @@ export {
   type LocalAuthorityRequestRecord,
   type LocalGrantRecord,
   type LocalManagedEscalationRecord,
+  type LocalMaterialSignal,
   type LocalRouteOverride,
 } from "./LocalAuthority.js";
 export {
