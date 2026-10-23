@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ExecutorConfigLoader } from "../../src/config/ExecutorConfig.js";
 import { forwardRequestHandlers } from "../../src/handlers/ForwardRequestHandler.js";
 import type { HandlerRegistration } from "../../src/handlers/HandlerRegistration.js";
+import type { Principal } from "../../src/identity/PrincipalRegistry.js";
 import { HaltSwitch } from "../../src/incident/HaltSwitch.js";
 import { FileExecutionJournal } from "../../src/journal/FileExecutionJournal.js";
 import { InMemoryExecutionJournal } from "../../src/journal/InMemoryExecutionJournal.js";
@@ -21,6 +22,18 @@ import { ProviderDouble } from "../support/ProviderDouble.js";
 
 const authority = new LocalAuthority();
 const provider = new ProviderDouble();
+
+/** On-call: an operator holding `resume` and `status`, and nothing else. */
+const operator = {
+  id: "synthetic-on-call",
+  role: "OPERATOR",
+  tenantId: null,
+  actor: null,
+  allowedActions: new Set(),
+  scopes: new Set(["resume", "status"]),
+  credential: { kind: "BEARER", tokenDigest: Buffer.alloc(32) },
+  rateLimit: null,
+} as unknown as Principal;
 const root = mkdtempSync(join(tmpdir(), "agentsafe-service-attempts-"));
 
 beforeAll(async () => {
@@ -326,6 +339,57 @@ describe("the halt", () => {
     expect(observed).toMatchObject({ mode: "SHADOW", executed: false });
     shadow.service.close();
     service.close();
+  });
+
+  it("will not resume while an attempt's outcome is unknown, unless the operator says why with a reason", async () => {
+    // A dispatch whose answer was lost, left open in the journal for the next process.
+    const first = build();
+    provider.loseNext();
+    expect((await first.service.propose(proposal(33_00).body)).outcome).toBe(
+      "UNKNOWN_AFTER_DISPATCH",
+    );
+    first.service.close();
+    // The next process cannot look it up, so the outcome stays unknown.
+    const restarted = build({
+      journal: first.journal,
+      env: { DOWNSTREAM_LOOKUP_URL: undefined },
+    });
+    expect((await restarted.service.recover()).unknown).toBe(1);
+    expect(restarted.service.openAttempts(operator).unknown).toBe(1);
+    restarted.halt.halt("EFFECT_MISMATCH", "the provider's receipt contradicts the observation");
+    const refused = (() => {
+      try {
+        restarted.service.resumeWork({ reason: "the mismatch was investigated" }, operator);
+      } catch (error) {
+        return error as ServiceError;
+      }
+      throw new Error("the resume was not refused");
+    })();
+    expect(refused).toMatchObject({ status: 409, code: "UNKNOWN_ATTEMPTS_OPEN" });
+    expect(restarted.halt.halted).toBe(true);
+    expect(() =>
+      restarted.service.resumeWork(
+        { reason: "the mismatch was investigated", override_unknown_attempts: "" },
+        operator,
+      ),
+    ).toThrow(expect.objectContaining({ status: 400, code: "REQUEST_INVALID" }));
+    const resumed = restarted.service.resumeWork(
+      {
+        reason: "the mismatch was investigated",
+        override_unknown_attempts: "payout 33-00 found settled in the provider ledger, INC-77",
+      },
+      operator,
+    );
+    expect(resumed.halted).toBe(false);
+    expect(events(restarted.securityLines).slice(-2)).toEqual([
+      expect.objectContaining({
+        event: "UNKNOWN_ATTEMPTS_OVERRIDDEN",
+        unknown: 1,
+        reason: "payout 33-00 found settled in the provider ledger, INC-77",
+      }),
+      expect.objectContaining({ event: "RESUMED", trigger: "EFFECT_MISMATCH" }),
+    ]);
+    restarted.service.close();
   });
 
   it("halts on a spike of refusals at the door, and on a posture drift, without anyone wiring it up", async () => {

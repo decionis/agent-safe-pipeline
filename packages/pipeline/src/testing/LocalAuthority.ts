@@ -28,6 +28,7 @@ import {
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { z } from "zod";
 import { readBody, type LocalPresence } from "./LocalPresence.js";
+import { LocalAssumptionBreaches } from "./LocalAssumptionBreaches.js";
 import {
   verifySignedSignals,
   type SignedSignalFacts,
@@ -567,6 +568,13 @@ export class LocalAuthority {
    * says the executor must refuse.
    */
   public misbindNextPayloadDigest = false;
+  /**
+   * The hosted assumption breaches: a finalization whose receipt or
+   * observation contradicts its grant holds the grant's scope, and
+   * `assumptionBreaches.clear(citations)` is the governed release or
+   * recovery review that cites it.
+   */
+  public readonly assumptionBreaches = new LocalAssumptionBreaches();
   private readonly overrides: Record<LocalAuthorityRoute, LocalRouteOverride[]> = {
     enforce: [],
     status: [],
@@ -1051,7 +1059,7 @@ export class LocalAuthority {
     const bindingError = this.assertBinding(request, record);
     if (bindingError !== null) return { status: 400, body: { error: bindingError } };
 
-    const evaluation = this.evaluate(request);
+    const evaluation = this.heldByBreach(request, this.evaluate(request));
     if (evaluation.error !== undefined) return { status: 409, body: { error: evaluation.error } };
 
     this.decisions += 1;
@@ -1062,10 +1070,29 @@ export class LocalAuthority {
     if (evaluation.status !== "ALLOW" || request.mode !== "ENFORCEMENT") {
       return { status: 200, body: this.remember(request, decision) };
     }
-    return {
-      status: 200,
-      body: this.remember(request, this.grantDecision(request, decision, evaluation.approval)),
-    };
+    const granted = this.grantDecision(request, decision, evaluation.approval);
+    this.assumptionBreaches.granted(
+      String(granted.execution_token),
+      LocalAssumptionBreaches.scopeOf(request),
+      evaluation.reasonCode === "POLICY_AUTONOMOUS_LIMIT",
+    );
+    return { status: 200, body: this.remember(request, granted) };
+  }
+
+  /**
+   * The starter policy's assumption-breach rule: an ALLOW the policy gave on
+   * its own becomes ESCALATE while a breach holds the scope. A person's
+   * approval is that person's decision, and stands.
+   */
+  private heldByBreach(
+    request: LocalAuthorityRequest,
+    evaluation: ReturnType<LocalAuthority["evaluate"]>,
+  ): ReturnType<LocalAuthority["evaluate"]> {
+    if (evaluation.reasonCode !== "POLICY_AUTONOMOUS_LIMIT") return evaluation;
+    if (this.assumptionBreaches.openIn(LocalAssumptionBreaches.scopeOf(request)).length === 0) {
+      return evaluation;
+    }
+    return { status: "ESCALATE", reasonCode: "ASSUMPTION_BREACH_OPEN", approval: null };
   }
 
   /** Keeps a minted decision for its dossier route, with the envelope when links are on. */
@@ -1568,6 +1595,11 @@ export class LocalAuthority {
     if (grant === undefined) return rejected("GRANT_INVALID");
     if (grant.expiresAt * 1_000 <= this.clock()) return rejected("GRANT_EXPIRED");
     if (grant.intentHash !== parsed.data.intent_hash) return rejected("GRANT_BINDING_MISMATCH");
+    // A breach opened since the grant was issued: the hosted claim's policy
+    // re-run no longer approves it, before anything is claimed.
+    if (this.assumptionBreaches.holdsClaim(parsed.data.execution_token)) {
+      return rejected("POLICY_STATE_CHANGED");
+    }
     // Unreachable while the commitment stays inside the intent hash — a
     // divergence is already an `INTENT_HASH_MISMATCH` from the independent
     // re-hash above. Kept because the hosted route checks the committed value
@@ -1730,6 +1762,16 @@ export class LocalAuthority {
     }
     grant.finalized = parsed.data.outcome;
     grant.receipt = receipt;
+    const assumptionBreach = this.assumptionBreaches.finalized({
+      token: parsed.data.execution_token,
+      grantJti: grant.jti,
+      dossierId: grant.dossierId,
+      outcome: parsed.data.outcome,
+      expectedEffectDigest: grant.expectedEffectDigest,
+      observedEffectDigest: evidence?.observed_effect_digest ?? null,
+      evidenceDigest: evidence?.evidence_digest ?? null,
+      receipt,
+    });
     // Byte-for-byte the hosted success body: the commit's own decision-chain
     // evidence is queued, not yet recorded, so a successful finalization still
     // carries `COMMIT_EVIDENCE_PENDING`.
@@ -1753,6 +1795,7 @@ export class LocalAuthority {
                 recorded: true,
               },
             }),
+        ...(assumptionBreach === null ? {} : { assumption_breach: assumptionBreach }),
         reason_codes: ["COMMIT_EVIDENCE_PENDING"],
       },
     };

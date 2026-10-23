@@ -55,6 +55,13 @@ export {
   type LocalRouteOverride,
 } from "./LocalAuthority.js";
 export {
+  LocalAssumptionBreaches,
+  type LocalAssumptionBreach,
+  type LocalAssumptionBreachCitation,
+  type LocalAssumptionBreachScope,
+  type LocalAssumptionBreachTrigger,
+} from "./LocalAssumptionBreaches.js";
+export {
   SIGNED_SIGNAL_MAX_LIFETIME_SECONDS,
   SIGNED_SIGNAL_REFUSAL_CODES,
   SIGNED_SIGNAL_TYPE,

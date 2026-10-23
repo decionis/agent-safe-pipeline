@@ -840,13 +840,21 @@ export class TrustedExecutorService {
     return this.haltSwitch.halt("OPERATOR", parsed.data.reason);
   }
 
-  /** Lets work through again; refused while the cause of the halt still stands. */
+  /**
+   * Lets work through again; refused while the cause of the halt still
+   * stands, and while `GET /v1/control/open-attempts` lists an attempt whose
+   * outcome is unknown, unless the operator overrides that with a reason.
+   */
   public resumeWork(input: unknown, caller?: Principal): HaltState {
     const operator = this.operator(caller, "resume");
     const parsed = ResumeRequestSchema.safeParse(input);
     if (!parsed.success) throw new ServiceError(400, "REQUEST_INVALID");
     this.events.emit({ event: "OPERATOR_ACTION", principal: operator.id, action: "resume" });
-    const resumed = this.haltSwitch.resume(parsed.data.reason);
+    const resumed = this.haltSwitch.resume(
+      parsed.data.reason,
+      this.openAttemptsUnknown(),
+      parsed.data.override_unknown_attempts ?? null,
+    );
     if (!resumed.resumed) throw new ServiceError(409, resumed.code ?? "NOT_HALTED");
     return this.haltSwitch.current;
   }
@@ -858,7 +866,12 @@ export class TrustedExecutorService {
   } {
     const operator = this.operator(caller, "status");
     this.events.emit({ event: "OPERATOR_ACTION", principal: operator.id, action: "status" });
-    return { attempts: this.recovery?.attempts ?? [], unknown: this.recovery?.unknown ?? 0 };
+    return { attempts: this.recovery?.attempts ?? [], unknown: this.openAttemptsUnknown() };
+  }
+
+  /** The unknown count `open-attempts` reports, which the resume gate reads too. */
+  private openAttemptsUnknown(): number {
+    return this.recovery?.unknown ?? 0;
   }
 
   /** Re-reads every secret file now, on an operator's word; the report names files, never values. */
