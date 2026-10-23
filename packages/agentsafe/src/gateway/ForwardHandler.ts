@@ -37,6 +37,12 @@ export const HttpFactsParametersSchema = z.strictObject({
 /** Either shape; a facts-only one is told apart by its `operation`. */
 export type HttpParameters = HttpActionParameters | HttpFactsParameters;
 
+/** What the registry admits an HTTP action's parameters against: either shape, nothing else. */
+export const HttpParametersSchema = z.union([
+  HttpActionParametersSchema,
+  HttpFactsParametersSchema,
+]) as z.ZodType<HttpParameters>;
+
 /** What the handler leaves behind for the relay, whichever way the attempt ended. */
 export interface ForwardOutcome {
   readonly response: UpstreamResult | null;
@@ -106,10 +112,7 @@ export function httpForwardHandler(
   digestKey: Uint8Array,
 ): ActionHandler<HttpParameters, UpstreamResult> {
   return {
-    parametersSchema: z.union([
-      HttpActionParametersSchema,
-      HttpFactsParametersSchema,
-    ]) as z.ZodType<HttpParameters>,
+    parametersSchema: HttpParametersSchema,
     execute: async ({ intent, parameters, authorization, dispatch }) => {
       const held = holder.get(intent.intent.intentId);
       if (held === undefined) throw new Error("REQUEST_NOT_HELD");

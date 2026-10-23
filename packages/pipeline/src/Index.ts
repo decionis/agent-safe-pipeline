@@ -54,6 +54,7 @@ export * from "./intent/TargetPrecondition.js";
 export * from "./intent/IntentBindingSchema.js";
 export * from "./intent/IntentCapture.js";
 export * from "./intent/JsonValue.js";
+export * from "./manifest/ActionManifest.js";
 export * from "./plan/GovernedPlan.js";
 export { PlanStepReferenceSchema, type PlanStepReference } from "./plan/PlanStepReference.js";
 export * from "./plan/PlanState.js";

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { ArgumentError, optionPort, optionValue, parseArguments } from "../../src/cli/Arguments.js";
+import {
+  ArgumentError,
+  optionPort,
+  optionValue,
+  optionValues,
+  parseArguments,
+} from "../../src/cli/Arguments.js";
 
 const spec = { valued: ["upstream", "port"], flags: ["verbose"] };
 
@@ -23,6 +29,14 @@ describe("the argument parser", () => {
     expect(parsed.positionals).toEqual(["chain", "--not-an-option"]);
     expect(optionValue(parsed, "verbose")).toBeUndefined();
     expect(optionPort(parsed, "missing")).toBeUndefined();
+  });
+
+  it("keeps every value of an option given more than once, in order, and the last as its value", () => {
+    const parsed = parseArguments(["--upstream", "a", "--upstream=b", "--port", "1"], spec);
+    expect(optionValues(parsed, "upstream")).toEqual(["a", "b"]);
+    expect(optionValue(parsed, "upstream")).toBe("b");
+    expect(optionValues(parsed, "port")).toEqual(["1"]);
+    expect(optionValues(parsed, "verbose")).toEqual([]);
   });
 
   it("refuses unknown options, a valued option without a value, a flag with one, and a port that is not one", () => {

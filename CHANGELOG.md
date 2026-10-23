@@ -3,6 +3,25 @@
 Releases of `@decionis/agent-safe-pipeline` (the library) and `@decionis/agentsafe` (the runtime).
 Each entry names what an adopter can rely on and what they must do, if anything.
 
+## Runtime (unreleased): the action space as a document
+
+`agentsafe actions manifest` writes the actions this build can run as one `agent-safe.actions/1`
+document, for a policy release to be held to: Decionis refuses a release that leaves a manifest
+action matched by no rule but its default.
+
+**Nothing to do**: the command reads only what it is told to, and nothing else changes.
+
+- Sources: `--family forward|banking|cards` (a family's own registration, so the schemas are the
+  ones admission uses), `--api <profile id>` (a shipped API profile's writes) and `--mcp <file>` (an
+  MCP tool profile), each repeatable. Each entry states its action, source, parameters JSON Schema,
+  target scope templates and effect type; `--digest` prints the digest a signed release manifest
+  records as `actionManifestDigest`.
+- The library exports `ActionManifest` (`fromRegistry`, `fromApiProfile`, `fromMcpProfile`,
+  `document`, `digest`), so an adopter with handlers of their own describes their registry the
+  same way, and `ActionRegistry.describe()`, which lists a sealed registry's actions with the
+  schemas they are admitted against.
+- [CLI reference](docs/reference/cli.md#agentsafe-actions-manifest).
+
 ## Library and runtime (unreleased): the target's state version
 
 A write can now be held to the state of the target it was decided against: someone else's write to
