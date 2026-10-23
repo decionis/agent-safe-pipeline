@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  RESERVED_CONTEXT_AGENT_SAFE,
   RESERVED_CONTEXT_BOUNDARY,
   RESERVED_CONTEXT_WORKLOAD,
   boundaryOf,
@@ -122,7 +123,12 @@ describe("signals on a captured intent", () => {
 
   it("refuses a caller that writes a reserved key by hand", () => {
     const capture = new IntentCapture({ ttlSeconds: 120 });
-    for (const key of [RESERVED_CONTEXT_BOUNDARY, RESERVED_CONTEXT_WORKLOAD, "idempotency_key"]) {
+    for (const key of [
+      RESERVED_CONTEXT_BOUNDARY,
+      RESERVED_CONTEXT_WORKLOAD,
+      RESERVED_CONTEXT_AGENT_SAFE,
+      "idempotency_key",
+    ]) {
       expect(() =>
         capture.capture(
           { action: "payment.send", target: "core:payment:1", parameters: {} },

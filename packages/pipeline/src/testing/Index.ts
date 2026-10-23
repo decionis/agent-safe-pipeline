@@ -40,6 +40,8 @@ export {
   LOCAL_AUTHORITY_JWKS_PATH,
   hashBinding,
   stableStringify,
+  type LocalAllowanceDraw,
+  type LocalAllowanceUsage,
   type LocalAuthorityOptions,
   type LocalClaimAttestationClaims,
   type LocalEffectReceiptCode,
@@ -52,8 +54,10 @@ export {
   type LocalAuthorityRequestRecord,
   type LocalGrantRecord,
   type LocalManagedEscalationRecord,
+  type LocalMaterialSignal,
   type LocalRouteOverride,
 } from "./LocalAuthority.js";
+export { LocalPlans } from "./LocalPlans.js";
 export {
   LocalAssumptionBreaches,
   type LocalAssumptionBreach,

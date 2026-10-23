@@ -47,6 +47,7 @@ COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY packages/agentsafe/package.json ./packages/agentsafe/
 COPY packages/pipeline/package.json ./packages/pipeline/
 COPY examples/basic-agent/package.json ./examples/basic-agent/
+COPY examples/changed-conditions-demo/package.json ./examples/changed-conditions-demo/
 COPY examples/crm-outreach-demo/package.json ./examples/crm-outreach-demo/
 COPY examples/github-deploy-agent/package.json ./examples/github-deploy-agent/
 COPY examples/golden-adversarial-demo/package.json ./examples/golden-adversarial-demo/
@@ -57,6 +58,7 @@ COPY examples/presence-live-approval/package.json ./examples/presence-live-appro
 COPY examples/presence-managed-approval/package.json ./examples/presence-managed-approval/
 COPY examples/procurement-agent/package.json ./examples/procurement-agent/
 COPY examples/shopify-refund-agent/package.json ./examples/shopify-refund-agent/
+COPY examples/staged-change-demo/package.json ./examples/staged-change-demo/
 COPY examples/trusted-executor/package.json ./examples/trusted-executor/
 COPY examples/whisper-boundary-demo/package.json ./examples/whisper-boundary-demo/
 COPY tests/integration/contract/package.json ./tests/integration/contract/

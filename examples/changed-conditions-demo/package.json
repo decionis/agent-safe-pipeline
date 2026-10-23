@@ -1,0 +1,18 @@
+{
+  "name": "@decionis/agent-safe-example-changed-conditions",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The Changed Conditions Test: an honest agent's queued work meets a world that changed, and an independent observer counts what reached the target.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "build": "node ../../scripts/CleanBuildOutput.mjs && tsc -p tsconfig.json",
+    "demo": "pnpm --filter @decionis/agent-safe-pipeline build && pnpm --filter @decionis/agentsafe build && pnpm build && node dist/Index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@decionis/agent-safe-pipeline": "workspace:*",
+    "@decionis/agentsafe": "workspace:*",
+    "zod": "^4.5.4"
+  }
+}

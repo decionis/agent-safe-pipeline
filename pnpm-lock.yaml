@@ -84,6 +84,18 @@ importers:
         specifier: ^4.5.4
         version: 4.5.4
 
+  examples/changed-conditions-demo:
+    dependencies:
+      '@decionis/agent-safe-pipeline':
+        specifier: workspace:*
+        version: link:../../packages/pipeline
+      '@decionis/agentsafe':
+        specifier: workspace:*
+        version: link:../../packages/agentsafe
+      zod:
+        specifier: ^4.5.4
+        version: 4.5.4
+
   examples/crm-outreach-demo:
     dependencies:
       '@decionis/agent-safe-pipeline':
@@ -185,6 +197,12 @@ importers:
       zod:
         specifier: ^4.5.4
         version: 4.5.4
+
+  examples/staged-change-demo:
+    dependencies:
+      '@decionis/agent-safe-pipeline':
+        specifier: workspace:*
+        version: link:../../packages/pipeline
 
   examples/trusted-executor:
     dependencies:

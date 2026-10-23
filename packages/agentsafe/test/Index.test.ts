@@ -158,6 +158,7 @@ describe("public surface", () => {
       "RESPONSE_HEADERS",
       "ROUTES",
       "RateLimiter",
+      "RecordingTarget",
       "ReconciliationRequestSchema",
       "Redactor",
       "RequestContext",

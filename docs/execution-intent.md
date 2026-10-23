@@ -77,6 +77,22 @@ A deployment whose authority predates the field issues no grant for an intent th
 action is blocked, never mis-authorized. Because the field is opt-in and absent by default, no
 existing caller is affected.
 
+## The plan step
+
+`plan` is an optional trusted-context input: `{plan_id, plan_digest, step_id}`, the step of an
+`agent-safe.plan/1` governed plan this intent is ([ADR 0008](./architecture/decisions/0008-governed-plans.md)).
+The runtime states it only after `matchPlanStep` accepted the proposal as that step: the step's action,
+a target inside its scope, and every parameter the step pins. `IntentCapture` writes it into the hashed
+context as `agent_safe.plan`. `agent_safe` is reserved, like `idempotency_key`, so a caller-supplied
+context key of that name is refused (`INTENT_CONTEXT_KEY_RESERVED`), and the agent proposal cannot
+reach `context` at all.
+
+The reference says which step the intent claims to be, and nothing more. Whether the step is
+admissible is the authority's to derive, from the registered plan and its own finalization records:
+predecessors committed with a confirmed effect, the plan's state, and what a failure left admissible.
+Registering a plan authorizes no step; each step is decided, granted, claimed and finalized like any
+other intent. An intent that states no plan carries no `agent_safe` key and hashes as it did before.
+
 ## What the binding covers, and the Compromised Principal Test
 
 The hash is over the whole binding, so authority is bound to the exact action and never to the
