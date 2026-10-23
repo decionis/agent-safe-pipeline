@@ -356,6 +356,32 @@ describe("IntentCapture", () => {
     });
   });
 
+  it("stamps a governed plan's step into the hashed context, and only the runtime may", () => {
+    const step = {
+      plan_id: "chg-1042",
+      plan_digest: `sha256:${"a".repeat(64)}`,
+      step_id: "drain",
+    };
+    const proposal = { action: "traffic.drain", target: "lb:prod-eu/web", parameters: {} };
+    const unplanned = capture(proposal);
+    const planned = capture(proposal, { ...trusted(), plan: step });
+    expect(planned.intent.context).toEqual({ source: "test", agent_safe: { plan: step } });
+    expect(JSON.parse(planned.canonicalIntent).context.agent_safe).toEqual({ plan: step });
+    // Another step is another intent, and no step is no key at all.
+    expect(
+      capture(proposal, { ...trusted(), plan: { ...step, step_id: "deploy" } }).intentHash,
+    ).not.toBe(planned.intentHash);
+    expect(planned.intentHash).not.toBe(unplanned.intentHash);
+    expect("agent_safe" in unplanned.intent.context).toBe(false);
+    // The namespace is the runtime's and the authority's, never the caller's.
+    expect(() =>
+      capture(proposal, { ...trusted(), context: { agent_safe: { plan: step } } }),
+    ).toThrow("INTENT_CONTEXT_KEY_RESERVED");
+    expect(() =>
+      capture(proposal, { ...trusted(), plan: { ...step, step_id: "Drain Now" } }),
+    ).toThrow();
+  });
+
   it("rejects agent-supplied authorization fields", () => {
     expect(() =>
       capture({

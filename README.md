@@ -529,7 +529,8 @@ Which examples do what: `basic-agent`, `shopify-refund-agent`, `github-deploy-ag
 their adversarial attempts locally by design and end with the golden proposal evaluated by
 Decionis; `trusted-executor` runs the executor process once more in shadow against Decionis; the
 two Presence examples need an owned organization with an enrolled approver, and say so when given
-a provisional workspace.
+a provisional workspace; `staged-change-demo` runs against the loopback authority only, because a
+hosted plan step needs its plan registered with Decionis first.
 
 #### How it is wired
 
@@ -628,6 +629,7 @@ Companion notes on the Execution Authority model, the authorization protocol, Pr
 - [`examples/whisper-boundary-demo`](./examples/whisper-boundary-demo) — the same proof for a shopping agent: merchant-text steering, a cross-session credential lookup, a cart changed after signing, constraints lost in context compaction, and principal loss across a delegation hop — six attacks, zero unauthorized effects.
 - [`examples/crm-outreach-demo`](./examples/crm-outreach-demo) — the same proof for a sales-development agent: who can approve a CRM update or an outbound message, a recipient changed after approval, an off-template message, an opted-out contact, an expired approval, and a provider response lost after dispatch that is reconciled once and never re-sent — six attacks, zero unauthorized effects.
 - [`examples/infra-scale-demo`](./examples/infra-scale-demo) — the Compromised Principal Test: an infrastructure agent whose identity, credential and API are all valid proposes a `deployment.scale` it is not authorised for — 960 replicas, another service, another cluster, a post-authorization mutation, a swapped approval, a replayed grant, a direct call to the cluster — seven attacks, zero unauthorized effects.
+- [`examples/staged-change-demo`](./examples/staged-change-demo) — one production change as a governed plan: open, drain, deploy, re-enable, each step decided and granted on its own with plan facts the authority derives from its finalization records; a deploy refused before the drain commits, a re-enable escalated after a failed deploy, a rollback under its own grant, and the plan ending `PARTIAL`.
 - [`examples/basic-agent`](./examples/basic-agent) — the smallest BLOCK flow.
 - [`examples/shopify-refund-agent`](./examples/shopify-refund-agent) — amount-based ALLOW / ESCALATE / BLOCK.
 - [`examples/github-deploy-agent`](./examples/github-deploy-agent) — environment and force-push controls.

@@ -3,6 +3,29 @@
 Releases of `@decionis/agent-safe-pipeline` (the library) and `@decionis/agentsafe` (the runtime).
 Each entry names what an adopter can rely on and what they must do, if anything.
 
+## Library (unreleased): governed plans
+
+One change carried out as several governed steps: `agent-safe.plan/1`, and the step stamp an
+executor binds into each step's intent ([ADR 0008](docs/architecture/decisions/0008-governed-plans.md)).
+
+**Nothing to do** to keep things as they are: an intent that states no plan carries no `agent_safe`
+key and hashes as before. A trusted context that already wrote `agent_safe` by hand is now refused
+with `INTENT_CONTEXT_KEY_RESERVED`; nothing in this repository wrote it.
+
+- `GovernedPlanSchema` and `planDigest` (steps, `ordered` / `all_or_escalate` / `independent`
+  edges, a partial-commit rule and compensation steps); `matchPlanStep` refuses a proposal outside
+  its step before anything is captured.
+- **`TrustedIntentContext.plan`** (optional): `{plan_id, plan_digest, step_id}`, stamped by
+  `IntentCapture` as `context.agent_safe.plan`. `agent_safe` joins the reserved context keys.
+- `derivePlanStepFacts`, `planStepStatuses` and `planState`: the reference derivation of a step's
+  plan facts from finalization records, which Decionis mirrors, and the per-step signal its claim
+  revalidates. A plan step's grant is the authority's to issue: registering a plan authorizes
+  nothing.
+- `LocalPlans` (testing): a plan registry beside `LocalAuthority`, deriving facts from its claims
+  and finalizations for a policy hook. It does not re-derive them at the claim.
+- `examples/staged-change-demo`, in `pnpm examples:prove`. The SCITT mapping gains
+  `partially_completed` for a `PARTIAL` plan.
+
 ## Runtime (unreleased): MCP tools as data
 
 An MCP server's consequential tools can be declared in a file instead of TypeScript:

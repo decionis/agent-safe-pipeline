@@ -31,11 +31,18 @@ const token = z
 
 export const RESERVED_CONTEXT_BOUNDARY = "enforcement_boundary";
 export const RESERVED_CONTEXT_WORKLOAD = "workload";
+/**
+ * The namespace the authority rebuilds for itself on every evaluation (the
+ * verified approval, signed signals, plan facts). The runtime writes one
+ * entry into it, `plan`, the step of a governed plan an intent is.
+ */
+export const RESERVED_CONTEXT_AGENT_SAFE = "agent_safe";
 
 /** Every reserved context key, so one refusal covers them all. */
 export const RESERVED_CONTEXT_KEYS = [
   RESERVED_CONTEXT_BOUNDARY,
   RESERVED_CONTEXT_WORKLOAD,
+  RESERVED_CONTEXT_AGENT_SAFE,
 ] as const;
 
 /**

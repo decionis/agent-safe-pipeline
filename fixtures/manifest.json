@@ -387,6 +387,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "examples/staged-change-demo/src/Index.ts",
+      "family": "Runnable example",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "examples/trusted-executor/src/Handlers.ts",
       "family": "Runnable example",
       "source": "synthetic",
@@ -1780,6 +1786,24 @@
     },
     {
       "path": "packages/pipeline/test/performance/IntentCapturePerformance.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/pipeline/test/plan/GovernedPlan.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/pipeline/test/plan/PlanState.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/pipeline/test/plan/StagedChangePlan.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false
