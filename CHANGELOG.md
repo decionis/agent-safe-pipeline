@@ -26,6 +26,32 @@ with `INTENT_CONTEXT_KEY_RESERVED`; nothing in this repository wrote it.
 - `examples/staged-change-demo`, in `pnpm examples:prove`. The SCITT mapping gains
   `partially_completed` for a `PARTIAL` plan.
 
+## Library and runtime (unreleased): the Changed Conditions Test
+
+The loopback authority re-derives authority at the claim as hosted Decionis does, and a new
+self-checking corpus shows changed conditions refused while legitimate work completes.
+
+**Nothing to do**: a `LocalAuthority` built as before decides, claims and finalizes as before. No
+production code path changed.
+
+- **`LocalAuthority`** (`@decionis/agent-safe-pipeline/testing`): `releasePolicy()` activates the
+  next policy release, and a grant decided under an earlier one fails at claim with
+  `POLICY_VERSION_STALE`; `publishSignal()` ingests a material signal, the `materialSignals` option
+  names the ones a request rests on, their values reach the policy hook as `material_signals`, and a
+  grant whose signal was published again fails `SIGNAL_VERSION_STALE`. Each signal is a concurrency
+  scope: a claim fails `AUTHORIZATION_SCOPE_BUSY` while another holds it and
+  `CURRENT_STATE_UNRESOLVED` behind an `INDETERMINATE` one until it is reconciled. None of these
+  consumes the grant. `tenantKeys` binds keys to one organisation (403 `AUTHORITY_TENANT_MISMATCH`,
+  `TENANT_MISMATCH`); `/v1/policies` answers 401 `ACCOUNT_SESSION_REQUIRED` to any key;
+  `addressableGrants` mints hosted-shaped tokens so a client reaches the reconciliations resource.
+- **`RecordingTarget`** is exported from `@decionis/agentsafe`: the loopback target behind
+  `agentsafe test`, for a corpus that counts what reached the target.
+- **`examples/changed-conditions-demo`**, in `pnpm examples:prove`: nineteen attempts on changed
+  conditions, none of which reaches the target, thirteen legitimate counterparts that each reach it
+  exactly once, and one case reported open: an allowance published after the commit instead of with
+  it. The race for its last unit is refused when it is published with each commit.
+  [docs/changed-conditions-test.md](docs/changed-conditions-test.md) is the page.
+
 ## Runtime (unreleased): MCP tools as data
 
 An MCP server's consequential tools can be declared in a file instead of TypeScript:

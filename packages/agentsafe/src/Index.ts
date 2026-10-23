@@ -296,6 +296,7 @@ export type {
   HandlerRegistrationContext,
 } from "./handlers/HandlerRegistration.js";
 export { ExecutorHttpServer, type ExecutorHttpServerOptions } from "./http/ExecutorHttpServer.js";
+export { RecordingTarget } from "./http/RecordingTarget.js";
 export {
   LEGACY_CALLER_PRINCIPAL,
   RequestContext,
