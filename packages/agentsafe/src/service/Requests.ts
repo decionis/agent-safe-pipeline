@@ -69,7 +69,15 @@ export const HaltRequestSchema = z.strictObject({
   reason: z.string().trim().min(1).max(200),
 });
 
-export const ResumeRequestSchema = HaltRequestSchema;
+/**
+ * A resume's reason, and, only when attempts whose outcome nobody knows are
+ * still open, the operator's own reason for resuming over them: what they
+ * resolved them against, which this process cannot see.
+ */
+export const ResumeRequestSchema = z.strictObject({
+  reason: z.string().trim().min(1).max(200),
+  override_unknown_attempts: z.string().trim().min(1).max(200).optional(),
+});
 
 export type HaltRequest = z.infer<typeof HaltRequestSchema>;
 

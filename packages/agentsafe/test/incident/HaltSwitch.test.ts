@@ -412,6 +412,39 @@ describe("HaltSwitch", () => {
     expect(halt.current).toMatchObject({ halted: true, trigger: "AUTH_FAILURE_SPIKE" });
   });
 
+  it("will not resume over an attempt whose outcome is unknown, unless the operator gives a reason", () => {
+    const { halt, lines } = build();
+    halt.halt("EFFECT_MISMATCH", "the provider's receipt contradicts the observation");
+    expect(halt.resume("investigated", 2)).toEqual({
+      resumed: false,
+      code: "UNKNOWN_ATTEMPTS_OPEN",
+    });
+    expect(halt.halted).toBe(true);
+    expect(events(lines).map((event) => event["event"])).toEqual(["HALTED"]);
+    expect(halt.resume("investigated", 2, "o".repeat(400))).toEqual({ resumed: true, code: null });
+    expect(events(lines).slice(1)).toEqual([
+      expect.objectContaining({
+        event: "UNKNOWN_ATTEMPTS_OVERRIDDEN",
+        unknown: 2,
+        reason: "o".repeat(200),
+      }),
+      expect.objectContaining({ event: "RESUMED", trigger: "EFFECT_MISMATCH" }),
+    ]);
+    // With nothing unknown there is nothing to override, and nothing is recorded as one.
+    const cleanLines: string[] = [];
+    const stream = collectedEvents(cleanLines);
+    const clean = build({ events: stream });
+    clean.halt.halt("OPERATOR", "stopping");
+    expect(clean.halt.resume("resolved", 0, "not needed").resumed).toBe(true);
+    expect(events(cleanLines).map((event) => event["event"])).toEqual(["HALTED", "RESUMED"]);
+    // Not even attempted: an override of nothing is not an event the stream had to refuse.
+    expect(stream.dropped).toBe(0);
+    // A cause that still stands is named before the attempts are.
+    const drifting = build({ posture: { degraded: true } });
+    drifting.halt.halt("POSTURE_DRIFT", "check PROXY_ENV");
+    expect(drifting.halt.resume("try", 1).code).toBe("HALT_CAUSE_PERSISTS");
+  });
+
   it("bounds the words an operator gives it, on the way in and on the way out", () => {
     const { halt, lines } = build();
     halt.halt("OPERATOR", "h".repeat(400));

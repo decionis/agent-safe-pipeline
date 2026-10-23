@@ -1,7 +1,7 @@
 import { generateKeyPairSync } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import { LOCAL_AUTHORITY_ISSUER, LocalAuthority } from "@decionis/agent-safe-pipeline/testing";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { bankingHandlers } from "../../src/adapters/banking/BankingHandlers.js";
 import { BankingAdapter } from "../../src/adapters/banking/BankingAdapter.js";
 import type { BankingAction } from "../../src/adapters/banking/BankingAction.js";
@@ -29,6 +29,22 @@ afterAll(async () => {
   await provider.stop();
   await authority.stop();
 });
+
+// A mismatch opens an assumption breach at the authority, which holds the
+// banking scope every case here shares; each case starts after the governed
+// release that cites it, as an institution's would.
+afterEach(() => {
+  authority.assumptionBreaches.clear(
+    authority.assumptionBreaches.all
+      .filter((breach) => breach.status === "OPEN")
+      .map((breach) => ({ breachId: breach.breachId, evidenceIds: breach.evidenceIds })),
+  );
+});
+
+/** The authority's answer to the latest finalization. */
+const lastFinalization = (): Record<string, unknown> =>
+  (authority.requests.filter((request) => request.path.includes("finalize")).at(-1)?.response
+    ?.body ?? {}) as Record<string, unknown>;
 
 const prepareOnly = new BankingAdapter({
   id: "synthetic-core-banking",
@@ -222,6 +238,18 @@ describe("a BEAP action through the whole boundary", () => {
     const mismatch = events(securityLines).find((line) => line["event"] === "EFFECT_MISMATCH");
     expect(mismatch).toMatchObject({ fields: ["amount"] });
     expect(halt.current).toMatchObject({ halted: true, trigger: "EFFECT_MISMATCH" });
+    // The authority heard the observation, with the digest that was observed,
+    // and holds the action's scope; the local halt is the backstop beside it.
+    expect(lastFinalization()).toMatchObject({
+      finalized: true,
+      effect_evidence_recorded: true,
+      effect_confirmation: "UNCONFIRMED",
+      assumption_breach: { trigger: "EFFECT_MISMATCH", created: true },
+    });
+    expect(authority.assumptionBreaches.all.at(-1)?.scope).toMatchObject({
+      system: "synthetic_core",
+      environment: "local",
+    });
     // The next proposal is refused by the halt, with no authority request.
     const requests = authority.requests.length;
     const refused = await refusal(service.propose(beapProposal().body));
@@ -325,6 +353,11 @@ describe("a BEAP action through the whole boundary", () => {
     );
     expect(mismatch).toMatchObject({ receipt_status: "EFFECTED" });
     expect(halt.current).toMatchObject({ halted: true, trigger: "EFFECT_MISMATCH" });
+    // The receipt reached the authority, verified, and its contradiction opened the breach.
+    expect(lastFinalization()).toMatchObject({
+      effect_receipt: { verified: true },
+      assumption_breach: { trigger: "EFFECT_RECEIPT_CONTRADICTION", created: true },
+    });
     service.close();
   });
 
