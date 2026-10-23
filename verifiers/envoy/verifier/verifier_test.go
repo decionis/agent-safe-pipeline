@@ -7,6 +7,7 @@ import (
 	"encoding/pem"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -23,10 +24,35 @@ type vectorRequest struct {
 	Path    string            `json:"path"`
 	Headers map[string]string `json:"headers"`
 	Body    *string           `json:"body"`
-	Expect  struct {
+	// The provider's own read of the target, for step 9: absent for none,
+	// null when it no longer exists.
+	TargetVersion json.RawMessage `json:"target_version"`
+	Expect        struct {
 		Outcome    string `json:"outcome"`
 		ReasonCode string `json:"reason_code"`
+		// The version the attestation names, handed back on an acceptance or
+		// a step 9 refusal.
+		ExpectedStateVersion *string `json:"expected_state_version"`
 	} `json:"expect"`
+}
+
+func (request vectorRequest) received() Request {
+	var body []byte
+	if request.Body != nil {
+		body = []byte(*request.Body)
+	}
+	return Request{Method: request.Method, Path: request.Path, Body: body, Headers: request.Headers}
+}
+
+func (request vectorRequest) target(t *testing.T) *Target {
+	if request.TargetVersion == nil {
+		return nil
+	}
+	var version *string
+	if err := json.Unmarshal(request.TargetVersion, &version); err != nil {
+		t.Fatal(err)
+	}
+	return &Target{Version: version}
 }
 
 type vector struct {
@@ -88,6 +114,56 @@ func executorKey(t *testing.T, key vectorKey) ExecutorKey {
 	}
 }
 
+func readVector(t *testing.T, file string) vector {
+	raw, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var v vector
+	if err := json.Unmarshal(raw, &v); err != nil {
+		t.Fatalf("%s: %v", file, err)
+	}
+	return v
+}
+
+// A provider at the vector's instant, with the vector's keys and a replay
+// store of its own.
+func optionsFor(t *testing.T, v vector) Options {
+	now, err := time.Parse(time.RFC3339Nano, v.Provider.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys := make([]ExecutorKey, 0, len(v.ExecutorKeys))
+	for _, key := range v.ExecutorKeys {
+		keys = append(keys, executorKey(t, key))
+	}
+	return Options{
+		Effects:         v.Provider.Effects,
+		ExecutorKeys:    keys,
+		AuthorityJWKS:   v.AuthorityJWKS,
+		AuthorityIssuer: v.Provider.AuthorityIssuer,
+		ClockWindow:     time.Duration(v.Provider.ClockWindowSeconds) * time.Second,
+		Replay:          NewMemoryReplayStore(func() time.Time { return now }),
+		Now:             func() time.Time { return now },
+	}
+}
+
+// The version a verdict's attestation names, or nil when it names none or
+// the verdict carries no attestation.
+func stateVersion(verdict Verdict) *string {
+	if verdict.Attestation == nil {
+		return nil
+	}
+	return verdict.Attestation.Binding.ExpectedStateVersion
+}
+
+func sameVersion(got, want *string) bool {
+	if got == nil || want == nil {
+		return got == want
+	}
+	return *got == *want
+}
+
 func TestVectors(t *testing.T) {
 	files, err := filepath.Glob(filepath.Join(vectorsDirectory(t), "*.json"))
 	if err != nil {
@@ -97,41 +173,14 @@ func TestVectors(t *testing.T) {
 		t.Fatalf("found %d vectors", len(files))
 	}
 	for _, file := range files {
-		raw, err := os.ReadFile(file)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var v vector
-		if err := json.Unmarshal(raw, &v); err != nil {
-			t.Fatalf("%s: %v", file, err)
-		}
+		v := readVector(t, file)
 		t.Run(v.Vector, func(t *testing.T) {
 			if v.Profile != "agent-safe.verifying-provider/1" || v.Version != "0.1" {
 				t.Fatalf("profile %s version %s", v.Profile, v.Version)
 			}
-			now, err := time.Parse(time.RFC3339Nano, v.Provider.Now)
-			if err != nil {
-				t.Fatal(err)
-			}
-			keys := make([]ExecutorKey, 0, len(v.ExecutorKeys))
-			for _, key := range v.ExecutorKeys {
-				keys = append(keys, executorKey(t, key))
-			}
-			options := Options{
-				Effects:         v.Provider.Effects,
-				ExecutorKeys:    keys,
-				AuthorityJWKS:   v.AuthorityJWKS,
-				AuthorityIssuer: v.Provider.AuthorityIssuer,
-				ClockWindow:     time.Duration(v.Provider.ClockWindowSeconds) * time.Second,
-				Replay:          NewMemoryReplayStore(func() time.Time { return now }),
-				Now:             func() time.Time { return now },
-			}
+			options := optionsFor(t, v)
 			for index, request := range v.Requests {
-				var body []byte
-				if request.Body != nil {
-					body = []byte(*request.Body)
-				}
-				verdict := Verify(Request{Method: request.Method, Path: request.Path, Body: body, Headers: request.Headers}, options)
+				verdict := Verify(request.received(), options, request.target(t))
 				switch request.Expect.Outcome {
 				case "ACCEPT":
 					if !verdict.Accepted || verdict.ReasonCode != "" {
@@ -141,14 +190,60 @@ func TestVectors(t *testing.T) {
 						t.Fatalf("request %d: an accepted dispatch carries its attestation", index)
 					}
 				case "REFUSE":
-					if verdict.Accepted || verdict.ReasonCode != request.Expect.ReasonCode || verdict.Attestation != nil {
+					if verdict.Accepted || verdict.ReasonCode != request.Expect.ReasonCode {
 						t.Fatalf("request %d: expected %s, got %+v", index, request.Expect.ReasonCode, verdict)
+					}
+					// Only the provider's own refusal at step 9 hands the claims back.
+					if (verdict.Attestation != nil) != (verdict.ReasonCode == TargetStateChanged) {
+						t.Fatalf("request %d: %s with attestation %+v", index, verdict.ReasonCode, verdict.Attestation)
 					}
 				default:
 					t.Fatalf("request %d: unknown outcome %q", index, request.Expect.Outcome)
 				}
+				if !sameVersion(stateVersion(verdict), request.Expect.ExpectedStateVersion) {
+					t.Fatalf("request %d: expected_state_version %v, want %v", index, stateVersion(verdict), request.Expect.ExpectedStateVersion)
+				}
 			}
 		})
+	}
+}
+
+func TestStepNineHoldsTheEffectToTheVersionTheGrantWasDecidedOn(t *testing.T) {
+	v := readVector(t, filepath.Join(vectorsDirectory(t), "state-version-unchanged-accepts.json"))
+	request := v.Requests[0].received()
+	decided, other, weak := `"17"`, `"18"`, `W/"17"`
+	accepted := Verify(request, optionsFor(t, v), nil)
+	if !accepted.Accepted || !sameVersion(stateVersion(accepted), &decided) {
+		t.Fatalf("no target: %+v", accepted)
+	}
+	if same := Verify(request, optionsFor(t, v), &Target{Version: &decided}); !reflect.DeepEqual(same, accepted) {
+		t.Fatalf("the same version: %+v", same)
+	}
+	for name, target := range map[string]*Target{
+		"another version":                {Version: &other},
+		"the weak tag of the same value": {Version: &weak},
+		"a target that no longer exists": {},
+	} {
+		options := optionsFor(t, v)
+		refused := Verify(request, options, target)
+		if refused.Accepted || refused.ReasonCode != TargetStateChanged || !reflect.DeepEqual(refused.Attestation, accepted.Attestation) {
+			t.Errorf("%s: %+v", name, refused)
+		}
+		// The presentation was recorded before the target refused it: the grant is spent.
+		if again := Verify(request, options, &Target{Version: &decided}); again.ReasonCode != GrantReplayed {
+			t.Errorf("%s: presented again, %+v", name, again)
+		}
+	}
+}
+
+func TestStepNineIgnoresTheTargetWhenTheAttestationNamesNoVersion(t *testing.T) {
+	v := readVector(t, filepath.Join(vectorsDirectory(t), "dispatch-attested-accepts.json"))
+	other := `"18"`
+	for name, target := range map[string]*Target{"another version": {Version: &other}, "a target that no longer exists": {}} {
+		verdict := Verify(v.Requests[0].received(), optionsFor(t, v), target)
+		if !verdict.Accepted || verdict.Attestation == nil || stateVersion(verdict) != nil {
+			t.Errorf("%s: %+v", name, verdict)
+		}
 	}
 }
 

@@ -24,6 +24,10 @@ gateway's upstream already carries the API base. An OData key may be quoted or n
 
 - `sales.post` is the action type Commerce's Business Central executors decide a posting under, so
   an agent's posting and an in-app posting meet the same rules.
+- `customers.update` names its precondition: `customers.get` on the same customer, whose
+  `@odata.etag` is the version the change is decided against (Business Central requires it back
+  as `If-Match`), and whose `blocked` is the state a transition rule reads
+  ([preconditions](../../../../spec/profiles/api/v1/README.md#8-preconditions)).
 - The profile states no policy path: Business Central's rules are keyed on these action types.
 - Any write not listed is no operation of this profile.
 

@@ -6,11 +6,13 @@ import {
   ApiProfile,
   ApiProfileError,
   apiProfileJsonSchema,
+  type ApiAnswer,
   type ApiProfileMatch,
   type ApiRequest,
   type ApiSubjectCheck,
 } from "../../src/profile/ApiProfile.js";
 import type { JsonValue } from "../../src/intent/JsonValue.js";
+import type { TargetPrecondition } from "../../src/intent/TargetPrecondition.js";
 import { ApiProfiles } from "../../src/profile/ApiProfiles.js";
 import { BUILT_IN_API_PROFILES } from "../../src/profile/BuiltInApiProfiles.js";
 
@@ -50,6 +52,12 @@ interface Vector {
   /** A read's answer, as its JSON body. */
   readonly response?: JsonValue;
   readonly response_check?: ApiSubjectCheck;
+  /** The read a write's precondition makes, or null when it names none. */
+  readonly state_read?: ApiRequest | null;
+  /** That read's answer, the instant it was read, and the precondition it states. */
+  readonly state_answer?: ApiAnswer;
+  readonly read_at?: string;
+  readonly precondition?: TargetPrecondition | null;
 }
 
 function json<T>(url: URL): T {
@@ -110,6 +118,20 @@ function expectChecks(profile: ApiProfile, match: ApiProfileMatch | null, vector
   }
 }
 
+/** A vector's precondition, when it pins one: the read to make, then what its answer states. */
+function expectPrecondition(
+  profile: ApiProfile,
+  match: ApiProfileMatch | null,
+  vector: Vector,
+): void {
+  if (vector.state_read === undefined) return;
+  expect(profile.stateRead(vector.request!)).toEqual(vector.state_read);
+  if (vector.state_answer === undefined) return;
+  expect(
+    profile.precondition(match!.operation, vector.state_answer, new Date(vector.read_at!)),
+  ).toEqual(vector.precondition);
+}
+
 function refusal(work: () => unknown): string {
   try {
     work();
@@ -136,6 +158,17 @@ describe("agent-safe.profile.api/1 definition vectors", () => {
     const match = profile.match(vector.request!);
     expect(asVector(match)).toEqual(vector.expected);
     expectChecks(profile, match, vector);
+    expectPrecondition(profile, match, vector);
+  });
+
+  it("pins a precondition read from a header and from a body, and one that states none", () => {
+    const pinned = vectors.filter(([, vector]) => vector.state_answer !== undefined);
+    expect(pinned.map(([, vector]) => vector.precondition === null).sort()).toEqual([
+      false,
+      false,
+      false,
+      true,
+    ]);
   });
 
   it("checks subjects in reads and answers, both ways", () => {
@@ -195,6 +228,7 @@ describe("the profiles this build ships", () => {
       const match = profile.match(vector.request!);
       expect(asVector(match), name).toEqual(vector.expected);
       expectChecks(profile, match, vector);
+      expectPrecondition(profile, match, vector);
       if (match !== null) covered.add(match.operation);
     }
     expect([...covered].sort()).toEqual(

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Text;
 using System.Threading.Tasks;
@@ -13,10 +14,19 @@ namespace Decionis.VerifyingProvider;
 /// behind it: it buffers the body up to a bound, verifies, and either refuses
 /// with the profile's status and body or hands the request on with the body
 /// intact. The hop this runs in is a verifying provider only when the system
-/// of record admits nothing but that hop (the profile's section 1).
+/// of record admits nothing but that hop (the profile's section 1). An
+/// accepted request reaches the endpoint with the verified
+/// <see cref="ClaimAttestation"/> in <see cref="HttpContext.Items"/> under
+/// <see cref="AttestationItem"/>, null for a read verified at VP-1 alone. An
+/// endpoint whose write must hold to the target's version applies its
+/// <see cref="ClaimAttestation.ExpectedStateVersion"/> as that write's
+/// precondition, and builds a VP-3 receipt from it.
 /// </summary>
 public sealed class VerifyingProviderMiddleware
 {
+    /// <summary>The <see cref="HttpContext.Items"/> key an accepted request carries its verified attestation under.</summary>
+    public const string AttestationItem = "Decionis.VerifyingProvider.Attestation";
+
     internal static readonly string[] Covered =
     {
         "content-digest", "idempotency-key", "x-agent-safe-intent-hash",
@@ -67,6 +77,8 @@ public sealed class VerifyingProviderMiddleware
             }
             headers[lower] = (values.Count == 0 ? "" : values[0] ?? "").Trim();
         }
+        // The middleware reads no target, so it passes none, and step 9 is left
+        // to the write behind it, with the attestation it is handed.
         var verdict = provider.Verify(new ProviderRequest(
             request.Method, request.Path.Value ?? "/", body.Length == 0 ? null : body, headers));
         if (!verdict.Accepted)
@@ -74,7 +86,19 @@ public sealed class VerifyingProviderMiddleware
             await Refuse(context, StatusCodes.Status409Conflict, verdict.ReasonCode!);
             return;
         }
+        context.Items[AttestationItem] = verdict.Attestation;
         await next(context);
+    }
+
+    /// <summary>
+    /// The attestation the middleware verified for this request: true with it
+    /// for an accepted dispatch, and false for a request the middleware did not
+    /// accept, or a read verified at VP-1 alone.
+    /// </summary>
+    public static bool TryGetAttestation(HttpContext context, [NotNullWhen(true)] out ClaimAttestation? attestation)
+    {
+        attestation = context.Items.TryGetValue(AttestationItem, out var item) ? item as ClaimAttestation : null;
+        return attestation is not null;
     }
 
     private static async Task Refuse(HttpContext context, int status, string code)

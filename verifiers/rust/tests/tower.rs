@@ -5,6 +5,7 @@ mod common;
 use bytes::Bytes;
 use common::{load, vectors_directory, VectorRequest};
 use decionis_verifying_provider::tower::VerifyingProviderLayer;
+use decionis_verifying_provider::ClaimAttestation;
 use http::{Request, Response, StatusCode};
 use http_body_util::{BodyExt, Full};
 use std::convert::Infallible;
@@ -27,6 +28,23 @@ fn request(entry: &VectorRequest) -> Request<Full<Bytes>> {
 /// The system of record behind the hop: it effects when reached.
 async fn effect(_request: Request<Full<Bytes>>) -> Result<Response<Full<Bytes>>, Infallible> {
     Ok(Response::new(Full::new(Bytes::from("effected"))))
+}
+
+/// The application behind the layer: it answers with the grant the layer
+/// accepted and the version that grant holds its write to.
+async fn held_to(request: Request<Full<Bytes>>) -> Result<Response<Full<Bytes>>, Infallible> {
+    let answer = match request.extensions().get::<ClaimAttestation>() {
+        Some(attestation) => format!(
+            "{} {}",
+            attestation.sub,
+            attestation
+                .expected_state_version
+                .as_deref()
+                .unwrap_or("none")
+        ),
+        None => "no attestation".to_owned(),
+    };
+    Ok(Response::new(Full::new(Bytes::from(answer))))
 }
 
 fn block_on<F: std::future::Future>(future: F) -> F::Output {
@@ -96,5 +114,21 @@ fn the_layer_refuses_a_covered_header_received_twice_and_a_body_beyond_the_bound
         let (status, body) = text(bounded.oneshot(request(entry)).await.unwrap()).await;
         assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
         assert!(body.contains("BODY_BEYOND_BOUND"), "{body}");
+    });
+}
+
+#[test]
+fn the_layer_hands_the_accepted_attestation_and_its_version_to_the_application() {
+    block_on(async {
+        let vector = load(&vectors_directory().join("state-version-left-to-the-write.json"));
+        let entry = &vector.requests[0];
+        let service =
+            VerifyingProviderLayer::new(vector.options()).layer(tower::service_fn(held_to));
+        let (status, body) = text(service.oneshot(request(entry)).await.unwrap()).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(
+            body,
+            format!("{} \"17\"", entry.headers["x-agent-safe-grant-id"])
+        );
     });
 }

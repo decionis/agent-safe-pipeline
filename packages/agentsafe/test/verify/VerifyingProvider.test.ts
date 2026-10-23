@@ -55,7 +55,14 @@ interface Vector {
   readonly authority_jwks: { readonly keys: ReadonlyArray<Readonly<Record<string, unknown>>> };
   readonly requests: ReadonlyArray<
     ReceivedRequest & {
-      readonly expect: { readonly outcome: "ACCEPT" | "REFUSE"; readonly reason_code?: string };
+      /** The provider's own read of the target, for step 9; null when it no longer exists. */
+      readonly target_version?: string | null;
+      readonly expect: {
+        readonly outcome: "ACCEPT" | "REFUSE";
+        readonly reason_code?: string;
+        /** The version the attestation names, handed back on an acceptance or a step 9 refusal. */
+        readonly expected_state_version?: string;
+      };
     }
   >;
 }
@@ -97,9 +104,19 @@ describe("agent-safe.verifying-provider/1 conformance", () => {
       expect(vector.version).toBe("0.1");
       const options = optionsFor(vector);
       for (const request of vector.requests) {
-        const verdict = verifyProviderRequest(request, options);
+        const target =
+          request.target_version === undefined ? undefined : { version: request.target_version };
+        const verdict = verifyProviderRequest(request, options, target);
         if (request.expect.outcome === "ACCEPT") {
           expect(verdict).toMatchObject({ accepted: true, reasonCode: null });
+          expect(verdict.attestation?.binding.expected_state_version).toBe(
+            request.expect.expected_state_version,
+          );
+        } else if (request.expect.reason_code === "TARGET_STATE_CHANGED") {
+          expect(verdict).toMatchObject({ accepted: false, reasonCode: "TARGET_STATE_CHANGED" });
+          expect(verdict.attestation?.binding.expected_state_version).toBe(
+            request.expect.expected_state_version,
+          );
         } else {
           expect(verdict).toEqual({
             accepted: false,
@@ -453,6 +470,54 @@ describe("verifyProviderRequest", () => {
         ),
       ).toBe("ATTESTATION_DOES_NOT_DESCRIBE_THIS_REQUEST");
     }
+  });
+
+  it("holds the write to the target's version the grant was decided on, after recording the presentation", async () => {
+    const versioned = {
+      ...claims,
+      binding: { ...claims.binding, expected_state_version: '"7"' },
+    };
+    const claimed = {
+      iss: "https://authority.example",
+      sub: GRANT,
+      decision_id: DECISION,
+      dossier_id: DOSSIER,
+      binding: {
+        intent_hash: INTENT,
+        execution_payload_digest: bodyDigest,
+        execution_payload_canonicalization_profile: JCS_PROFILE,
+        expected_state_version: '"7"',
+      },
+      claim_token_digest: CLAIM_TOKEN_DIGEST,
+      jti: ATTESTATION_JTI,
+      exp: NOW / 1_000 + 25,
+    };
+    const request = await dispatch({ claimAttestation: attestation(versioned) });
+    expect(verifyProviderRequest(request, options(), { version: '"7"' })).toEqual({
+      accepted: true,
+      reasonCode: null,
+      attestation: claimed,
+    });
+    expect(verifyProviderRequest(request, options())).toEqual({
+      accepted: true,
+      reasonCode: null,
+      attestation: claimed,
+    });
+    for (const version of ['"8"', 'W/"7"', null]) {
+      const replay = new MemoryReplayStore(() => NOW);
+      expect(verifyProviderRequest(request, options({ replay }), { version })).toEqual({
+        accepted: false,
+        reasonCode: "TARGET_STATE_CHANGED",
+        attestation: claimed,
+      });
+      expect(replay.size).toBe(1);
+    }
+  });
+
+  it("states no precondition when the attestation names no version, whatever the target's", async () => {
+    const verdict = verifyProviderRequest(await dispatch(), options(), { version: '"8"' });
+    expect(verdict.accepted).toBe(true);
+    expect(Object.keys(verdict.attestation!.binding)).not.toContain("expected_state_version");
   });
 
   it("names the refusal body the profile gives", () => {

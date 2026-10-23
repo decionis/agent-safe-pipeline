@@ -1,0 +1,29 @@
+{
+  "description": "A read names no precondition: it is checked, never decided, so there is no write for a version to guard.",
+  "definition": {
+    "profile": "agent-safe.profile.api/1",
+    "id": "example/api/v1",
+    "platform": "example",
+    "title": "Example API",
+    "prefixes": [""],
+    "operations": [
+      {
+        "id": "items.get",
+        "method": "GET",
+        "path": "/items/{itemId}",
+        "action": "item.read",
+        "summary": "Read one item.",
+        "facts": {},
+        "policy_projection": null,
+        "subject": {
+          "response": "/body/owner"
+        },
+        "precondition": {
+          "read": "items.get",
+          "version": "/headers/etag"
+        }
+      }
+    ]
+  },
+  "error": "API_PROFILE_INVALID"
+}

@@ -67,6 +67,29 @@ public class MiddlewareTests
     }
 
     [Fact]
+    public async Task TheMiddlewareHandsTheVerifiedAttestationToTheEndpoint()
+    {
+        var vector = Vector.Load(Path.Combine(Vector.Directory(), "state-version-left-to-the-write.json"));
+        ClaimAttestation? handed = null;
+        var middleware = new VerifyingProviderMiddleware(
+            context =>
+            {
+                Assert.True(VerifyingProviderMiddleware.TryGetAttestation(context, out handed));
+                Assert.Same(handed, context.Items[VerifyingProviderMiddleware.AttestationItem]);
+                return Effect(context);
+            },
+            new VerifyingProvider(vector.Options()));
+        var (status, body) = await Run(middleware, Context(vector.Requests[0]));
+        Assert.True(status == 200, $"{status} {body}");
+        Assert.Equal("effected", body);
+        Assert.Equal("\"17\"", handed!.ExpectedStateVersion);
+        var refused = Context(vector.Requests[0]);
+        (status, _) = await Run(middleware, refused);
+        Assert.Equal(409, status);
+        Assert.False(VerifyingProviderMiddleware.TryGetAttestation(refused, out _));
+    }
+
+    [Fact]
     public async Task TheMiddlewareRefusesACoveredHeaderReceivedTwiceAndABodyBeyondTheBound()
     {
         var vector = Vector.Load(Path.Combine(Vector.Directory(), "dispatch-attested-accepts.json"));

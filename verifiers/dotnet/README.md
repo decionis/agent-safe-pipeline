@@ -44,6 +44,25 @@ profile verifies the path as received.
 `VerifyingProvider.Verify` is the procedure itself, for a host other than ASP.NET Core; the
 middleware is sixty lines around it.
 
+## The target's version
+
+An attestation may name the target's version the grant was decided against,
+`binding.expected_state_version`: an ETag with its quotes, or a resource version. A provider that
+reads the target before effecting passes what it read, `Verify(request, new ProviderTarget(etag))`,
+or `new ProviderTarget(null)` when the target no longer exists. Any other version, compared byte
+for byte as a strong `If-Match` compares, is `TARGET_STATE_CHANGED`. That is step 9, after the
+grant is recorded, so the grant is spent; its verdict is the one refusal that carries the
+attestation. A provider that reads no target calls `Verify(request)` and makes
+`verdict.Attestation.ExpectedStateVersion` the precondition of its own conditional write. An
+attestation that names no version states no precondition, and the target is not compared.
+
+The middleware reads no target. It hands the verified attestation to the endpoint in
+`HttpContext.Items` under `VerifyingProviderMiddleware.AttestationItem`, null for a read verified
+at VP-1 alone; `VerifyingProviderMiddleware.TryGetAttestation(context, out var attestation)` reads
+it. An endpoint whose write must hold to the version applies `expected_state_version` as its
+write's precondition, a conditional write such as `If-Match`, atomically with the effect. Or it
+calls `Verify(request, target)` itself with the target's current version.
+
 ## Keys and the authority
 
 The executor names its key with `DOWNSTREAM_SIGNING_KEY_ID`; `ExecutorKey.Ed25519` takes that
@@ -67,6 +86,9 @@ var token = new EffectReceipt(
     .Sign(privateKey);
 context.Response.Headers[EffectReceipt.Header] = token;
 ```
+
+A `TARGET_STATE_CHANGED` verdict carries the attestation too, so the provider receipts that
+refusal the same way, with `EffectStatus.Refused`.
 
 The header and the claims are RFC 8785 canonical before signing, so the receipt vectors hold every
 implementation to the same bytes.

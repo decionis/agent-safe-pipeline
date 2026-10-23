@@ -5,6 +5,7 @@ import type {
   PolicyProjection,
 } from "../intent/ExecutionIntent.js";
 import type { JsonObject } from "../intent/JsonValue.js";
+import type { TargetPrecondition } from "../intent/TargetPrecondition.js";
 import type { ProviderDispatch } from "./ActionRegistry.js";
 import type { AuthorityEffectEvidence, VerifiedAuthorization } from "./AuthorizationVerifier.js";
 import type { MonotonicDeadline } from "./ExecutionDeadline.js";
@@ -235,6 +236,22 @@ export interface NativeExecutor<TAction = unknown, TReceipt = JsonObject, TResul
   capabilities(scope: ExecutorScope): Promise<readonly ExecutionCapability[]>;
   /** Platform facts + `agent-safe.intent/1` binding + idempotency identity. No I/O side effects. */
   prepare(action: TAction, scope: ExecutorScope | null): Promise<PreparedAction>;
+  /**
+   * Optional: the target's state version, read once, read-only, after
+   * `prepare` and before the authority is asked. The runner binds it into the
+   * intent as `agent_safe.precondition`; the authority carries it to a
+   * verifying provider, which refuses the write once the target moved on, and
+   * an executor whose platform takes a conditional write sends it as the
+   * write's precondition (`If-Match`) itself. Null when the action names no
+   * existing target, a create. It is the only I/O before a decision, and a
+   * read that fails is a refusal: nothing is decided without the version the
+   * executor said it would bind.
+   */
+  readState?(
+    action: TAction,
+    prepared: PreparedAction,
+    scope: ExecutorScope | null,
+  ): Promise<TargetPrecondition | null>;
   /** dispatch: write once with the claimed grant. permit: return the permit the native boundary must present. */
   execute(run: ClaimedExecution<TAction>): Promise<ExecutionEffect<TReceipt>>;
   /** Map the native receipt (posting entry, feed ID, HTTP status) to COMMITTED | FAILED | INDETERMINATE. */

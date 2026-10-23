@@ -239,6 +239,14 @@ and implements `capabilities`, `prepare`, `execute`, `observe` and `reconcile`. 
 authority, maps a verdict, retries, or decides an outcome. `EffectAdapter` is the dispatch style
 under its earlier name and stays, deprecated, for the adapters written against it.
 
+An executor that can read its target before it writes also implements `readState`: the runner
+calls it once, after `prepare` and before the authority is asked, and binds the version it returns
+into the intent as `context.agent_safe.precondition`. The authority carries the version into the
+claim's attestation, and a verifying provider refuses the write with `TARGET_STATE_CHANGED` once
+the target has moved on. An API profile can name the read as data, and
+`ApiProfile.stateRead` and `ApiProfile.precondition` make it from a write's call
+([target state](https://github.com/decionis/agent-safe-pipeline/blob/master/docs/authority/target-state.md)).
+
 ### What each record establishes
 
 Fluent summaries lose these distinctions first. Each row names the record or state, what it

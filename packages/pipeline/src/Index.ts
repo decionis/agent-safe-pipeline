@@ -50,6 +50,7 @@ export * from "./http/StoredCredentials.js";
 export * from "./intent/CanonicalIntentHasher.js";
 export * from "./intent/ExecutionIntent.js";
 export * from "./intent/ExecutionSignals.js";
+export * from "./intent/TargetPrecondition.js";
 export * from "./intent/IntentBindingSchema.js";
 export * from "./intent/IntentCapture.js";
 export * from "./intent/JsonValue.js";

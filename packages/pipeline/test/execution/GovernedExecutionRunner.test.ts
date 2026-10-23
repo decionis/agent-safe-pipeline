@@ -337,6 +337,73 @@ describe("GovernedExecutionRunner admission", () => {
     expect(verifier.ledger()[0]?.outcome).toBe("COMMITTED");
   });
 
+  it("reads the target once before asking and binds the version into the intent", async () => {
+    const { runner } = setup();
+    const reads: unknown[][] = [];
+    const precondition = {
+      version: '"17"',
+      state: "staged",
+      source: "scripted#items.get",
+      read_at: "2026-10-23T12:00:00.000Z",
+    };
+    const executor = new (class extends ScriptedExecutor {
+      public async readState(...args: unknown[]): Promise<typeof precondition> {
+        reads.push(args);
+        this.calls.push("readState");
+        return precondition;
+      }
+    })("dispatch");
+    const { captured, result } = await runner.submit(executor, {
+      action: ACTION,
+      scope: SCOPE,
+      actor: ACTOR,
+    });
+    expect(result).toMatchObject({ outcome: "COMPLETED", executed: true });
+    expect(captured.intent.context).toEqual({
+      company_bank_account_changed: true,
+      agent_safe: { precondition },
+    });
+    expect(reads).toEqual([[ACTION, prepared(ACTION), SCOPE]]);
+    expect(executor.calls.slice(0, 2)).toEqual(["prepare", "readState"]);
+  });
+
+  it("binds no precondition when the executor reads none, or its read names no target", async () => {
+    const { runner } = setup();
+    const none = new (class extends ScriptedExecutor {
+      public async readState(): Promise<null> {
+        return null;
+      }
+    })("dispatch");
+    const { captured, result } = await runner.submit(none, {
+      action: ACTION,
+      scope: SCOPE,
+      actor: ACTOR,
+    });
+    expect(result).toMatchObject({ outcome: "COMPLETED" });
+    expect(captured.intent.context).toEqual({ company_bank_account_changed: true });
+  });
+
+  it("refuses to decide anything when the read fails or states no precondition", async () => {
+    for (const read of [
+      async () => {
+        throw new Error("upstream said: secret detail");
+      },
+      async () => ({ version: "has a space", source: "scripted", read_at: "2026-10-23T12:00:00Z" }),
+      async () => undefined,
+    ]) {
+      const { runner, verifier } = setup();
+      // An executor that breaks the contract at run time, as a read can.
+      const executor = new (class extends ScriptedExecutor {
+        public readState = read as NonNullable<NativeExecutor<JsonObject>["readState"]>;
+      })("dispatch");
+      await expect(
+        runner.submit(executor, { action: ACTION, scope: SCOPE, actor: ACTOR }),
+      ).rejects.toThrow(/^TARGET_STATE_UNREADABLE$/);
+      expect(executor.calls).toEqual(["prepare"]);
+      expect(verifier.ledger()).toEqual([]);
+    }
+  });
+
   it("hands the capture a projection only when the executor states one, never an undefined key", async () => {
     // The capture is replaceable (`options.capture`), and it is handed the
     // trusted context as it is: one that reads key presence (`in`,

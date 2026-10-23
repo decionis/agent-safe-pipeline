@@ -1,0 +1,72 @@
+{
+  "description": "A version stated as a number is its decimal string, as a resource version is compared; a state the answer does not state is left out.",
+  "definition": {
+    "profile": "agent-safe.profile.api/1",
+    "id": "example/api/v1",
+    "platform": "example",
+    "title": "Example API",
+    "prefixes": [""],
+    "operations": [
+      {
+        "id": "items.update",
+        "method": "PATCH",
+        "path": "/items/{itemId}",
+        "action": "item.update",
+        "summary": "Change an item.",
+        "facts": {
+          "item_id": "/path/itemId"
+        },
+        "policy_projection": null,
+        "precondition": {
+          "read": "items.get",
+          "version": "/body/metadata/resourceVersion",
+          "state": "/body/status"
+        }
+      },
+      {
+        "id": "items.get",
+        "method": "GET",
+        "path": "/items/{itemId}",
+        "action": "item.read",
+        "summary": "Read one item.",
+        "facts": {},
+        "policy_projection": null,
+        "subject": {
+          "response": "/body/owner"
+        }
+      }
+    ]
+  },
+  "request": {
+    "method": "PATCH",
+    "path": "/items/7f1c",
+    "body": {}
+  },
+  "expected": {
+    "operation": "items.update",
+    "action": "item.update",
+    "facts": {
+      "item_id": "7f1c"
+    },
+    "policy_projection": null
+  },
+  "state_read": {
+    "method": "GET",
+    "path": "/items/7f1c"
+  },
+  "state_answer": {
+    "headers": {},
+    "body": {
+      "owner": "synthetic-owner-1",
+      "metadata": {
+        "resourceVersion": 48213
+      }
+    }
+  },
+  "read_at": "2026-10-23T12:00:00.000Z",
+  "precondition": {
+    "version": "48213",
+    "source": "example/api/v1#items.get",
+    "read_at": "2026-10-23T12:00:00.000Z"
+  }
+}

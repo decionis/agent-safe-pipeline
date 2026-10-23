@@ -71,7 +71,7 @@ with the public half of `DOWNSTREAM_SIGNING_KEY`.
 
 The plugin answers `409` with the profile's refusal body, `{"status":"REJECTED","reason_code":"…"}`,
 when the profile refuses, which the executor records as `DEFINITELY_NOT_EXECUTED`, and lets the
-request through unchanged when it accepts. A covered header received twice is a refusal; a body
+request through when it accepts, changed in one header only (step 9, below). A covered header received twice is a refusal; a body
 beyond the bound is `413`; a plugin that could not load its keys refuses everything with `503`
 rather than wave through. One plugin server keeps its replay record in memory; more than one
 Kong node that can effect the same grant needs a shared store behind `verifier.ReplayStore`.
@@ -79,6 +79,19 @@ Each verdict is one JSON log line naming the method, the path, the grant id and 
 a body, a header value or an attestation. Put the plugin ahead of any path rewrite, since the
 profile verifies the path as received; Kong's `request-transformer` runs at a lower priority
 than this plugin's `1000`, so it does.
+
+The plugin cannot read the target a request would change, so it states none for the profile's
+step 9, and the step is the system of record's. On every request it lets through, the plugin
+clears any `x-agent-safe-expected-state-version` the client sent. When the accepted attestation
+names `binding.expected_state_version`, the target's version the grant was decided against, the
+plugin sets that header on the request to the system of record, verbatim. A request the plugin
+cannot set it on is refused with `503`, since its write would be held to nothing.
+
+The system of record applies the version as its write's precondition, atomically with the
+effect: a conditional write such as `If-Match` when the version is an entity tag, or a compare
+of its own version field. It refuses `TARGET_STATE_CHANGED` when the target moved on. It trusts
+the header only because Kong holds its sole credential, the owner-native tier above; a system of
+record that anything else can reach has no reason to believe it.
 
 ## The receipt (VP-3)
 

@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Stream;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
@@ -61,11 +62,12 @@ public class VectorsTest {
     return files.stream().map(file -> new Object[] {file}).toArray(Object[][]::new);
   }
 
-  @Test(dataProvider = "vectors")
-  public void everyVectorReachesTheOutcomesItNames(Path file) throws IOException {
-    JsonNode vector = JSON.readTree(Files.readString(file));
-    assertEquals(vector.path("profile").asText(), "agent-safe.verifying-provider/1");
-    assertEquals(vector.path("version").asText(), "0.1");
+  static JsonNode vector(Path file) throws IOException {
+    return JSON.readTree(Files.readString(file));
+  }
+
+  /** A provider configured as the vector says, with a replay store of its own. */
+  static VerifyingProvider providerFor(JsonNode vector) {
     JsonNode provider = vector.path("provider");
     Instant now = Instant.parse(provider.path("now").asText());
     Clock clock = Clock.fixed(now, ZoneOffset.UTC);
@@ -73,39 +75,122 @@ public class VectorsTest {
     for (JsonNode key : vector.path("executor_keys")) {
       keys.add(executorKey(key));
     }
-    ProviderOptions options = new ProviderOptions(
+    return new VerifyingProvider(new ProviderOptions(
         provider.path("effects").asBoolean(),
         keys,
         Jwks.parse(vector.path("authority_jwks").toString()),
         provider.path("authority_issuer").asText(),
         Duration.ofSeconds(provider.path("clock_window_seconds").asLong()),
         new MemoryReplayStore(clock),
-        clock);
-    VerifyingProvider verifying = new VerifyingProvider(options);
+        clock));
+  }
+
+  static ProviderRequest requestOf(JsonNode request) {
+    Map<String, String> headers = new HashMap<>();
+    request.path("headers").fields()
+        .forEachRemaining(entry -> headers.put(entry.getKey(), entry.getValue().asText()));
+    byte[] body = request.path("body").isNull()
+        ? null
+        : request.path("body").asText().getBytes(StandardCharsets.UTF_8);
+    return new ProviderRequest(
+        request.path("method").asText(), request.path("path").asText(), body, headers);
+  }
+
+  /** The vector's own read of the target, for step 9: none given, a version, or gone (null). */
+  static Optional<ProviderTarget> targetOf(JsonNode request) {
+    if (!request.has("target_version")) {
+      return Optional.empty();
+    }
+    JsonNode version = request.path("target_version");
+    return Optional.of(version.isNull() ? ProviderTarget.gone() : ProviderTarget.at(version.textValue()));
+  }
+
+  /** The version the attestation names, handed back on an acceptance or a step 9 refusal. */
+  static Optional<String> expectedStateVersion(JsonNode expect) {
+    return expect.has("expected_state_version")
+        ? Optional.of(expect.path("expected_state_version").textValue())
+        : Optional.empty();
+  }
+
+  @Test(dataProvider = "vectors")
+  public void everyVectorReachesTheOutcomesItNames(Path file) throws IOException {
+    JsonNode vector = vector(file);
+    assertEquals(vector.path("profile").asText(), "agent-safe.verifying-provider/1");
+    assertEquals(vector.path("version").asText(), "0.1");
+    boolean effects = vector.path("provider").path("effects").asBoolean();
+    VerifyingProvider verifying = providerFor(vector);
     int index = 0;
     for (JsonNode request : vector.path("requests")) {
-      Map<String, String> headers = new HashMap<>();
-      request.path("headers").fields()
-          .forEachRemaining(entry -> headers.put(entry.getKey(), entry.getValue().asText()));
-      byte[] body = request.path("body").isNull()
-          ? null
-          : request.path("body").asText().getBytes(StandardCharsets.UTF_8);
-      Verdict verdict = verifying.verify(new ProviderRequest(
-          request.path("method").asText(), request.path("path").asText(), body, headers));
+      ProviderRequest received = requestOf(request);
+      Optional<ProviderTarget> target = targetOf(request);
+      Verdict verdict = target.isPresent()
+          ? verifying.verify(received, target.get())
+          : verifying.verify(received);
       JsonNode expect = request.path("expect");
       String where = file.getFileName() + " request " + index;
       if ("ACCEPT".equals(expect.path("outcome").asText())) {
         assertTrue(verdict.accepted(), where + ": " + verdict.reasonCode());
         assertNull(verdict.reasonCode(), where);
-        if (provider.path("effects").asBoolean()) {
+        if (effects) {
           assertNotNull(verdict.attestation(), where + ": an accepted dispatch carries its attestation");
+          assertEquals(verdict.attestation().expectedStateVersion(), expectedStateVersion(expect), where);
         }
+      } else if (Verdict.TARGET_STATE_CHANGED.equals(expect.path("reason_code").asText())) {
+        assertFalse(verdict.accepted(), where);
+        assertEquals(verdict.reasonCode(), Verdict.TARGET_STATE_CHANGED, where);
+        assertNotNull(verdict.attestation(), where + ": a step 9 refusal carries its attestation");
+        assertEquals(verdict.attestation().expectedStateVersion(), expectedStateVersion(expect), where);
       } else {
         assertFalse(verdict.accepted(), where);
         assertEquals(verdict.reasonCode(), expect.path("reason_code").asText(), where);
         assertNull(verdict.attestation(), where);
       }
       index++;
+    }
+  }
+
+  /** A vector's first request, as received; the step 9 cases vary only the target. */
+  private static ProviderRequest firstRequestOf(JsonNode vector) {
+    return requestOf(vector.path("requests").path(0));
+  }
+
+  @Test
+  public void stepNineAcceptsTheVersionTheGrantWasDecidedOnOrNoReadOfTheTarget() throws IOException {
+    JsonNode vector = vector(vectorsDirectory().resolve("state-version-unchanged-accepts.json"));
+    ProviderRequest request = firstRequestOf(vector);
+    Verdict read = providerFor(vector).verify(request, ProviderTarget.at("\"17\""));
+    assertTrue(read.accepted(), read.reasonCode());
+    assertEquals(read.attestation().expectedStateVersion(), Optional.of("\"17\""));
+    Verdict unread = providerFor(vector).verify(request);
+    assertTrue(unread.accepted(), unread.reasonCode());
+    assertEquals(unread.attestation(), read.attestation());
+  }
+
+  @Test
+  public void stepNineRefusesAnyOtherVersionAfterRecordingThePresentation() throws IOException {
+    JsonNode vector = vector(vectorsDirectory().resolve("state-version-unchanged-accepts.json"));
+    ProviderRequest request = firstRequestOf(vector);
+    ClaimAttestation claimed = providerFor(vector).verify(request).attestation();
+    for (ProviderTarget target : List.of(ProviderTarget.at("\"18\""), ProviderTarget.at("W/\"17\""),
+        ProviderTarget.at("17"), ProviderTarget.gone())) {
+      VerifyingProvider verifying = providerFor(vector);
+      Verdict refused = verifying.verify(request, target);
+      assertEquals(refused, new Verdict(false, Verdict.TARGET_STATE_CHANGED, claimed), target.toString());
+      assertEquals(refused.refusalBody(),
+          "{\"status\":\"REJECTED\",\"reason_code\":\"TARGET_STATE_CHANGED\"}");
+      assertEquals(verifying.verify(request, ProviderTarget.at("\"17\"")),
+          new Verdict(false, Verdict.GRANT_REPLAYED, null), target + ": the refusal recorded the grant");
+    }
+  }
+
+  @Test
+  public void stepNineIgnoresTheTargetWhenTheAttestationNamesNoVersion() throws IOException {
+    JsonNode vector = vector(vectorsDirectory().resolve("state-version-not-named-ignores-target.json"));
+    ProviderRequest request = firstRequestOf(vector);
+    for (ProviderTarget target : List.of(ProviderTarget.at("\"8\""), ProviderTarget.gone())) {
+      Verdict verdict = providerFor(vector).verify(request, target);
+      assertTrue(verdict.accepted(), target + ": " + verdict.reasonCode());
+      assertEquals(verdict.attestation().expectedStateVersion(), Optional.empty(), target.toString());
     }
   }
 
