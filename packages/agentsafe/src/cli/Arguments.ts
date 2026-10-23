@@ -1,6 +1,8 @@
 /** Parsed command-line arguments: `--name value`, `--name=value`, `--flag`, and the rest. */
 export interface ParsedArguments {
   readonly options: ReadonlyMap<string, string | true>;
+  /** Every value of each valued option, in order: what a repeatable option reads. */
+  readonly values: ReadonlyMap<string, readonly string[]>;
   readonly positionals: readonly string[];
 }
 
@@ -27,7 +29,12 @@ export class ArgumentError extends Error {
  */
 export function parseArguments(argv: readonly string[], spec: ArgumentSpec): ParsedArguments {
   const options = new Map<string, string | true>();
+  const values = new Map<string, string[]>();
   const positionals: string[] = [];
+  const set = (name: string, value: string): void => {
+    options.set(name, value);
+    values.set(name, [...(values.get(name) ?? []), value]);
+  };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index] ?? "";
     if (argument === "--") {
@@ -47,22 +54,27 @@ export function parseArguments(argv: readonly string[], spec: ArgumentSpec): Par
     }
     if (!spec.valued.includes(name)) throw new ArgumentError("UNKNOWN_OPTION", name);
     if (equals !== -1) {
-      options.set(name, argument.slice(equals + 1));
+      set(name, argument.slice(equals + 1));
       continue;
     }
     const value = argv[index + 1];
     if (value === undefined || value.startsWith("--"))
       throw new ArgumentError("VALUE_REQUIRED", name);
-    options.set(name, value);
+    set(name, value);
     index += 1;
   }
-  return { options, positionals };
+  return { options, values, positionals };
 }
 
 /** A valued option as a string, or undefined. */
 export function optionValue(parsed: ParsedArguments, name: string): string | undefined {
   const value = parsed.options.get(name);
   return typeof value === "string" ? value : undefined;
+}
+
+/** Every value a repeatable option was given, in order; none when it was not given. */
+export function optionValues(parsed: ParsedArguments, name: string): readonly string[] {
+  return parsed.values.get(name) ?? [];
 }
 
 /** A valued option as a port number, refused by name when it is not one. */

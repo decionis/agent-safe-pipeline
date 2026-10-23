@@ -218,6 +218,28 @@ overload one method and path by a query value are one OpenAPI operation with tha
 documented; the gateway still tells them apart. `--prefix` picks one of the profile's path prefixes
 (`""` for bare paths); the default is its first. See [AgentCore Gateway](../gateway/agentcore.md).
 
+### `agentsafe actions manifest`
+
+Writes the action space this build can run as one `agent-safe.actions/1` document: every action an
+intent can name, where it comes from, the JSON Schema its parameters are admitted against, the
+target scopes it acts on (templates whose `{placeholders}` are paths into the parameters; none when
+the proposal names the target), and the effect it produces when its source declares one. Name each
+source as often as you need it; at least one is required.
+
+| Option                               | Adds                                                                                                                                                                           |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `--family <forward\|banking\|cards>` | a family this build registers in code, described by its own registration: exactly the actions and schemas an executor running it admits against                                |
+| `--api <profile id>`                 | a shipped API profile's writes (`agentsafe profile list` names them), one entry per action with every operation that becomes it; reads are never intents, so they are left out |
+| `--mcp <file>`                       | an [MCP tool profile](../../spec/profiles/mcp/v1/README.md) file, one entry per tool                                                                                           |
+| `--digest`                           | print `{ manifest, digest, actions }` instead of the document                                                                                                                  |
+
+Actions are listed once each, in code-point order; an action two sources both produce is refused
+(`ACTION_MANIFEST_DUPLICATE_ACTION`, exit `2`), because a grant names one action and one handler
+runs under it. Decionis holds a policy release to the manifest attached to it: a release that
+leaves a manifest action matched by no rule but its default is refused before it can be promoted.
+The digest is SHA-256 over the document's RFC 8785 form, and it is what the signed release
+manifest records as `actionManifestDigest`. Nothing is read but the files named; nothing is sent.
+
 ### `agentsafe config`
 
 Prints the effective configuration as YAML (`--json` for JSON), with `sources` naming the layer

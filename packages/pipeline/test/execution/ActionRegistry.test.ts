@@ -43,6 +43,20 @@ describe("ActionRegistry", () => {
     expect(() => registry.register("another_action", handler)).toThrow("ACTION_REGISTRY_SEALED");
   });
 
+  it("describes a sealed registry's actions with their schemas, in registration order", () => {
+    const refund = z.object({ amount: z.number() });
+    const cancel = z.object({ order: z.string() });
+    const registry = new ActionRegistry()
+      .register("refund_order", { parametersSchema: refund, execute: vi.fn() })
+      .register("cancel_order", { parametersSchema: cancel, execute: vi.fn() });
+    expect(() => registry.describe()).toThrow("ACTION_REGISTRY_NOT_SEALED");
+    expect(registry.seal().describe()).toEqual([
+      { action: "refund_order", parametersSchema: refund },
+      { action: "cancel_order", parametersSchema: cancel },
+    ]);
+    expect(new ActionRegistry().seal().describe()).toEqual([]);
+  });
+
   it("requires a sealed registry and a registered action", async () => {
     const handler = {
       parametersSchema: z.object({ amount: z.number() }),

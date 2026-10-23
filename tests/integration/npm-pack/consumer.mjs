@@ -13,10 +13,16 @@ console.log(`Imported ${exports.length} exports:`, exports);
 
 // Verify all expected runtime exports are present (types are not in Object.keys)
 const EXPECTED_RUNTIME = [
+  "ACTION_MANIFEST_CONTRACT",
   "API_PROFILE_CONTRACT",
   "API_PROFILE_METHODS",
   "API_PROFILE_READ_METHOD",
   "API_PROFILE_SCHEMA_ID",
+  "ActionManifest",
+  "ActionManifestEntrySchema",
+  "ActionManifestError",
+  "ActionManifestSchema",
+  "ActionManifestSourceSchema",
   "ActionRegistry",
   "AgentProposalSchema",
   "ApiOperationSchema",
@@ -74,8 +80,10 @@ const EXPECTED_RUNTIME = [
   "JsonValueSchema",
   "LocalAuthorizationVerifier",
   "LocalGrants",
+  "MAX_ACTION_TARGETS",
   "MAX_FACT_ELEMENTS",
   "MAX_FACT_STRING",
+  "MAX_MANIFEST_ACTIONS",
   "MAX_SUBJECT_LENGTH",
   "MAX_TARGET_PLACEHOLDERS",
   "MAX_TOOL_ARGUMENTS",

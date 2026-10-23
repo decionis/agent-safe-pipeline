@@ -633,6 +633,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/cli/Actions.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/cli/Arguments.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
@@ -1774,6 +1780,12 @@
     },
     {
       "path": "packages/pipeline/test/intent/IntentConformance.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/pipeline/test/manifest/ActionManifest.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false

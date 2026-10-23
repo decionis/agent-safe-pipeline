@@ -11,7 +11,9 @@
  * offline: every file's digest against the manifest, both chains, and the
  * signature when the bundle carries one. `verify intent <file|dir>...`
  * checks Agent-Safe Intent vectors, or prints the canonical bytes and hash
- * of a binding, offline. `probe-containment <name=host:port>...` runs in
+ * of a binding, offline. `actions manifest` writes the action space this
+ * build can run (its families, API profiles and MCP profile files) as one
+ * `agent-safe.actions/1` document. `probe-containment <name=host:port>...` runs in
  * the agent zone and reports whether a system of record answers without the
  * executor; it exits 1 when any target does. Anything else is refused with
  * a stable code and exit status 2.
@@ -21,6 +23,7 @@ import { join } from "node:path";
 import process from "node:process";
 import { nodeCliProcess } from "./cli/CliProcess.js";
 import { isGatewayCommand, runGatewayCommand } from "./cli/Commands.js";
+import { runActions } from "./cli/Actions.js";
 import { runCards } from "./cli/Cards.js";
 import { runProfile } from "./cli/Profile.js";
 import { runRecords } from "./cli/Records.js";
@@ -59,6 +62,7 @@ const COMMANDS = [
   "cards",
   "records",
   "profile",
+  "actions",
   "tcp-broker",
   "connector",
   "tunnel",
@@ -142,6 +146,8 @@ async function main(): Promise<void> {
     await runRecords(nodeCliProcess(), rest);
   } else if (command === "profile") {
     runProfile(nodeCliProcess(), rest);
+  } else if (command === "actions") {
+    runActions(nodeCliProcess(), rest);
   } else if (command === "verify-intent") {
     runVerifyIntent(nodeCliProcess(), rest);
   } else if (command === "probe-containment") {

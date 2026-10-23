@@ -53,6 +53,7 @@ export * from "./intent/ExecutionSignals.js";
 export * from "./intent/IntentBindingSchema.js";
 export * from "./intent/IntentCapture.js";
 export * from "./intent/JsonValue.js";
+export * from "./manifest/ActionManifest.js";
 export * from "./profile/ApiProfile.js";
 export * from "./profile/ApiProfiles.js";
 export * from "./profile/McpToolProfile.js";

@@ -55,6 +55,12 @@ interface RegisteredAction {
   ): Promise<ProviderReconciliation<unknown>> | ProviderReconciliation<unknown>;
 }
 
+/** One registered action as `describe` reports it: its name and the schema admission holds it to. */
+export interface RegisteredActionDescription {
+  readonly action: string;
+  readonly parametersSchema: z.ZodType<unknown>;
+}
+
 export type ActionExecutionAttempt =
   | { readonly status: "COMPLETED"; readonly result: unknown; readonly receipt: string | null }
   | {
@@ -154,6 +160,20 @@ export class ActionRegistry {
 
   public has(action: string): boolean {
     return this.actions.has(action);
+  }
+
+  /**
+   * Every registered action with the schema its parameters are admitted
+   * against, in registration order: the action space this registry can run.
+   * Only a sealed registry describes itself, because only a sealed one cannot
+   * grow after the description was taken.
+   */
+  public describe(): readonly RegisteredActionDescription[] {
+    if (!this.sealed) throw new Error("ACTION_REGISTRY_NOT_SEALED");
+    return [...this.actions].map(([action, handler]) => ({
+      action,
+      parametersSchema: handler.parametersSchema,
+    }));
   }
 
   public validate(captured: CapturedIntent): void {
