@@ -13,6 +13,6 @@
   "dependencies": {
     "@decionis/agent-safe-pipeline": "workspace:*",
     "@decionis/agentsafe": "workspace:*",
-    "zod": "^4.5.4"
+    "zod": "^4.6.6"
   }
 }
