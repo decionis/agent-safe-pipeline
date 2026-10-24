@@ -16,17 +16,18 @@
   "packageManager": "pnpm@9.15.3",
   "pnpm": {
     "overrides": {
-      "fast-uri": "3.1.8",
+      "fast-uri": "3.1.9",
       "ip-address": "10.7.4",
       "proxy-addr": "2.0.8",
       "brace-expansion@1": "1.1.21",
       "brace-expansion@5": "5.0.12",
-      "qs": "6.16.0",
+      "qs": "6.16.1",
       "vite": "6.4.4",
       "hono": "4.13.11",
       "js-yaml": "4.3.2\n4.3.2",
       "tmp": "0.2.7",
-      "smol-toml": "1.7.1"
+      "smol-toml": "1.7.1",
+      "@decionis/presence-types": "0.3.0"
     }
   },
   "engines": {
