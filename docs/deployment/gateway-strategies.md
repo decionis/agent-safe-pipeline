@@ -11,11 +11,11 @@ containing the reviewed changes; an example does not establish a deployed releas
 
 ## Choose placement and integration separately
 
-| Placement                                             | Gateway operator   | Authority                                          | Traffic and behavior                                                                                                                               |
-| ----------------------------------------------------- | ------------------ | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| On-premises host or private cluster                   | Your platform team | Hosted Decionis                                    | Full API request stays on your relay path; intent, context and configured JSON fields reach the authority. Shadow or enforcement.                  |
-| Private cloud or on-premises with a private authority | Your platform team | Separately provisioned compatible Decionis service | Relay and authority can stay within your approved network. Authority installation, connectivity and licensing are separate. Shadow or enforcement. |
-| Decionis-managed cloud gateway                        | Decionis           | Tenant's Decionis workspace                        | Full request and upstream credentials traverse the managed relay to a public HTTPS API. **Shadow only** in the current hosted runtime.             |
+| Placement                                             | Gateway operator   | Authority                                          | Traffic and behavior                                                                                                                                                    |
+| ----------------------------------------------------- | ------------------ | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| On-premises host or private cluster                   | Your platform team | Hosted Decionis                                    | Full API request stays on your relay path; intent, context and configured JSON fields reach the authority. Shadow or enforcement.                                       |
+| Private cloud or on-premises with a private authority | Your platform team | Separately provisioned compatible Decionis service | Relay and authority can stay within your approved network. Authority installation, connectivity and licensing are separate. Shadow or enforcement.                      |
+| Decionis-managed cloud gateway                        | Decionis           | Tenant's Decionis workspace                        | Full request traverses the managed relay to a public HTTPS API whose origin you prove. Shadow, then enforcement with the credential held by the gateway (private beta). |
 
 Hosting the authority does not require hosting the gateway. On-premises placement does not imply
 offline operation. Use the [trusted executor](../../deploy/README.md) when the agent must have no

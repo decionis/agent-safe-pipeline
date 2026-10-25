@@ -18,11 +18,11 @@ successful confinement.
 
 ## Choose where the gateway and authority run
 
-| Deployment                                       | Action traffic                                        | Decision authority                                 | Available behavior                                                               |
-| ------------------------------------------------ | ----------------------------------------------------- | -------------------------------------------------- | -------------------------------------------------------------------------------- |
-| Bank-operated gateway, hosted authority          | Agent to gateway to bank API, inside the bank         | Configured Decionis HTTPS endpoint                 | Shadow, then enforcement with fail closed                                        |
-| Bank-operated gateway, bank-controlled authority | Agent to gateway to bank API, inside the bank         | Separately provisioned compatible Decionis service | Same gateway modes; authority deployment and licensing are separate              |
-| Decionis-managed gateway                         | Agent to assigned cloud gateway to a public HTTPS API | Tenant's Decionis workspace                        | Shadow by default; enforcement per tenant on a gateway of its own (private beta) |
+| Deployment                                       | Action traffic                                        | Decision authority                                 | Available behavior                                                       |
+| ------------------------------------------------ | ----------------------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------ |
+| Bank-operated gateway, hosted authority          | Agent to gateway to bank API, inside the bank         | Configured Decionis HTTPS endpoint                 | Shadow, then enforcement with fail closed                                |
+| Bank-operated gateway, bank-controlled authority | Agent to gateway to bank API, inside the bank         | Separately provisioned compatible Decionis service | Same gateway modes; authority deployment and licensing are separate      |
+| Decionis-managed gateway                         | Agent to assigned cloud gateway to a public HTTPS API | Tenant's Decionis workspace                        | Shadow, then enforcement on a gateway of the tenant's own (private beta) |
 
 Using the hosted **authority** does not require using the hosted **gateway**. An on-premises
 gateway can enforce decisions from `https://api.decionis.com` while the request is relayed to the
@@ -50,8 +50,8 @@ observed; a would-be BLOCK does not stop the action.
 Three ways to run the authority, written once so a bank's security review reads the same answer
 here, on docs.decionis.com and in the bank brief. In every tier the gateway, its hold store, its
 evidence chains and the ISO 8583 interceptor run inside the bank; only the managed gateway is a
-Decionis-run gateway, and it observes in shadow unless a tenant opts in to enforcement on a gateway
-of its own (private beta, [below](#enforce-on-the-managed-gateway)).
+Decionis-run gateway. It starts in shadow and enforces for a tenant that turns enforcement on, on a
+gateway of the tenant's own (private beta, [below](#enforce-on-the-managed-gateway)).
 
 | Tier                                      | Who runs the authority that mints grants                                                                                                                                                                      | Where Presence runs                                                                                                                                                                                                                                   | How it is arranged                                                                                                    |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
@@ -357,16 +357,20 @@ keys; the equivalent runtime YAML uses `authority.mode` and `authority.failurePo
 ```mermaid
 flowchart LR
     A[Agent tool client] -->|HTTPS request and tenant key| H[Assigned Decionis gateway]
-    H -->|Relay admitted request in shadow| U[Your public HTTPS API]
-    H -->|Observe policy| D[Tenant Decionis workspace]
+    H -->|Relay the request: in shadow as sent, in enforcement once its grant is claimed| U[Your public HTTPS API]
+    H -->|Decide on policy| D[Tenant Decionis workspace]
 ```
 
-A managed gateway runs in shadow until its tenant opts in to enforcement. Treat shadow as an
-evaluation path with real upstream effects, not a production authorization gate. Enforcement on
-the managed gateway is in private beta and runs on a gateway of the tenant's own
-([enforce on the managed gateway](#enforce-on-the-managed-gateway)); until Decionis has provisioned
-that for your tenant, self-host a gateway with the hosted authority to enforce. A private dedicated
-service beyond that requires an explicitly agreed deployment; this guide does not assume it exists.
+A managed gateway enforces your policy or runs in shadow, per tenant. Every tenant starts in shadow,
+an evaluation path with real upstream effects, and turns on enforcement when the record looks right:
+its gateway then holds the API's credential, claims a single-use grant before each consequential
+request and fails closed ([enforce on the managed gateway](#enforce-on-the-managed-gateway), private
+beta). A managed gateway fronts only an API whose origin you can prove you control, with a
+credential that does not expire within hours. A third-party API, such as a payment provider's, and an
+API whose credential is a short-lived OAuth access token run behind a gateway in your own network
+([on premises](#deploy-on-premises)) or the [trusted executor](../../deploy/README.md). A private
+dedicated service beyond that requires an explicitly agreed deployment; this guide does not assume
+it exists.
 
 1. **Arrange operator onboarding.** Supply the API origin/base path, workspace organization and
    intended evaluation traffic through the existing Decionis onboarding process. Obtain the
@@ -440,8 +444,11 @@ To move a tenant to enforcement:
 2. In your Decionis workspace, ask to enforce and give the credential your API accepts, with the
    header it travels in (`Authorization`, `X-Api-Key`, …). Use a credential scoped to what your
    agent needs.
-3. Once your gateway answers `agentsafe-mode: ENFORCEMENT`, remove the provider credential from
-   your agent and keep only `AgentSafe-Tenant-Key`.
+3. Once your workspace shows your gateway enforcing, remove the provider credential from your
+   agent and keep only `AgentSafe-Tenant-Key`. An allowed request then answers
+   `agentsafe-execution: FORWARDED` with `agentsafe-decision` and `agentsafe-dossier-id`, a blocked
+   one `403` with `NOT_FORWARDED`, and one that waits for approval `202` with `HELD`; no answer
+   carries `agentsafe-mode: SHADOW` any more.
 4. Run the checks in [verify before enabling enforcement](#verify-before-enabling-enforcement),
    with the direct-call check made against your API from where your agent runs.
 

@@ -7,11 +7,14 @@ For enforcement with the hosted authority and a gateway inside the bank, use the
 gateway, in private beta, see
 [enforce on the managed gateway](../gateway/deployment.md#enforce-on-the-managed-gateway).
 
-Decionis runs this runtime as a hosted fleet, live in shadow: each tenant it onboards is served at
-`{id}.decionisedge.com`, and a request within the gateway's bounds (below) reaches the tenant's API
-while Decionis records what it would have decided. A tenant that opts in to enforcement, in private
-beta, is served from a gateway of its own that holds its API's credential and fails closed
-([below](#a-tenant-that-enforces)). Decionis onboards each tenant and hands it a
+Decionis runs this runtime as a hosted fleet at `{id}.decionisedge.com`, in two modes per tenant.
+In enforcement, in private beta, the tenant's gateway runs on its own pods, holds its API's
+credential, claims a single-use grant before each consequential request and fails closed
+([below](#a-tenant-that-enforces)). In shadow, where every tenant starts, a request within the
+gateway's bounds (below) reaches the tenant's API while Decionis records what it would have
+decided. The fleet fronts an API whose origin the tenant proves it controls, with a credential that
+does not expire within hours; a third-party API such as a payment provider's, or one reached with a
+short-lived OAuth access token, runs behind a gateway in your own network instead. Decionis onboards each tenant and hands it a
 tenant key; there is no self-serve sign-up. Bringing an endpoint, saying which of its actions are
 consequential and watching the decisions without an operator in the loop is the evaluation path
 the fleet is building toward, and that part is not live.
@@ -33,15 +36,16 @@ For a tenant, that means:
   `AgentSafe-Tenant-Key: <key>` ([the tenant key](../gateway/configuration.md#the-tenant-key)). The
   gateway removes the key, adds `X-Forwarded-For`, `X-Forwarded-Proto` and `X-Forwarded-Host`, and
   `x-agent-safe-intent-hash` on an evaluated request, and forwards the rest unchanged.
-- **Shadow, and the routes are fixed.** `POST`, `PUT`, `PATCH` and `DELETE` are evaluated as
-  they pass, each under its derived name (`http.post`, `http.put`, `http.patch`, `http.delete`),
-  and nothing is held or blocked on a verdict; `GET`, `HEAD` and `OPTIONS` pass through
-  unevaluated. A tenant of the fleet cannot configure routes or name its actions: onboarding sets
+- **The routes are fixed.** `POST`, `PUT`, `PATCH` and `DELETE` are evaluated, each under its
+  derived name (`http.post`, `http.put`, `http.patch`, `http.delete`): in shadow as they pass, with
+  nothing held or blocked on a verdict; in enforcement before they run, so a `BLOCK` is `403` and an
+  `ESCALATE` is `202` and held. `GET`, `HEAD` and `OPTIONS` pass through unevaluated. A tenant of the fleet cannot configure routes or name its actions: onboarding sets
   none, so every tenant gets these defaults. What Decionis is shown of an evaluated request is in
   [what the authority sees](../gateway/http-interception.md#what-the-authority-sees).
-- **Responses change.** A relayed response carries `agentsafe-execution` (`PASSTHROUGH`), and
-  `agentsafe-mode: SHADOW` when the request was evaluated; any `agentsafe-*` header the API sent is
-  dropped. Every relayed response gets `Content-Security-Policy: sandbox`, so a page or script
+- **Responses change.** A relayed response carries `agentsafe-execution`: in shadow
+  `PASSTHROUGH`, with `agentsafe-mode: SHADOW` when the request was evaluated; in enforcement
+  `FORWARDED` once its grant was claimed, with `agentsafe-decision` and `agentsafe-dossier-id`. Any
+  `agentsafe-*` header the API sent is dropped. Every relayed response gets `Content-Security-Policy: sandbox`, so a page or script
   served through the gateway does not run as one; every `Set-Cookie` loses its `Domain`, so a
   cookie is kept for the tenant's host alone; and the fleet terminates TLS itself, so every answer
   carries its `Strict-Transport-Security`, never the API's own.
