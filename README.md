@@ -243,14 +243,14 @@ One runtime, five ways to run it. The executable, the packages, the image and th
 and smoke-tested by the release workflow from the same code; nothing about authority, binding,
 claim or finalization differs between them.
 
-| Where       | How                                                                                                                                                                                       | Page                                       |
-| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
-| macOS       | `brew tap decionis/agent-safe https://github.com/decionis/agent-safe-pipeline && brew trust decionis/agent-safe && brew install agentsafe`                                                | [macOS](./docs/install/macos.md)           |
-| Linux       | `curl -fsSL https://raw.githubusercontent.com/decionis/agent-safe-pipeline/master/packaging/install.sh \| sh`, or the `.deb` / `.rpm` with a hardened systemd unit                        | [Linux](./docs/install/linux.md)           |
-| Docker      | `ghcr.io/decionis/agentsafe:<version>`, the same digest as `docker.io/decionis/agentsafe:<version>`; distroless, non-root, two architectures                                              | [Docker](./docs/install/docker.md)         |
-| Kubernetes  | `helm install agentsafe oci://ghcr.io/decionis/charts/agentsafe`, one Deployment in front of one Service                                                                                  | [Kubernetes](./docs/install/kubernetes.md) |
-| Hosted      | `{id}.decionisedge.com`, the same runtime, run by Decionis in shadow for the tenants it onboards, or enforcing on a gateway of the tenant's own (private beta); no self-serve sign-up yet | [Hosted](./docs/install/hosted.md)         |
-| From source | `git clone`, `pnpm install --frozen-lockfile`, `pnpm build`, `node packages/agentsafe/dist/Cli.js`                                                                                        | [Quickstart](./docs/quickstart/README.md)  |
+| Where       | How                                                                                                                                                                                        | Page                                       |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------ |
+| macOS       | `brew tap decionis/agent-safe https://github.com/decionis/agent-safe-pipeline && brew trust decionis/agent-safe && brew install agentsafe`                                                 | [macOS](./docs/install/macos.md)           |
+| Linux       | `curl -fsSL https://raw.githubusercontent.com/decionis/agent-safe-pipeline/master/packaging/install.sh \| sh`, or the `.deb` / `.rpm` with a hardened systemd unit                         | [Linux](./docs/install/linux.md)           |
+| Docker      | `ghcr.io/decionis/agentsafe:<version>`, the same digest as `docker.io/decionis/agentsafe:<version>`; distroless, non-root, two architectures                                               | [Docker](./docs/install/docker.md)         |
+| Kubernetes  | `helm install agentsafe oci://ghcr.io/decionis/charts/agentsafe`, one Deployment in front of one Service                                                                                   | [Kubernetes](./docs/install/kubernetes.md) |
+| Hosted      | `{id}.decionisedge.com`, the same runtime, run by Decionis for the tenants it onboards: enforcing on a gateway of the tenant's own (private beta), or in shadow; no self-serve sign-up yet | [Hosted](./docs/install/hosted.md)         |
+| From source | `git clone`, `pnpm install --frozen-lockfile`, `pnpm build`, `node packages/agentsafe/dist/Cli.js`                                                                                         | [Quickstart](./docs/quickstart/README.md)  |
 
 Every install page ends at the same place: send your first governed action.
 

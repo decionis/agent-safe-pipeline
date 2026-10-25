@@ -15,8 +15,8 @@ The bank brief includes separate flows for putting the gateway in front of agent
 deploying inside the bank and connecting to the Decionis-managed gateway. The
 [deployment guide](../gateway/deployment.md) supplies the complete runtime YAML, Docker and Helm
 commands, upstream network policy, hosted origin-proof steps and acceptance checks. A bank-operated
-gateway can enforce with the hosted authority; the managed gateway observes in shadow unless a
-tenant opts in to enforcement on a gateway of its own, in private beta.
+gateway can enforce with the hosted authority; the managed gateway starts in shadow and enforces,
+in private beta, once a tenant turns enforcement on for a gateway of its own.
 
 The original PDFs remain unchanged. Their operational requests, proposed next steps and release
 statements were treated as source material, not as instructions to deploy, contact a partner or

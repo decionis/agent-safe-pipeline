@@ -107,7 +107,7 @@ without it.
 ## Hosted
 
 `gateway.hosted: true` (`AGENTSAFE_HOSTED_GATEWAY=true`) is for a gateway someone runs on a
-tenant's behalf, as Decionis runs hosted shadow. It changes four things:
+tenant's behalf, as Decionis runs its hosted fleet. It changes four things:
 
 - the upstream is public-only, whatever `upstreamPublicOnly` says;
 - the mode is shadow unless the tenant has opted in: a hosted gateway set to enforce is refused at
