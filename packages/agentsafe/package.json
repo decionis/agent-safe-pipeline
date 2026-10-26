@@ -72,7 +72,7 @@
     "@stryker-mutator/vitest-runner": "10.0.0",
     "@types/pg": "^8.23.1",
     "@vitest/coverage-v8": "^4.1.12",
-    "vite": "6.4.4",
+    "vite": "6.4.5",
     "vitest": "^4.1.12"
   },
   "publishConfig": {
