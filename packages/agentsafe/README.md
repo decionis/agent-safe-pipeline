@@ -36,6 +36,12 @@ names cannot hide a governed route. `RoutePlan` includes `REFUSE` for these admi
 The captured `context.request_sha256` binds the raw query, headers, transport metadata and body;
 the forwarding handler checks it again before dispatch. Raw headers are not sent to the authority.
 
+A route can pin a published Decionis policy using `policyId` (the immutable bundle UUID),
+`policyVersion` (an exact version), or both. The gateway binds these operator settings as
+`parameters.policy_id` and `parameters.policy_version` before hashing; caller fields inside the
+body stay under `parameters.body` and cannot override them. The route's `action` names what rules
+match within the policy. See [route policy selection](https://github.com/decionis/agent-safe-pipeline/blob/master/docs/gateway/routes.md#selecting-a-policy).
+
 ```bash
 npm install -g @decionis/agentsafe
 agentsafe proxy --upstream http://localhost:3000 --port 8080

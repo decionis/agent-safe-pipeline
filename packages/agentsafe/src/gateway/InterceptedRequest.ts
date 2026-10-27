@@ -15,12 +15,14 @@ export interface InterceptedRequest {
   readonly encrypted: boolean;
 }
 
-/** The HTTP action's parameters: exactly what the authority evaluates and the handler forwards. */
+/** The held HTTP request and operator policy selectors, bound together for the authority. */
 export interface HttpActionParameters extends JsonObject {
   method: ConsequentialMethod;
   path: string;
   query: { [key: string]: string | string[] };
   body?: JsonValue;
+  policy_id?: string;
+  policy_version?: string;
 }
 
 /**
@@ -139,11 +141,19 @@ function header(
  * embedded, which is what the forwarding handler checks before dispatch.
  * Raw request headers never reach the authority. Their digest binds their
  * meaning along with the exact query and bytes for the final dispatch check.
+ * Policy selectors come only from the matched operator route, never from
+ * the caller's body, query or headers. They are bound before intent hashing
+ * and do not change the request forwarded to the upstream.
  */
 export function normalizeRequest(
   request: InterceptedRequest,
   action: string,
-  options: { readonly maxEmbeddedBodyBytes: number; readonly principalHeader: string | null },
+  options: {
+    readonly maxEmbeddedBodyBytes: number;
+    readonly principalHeader: string | null;
+    readonly policyId?: string;
+    readonly policyVersion?: string;
+  },
 ): NormalizedAction {
   const method = request.method.toUpperCase() as ConsequentialMethod;
   const target = `${method} ${request.path}`;
@@ -167,6 +177,8 @@ export function normalizeRequest(
     path: request.path,
     query: queryObject(request.search),
     ...(body === undefined ? {} : { body }),
+    ...(options.policyId === undefined ? {} : { policy_id: options.policyId }),
+    ...(options.policyVersion === undefined ? {} : { policy_version: options.policyVersion }),
   };
   return {
     proposal: { action, target, parameters },

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
+import { IntentCapture } from "@decionis/agent-safe-pipeline";
 import {
   bodyDigest,
   normalizeRequest,
@@ -82,6 +83,38 @@ describe("request normalization", () => {
       options,
     );
     expect(vendor.context["body_embedded"]).toBe(true);
+  });
+
+  it("binds the operator's policy choice to the intent while preserving the held HTTP request", () => {
+    const input = request();
+    const capture = new IntentCapture({
+      createId: () => "00000000-0000-4000-8000-000000000001",
+      clock: () => new Date("2026-10-01T12:00:00.000Z"),
+    });
+    const trusted = {
+      tenantId: "00000000-0000-4000-8000-000000000009",
+      actor: { id: "synthetic-gateway", type: "GATEWAY" },
+      downstreamTarget: { system: "synthetic-payments", operation: "payment.create" },
+      idempotencyKey: "synthetic-payment-1",
+    };
+    const selectors = [
+      {},
+      { policyId: "00000000-0000-4000-8000-000000000010" },
+      { policyId: "00000000-0000-4000-8000-000000000011" },
+      { policyVersion: "payments-v1" },
+      { policyVersion: "payments-v2" },
+      { policyId: "00000000-0000-4000-8000-000000000010", policyVersion: "payments-v1" },
+    ];
+    const hashes = selectors.map((selector) => {
+      const normalized = normalizeRequest(input, "payment.create", { ...options, ...selector });
+      expect(normalized.context["request_sha256"]).toBe(requestDigest(input));
+      expect(normalized.proposal.parameters["body"]).toEqual({ amount: 5, to: "acct-1" });
+      return capture.capture(normalized.proposal, { ...trusted, context: normalized.context })
+        .intentHash;
+    });
+    // All other captured fields are fixed: each difference is the policy choice alone.
+    expect(new Set(hashes).size).toBe(selectors.length);
+    expect(input.body.toString("utf8")).toBe('{"amount": 5, "to": "acct-1"}');
   });
 
   it("embeds no body at all under a limit of zero, and still binds every byte by digest", () => {

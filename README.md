@@ -229,7 +229,10 @@ What is bound and forwarded, and what each outcome finalizes as, is
 [docs/gateway/http-interception.md](./docs/gateway/http-interception.md); what happens when the
 authority cannot be reached is [docs/gateway/failure-policy.md](./docs/gateway/failure-policy.md);
 the configuration, one schema for every distribution with the precedence flags, environment, file,
-defaults, is [docs/gateway/configuration.md](./docs/gateway/configuration.md). The gateway is
+defaults, is [docs/gateway/configuration.md](./docs/gateway/configuration.md). A route's optional
+`policyId` or `policyVersion` [selects a published Decionis policy](./docs/gateway/routes.md#selecting-a-policy)
+and is bound into the action's top-level parameters; its `action` names the transaction for rules
+to match. These selectors come from operator configuration, never the caller's body. The gateway is
 addressed: the workload is pointed at it. `agentsafe intercept` holds the same boundary without
 configuring the workload, by redirecting a pod's or a container's outbound 80 and 443 into
 AgentSafe at the network layer, reporting every destination it reaches, and governing the ones the

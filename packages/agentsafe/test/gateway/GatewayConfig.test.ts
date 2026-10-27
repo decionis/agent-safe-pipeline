@@ -299,6 +299,55 @@ describe("the gateway configuration", () => {
     ).toBe(false);
   });
 
+  it.each([
+    { policyId: "C0FFEE00-0000-4000-8000-000000000010" },
+    { policyVersion: "payments-v1" },
+    { policyId: "C0FFEE00-0000-4000-8000-000000000010", policyVersion: "payments-v1" },
+  ])("keeps a route's published policy selectors: %j", (selector) => {
+    const config = load({
+      flags: { upstream: "http://localhost:1" },
+      file: {
+        version: 1,
+        interception: {
+          routes: [{ path: "/payments", action: "payment.create", methods: ["POST"], ...selector }],
+        },
+      },
+    });
+    expect(config.interception.routes).toEqual([
+      {
+        path: "/payments",
+        action: "payment.create",
+        methods: ["POST"],
+        ...selector,
+        ...(selector.policyId === undefined ? {} : { policyId: selector.policyId.toLowerCase() }),
+      },
+    ]);
+  });
+
+  it.each([
+    ["policyId", "payment.create"],
+    ["policyId", ""],
+    ["policyId", 42],
+    ["policyVersion", "   "],
+    ["policyVersion", "v".repeat(101)],
+    ["policyVersion", "v1\u0000v2"],
+    ["policyVersion", "v1\nv2"],
+    ["policyVersion", "v1\u007fv2"],
+    ["policyVersion", ["v1", "v2"]],
+  ])("refuses an invalid route %s before starting", (field, value) => {
+    const error = refusal({
+      flags: { upstream: "http://localhost:1" },
+      file: {
+        version: 1,
+        interception: {
+          routes: [{ path: "/payments", action: "payment.create", [field as string]: value }],
+        },
+      },
+    });
+    expect(error.code).toBe("CONFIG_INVALID");
+    expect(error.setting).toBe(`interception.routes.0.${field as string}`);
+  });
+
   it("refuses the values it cannot read, naming the setting", () => {
     const cases: [Partial<GatewayConfigInput>, string][] = [
       [{ flags: { upstream: "http://localhost:1", listen: "nowhere" } }, "--listen"],
@@ -1074,5 +1123,22 @@ describe("the gateway configuration", () => {
       { path: "/payments/**", action: "payment.create", methods: ["POST"] },
     ]);
     expect(parsed.authority.mode).toBe("SHADOW");
+  });
+
+  it("round-trips policy selectors without interpreting a version as YAML syntax", () => {
+    const route = {
+      path: "/payments",
+      action: "payment.create",
+      methods: ["POST"] as const,
+      policyId: "c0ffee00-0000-4000-8000-000000000010",
+      policyVersion: 'payments v1: "stable" # exact',
+    };
+    const text = renderConfigFile({
+      upstream: "http://localhost:3000",
+      listen: "127.0.0.1:8080",
+      mode: "ENFORCEMENT",
+      routes: [route],
+    });
+    expect(load({ file: parse(text) as unknown }).interception.routes).toEqual([route]);
   });
 });

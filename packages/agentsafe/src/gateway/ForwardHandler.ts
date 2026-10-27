@@ -9,6 +9,7 @@ import {
 import { EFFECT_RECEIPT_HEADER } from "../verify/EffectReceipt.js";
 import { dispatchBudgetMs, MonotonicDeadline } from "../time/MonotonicClock.js";
 import { CONSEQUENTIAL_METHODS } from "./GatewayConfig.js";
+import { PolicyIdSchema, PolicyVersionSchema } from "./PolicySelector.js";
 import {
   bodyDigest,
   keyedRequestDigest,
@@ -25,6 +26,8 @@ export const HttpActionParametersSchema = z.strictObject({
   path: z.string().min(1).max(500),
   query: z.record(z.string(), z.union([z.string(), z.array(z.string())])),
   body: JsonValueSchema.optional(),
+  policy_id: PolicyIdSchema.optional(),
+  policy_version: PolicyVersionSchema.optional(),
 });
 
 /** A facts-only HTTP action's parameters: the profile operation and its template, nothing more. */

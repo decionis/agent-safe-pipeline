@@ -38,6 +38,8 @@ export function effectiveConfig(config: GatewayConfig): Record<string, unknown> 
         path: route.path,
         action: route.action,
         methods: [...route.methods],
+        ...(route.policyId === undefined ? {} : { policyId: route.policyId }),
+        ...(route.policyVersion === undefined ? {} : { policyVersion: route.policyVersion }),
       })),
     },
     actor: { ...config.actor },

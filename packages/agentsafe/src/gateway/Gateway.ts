@@ -1251,9 +1251,22 @@ export class Gateway {
     if (this.config.interception.privacy === "FACTS") {
       return this.captureFacts(request, action, session);
     }
+    const plan = this.plan(request.method, request.path, request.search);
+    const route = plan.kind === "GOVERN" ? plan.route : null;
+    // A caller of govern() cannot change the action to evade a route's
+    // policy pin. The HTTP listener already uses the route's action.
+    if (
+      route !== null &&
+      (route.policyId !== undefined || route.policyVersion !== undefined) &&
+      route.action !== action
+    ) {
+      throw new Error("ROUTE_ACTION_MISMATCH");
+    }
     const normalized = normalizeRequest(request, action, {
       maxEmbeddedBodyBytes: this.config.interception.maxEmbeddedBodyBytes,
       principalHeader: this.config.interception.principalHeader,
+      ...(route?.policyId === undefined ? {} : { policyId: route.policyId }),
+      ...(route?.policyVersion === undefined ? {} : { policyVersion: route.policyVersion }),
     });
     const trusted: TrustedIntentContext = {
       tenantId: this.config.authority.tenantId,
