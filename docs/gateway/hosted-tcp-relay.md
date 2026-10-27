@@ -27,7 +27,7 @@ On the machine that can reach `10.20.30.40:5432`:
 
 ```sh
 chmod 600 ./connector.key
-npx @decionis/agentsafe@0.6.0 connector \
+npx @decionis/agentsafe@0.7.0 connector \
   --gateway https://acme.decionisedge.com \
   --route 00000000-0000-4000-8000-000000000123 \
   --credential-file ./connector.key \
@@ -44,7 +44,7 @@ On the application machine:
 
 ```sh
 chmod 600 ./client.key
-npx @decionis/agentsafe@0.6.0 tunnel \
+npx @decionis/agentsafe@0.7.0 tunnel \
   --gateway https://acme.decionisedge.com \
   --route 00000000-0000-4000-8000-000000000123 \
   --credential-file ./client.key \

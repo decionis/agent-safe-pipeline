@@ -1,30 +1,30 @@
 # Compatibility
 
-What release `v0.4.1` runs on, and which versions of its specification and tools go together. The
+What release `v0.5.0` runs on, and which versions of its specification and tools go together. The
 runtime is the same in every distribution; only the packaging differs
 ([cross-runtime conformance](./conformance/runtime/README.md)). A release that changes a runtime
 requirement or a supported configuration updates this page in the same pull request
 ([MAINTENANCE.md](./MAINTENANCE.md#change-and-documentation-policy)).
 
-## The runtime, `agentsafe` 0.6.0
+## The runtime, `agentsafe` 0.7.0
 
 | Distribution                                    | Runs on                                                     | Needs                                  | Details                                                                                         |
 | ----------------------------------------------- | ----------------------------------------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | Executable: Homebrew, the archive, `install.sh` | macOS on Apple silicon and Intel; Linux on x86_64 and arm64 | Nothing else: it carries a pinned Node | [macOS](./docs/install/macos.md), [Linux](./docs/install/linux.md)                              |
 | `.deb` and `.rpm`                               | Linux on x86_64 and arm64                                   | Nothing else                           | [Linux](./docs/install/linux.md)                                                                |
 | Container image                                 | `linux/amd64` and `linux/arm64`                             | A container runtime                    | [Docker](./docs/install/docker.md)                                                              |
-| Helm chart 0.6.0                                | Kubernetes 1.27 or later (`kubeVersion: ">=1.27.0-0"`)      | The container image above              | [Kubernetes](./docs/install/kubernetes.md), [`charts/agentsafe`](./charts/agentsafe/Chart.yaml) |
-| npm: `@decionis/agentsafe` 0.6.0                | Node.js                                                     | Node.js 22.14.0 or later               | [`packages/agentsafe`](./packages/agentsafe/package.json)                                       |
+| Helm chart 0.7.0                                | Kubernetes 1.27 or later (`kubeVersion: ">=1.27.0-0"`)      | The container image above              | [Kubernetes](./docs/install/kubernetes.md), [`charts/agentsafe`](./charts/agentsafe/Chart.yaml) |
+| npm: `@decionis/agentsafe` 0.7.0                | Node.js                                                     | Node.js 22.14.0 or later               | [`packages/agentsafe`](./packages/agentsafe/package.json)                                       |
 
-There is no Windows build of the runtime. The hosted fleet, `{id}.decionisedge.com`, runs in shadow
-only, for the tenants Decionis onboards; there is no self-serve sign-up yet
-([hosted](./docs/install/hosted.md)).
+There is no Windows build of the runtime. The hosted fleet, `{id}.decionisedge.com`, supports
+enforcement for opted-in tenants on dedicated gateways; shared gateways run in shadow. Decionis
+onboards tenants, and there is no self-serve sign-up yet ([hosted](./docs/install/hosted.md)).
 
 ## Other packages in this repository
 
 | Package                               | Needs                    | Details                                                                                    |
 | ------------------------------------- | ------------------------ | ------------------------------------------------------------------------------------------ |
-| `@decionis/agent-safe-pipeline` 0.4.1 | Node.js 22.14.0 or later | [`packages/pipeline`](./packages/pipeline/package.json)                                    |
+| `@decionis/agent-safe-pipeline` 0.5.0 | Node.js 22.14.0 or later | [`packages/pipeline`](./packages/pipeline/package.json)                                    |
 | Released `@decionis/commerce` 0.1.6   | Node.js 20 or later      | [Released-source index](./packages/mcp/README.md); ongoing development belongs to Commerce |
 
 ## Govern 2.1.0
