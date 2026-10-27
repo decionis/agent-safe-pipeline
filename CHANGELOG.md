@@ -3,7 +3,31 @@
 Releases of `@decionis/agent-safe-pipeline` (the library) and `@decionis/agentsafe` (the runtime).
 Each entry names what an adopter can rely on and what they must do, if anything.
 
-## Runtime (unreleased): the action space as a document
+## Library 0.5.0, runtime 0.7.0 — 2026-10-27
+
+This release packages the route policy selector and the previously unreleased features below.
+The runtime, container and Helm chart share version 0.7.0; the library and release tag use 0.5.0.
+
+### Runtime: published policy selection for HTTP routes
+
+An operator route can select a published Decionis bundle with `policyId` (its immutable UUID),
+`policyVersion` (its exact version), or both. The gateway binds the selectors at the top level of
+`action.parameters` before hashing the intent; the caller's HTTP body, query and headers cannot
+select or override them. A mismatched action on a pinned route is refused before evaluation, and
+an authority refusal is not retried without the selector. The forwarded HTTP body is unchanged.
+
+**Nothing to do** for routes that use the workspace default policy. To pin a route, publish the
+policy through Decionis's governed workflow and configure its bundle ID or exact version as
+shown in [gateway routes](docs/gateway/routes.md). Draft IDs and rule names are not bundle IDs.
+
+### Runtime: dedicated hosted enforcement
+
+A hosted tenant can opt in to enforcement on a dedicated gateway that holds its upstream
+credential. Shared gateways remain in shadow. Tenant configuration, credentials and origin proof
+must satisfy the hosted enforcement checks before the gateway serves traffic
+([hosted deployment](docs/install/hosted.md)).
+
+### Runtime: the action space as a document
 
 `agentsafe actions manifest` writes the actions this build can run as one `agent-safe.actions/1`
 document, for a policy release to be held to: Decionis refuses a release that leaves a manifest
@@ -22,7 +46,7 @@ action matched by no rule but its default.
   schemas they are admitted against.
 - [CLI reference](docs/reference/cli.md#agentsafe-actions-manifest).
 
-## Library and runtime (unreleased): the target's state version
+### Library and runtime: the target's state version
 
 A write can now be held to the state of the target it was decided against: someone else's write to
 the same record between the grant and the commit refuses it, instead of letting it land.
@@ -48,7 +72,7 @@ intent without a precondition hashes byte for byte as before.
   (`INTENT_PRECONDITION_INVALID`), as hosted Decionis does.
 - [Target state](docs/authority/target-state.md) says how the pieces fit, and what they do not do.
 
-## Runtime (unreleased): an observed contradiction holds its scope
+### Runtime: an observed contradiction holds its scope
 
 The hosted authority now opens an **assumption breach** when a finalization contradicts its grant,
 and holds that action at that target until a governed release cites it
@@ -69,7 +93,7 @@ stays the default.
 - The gateway has no effect plane and opens no breach from its own observation; only a verifying
   upstream's receipt that contradicts its outcome can.
 
-## Library (unreleased): held allowances in the local authority
+### Library: held allowances in the local authority
 
 Decionis is adding allowances it holds itself: named counters for an organisation that a policy
 rule draws on, reserved with the grant, converted at the claim and settled by the outcome. A draw
@@ -97,7 +121,7 @@ changed, and a client reads the refusal as any other `BLOCK`.
   `PROVEN: 21 changed-condition attempts, 0 stale commits; 15 legitimate counterparts completed,
 each exactly once.`
 
-## Library (unreleased): governed plans
+### Library: governed plans
 
 One change carried out as several governed steps: `agent-safe.plan/1`, and the step stamp an
 executor binds into each step's intent ([ADR 0008](docs/architecture/decisions/0008-governed-plans.md)).
@@ -120,7 +144,7 @@ with `INTENT_CONTEXT_KEY_RESERVED`; nothing in this repository wrote it.
 - `examples/staged-change-demo`, in `pnpm examples:prove`. The SCITT mapping gains
   `partially_completed` for a `PARTIAL` plan.
 
-## Library and runtime (unreleased): the Changed Conditions Test
+### Library and runtime: the Changed Conditions Test
 
 The loopback authority re-derives authority at the claim as hosted Decionis does, and a new
 self-checking corpus shows changed conditions refused while legitimate work completes.
@@ -146,7 +170,7 @@ production code path changed.
   it. The race for its last unit is refused when it is published with each commit.
   [docs/changed-conditions-test.md](docs/changed-conditions-test.md) is the page.
 
-## Runtime (unreleased): MCP tools as data
+### Runtime: MCP tools as data
 
 An MCP server's consequential tools can be declared in a file instead of TypeScript:
 `agent-safe.profile.mcp/1`, which `McpGuard` reads.
@@ -166,7 +190,7 @@ to a tool with no `subject` binds byte-identically.
 - The specification, schema and vectors are at
   [spec/profiles/mcp/v1](spec/profiles/mcp/v1/README.md).
 
-## Runtime (unreleased): subject-bound sessions
+### Runtime: subject-bound sessions
 
 An agent limited to the customer it is serving, with no code of yours: a `subject` section names
 your identity provider, and an API profile says where the customer sits.
@@ -205,7 +229,7 @@ no session is read.
   in the body), the header `agentsafe-subject: CHECKED`.
   [Subject-bound sessions](docs/gateway/subject-sessions.md).
 
-## Runtime (unreleased): facts-only privacy for the gateway
+### Runtime: facts-only privacy for the gateway
 
 One setting keeps the request out of the authority: `interception.privacy: facts` (or
 `AGENTSAFE_PRIVACY=facts`).
@@ -224,7 +248,7 @@ sent. To turn it on, name an API profile (`interception.profile`) and set `priva
 - `request_hmac_sha256` joins the reserved fact names of `agent-safe.profile.api/1`.
   [Facts-only privacy](docs/gateway/http-interception.md#facts-only-privacy).
 
-## Runtime (unreleased): card authorization outcome evidence
+### Runtime: card authorization outcome evidence
 
 The card purchases' outcome evidence for the Decionis meter (`decionis.outcomes.evidence/1`), kept
 and stated after the fact.
@@ -252,7 +276,7 @@ and its agreement's scope names the platform `card-authorization` and the action
 - Core's contract is vendored byte for byte at `packages/agentsafe/contracts/OutcomeEvidence.v1.json`
   (owner revision e264bfbf5) with its digest pinned in the source and held by a test.
 
-## Library 0.4.1 (unreleased)
+## Library 0.4.1 — 2026-10-20
 
 The policy projection, first class: an intent states the policy path Decionis decides it under, and
 the binding carries it inside the hash.
@@ -280,7 +304,7 @@ binds `policy_projection` on `POST /v1/authority/grants` and on the claim's `int
   `intent` command does not know the property yet and reports a projected binding as
   `BINDING_INVALID`; `agentsafe verify intent` and the schema accept it.
 
-## Library 0.4.0, runtime 0.6.0 (unreleased)
+## Library 0.4.0, runtime 0.6.0 — 2026-10-18
 
 One execution contract: every write to a system of record, on any platform, runs through one runner
 and carries one single-use permit.
