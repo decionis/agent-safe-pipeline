@@ -47,6 +47,39 @@ The first route whose pattern and methods match wins, in the order written. A ro
 default to all four consequential methods. Action names follow the intent contract:
 `^[a-z][a-z0-9._:-]*$`, at most 120 characters.
 
+## Selecting a policy
+
+A route may also select which published Decionis policy evaluates its action. `action` names the
+transaction for rules to match; it does not select a policy bundle. Configure `policyId` with the
+immutable published bundle UUID, `policyVersion` with an exact published version, or both:
+
+```yaml
+interception:
+  routes:
+    - path: /decide
+      action: payment.decide
+      methods: [POST]
+      policyId: "00000000-0000-4000-8000-000000000010" # synthetic; replace with your published bundle
+      policyVersion: "payments-v1" # optional when policyId is set
+```
+
+The gateway adds `policy_id` and `policy_version` to the action's top-level parameters, beside
+`method`, `path`, `query` and `body`, before the canonical intent hash is computed. Decionis resolves
+that bundle within the configured tenant. When both are provided, both must match. `policyId` is
+not a workspace policy head, draft revision, rule ID or display name; `policyVersion` is the exact
+version string, not a policy title. The loader validates UUIDs, normalizes their case, and trims
+selectors; versions must be nonempty, at most 100 characters, with no internal control characters.
+
+Selectors come only from operator configuration. A body field, query parameter or request header
+cannot supply or override one; body fields remain under `parameters.body`. The upstream receives
+the original body unchanged. A different selector changes the intent hash and therefore the
+authorization binding. The gateway never retries a policy refusal by dropping the selector.
+
+Only the first matching route supplies a selector; unmatched actions and routes without selectors
+retain the authority's default selection. A direct `Gateway.govern()` caller that changes a pinned
+route's action gets `400 ROUTE_ACTION_MISMATCH` before any authority call. As with all explicit
+routes, these settings are unavailable in `privacy: facts`, which uses API profiles alone.
+
 ## By an API profile
 
 A platform's API can be governed by its API intent profile

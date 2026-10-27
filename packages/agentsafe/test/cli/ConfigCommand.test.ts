@@ -60,6 +60,23 @@ describe("agentsafe config", () => {
     expect(effective["presence"]).toEqual({ managed: false });
   });
 
+  it("shows the effective route policy selectors so an operator can verify the chosen bundle", () => {
+    const route = {
+      path: "/decide",
+      action: "payment.decide",
+      methods: ["POST"],
+      policyId: "00000000-0000-4000-8000-000000000010",
+      policyVersion: "payments-v1",
+    };
+    const config = GatewayConfigLoader.load({
+      env: {},
+      flags: { upstream: "http://localhost:1" },
+      file: { version: 1, interception: { routes: [route] } },
+      version: "0",
+    });
+    expect(effectiveConfig(config)["interception"]).toMatchObject({ routes: [route] });
+  });
+
   it("explains a configuration it cannot resolve", () => {
     const io = fakeProcess();
     runConfig(io, []);

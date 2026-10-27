@@ -41,21 +41,26 @@ and are never forwarded.
 The gateway reads the body in full, under `interception.maxBodyBytes` (1 MiB by default), and
 captures an intent in the `agent-safe.intent/1` contract:
 
-| Field                                   | Value                                                                                                         |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `action`                                | the route's action, or the derived name                                                                       |
-| `target`                                | `<METHOD> <path>`                                                                                             |
-| `parameters.method`, `parameters.path`  | as received                                                                                                   |
-| `parameters.query`                      | the query as an object, keys sorted, a list where a key repeats                                               |
-| `parameters.body`                       | the body, when it is JSON within `interception.maxEmbeddedBodyBytes` (64 KiB); absent otherwise               |
-| `context.request_sha256`                | SHA-256 binding of the method, path, raw query, headers, transport metadata and body bytes                    |
-| `context.body_sha256`, `body_bytes`     | SHA-256 and length of the raw bytes, embedded or not                                                          |
-| `context.content_type`                  | the request's                                                                                                 |
-| `context.body_embedded`                 | whether policy can see the fields                                                                             |
-| `context.claimed_principal`             | the value of `interception.principalHeader`, when configured; a claim the gateway carries and does not verify |
-| `correlationId`                         | `X-Correlation-Id`, else `X-Request-Id`                                                                       |
-| `idempotencyKey`                        | the client's `Idempotency-Key`, else a fresh one                                                              |
-| `actor`, `tenantId`, `downstreamTarget` | from the configuration: the gateway's actor, the tenant, the upstream as system, the action as operation      |
+| Field                                               | Value                                                                                                         |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `action`                                            | the route's action, or the derived name                                                                       |
+| `target`                                            | `<METHOD> <path>`                                                                                             |
+| `parameters.method`, `parameters.path`              | as received                                                                                                   |
+| `parameters.query`                                  | the query as an object, keys sorted, a list where a key repeats                                               |
+| `parameters.body`                                   | the body, when it is JSON within `interception.maxEmbeddedBodyBytes` (64 KiB); absent otherwise               |
+| `parameters.policy_id`, `parameters.policy_version` | the matched route's optional published policy selectors, supplied by the operator and bound before hashing    |
+| `context.request_sha256`                            | SHA-256 binding of the method, path, raw query, headers, transport metadata and body bytes                    |
+| `context.body_sha256`, `body_bytes`                 | SHA-256 and length of the raw bytes, embedded or not                                                          |
+| `context.content_type`                              | the request's                                                                                                 |
+| `context.body_embedded`                             | whether policy can see the fields                                                                             |
+| `context.claimed_principal`                         | the value of `interception.principalHeader`, when configured; a claim the gateway carries and does not verify |
+| `correlationId`                                     | `X-Correlation-Id`, else `X-Request-Id`                                                                       |
+| `idempotencyKey`                                    | the client's `Idempotency-Key`, else a fresh one                                                              |
+| `actor`, `tenantId`, `downstreamTarget`             | from the configuration: the gateway's actor, the tenant, the upstream as system, the action as operation      |
+
+The route's `policyId` and `policyVersion` [select a published policy](./routes.md#selecting-a-policy);
+they are separate from its action name, which rules match. The gateway never lifts policy selectors
+out of the caller's body, query or headers, and these settings do not change the upstream request.
 
 Raw request headers are not sent in the intent. An `Authorization` or `Cookie` header is the client's
 credential to the upstream; only the complete request digest binds its value. The raw value never

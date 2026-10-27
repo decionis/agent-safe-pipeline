@@ -34,6 +34,11 @@ gateway:
 `agentsafe init` writes one, with routes from an OpenAPI document when it finds one and the port
 from `package.json` when a script names one.
 
+An `interception.routes` entry may pin a published Decionis bundle with `policyId` (an immutable
+UUID), `policyVersion` (an exact version), or both. These operator settings become top-level action
+parameters before hashing; body fields cannot override them. See [policy selection](./routes.md#selecting-a-policy).
+The hosted tenant registry uses the same route schema.
+
 ## The authority
 
 | Setting                   | Meaning                                                                                   |

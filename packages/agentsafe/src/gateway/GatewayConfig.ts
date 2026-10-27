@@ -9,6 +9,7 @@ import {
 import { EgressPolicy } from "../egress/EgressPolicy.js";
 import type { SecretName } from "../secrets/SecretStore.js";
 import { HOSTED_DEFAULT_RATE_LIMIT, type RateLimit } from "./RateLimit.js";
+import { PolicyIdSchema, PolicyVersionSchema } from "./PolicySelector.js";
 
 export type GatewayMode = "SHADOW" | "ENFORCEMENT";
 export type FailurePolicy = "FAIL_CLOSED" | "FAIL_OPEN";
@@ -103,6 +104,10 @@ export interface RouteConfig {
   readonly path: string;
   readonly action: string;
   readonly methods: readonly ConsequentialMethod[];
+  /** A published immutable policy bundle UUID, not a workspace policy head or rule ID. */
+  readonly policyId?: string;
+  /** An exact published policy version; when both selectors are set, both must match. */
+  readonly policyVersion?: string;
 }
 
 /**
@@ -253,6 +258,8 @@ const RouteSchema = z.strictObject({
   path: routePath,
   action: actionName,
   methods: z.array(method).min(1).max(4).optional(),
+  policyId: z.string().trim().toLowerCase().pipe(PolicyIdSchema).optional(),
+  policyVersion: z.string().trim().pipe(PolicyVersionSchema).optional(),
 });
 
 const AuthoritySchema = z.strictObject({
@@ -887,6 +894,8 @@ export class GatewayConfigLoader {
       path: route.path,
       action: route.action,
       methods: route.methods ?? [...CONSEQUENTIAL_METHODS],
+      ...(route.policyId === undefined ? {} : { policyId: route.policyId }),
+      ...(route.policyVersion === undefined ? {} : { policyVersion: route.policyVersion }),
     }));
     sources["interception.routes"] = file?.interception?.routes === undefined ? "default" : "file";
     const unmatched = resolve<UnmatchedPolicy>(
@@ -1752,6 +1761,12 @@ export function renderConfigFile(options: {
             `    - path: ${route.path}`,
             `      action: ${route.action}`,
             `      methods: [${route.methods.join(", ")}]`,
+            ...(route.policyId === undefined
+              ? []
+              : [`      policyId: ${JSON.stringify(route.policyId)}`]),
+            ...(route.policyVersion === undefined
+              ? []
+              : [`      policyVersion: ${JSON.stringify(route.policyVersion)}`]),
           ]),
         ];
   return [
