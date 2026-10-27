@@ -346,6 +346,59 @@ describe("ReleaseSbom.mjs", () => {
     }
   });
 
+  it("accepts the complete pipeline SBOM at the release workflow's floor and refuses an incomplete inventory", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "release-sbom-floor-"));
+    try {
+      const workflow = parse(await read(".github/workflows/deploy.yml"));
+      const step = workflow.jobs.release.steps.find(
+        (entry) => entry.name === "Build package, SBOM, and license inventories",
+      );
+      const invocation = step.run.match(
+        /node scripts\/AssertReleaseSbom\.mjs\s+\\\n\s+"release\/\$RELEASE_STEM\.cdx\.json" "\$EXPECTED_NAME" "\$EXPECTED_VERSION" (\d+)/,
+      );
+      assert.ok(invocation, "the release workflow checks the pipeline SBOM");
+      const floor = invocation[1];
+      const manifest = await json("packages/pipeline/package.json");
+      const out = join(directory, "pipeline.cdx.json");
+      const generated = run("ReleaseSbom.mjs", ["packages/pipeline", out, "library"]);
+      assert.equal(generated.status, 0, generated.output);
+      // Finalization derives the serial number from artifact bytes; no registry access is needed.
+      const artifact = join(directory, "artifact.bin");
+      writeFileSync(artifact, "synthetic release artifact");
+      const finalized = run("FinalizeReleaseSbom.mjs", [
+        out,
+        artifact,
+        manifest.name,
+        manifest.version,
+      ]);
+      assert.equal(finalized.status, 0, finalized.output);
+      const args = [out, manifest.name, manifest.version, floor];
+      const complete = run("AssertReleaseSbom.mjs", args);
+      assert.equal(complete.status, 0, complete.output);
+      const sbom = JSON.parse(await readFile(out, "utf8"));
+      assert.deepEqual(sbom.components.map((component) => component.name).sort(), [
+        "@decionis/presence-node",
+        "@decionis/presence-types",
+        "jose",
+        "zod",
+      ]);
+      for (const omitted of sbom.components) {
+        writeFileSync(
+          out,
+          JSON.stringify({
+            ...sbom,
+            components: sbom.components.filter((component) => component !== omitted),
+          }),
+        );
+        const incomplete = run("AssertReleaseSbom.mjs", args);
+        assert.notEqual(incomplete.status, 0, `${omitted.name} must not disappear`);
+        assert.match(incomplete.output, /Release SBOM contains 3 components; expected at least 4/);
+      }
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("refuses a bad invocation", () => {
     assert.notEqual(run("ReleaseSbom.mjs", ["packages/pipeline"]).status, 0);
     assert.notEqual(run("ReleaseSbom.mjs", ["packages/pipeline", "out.json", "tool"]).status, 0);
