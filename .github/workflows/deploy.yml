@@ -1867,7 +1867,7 @@ jobs:
             echo
             echo "The annotated release tag is keylessly signed by the protected deploy workflow. See [release tag signing](https://github.com/decionis/agent-safe-pipeline/blob/master/docs/release-tag-signing.md) for identity-bound verification commands."
             echo
-            echo "The CycloneDX SBOM was generated from the extracted npm tarball and contains at least five dependency components. Raw in-toto statements, their signed DSSE envelopes (\`.intoto.jsonl\`) and their Sigstore bundles are attached for mirrors and offline verification."
+            echo "The CycloneDX SBOM was generated from the lockfile's pinned production dependency tree. Raw in-toto statements, their signed DSSE envelopes (\`.intoto.jsonl\`) and their Sigstore bundles are attached for mirrors and offline verification."
           } > "$RUNNER_TEMP/release-notes.md"
 
           release_args=(
