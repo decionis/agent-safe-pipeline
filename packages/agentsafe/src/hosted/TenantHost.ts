@@ -439,7 +439,8 @@ export class TenantHost {
    * tenant's gateway fails closed whatever the host's shared setting says,
    * and presents its upstream credential from the file its entry names; its
    * loader refuses it unless every other control hosted enforcement needs
-   * is on as well.
+   * is on as well. Any tenant's gateway sends the gateway token its entry
+   * names.
    */
   public static tenantEnvironment(
     host: Readonly<Record<string, string | undefined>>,
@@ -475,6 +476,9 @@ export class TenantHost {
             AGENTSAFE_UPSTREAM_CREDENTIAL_HEADER: tenant.upstreamCredential.header,
             AGENTSAFE_UPSTREAM_CREDENTIAL_FILE: tenant.upstreamCredential.file,
           }),
+      ...(tenant.gatewayToken === undefined
+        ? {}
+        : { AGENTSAFE_GATEWAY_TOKEN_FILE: tenant.gatewayToken.file }),
     };
   }
 

@@ -3,6 +3,29 @@
 Releases of `@decionis/agent-safe-pipeline` (the library) and `@decionis/agentsafe` (the runtime).
 Each entry names what an adopter can rely on and what they must do, if anything.
 
+## Runtime (unreleased): a token the gateway sends its upstream
+
+`gateway.gatewayToken: { file }` (`AGENTSAFE_GATEWAY_TOKEN_FILE`) makes the gateway send
+`AgentSafe-Gateway-Token` on every request it forwards, with the contents of the file as its value,
+so the API behind it can tell a request came through the gateway. It is a second slot beside
+`gateway.upstreamCredential`, which stands in for the caller: an enforcing gateway sends both, and a
+shadow gateway may send the token alone. A tenant registry entry takes `gatewayToken: { file }` in
+any mode.
+
+**Nothing to do** unless you want the token. A caller's own `AgentSafe-Gateway-Token` is now
+dropped before forwarding, with or without a token configured, so an API that reads the header only
+ever reads the gateway's.
+
+- The file follows the credential's rules: an absolute path, opened as the secret
+  `AGENTSAFE_GATEWAY_TOKEN`, permission-checked in production, watched on a hosted gateway, and
+  refused at start when it is missing, empty, over 8 KiB or holds a control character.
+- The token never reaches the intent, a report line, the evidence or the authority;
+  `/_agentsafe/status` says only whether one is sent (`hosted.gateway_token`). The upstream's
+  proof is fetched without it.
+- A host built before this release refuses a registry with `gatewayToken` in it
+  (`REGISTRY_INVALID`): write the field only once every replica runs this release.
+- [Gateway configuration](docs/gateway/configuration.md#the-gateway-token).
+
 ## Library 0.5.0, runtime 0.7.0 — 2026-10-27
 
 This release packages the route policy selector and the previously unreleased features below.

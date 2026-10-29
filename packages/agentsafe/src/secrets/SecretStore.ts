@@ -1,7 +1,12 @@
 import type { SECRET_KEYS } from "../config/ConfigKeys.js";
 import type { SecretHandle } from "./SecretHandle.js";
 
-export type SecretName = (typeof SECRET_KEYS)[number];
+/**
+ * A secret a store can hold: the executor's, and the token a gateway
+ * presents to its upstream, which the gateway alone opens, from the file its
+ * configuration names.
+ */
+export type SecretName = (typeof SECRET_KEYS)[number] | "AGENTSAFE_GATEWAY_TOKEN";
 
 export type ReloadReason = "WATCH" | "POLL" | "SIGHUP" | "OPERATOR";
 

@@ -26,6 +26,8 @@ const MARKERS = {
   response: "synthetic-response-3321",
   setCookie: "synthetic-set-cookie-6604",
   wrongKey: "synthetic-wrong-key-2290",
+  gatewayToken: "synthetic-gateway-token-7140",
+  forgedGatewayToken: "synthetic-forged-token-5028",
 } as const;
 
 const WORKSPACE = "00000000-0000-4000-8000-000000000009";
@@ -33,11 +35,13 @@ const UPSTREAM = "https://acme.shop.example";
 const authority = new LocalAuthority();
 const root = mkdtempSync(join(tmpdir(), "agentsafe-hygiene-"));
 const keyFile = join(root, "decionis-api-key");
+const tokenFile = join(root, "gateway-token");
 const evidenceDir = join(root, "evidence");
 
 beforeAll(async () => {
   await authority.start();
   writeFileSync(keyFile, LOCAL_AUTHORITY_API_KEY, { mode: 0o600 });
+  writeFileSync(tokenFile, MARKERS.gatewayToken, { mode: 0o600 });
 });
 afterAll(async () => {
   await authority.stop();
@@ -88,6 +92,7 @@ function filesUnder(directory: string): string[] {
 describe("what a hosted gateway records", () => {
   it("never holds a header value, a query, a body or a cookie, on any path a request takes", async () => {
     let failNext = false;
+    const tokens: (string | null)[] = [];
     const io = collectedIo();
     const host = await TenantHost.start({
       registryPath: "/etc/agentsafe/tenants.json",
@@ -104,6 +109,7 @@ describe("what a hosted gateway records", () => {
               upstream: UPSTREAM,
               tenantKeyDigests: [TENANT_KEY_DIGEST],
               workspace: { tenantId: WORKSPACE, apiKeyFile: keyFile },
+              gatewayToken: { file: tokenFile },
               interception: {
                 routes: [{ path: "/payments/**", action: "payment.create", methods: ["POST"] }],
               },
@@ -111,7 +117,8 @@ describe("what a hosted gateway records", () => {
           ],
         }),
       dependencies: {
-        upstreamFetch: async () => {
+        upstreamFetch: async (_input, init) => {
+          tokens.push(new Headers(init?.headers).get("agentsafe-gateway-token"));
           if (failNext) {
             failNext = false;
             throw new Error(`upstream down ${MARKERS.response}`);
@@ -137,6 +144,7 @@ describe("what a hosted gateway records", () => {
       "x-note": MARKERS.header,
       "content-type": "application/json",
       "idempotency-key": "synthetic-idempotency-0001",
+      "agentsafe-gateway-token": MARKERS.forgedGatewayToken,
     };
     const body = JSON.stringify({ amount: 25, memo: MARKERS.body });
 
@@ -174,6 +182,9 @@ describe("what a hosted gateway records", () => {
     expect(printed.some((line) => line.includes('"tenant_key"'))).toBe(true);
     expect(written.length).toBeGreaterThan(0);
     expect(written.join("\n")).toContain('"event":"SHADOW_EVALUATED"');
+    // The upstream had the gateway's token on every request, and never the caller's.
+    expect(tokens.length).toBeGreaterThan(0);
+    expect(new Set(tokens)).toEqual(new Set([MARKERS.gatewayToken]));
 
     const everything = [...printed, ...written].join("\n");
     for (const [name, marker] of Object.entries({ ...MARKERS, tenantKey: TENANT_KEY })) {

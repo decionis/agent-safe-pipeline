@@ -44,11 +44,14 @@ const secrets = mkdtempSync(join(tmpdir(), "agentsafe-tenants-"));
 const keyFile = join(secrets, "decionis-api-key");
 const credentialFile = join(secrets, "upstream-credential");
 const UPSTREAM_CREDENTIAL = "Bearer synthetic-upstream-credential";
+const tokenFile = join(secrets, "gateway-token");
+const GATEWAY_TOKEN = "synthetic-gateway-token-0001";
 
 beforeAll(async () => {
   await authority.start();
   writeFileSync(keyFile, LOCAL_AUTHORITY_API_KEY, { mode: 0o600 });
   writeFileSync(credentialFile, `${UPSTREAM_CREDENTIAL}\n`, { mode: 0o600 });
+  writeFileSync(tokenFile, `${GATEWAY_TOKEN}\n`, { mode: 0o600 });
 });
 afterAll(async () => {
   await authority.stop();
@@ -400,6 +403,126 @@ describe("the tenant host", () => {
     await host.close();
   });
 
+  it("sends a tenant's gateway token to its upstream on every request, from a watched file, and never a caller's", async () => {
+    const rotating = join(secrets, "rotating-gateway-token");
+    writeFileSync(rotating, `${GATEWAY_TOKEN}\n`, { mode: 0o600 });
+    const sent: { host: string; token: string | null }[] = [];
+    const files = new Map([
+      [
+        REGISTRY_PATH,
+        registry([
+          tenant("acme", TENANT_KEY_DIGEST, {
+            gatewayToken: { file: rotating },
+            interception: {
+              routes: [{ path: "/payments/**", action: "payment.create", methods: ["POST"] }],
+            },
+          }),
+          tenant("globex", OTHER_DIGEST),
+        ]),
+      ],
+    ]);
+    const io = collectedIo();
+    const host = await TenantHost.start({
+      registryPath: REGISTRY_PATH,
+      env: {
+        DECIONIS_API_URL: authority.baseUrl,
+        DECIONIS_ALLOW_INSECURE_LOOPBACK: "true",
+        AGENTSAFE_METRICS_TOKEN: "synthetic-operator-token",
+      },
+      io,
+      readFile: (path) => files.get(path) ?? null,
+      dependencies: {
+        upstreamFetch: async (input, init) => {
+          const url = new URL(String(input));
+          sent.push({
+            host: url.host,
+            token: new Headers(init?.headers).get("agentsafe-gateway-token"),
+          });
+          return new Response(`from ${url.host}`);
+        },
+      },
+    });
+    const gateway = host.select(ACME);
+    expect(gateway?.config.authority.mode).toBe("SHADOW");
+    expect(gateway?.status().hosted).toMatchObject({ gateway_token: true });
+    expect(host.select("globex.decionisedge.example")?.status().hosted).toMatchObject({
+      gateway_token: false,
+    });
+    const before = authority.requests.length;
+    const { port, server } = await serve(host);
+    const forged = { "agentsafe-gateway-token": "synthetic-forged-token" };
+    expect(
+      (await get(port, ACME, "/orders", { "agentsafe-tenant-key": TENANT_KEY, ...forged })).status,
+    ).toBe(200);
+    expect(
+      (
+        await send(port, "POST", ACME, "/payments/new", {
+          "agentsafe-tenant-key": TENANT_KEY,
+          ...forged,
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await get(port, "globex.decionisedge.example", "/orders", {
+          "agentsafe-tenant-key": OTHER_KEY,
+          ...forged,
+        })
+      ).status,
+    ).toBe(200);
+    expect(sent).toEqual([
+      { host: "acme.shop.example", token: GATEWAY_TOKEN },
+      { host: "acme.shop.example", token: GATEWAY_TOKEN },
+      { host: "globex.shop.example", token: null },
+    ]);
+
+    // A Secret volume swaps the file: the next request carries the new token, from the same gateway.
+    writeFileSync(`${rotating}.next`, "synthetic-gateway-token-0002\n", { mode: 0o600 });
+    renameSync(`${rotating}.next`, rotating);
+    await until(() =>
+      io.err.some((line) => line.includes('"SECRET_ROTATED"') && line.includes('"tenant":"acme"')),
+    );
+    expect(host.select(ACME)).toBe(gateway);
+    await get(port, ACME, "/orders", { "agentsafe-tenant-key": TENANT_KEY });
+    expect(sent[sent.length - 1]).toEqual({
+      host: "acme.shop.example",
+      token: "synthetic-gateway-token-0002",
+    });
+
+    // The authority hears of the governed request, never of either token, and nothing is printed of them.
+    const heard = (): string => JSON.stringify(authority.requests.slice(before));
+    await until(() => heard().includes("payment.create"));
+    const printed = [...io.out, ...io.err].join("\n");
+    for (const value of [GATEWAY_TOKEN, "synthetic-gateway-token-0002", "synthetic-forged-token"]) {
+      expect(heard()).not.toContain(value);
+      expect(printed).not.toContain(value);
+    }
+    await server.close();
+    await host.close();
+  });
+
+  it("refuses a tenant whose gateway token cannot be read or sent as one header, by code", async () => {
+    const empty = join(secrets, "empty-gateway-token");
+    const large = join(secrets, "large-gateway-token");
+    const control = join(secrets, "control-gateway-token");
+    writeFileSync(empty, "\n", { mode: 0o600 });
+    writeFileSync(large, "x".repeat(8193), { mode: 0o600 });
+    writeFileSync(control, "synthetic\u0007token", { mode: 0o600 });
+    const failed = async (file: string): Promise<readonly string[]> => {
+      const { host } = await start([tenant("acme", TENANT_KEY_DIGEST, { gatewayToken: { file } })]);
+      const codes = (await host.reload()).failed.map((failure) => failure.code);
+      await host.close();
+      return codes;
+    };
+    expect(await failed(join(secrets, "absent"))).toEqual([
+      "CONFIG_SECRET_FILE_UNREADABLE:AGENTSAFE_GATEWAY_TOKEN",
+    ]);
+    expect(await failed(empty)).toEqual(["CONFIG_SECRET_EMPTY:AGENTSAFE_GATEWAY_TOKEN"]);
+    expect(await failed(large)).toEqual(["CONFIG_SECRET_INVALID:AGENTSAFE_GATEWAY_TOKEN"]);
+    expect(await failed(control)).toEqual(["CONFIG_SECRET_INVALID:AGENTSAFE_GATEWAY_TOKEN"]);
+    expect(await failed(tokenFile)).toEqual([]);
+  });
+
   it("knows which tenants it could not build, and builds them once they can be", async () => {
     const late = join(secrets, "late-key");
     const files = new Map([
@@ -503,6 +626,25 @@ describe("the tenant host", () => {
     });
     expect(shadow).not.toHaveProperty("AGENTSAFE_HOSTED_DEDICATED");
     expect(shadow).not.toHaveProperty("AGENTSAFE_UPSTREAM_CREDENTIAL_FILE");
+    expect(shadow).not.toHaveProperty("AGENTSAFE_GATEWAY_TOKEN_FILE");
+    // The gateway token is any tenant's, in shadow or enforcement, and only ever its file.
+    for (const entry of [
+      tenant("acme", TENANT_KEY_DIGEST, { gatewayToken: { file: "/run/custody/gateway-token" } }),
+      { ...enforcing, gatewayToken: { file: "/run/custody/gateway-token" } },
+    ]) {
+      expect(
+        TenantHost.tenantEnvironment({ AGENTSAFE_GATEWAY_TOKEN_FILE: "/host/own" }, entry as never)[
+          "AGENTSAFE_GATEWAY_TOKEN_FILE"
+        ],
+      ).toBe("/run/custody/gateway-token");
+    }
+    // A host's own setting never reaches a tenant without one.
+    expect(
+      TenantHost.tenantEnvironment(
+        { AGENTSAFE_GATEWAY_TOKEN_FILE: "/host/own" },
+        tenant("acme", TENANT_KEY_DIGEST) as never,
+      ),
+    ).not.toHaveProperty("AGENTSAFE_GATEWAY_TOKEN_FILE");
   });
 
   it("tags a JSON line in place, leaves a line that already names its tenant alone, and wraps anything else", () => {
@@ -855,6 +997,7 @@ describe("the tenant host", () => {
       upstream_proof: null,
       dedicated: false,
       upstream_credential: null,
+      gateway_token: false,
     });
     expect(JSON.stringify(gateway?.status())).not.toContain(TENANT_KEY_DIGEST);
 
@@ -874,6 +1017,7 @@ describe("the tenant host", () => {
       upstream_proof: null,
       dedicated: false,
       upstream_credential: null,
+      gateway_token: false,
     });
 
     files.set(REGISTRY_PATH, "version: 1\ndomain: [");
