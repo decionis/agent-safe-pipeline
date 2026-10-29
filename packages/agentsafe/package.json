@@ -1,7 +1,7 @@
 {
   "name": "@decionis/agentsafe",
   "version": "0.7.0",
-  "description": "The trusted executor of the Execution Authority architecture as one deployable process: a proposal in over HTTP, a verdict from the authority, one execution on a claimed single-use grant, and the evidence of each.",
+  "description": "The AgentSafe gateway and trusted executor: every action your AI agents and workflows take is authorized by Decionis before it commits, then runs once on a single-use grant, waits for a person, or is refused, with chained evidence of each.",
   "keywords": [
     "execution-authority",
     "ai-agents",

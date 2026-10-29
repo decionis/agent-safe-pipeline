@@ -1,6 +1,11 @@
 # @decionis/agentsafe
 
-The trusted executor of the Execution Authority architecture as one deployable process. A workflow
+**Authorize every autonomous action, before it commits.** The AgentSafe gateway and trusted executor
+put authorization in front of every payment, trade, price change, sign-off, deployment and API call
+your AI agents and workflows make: Decionis decides each exact action, and it runs once, waits for a
+person, or is refused.
+
+It is the trusted executor of the Execution Authority architecture as one deployable process. A workflow
 or agent host posts a proposal to it over HTTP; the executor attaches the trusted context from its
 own configuration, asks the authority for a verdict, and on an `ALLOW` in enforcement claims the
 single-use grant and runs the registered handler once. The proposer never receives a grant or a
