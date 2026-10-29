@@ -396,7 +396,17 @@ it exists.
    It is different from both the upstream credential and the Decionis workspace service key;
    never send the workspace key as an agent header or put any key in a URL. Inject the tenant
    key from the application host's secret store, outside model-visible prompts.
-5. **Verify using an approved test operation.** A POST observed in shadow should return the
+5. **Optionally, check the gateway token at your API.** Your workspace admin reveals the gateway
+   token once, on the Deployments page of your Decionis workspace. Every request the gateway forwards
+   carries it as `AgentSafe-Gateway-Token`, and the gateway drops any value of that header your
+   agent sends, so your API can refuse a request that did not come through the gateway. Compare
+   it in constant time and keep it in your secret store; it is not your agent's to hold. To
+   rotate, **Regenerate** shows a new token once while the gateway keeps sending the old one;
+   have your API accept both, then activate the new one in the workspace, and drop the old one
+   once requests carry the new. In shadow the token says only that the request passed through
+   the gateway, not what the verdict would have been
+   ([the gateway token](configuration.md#the-gateway-token)).
+6. **Verify using an approved test operation.** A POST observed in shadow should return the
    upstream response with `agentsafe-mode: SHADOW` and `agentsafe-execution: PASSTHROUGH`.
    Verify the matching observation through the operator's report access. GET/HEAD/OPTIONS are
    unevaluated and have only the passthrough marker. Hosted status/metrics require the operator
@@ -432,7 +442,9 @@ serves your hostname from a gateway of your own instead of the shared fleet. Tha
 - holds the credential your API accepts and sets it on every request it forwards
   (`gateway.upstreamCredential`), dropping any value of that header your agent sends. Your agent
   authenticates to the gateway with its tenant key only, so it cannot reach your API around the
-  gateway. The credential is kept in a key vault of your gateway's own, readable only by its pods;
+  gateway. The credential is kept in a key vault of your gateway's own, readable only by its pods.
+  When your API checks the [gateway token](#set-up-the-decionis-managed-cloud-gateway) as well,
+  keep both: the credential in its own header, the token in `AgentSafe-Gateway-Token`;
 - fails closed: with the authority unreachable, a grant that cannot be claimed or an origin whose
   proof lapsed, nothing is forwarded (`agentsafe-execution: NOT_FORWARDED`), and pointing your
   agent back at your API is no fallback, because your agent no longer holds the credential;

@@ -60,7 +60,7 @@ import {
   RequestHolder,
   type ForwardOutcome,
 } from "./ForwardHandler.js";
-import { GatewayConfigLoader, type GatewayConfig } from "./GatewayConfig.js";
+import { GATEWAY_TOKEN_SECRET, GatewayConfigLoader, type GatewayConfig } from "./GatewayConfig.js";
 import { gatewayMetrics, type GatewayMetrics } from "./GatewayMetrics.js";
 import { processSurface, type InstallSurface } from "./InstallSurface.js";
 import {
@@ -260,6 +260,8 @@ export interface GatewayStatus {
     readonly dedicated: boolean;
     /** The header the gateway presents its upstream credential in; never the value. */
     readonly upstream_credential: { readonly header: string } | null;
+    /** Whether the gateway sends its upstream a gateway token; never the token. */
+    readonly gateway_token: boolean;
   } | null;
 }
 
@@ -461,17 +463,22 @@ export class Gateway {
       security.emit({ event: "LEAK_SUSPECTED", patterns: [...patterns] }),
     );
     if (store === null && config.secrets.required.length > 0) {
-      // The upstream credential is opened from the file the configuration
-      // names, and from nowhere else: never a value in the environment.
-      const credential = config.upstream.credential;
-      const secretEnvironment =
-        credential === null
-          ? env
+      // The upstream credential and the gateway token are opened from the
+      // files the configuration names, and from nowhere else: never a value
+      // in the environment.
+      const { credential, gatewayToken } = config.upstream;
+      const secretEnvironment = {
+        ...env,
+        ...(credential === null
+          ? {}
+          : { DOWNSTREAM_CREDENTIAL: undefined, DOWNSTREAM_CREDENTIAL_FILE: credential.file }),
+        ...(gatewayToken === null
+          ? {}
           : {
-              ...env,
-              DOWNSTREAM_CREDENTIAL: undefined,
-              DOWNSTREAM_CREDENTIAL_FILE: credential.file,
-            };
+              [GATEWAY_TOKEN_SECRET]: undefined,
+              [`${GATEWAY_TOKEN_SECRET}_FILE`]: gatewayToken.file,
+            }),
+      };
       store = CompositeSecretStore.fromEnvironment(secretEnvironment, config.secrets.required, {
         events: security,
         production: config.production,
@@ -493,6 +500,18 @@ export class Gateway {
       secrets.get("DOWNSTREAM_CREDENTIAL").use((value) => {
         if (!Upstream.isHeaderValue(value.toString("utf8"))) {
           throw new SecretError("CONFIG_SECRET_INVALID", "DOWNSTREAM_CREDENTIAL");
+        }
+      });
+    }
+    if (config.upstream.gatewayToken !== null) {
+      // Likewise the gateway's own token, which the upstream may refuse every
+      // request without.
+      if (secrets === null || !secrets.has(GATEWAY_TOKEN_SECRET)) {
+        throw new SecretError("CONFIG_SECRET_MISSING", GATEWAY_TOKEN_SECRET);
+      }
+      secrets.get(GATEWAY_TOKEN_SECRET).use((value) => {
+        if (!Upstream.isHeaderValue(value.toString("utf8"))) {
+          throw new SecretError("CONFIG_SECRET_INVALID", GATEWAY_TOKEN_SECRET);
         }
       });
     }
@@ -593,6 +612,12 @@ export class Gateway {
               value: () =>
                 secrets.get("DOWNSTREAM_CREDENTIAL").use((value) => value.toString("utf8")),
             },
+          }),
+      ...(config.upstream.gatewayToken === null || secrets === null
+        ? {}
+        : {
+            gatewayToken: () =>
+              secrets.get(GATEWAY_TOKEN_SECRET).use((value) => value.toString("utf8")),
           }),
       ...(upstreamGuard === null ? {} : { close: () => upstreamGuard.close() }),
     });
@@ -936,6 +961,7 @@ export class Gateway {
               this.config.upstream.credential === null
                 ? null
                 : { header: this.config.upstream.credential.header },
+            gateway_token: this.config.upstream.gatewayToken !== null,
           }
         : null,
     };

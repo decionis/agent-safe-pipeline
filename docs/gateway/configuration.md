@@ -109,6 +109,31 @@ neither sets nor sends to the authority: not a hop-by-hop or framing header, not
 the evidence or `/_agentsafe/status`, which names the header only. The upstream's proof is fetched
 without it.
 
+### The gateway token
+
+`gateway.gatewayToken: { file }` (`AGENTSAFE_GATEWAY_TOKEN_FILE`) is the gateway's own token. The
+gateway sends it as `AgentSafe-Gateway-Token` on every request it forwards, with the contents of
+the file as its value, so the upstream can tell a request came through this gateway and not
+straight from a client. It is apart from the upstream credential, which stands in for the caller:
+an enforcing gateway usually sends both, the credential in the API's own `Authorization` and the
+token in its fixed header, and a shadow gateway, whose callers keep their own credential, may send
+the token alone. Self-hosted or hosted, in shadow or enforcement.
+
+The gateway drops any `AgentSafe-Gateway-Token` a caller sends, with or without a token of its own,
+so the header an upstream reads is only ever the gateway's. The file is an absolute path, opened as
+the secret `AGENTSAFE_GATEWAY_TOKEN` with the same rules as the credential's file: permission
+checks in production, watched on a hosted gateway, so a rotated file takes effect on the next
+request, and refused at start when it is missing, empty, over 8 KiB or holds a control character.
+The token never reaches the intent, a report line, the evidence or the authority;
+`/_agentsafe/status` says only whether one is sent (`gateway_token`). The upstream's proof is
+fetched without it.
+
+The token says a request passed through the gateway, not that it was allowed: in shadow every
+request within the gateway's bounds is forwarded, whatever the verdict would have been. In
+enforcement, a consequential request the authority allowed also carries
+`x-agent-safe-intent-hash`, `x-agent-safe-decision-id` and `x-agent-safe-dossier-id`. Compare the
+token in constant time, keep it with your other secrets, and accept two values while it rotates.
+
 ## Hosted
 
 `gateway.hosted: true` (`AGENTSAFE_HOSTED_GATEWAY=true`) is for a gateway someone runs on a
@@ -177,6 +202,8 @@ tenants:
     workspace:
       tenantId: 7c0e… # the Decionis workspace the tenant's evaluations run in
       apiKeyFile: /var/run/agent-safe/tenants/acme/decionis-api-key
+    gatewayToken: # optional, in any mode: sent to the upstream as AgentSafe-Gateway-Token
+      file: /var/run/agent-safe/tenants/acme/gateway-token
     interception: # optional: the tenant's routes, as in agentsafe.yaml
       routes:
         - { path: /payments/**, action: payment.create, methods: [POST] }
@@ -195,7 +222,8 @@ tenants:
 
 Each tenant's gateway is built exactly as a hosted gateway configured by hand would be: public-only
 upstream, operator-only status and metrics, host-only cookies, its tenant key required, and its
-workspace key read from its own mounted file. It shadows unless its entry says `mode:
+workspace key read from its own mounted file, and, when its entry names one, its
+[gateway token](#the-gateway-token) sent from its own mounted file. It shadows unless its entry says `mode:
 enforcement`. An enforcing entry is served only by a host started for it alone, `agentsafe host
 --tenant <id>` (`AGENTSAFE_HOST_TENANT`), which serves that one entry and nothing else; there its
 gateway enforces, fails closed whatever the host's `AGENTSAFE_FAILURE_POLICY` says, presents the
@@ -221,7 +249,7 @@ upstream, a missing key file) is reported by code and setting, keeps the gateway
 tried again every 60 seconds while the registry is unchanged, so a tenant whose key file has not
 reached the mount yet is served as soon as it has. A hosted gateway watches its workspace key file,
 so a key rotated in a mounted Secret takes effect without a rebuild or a restart, with
-`SECRET_ROTATED` on the tenant's security chain. A
+`SECRET_ROTATED` on the tenant's security chain; so is its gateway token's file. A
 reload rebuilds only the tenants whose entry changed; a replaced or removed tenant's gateway
 finishes the requests in flight for 30 seconds before it is closed. Each load is one
 `TENANT_REGISTRY_LOADED` or `TENANT_REGISTRY_REFUSED` line naming the registry's `revision`
@@ -229,8 +257,8 @@ finishes the requests in flight for 30 seconds before it is closed. Each load is
 kept, rekeyed, retired, left to a host of its own (`dedicated`) and failed.
 
 The schema is strict, so a host refuses a field it does not know. A tenant's `upstreamTimeoutMs`,
-`mode`, `upstreamCredential` and `presence`, and an `interception.maxEmbeddedBodyBytes` of `0`,
-came after the first builds of `agentsafe host`.
+`mode`, `upstreamCredential`, `presence` and `gatewayToken`, and an
+`interception.maxEmbeddedBodyBytes` of `0`, came after the first builds of `agentsafe host`.
 A host built before them refuses the whole registry over the first (`REGISTRY_INVALID`): on a
 reload no later change applies, a key revocation included, and at start the process exits, so a
 replica restarted on that host never comes up. It refuses that tenant's gateway over the second
@@ -259,8 +287,8 @@ replica reads the registry on its own, so a change reaches replicas at different
 tenant's `/_agentsafe/status`, which answers the operator's token only, carries `hosted`, with the
 registry `revision` that replica last loaded, the `entry` (a short digest) its gateway was built
 from, and a `sha256:` prefix of 12 hex digits for each tenant key it admits, never the digest; and
-whether it is `dedicated` (its host serves it alone) and the header its `upstream_credential` is
-presented in, never the value.
+whether it is `dedicated` (its host serves it alone), the header its `upstream_credential` is
+presented in, never the value, and whether it sends a `gateway_token`, never the token.
 
 Once the listener is bound, each tenant's gateway prints its banner (`GATEWAY_STARTED`, at
 `https://{id}.{domain}` when the host terminates TLS) and links `GATEWAY_STARTED` on its own

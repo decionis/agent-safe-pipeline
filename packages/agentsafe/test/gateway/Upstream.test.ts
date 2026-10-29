@@ -176,6 +176,41 @@ describe("host-only cookies, for a hosted gateway", () => {
     expect(Upstream.isHeaderValue("Token a\tb")).toBe(true);
   });
 
+  it("sends its own token beside the credential, read at each request, and never a caller's", () => {
+    let token = "synthetic-gateway-token-one";
+    const tokened = new Upstream({
+      url: "https://api.example",
+      timeoutMs: 2_000,
+      maxResponseBytes: 1024,
+      fetch,
+      credential: { header: "authorization", value: () => "Bearer synthetic-upstream-credential" },
+      gatewayToken: () => token,
+    });
+    const caller = request({
+      headers: { ...request().headers, "agentsafe-gateway-token": "synthetic-forged" },
+    });
+    const sent = tokened.headersFor(caller, { "agentsafe-gateway-token": "synthetic-extra" });
+    expect(sent["agentsafe-gateway-token"]).toBe("synthetic-gateway-token-one");
+    expect(sent["authorization"]).toBe("Bearer synthetic-upstream-credential");
+    // A rotated file is the one the next request carries.
+    token = "synthetic-gateway-token-two";
+    expect(tokened.headersFor(caller)["agentsafe-gateway-token"]).toBe(
+      "synthetic-gateway-token-two",
+    );
+    // Without a token the caller's spelling of the header is still dropped.
+    const bare = new Upstream({
+      url: "https://api.example",
+      timeoutMs: 2_000,
+      maxResponseBytes: 1024,
+      fetch,
+    });
+    expect(bare.headersFor(caller)).not.toHaveProperty("agentsafe-gateway-token");
+    for (const broken of ["", "a\r\nx-injected: 1", "a\u0000b", "x".repeat(8193)]) {
+      token = broken;
+      expect(() => tokened.headersFor(caller)).toThrow("UPSTREAM_GATEWAY_TOKEN_INVALID");
+    }
+  });
+
   it("drops the Domain attribute and nothing else", () => {
     expect(hostOnlyCookie("sid=1; Domain=gw.example; Path=/; Secure; HttpOnly")).toBe(
       "sid=1; Path=/; Secure; HttpOnly",

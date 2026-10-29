@@ -1287,6 +1287,7 @@ describe("the tenant key check", () => {
       upstream_proof: null,
       dedicated: false,
       upstream_credential: null,
+      gateway_token: false,
     });
     expect(JSON.stringify(gateway.status())).not.toContain(secondDigest);
     await gateway.close();

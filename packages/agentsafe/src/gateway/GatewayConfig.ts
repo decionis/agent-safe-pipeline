@@ -37,6 +37,13 @@ export const TENANT_KEY_HEADER = "agentsafe-tenant-key";
 export const SESSION_HEADER = "agentsafe-session";
 /** The header a caller presents the identity provider's subject token in, per request; never forwarded. */
 export const SUBJECT_TOKEN_HEADER = "agentsafe-subject-token";
+/**
+ * The header the gateway presents its own token to the upstream in, so the
+ * upstream can tell a request came through it; a caller's value is never forwarded.
+ */
+export const GATEWAY_TOKEN_HEADER = "agentsafe-gateway-token";
+/** The secret the gateway token is opened as, from the file its configuration names. */
+export const GATEWAY_TOKEN_SECRET = "AGENTSAFE_GATEWAY_TOKEN" satisfies SecretName;
 const TENANT_KEY_DIGEST = /^sha256:[0-9a-f]{64}$/;
 /** A tenant's registry id: the DNS label it is served under. */
 const HOSTED_TENANT = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
@@ -176,6 +183,15 @@ export interface GatewayConfig {
      * dropped. Null forwards the caller's headers as they are.
      */
     readonly credential: { readonly header: string; readonly file: string } | null;
+    /**
+     * The gateway's own token: the secret in `file` (opened as
+     * `AGENTSAFE_GATEWAY_TOKEN`, and followed when the file is rotated), sent
+     * as `AgentSafe-Gateway-Token` on every request it forwards, so the
+     * upstream can tell the request came through this gateway. It is apart
+     * from `credential`, which stands in for the caller. Null sends none; a
+     * caller's own value of that header is dropped either way.
+     */
+    readonly gatewayToken: { readonly file: string } | null;
     readonly system: string;
     readonly environment: string;
     readonly timeoutMs: number;
@@ -298,6 +314,7 @@ export const GatewayFileSchema = z.strictObject({
           file: z.string().trim().min(1).max(500),
         })
         .optional(),
+      gatewayToken: z.strictObject({ file: z.string().trim().min(1).max(500) }).optional(),
       hosted: z.boolean().optional(),
       tenantKeyDigests: z.array(z.string()).optional(),
       rateLimit: z
@@ -443,6 +460,7 @@ const ENVIRONMENT = {
   hostedDedicated: "AGENTSAFE_HOSTED_DEDICATED",
   upstreamCredentialHeader: "AGENTSAFE_UPSTREAM_CREDENTIAL_HEADER",
   upstreamCredentialFile: "AGENTSAFE_UPSTREAM_CREDENTIAL_FILE",
+  gatewayTokenFile: "AGENTSAFE_GATEWAY_TOKEN_FILE",
   tenantKeyDigests: "AGENTSAFE_TENANT_KEY_DIGESTS",
   rateLimitRps: "AGENTSAFE_RATE_LIMIT_RPS",
   rateLimitBurst: "AGENTSAFE_RATE_LIMIT_BURST",
@@ -994,9 +1012,12 @@ export class GatewayConfigLoader {
     // credentials: they are stripped before forwarding, and the value of a
     // principal header is sent to the authority, so none of them can be the
     // header that names a principal.
-    const ownCredential = [TENANT_KEY_HEADER, SESSION_HEADER, SUBJECT_TOKEN_HEADER].find(
-      (header) => header === principalHeader?.toLowerCase(),
-    );
+    const ownCredential = [
+      TENANT_KEY_HEADER,
+      SESSION_HEADER,
+      SUBJECT_TOKEN_HEADER,
+      GATEWAY_TOKEN_HEADER,
+    ].find((header) => header === principalHeader?.toLowerCase());
     if (ownCredential !== undefined) {
       throw new GatewayConfigError(
         "CONFIG_INVALID",
@@ -1070,6 +1091,7 @@ export class GatewayConfigLoader {
     }
 
     const credential = GatewayConfigLoader.upstreamCredential(env, file, principalHeader, resolve);
+    const gatewayToken = GatewayConfigLoader.gatewayToken(env, file, resolve);
     // A gateway that holds the upstream's credential is the agent's only way
     // in, so with subjects pinned, a call it cannot check is never let through.
     if (credential !== null && subject !== null && !refuseUnknownReads) {
@@ -1110,6 +1132,7 @@ export class GatewayConfigLoader {
     const required: SecretName[] = [];
     if (kind === "DECIONIS") required.push("DECIONIS_API_KEY");
     if (credential !== null) required.push("DOWNSTREAM_CREDENTIAL");
+    if (gatewayToken !== null) required.push(GATEWAY_TOKEN_SECRET);
     if (escalation.mode === "DIRECT") required.push("PRESENCE_API_KEY");
 
     const verbose = resolve(
@@ -1166,6 +1189,7 @@ export class GatewayConfigLoader {
         publicOnly: upstreamPublicOnly,
         proofRequired,
         credential,
+        gatewayToken,
         system: resolve(
           "upstream.system",
           [
@@ -1482,6 +1506,35 @@ export class GatewayConfigLoader {
       );
     }
     return { header: name, file: path };
+  }
+
+  /**
+   * The file holding the gateway's own token, from the environment or the
+   * file: an absolute path, or none. The header it travels in is fixed, so
+   * nothing about it can collide with what the authority reads.
+   */
+  private static gatewayToken(
+    env: Readonly<Record<string, string | undefined>>,
+    file: GatewayFile | null,
+    resolve: <T>(name: string, layers: readonly Layer<T>[], fallback: T) => T,
+  ): { readonly file: string } | null {
+    const path = resolve<string | null>(
+      "upstream.gatewayToken.file",
+      [
+        { source: "environment", raw: env[ENVIRONMENT.gatewayTokenFile]?.trim() || undefined },
+        { source: "file", raw: file?.gateway?.gatewayToken?.file },
+      ],
+      null,
+    );
+    if (path === null) return null;
+    if (!isAbsolute(path)) {
+      throw new GatewayConfigError(
+        "CONFIG_INVALID",
+        "upstream.gatewayToken.file",
+        "an absolute path",
+      );
+    }
+    return { file: path };
   }
 
   /** Every control hosted enforcement needs, refused by the first one missing, by name. */
