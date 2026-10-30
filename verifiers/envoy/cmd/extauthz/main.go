@@ -251,7 +251,7 @@ func (p *provider) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	request := verifier.Request{
 		Method:  r.Method,
-		Path:    strings.TrimPrefix(r.URL.Path, p.pathPrefix),
+		Path:    pathAsReceived(r, p.pathPrefix),
 		Body:    body,
 		Headers: headers,
 	}
@@ -350,4 +350,31 @@ func main() {
 	}
 	log.Printf(`{"event":"LISTENING","address":%q,"effects":%t}`, listen, p.effects)
 	log.Fatal(server.ListenAndServe())
+}
+
+// pathAsReceived is the path the executor signed: the request target as it
+// arrived, percent-encoding intact, without its query and without Envoy's
+// path_prefix. r.URL.Path will not do: it is decoded, so a signed
+// /accounts/acme%20corp would read /accounts/acme corp and never verify.
+func pathAsReceived(r *http.Request, prefix string) string {
+	target := r.RequestURI
+	if target == "" {
+		// A request built in-process rather than read from the wire.
+		target = r.URL.EscapedPath()
+	}
+	if !strings.HasPrefix(target, "/") {
+		// An absolute-form target: its path starts after the authority.
+		if scheme := strings.Index(target, "://"); scheme > 0 {
+			rest := target[scheme+3:]
+			if slash := strings.IndexByte(rest, '/'); slash >= 0 && !strings.ContainsRune(rest[:slash], '?') {
+				target = rest[slash:]
+			} else {
+				target = "/"
+			}
+		}
+	}
+	if query := strings.IndexByte(target, '?'); query >= 0 {
+		target = target[:query]
+	}
+	return strings.TrimPrefix(target, prefix)
 }

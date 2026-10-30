@@ -6,6 +6,7 @@ using System.Text;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
 
 namespace Decionis.VerifyingProvider;
 
@@ -80,7 +81,7 @@ public sealed class VerifyingProviderMiddleware
         // The middleware reads no target, so it passes none, and step 9 is left
         // to the write behind it, with the attestation it is handed.
         var verdict = provider.Verify(new ProviderRequest(
-            request.Method, request.Path.Value ?? "/", body.Length == 0 ? null : body, headers));
+            request.Method, PathAsReceived(context), body.Length == 0 ? null : body, headers));
         if (!verdict.Accepted)
         {
             await Refuse(context, StatusCodes.Status409Conflict, verdict.ReasonCode!);
@@ -99,6 +100,36 @@ public sealed class VerifyingProviderMiddleware
     {
         attestation = context.Items.TryGetValue(AttestationItem, out var item) ? item as ClaimAttestation : null;
         return attestation is not null;
+    }
+
+    /// <summary>
+    /// The path the executor signed: the request target as it arrived, percent-encoding intact,
+    /// without its query. <see cref="HttpRequest.Path"/> will not do: it is decoded, so a signed
+    /// <c>/accounts/acme%20corp</c> reads <c>/accounts/acme corp</c>, and under <c>Map</c> it has
+    /// lost the prefix to <see cref="HttpRequest.PathBase"/>. Either way the signature would not
+    /// verify. A host that exposes no raw target falls back to the base and path, re-encoded.
+    /// </summary>
+    internal static string PathAsReceived(HttpContext context)
+    {
+        var target = context.Features.Get<IHttpRequestFeature>()?.RawTarget;
+        if (!string.IsNullOrEmpty(target))
+        {
+            // An absolute-form target, as a proxy receives it: its path starts after the authority.
+            var scheme = target.IndexOf("://", StringComparison.Ordinal);
+            if (target[0] != '/' && scheme > 0)
+            {
+                var slash = target.IndexOf('/', scheme + 3);
+                var query = target.IndexOf('?', scheme + 3);
+                target = slash < 0 || (query >= 0 && query < slash) ? "/" : target.Substring(slash);
+            }
+            if (target[0] == '/')
+            {
+                var query = target.IndexOf('?');
+                return query < 0 ? target : target.Substring(0, query);
+            }
+        }
+        var path = context.Request.PathBase.Add(context.Request.Path).ToUriComponent();
+        return path.Length == 0 ? "/" : path;
     }
 
     private static async Task Refuse(HttpContext context, int status, string code)

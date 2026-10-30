@@ -1,12 +1,16 @@
 package main
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -229,5 +233,68 @@ func TestConfigurationRefusals(t *testing.T) {
 	}
 	if p.effects || p.window != 300*time.Second || len(p.keys) != 2 {
 		t.Fatalf("%+v", p)
+	}
+}
+
+// A read the executor signed over /v1/accounts/acme%20corp with the vector's
+// HMAC key. Go decodes r.URL.Path; the signature is over the path as it
+// arrived, so that is the path the handler must verify.
+func TestHandlerVerifiesThePathAsReceivedNotAsDecoded(t *testing.T) {
+	v := loadVector(t, "read-base-components-accepts-for-read")
+	p := providerFor(t, v)
+	p.effects = false // a read, as the vector's provider is
+	var keys []struct {
+		KeyID    string `json:"keyid"`
+		Alg      string `json:"alg"`
+		Material string `json:"shared_material_utf8"`
+	}
+	if err := json.Unmarshal(v.ExecutorKeys, &keys); err != nil {
+		t.Fatal(err)
+	}
+	var keyID, material string
+	for _, key := range keys {
+		if key.Alg == "hmac-sha256" {
+			keyID, material = key.KeyID, key.Material
+		}
+	}
+	now, err := time.Parse(time.RFC3339Nano, v.Provider.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	headers := v.Requests[0].Headers
+	params := `("@method" "@path" "content-digest" "idempotency-key" "x-agent-safe-intent-hash")` +
+		";created=" + strconv.FormatInt(now.Unix(), 10) + `;keyid="` + keyID + `";alg="hmac-sha256"`
+	base := strings.Join([]string{
+		`"@method": GET`,
+		`"@path": /v1/accounts/acme%20corp`,
+		`"content-digest": ` + headers["content-digest"],
+		`"idempotency-key": ` + headers["idempotency-key"],
+		`"x-agent-safe-intent-hash": ` + headers["x-agent-safe-intent-hash"],
+		`"@signature-params": ` + params,
+	}, "\n")
+	mac := hmac.New(sha256.New, []byte(material))
+	mac.Write([]byte(base))
+	signed := func(target string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodGet, target, nil)
+		for _, name := range []string{"content-digest", "idempotency-key", "x-agent-safe-intent-hash"} {
+			r.Header.Set(name, headers[name])
+		}
+		r.Header.Set("signature-input", "agentsafe="+params)
+		r.Header.Set("signature", "agentsafe=:"+base64.StdEncoding.EncodeToString(mac.Sum(nil))+":")
+		w := httptest.NewRecorder()
+		p.ServeHTTP(w, r)
+		return w
+	}
+	for _, target := range []string{
+		"/verify/v1/accounts/acme%20corp?trace=1",
+		"https://bank.example/verify/v1/accounts/acme%20corp",
+	} {
+		if w := signed(target); w.Code != http.StatusOK {
+			t.Fatalf("%s: %d %s", target, w.Code, w.Body.String())
+		}
+	}
+	// A different path than the one signed: the decoded form of it.
+	if w := signed("/verify/v1/accounts/acme+corp"); w.Code != http.StatusConflict {
+		t.Fatalf("a path other than the signed one: %d", w.Code)
 	}
 }

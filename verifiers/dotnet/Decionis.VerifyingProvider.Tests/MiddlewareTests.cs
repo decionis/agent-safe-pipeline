@@ -1,10 +1,14 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Decionis.VerifyingProvider;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
 using Xunit;
 
 namespace Decionis.VerifyingProvider.Tests;
@@ -87,6 +91,69 @@ public class MiddlewareTests
         (status, _) = await Run(middleware, refused);
         Assert.Equal(409, status);
         Assert.False(VerifyingProviderMiddleware.TryGetAttestation(refused, out _));
+    }
+
+    /// <summary>
+    /// A read the executor signed over <c>/v1/accounts/acme%20corp</c>, with the vector's HMAC key.
+    /// The host decodes <see cref="HttpRequest.Path"/> and may move a prefix to
+    /// <see cref="HttpRequest.PathBase"/>; the signature is over the path as it arrived.
+    /// </summary>
+    private static DefaultHttpContext EncodedPathRead(Vector vector, string rawTarget, string pathBase, string path)
+    {
+        var key = JsonDocument.Parse(File.ReadAllText(Path.Combine(Vector.Directory(), vector.Name + ".json")))
+            .RootElement.GetProperty("executor_keys").EnumerateArray()
+            .First(candidate => candidate.GetProperty("alg").GetString() == "hmac-sha256");
+        var keyId = key.GetProperty("keyid").GetString()!;
+        var headers = new Dictionary<string, string>(vector.Requests[0].Headers, StringComparer.Ordinal);
+        var parameters = "(\"@method\" \"@path\" \"content-digest\" \"idempotency-key\" \"x-agent-safe-intent-hash\")"
+            + $";created={vector.Now.ToUnixTimeSeconds()};keyid=\"{keyId}\";alg=\"hmac-sha256\"";
+        var signatureBase = string.Join("\n",
+            "\"@method\": GET",
+            "\"@path\": /v1/accounts/acme%20corp",
+            $"\"content-digest\": {headers["content-digest"]}",
+            $"\"idempotency-key\": {headers["idempotency-key"]}",
+            $"\"x-agent-safe-intent-hash\": {headers["x-agent-safe-intent-hash"]}",
+            $"\"@signature-params\": {parameters}");
+        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(key.GetProperty("shared_material_utf8").GetString()!));
+        headers["signature-input"] = "agentsafe=" + parameters;
+        headers["signature"] = $"agentsafe=:{Convert.ToBase64String(hmac.ComputeHash(Encoding.UTF8.GetBytes(signatureBase)))}:";
+
+        var context = Context(new VectorRequest
+        {
+            Method = "GET",
+            Path = path,
+            Headers = headers,
+            Body = null,
+            Target = null,
+            Outcome = "ACCEPT",
+            ReasonCode = null,
+            ExpectedStateVersion = null,
+        });
+        context.Request.PathBase = pathBase;
+        context.Features.Get<IHttpRequestFeature>()!.RawTarget = rawTarget;
+        return context;
+    }
+
+    [Fact]
+    public async Task TheMiddlewareVerifiesThePathAsReceivedNotAsDecoded()
+    {
+        var vector = Vector.Load(Path.Combine(Vector.Directory(), "read-base-components-accepts-for-read.json"));
+        var middleware = new VerifyingProviderMiddleware(Effect, new VerifyingProvider(vector.Options()));
+
+        var (status, body) = await Run(middleware, EncodedPathRead(vector, "/v1/accounts/acme%20corp?trace=1", "", "/v1/accounts/acme corp"));
+        Assert.True(status == 200, $"{status} {body}");
+        (status, body) = await Run(middleware, EncodedPathRead(vector, "/v1/accounts/acme%20corp", "/v1", "/accounts/acme corp"));
+        Assert.True(status == 200, $"under Map: {status} {body}");
+        (status, body) = await Run(middleware, EncodedPathRead(vector, "https://bank.example/v1/accounts/acme%20corp?trace=1", "", "/v1/accounts/acme corp"));
+        Assert.True(status == 200, $"absolute form: {status} {body}");
+        // Without a raw target the base and path are re-encoded, which gives back the same text here.
+        (status, body) = await Run(middleware, EncodedPathRead(vector, "", "/v1", "/accounts/acme corp"));
+        Assert.True(status == 200, $"no raw target: {status} {body}");
+
+        // The decoded path is a different path: signed as received, it does not verify as decoded.
+        (status, body) = await Run(middleware, EncodedPathRead(vector, "/v1/accounts/acme corp", "", "/v1/accounts/acme corp"));
+        Assert.Equal(409, status);
+        Assert.Contains(Verdict.SignatureInvalidOrIncomplete, body, StringComparison.Ordinal);
     }
 
     [Fact]
