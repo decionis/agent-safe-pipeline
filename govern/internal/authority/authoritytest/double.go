@@ -18,6 +18,7 @@ import (
 	"net/http/httptest"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -345,7 +346,7 @@ func (d *Double) grantDecision(body map[string]any, decision map[string]any) map
 		audience:   str(target["system"]) + ":" + str(target["operation"]),
 		decisionID: str(decision["decision_id"]), dossierID: str(decision["dossier_id"]),
 		intentHash: str(body["intent_hash"]), issued: now.Unix(), expires: tokenExpires.Unix(),
-		payloadDigest: HashBinding(parameters),
+		payloadDigest: HashPayload(parameters),
 	}
 	d.grants[token] = g
 	out := map[string]any{}
@@ -554,20 +555,34 @@ func (d *Double) finalize(body map[string]any) (int, any) {
 	return 200, map[string]any{"finalized": true, "reason_codes": []string{}, "outcome": outcome, "effect_evidence_recorded": false, "effect_confirmation": "UNCONFIRMED"}
 }
 
-// HashBinding is the double's own canonicalization, deliberately not the
-// module's: keys sorted by UTF-16 code unit, values as JSON, no whitespace.
+// HashBinding is the double's own canonicalization of a binding, deliberately
+// not the module's: keys in spec/intent/v1 §4's order, values as JSON, no
+// whitespace.
 func HashBinding(value any) string {
 	sum := sha256.Sum256([]byte(StableStringify(value)))
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-// StableStringify mirrors the LocalAuthority fixture's stableStringify.
+// HashPayload is the execution payload digest the authority binds: keys by
+// UTF-16 code unit alone, as RFC 8785 sorts them.
+func HashPayload(value any) string {
+	sum := sha256.Sum256([]byte(stringify(value, utf16Less)))
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// StableStringify mirrors the LocalAuthority fixture's stableStringify: an
+// array-index key ("0" to "4294967294", no sign, no leading zero) first, by
+// value, then every other key by UTF-16 code unit.
 func StableStringify(value any) string {
+	return stringify(value, intentKeyLess)
+}
+
+func stringify(value any, less func(a, b string) bool) string {
 	switch typed := value.(type) {
 	case []any:
 		parts := make([]string, len(typed))
 		for i, item := range typed {
-			parts[i] = StableStringify(item)
+			parts[i] = stringify(item, less)
 		}
 		return "[" + strings.Join(parts, ",") + "]"
 	case map[string]any:
@@ -575,16 +590,31 @@ func StableStringify(value any) string {
 		for key := range typed {
 			keys = append(keys, key)
 		}
-		sort.Slice(keys, func(i, j int) bool { return utf16Less(keys[i], keys[j]) })
+		sort.Slice(keys, func(i, j int) bool { return less(keys[i], keys[j]) })
 		parts := make([]string, 0, len(keys))
 		for _, key := range keys {
 			encodedKey, _ := marshalNoEscape(key)
-			parts = append(parts, string(encodedKey)+":"+StableStringify(typed[key]))
+			parts = append(parts, string(encodedKey)+":"+stringify(typed[key], less))
 		}
 		return "{" + strings.Join(parts, ",") + "}"
 	default:
 		encoded, _ := marshalNoEscape(value)
 		return string(encoded)
+	}
+}
+
+func intentKeyLess(a, b string) bool {
+	aIndex, aErr := strconv.ParseUint(a, 10, 32)
+	bIndex, bErr := strconv.ParseUint(b, 10, 32)
+	aIsIndex := aErr == nil && aIndex < 1<<32-1 && strconv.FormatUint(aIndex, 10) == a
+	bIsIndex := bErr == nil && bIndex < 1<<32-1 && strconv.FormatUint(bIndex, 10) == b
+	switch {
+	case aIsIndex && bIsIndex:
+		return aIndex < bIndex
+	case aIsIndex != bIsIndex:
+		return aIsIndex
+	default:
+		return utf16Less(a, b)
 	}
 }
 

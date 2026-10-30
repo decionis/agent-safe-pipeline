@@ -4,6 +4,23 @@ Every entry names the pull request that made it and the vector that pins it. The
 and hash have not changed for any existing binding since the first vector; the additions were
 optional and absent by default (see §9 of the [specification](./README.md)).
 
+## 2026-10-30: the key order of §4, as the reference has always written it
+
+- A correction of the text, not of the form. §4 said keys sort by UTF-16 code unit; the reference
+  writes the sorted keys with `JSON.stringify`, which puts a key that is an array index (`"0"` to
+  `"4294967294"`, no sign, no leading zero) first, in numeric order, and so does the authority's
+  recomputation. §4 now says so. No binding's bytes or hash change: every existing vector
+  reproduces unchanged, and none of them has an array-index key.
+- `conformance/vectors/array-index-keys.json`: line numbers as keys (`"10"`, `"2"`, `"1"`), and the
+  keys at the edges of the rule (`"4294967294"` and `"4294967295"`, `"01"`, `"-1"`, `"1.5"`, `" "`,
+  `"/"`). Its bytes are the reference's and the Decionis authority's, byte for byte.
+- Implementations that followed the old text, and so hashed such a binding differently from the
+  authority, are fixed in the same change: Govern's Go canonicalizer, its test double and
+  `LocalAuthority` in `@decionis/agent-safe-pipeline/testing`. The execution payload digest is RFC
+  8785 and keeps code-unit order throughout; the pipeline's `DecionisGrantVerifier` and
+  `@decionis/agentsafe`'s `jcsDigest`, which had used the intent's order for it, now use RFC 8785
+  (`Rfc8785` in the library).
+
 ## 2026-10-23: `context.agent_safe.precondition`
 
 - A reserved key inside `context`, not a property of the binding: `agent_safe`, whose

@@ -16,7 +16,7 @@ import {
   LOCAL_AUTHORITY_ISSUER,
   LOCAL_AUTHORITY_JWKS_PATH,
   LocalAuthority,
-  hashBinding,
+  hashPayload,
   type LocalClaimAttestationClaims,
 } from "../../src/testing/Index.js";
 
@@ -103,7 +103,24 @@ describe("the fixture's claim attestation", () => {
     expect(authorization?.payloadDigest).toBe(
       DecionisGrantVerifier.parametersDigest(captured.intent.parameters),
     );
-    expect(authorization?.payloadDigest).toBe(hashBinding(captured.intent.parameters));
+    expect(authorization?.payloadDigest).toBe(hashPayload(captured.intent.parameters));
+  });
+
+  it("orders array-index keys as each digest requires: first in the intent hash, by code unit in the payload digest", async () => {
+    // Line numbers as keys. The intent's form writes "1","2","10" (spec/intent/v1 §4); RFC 8785,
+    // which the payload digest is, writes "1","10","2". Either side using the other's order
+    // refuses an intent the authority accepts.
+    const captured = capture({ line_quantities: { "10": 12, "2": 1, "1": 4 } });
+    expect(captured.canonicalIntent).toContain('"line_quantities":{"1":4,"2":1,"10":12}');
+    const authorization = await claim(captured);
+    expect(authorization).not.toBeNull();
+    const rfc8785 = '{"line_quantities":{"1":4,"10":12,"2":1}}';
+    expect(authorization?.payloadDigest).toBe(
+      `sha256:${createHash("sha256").update(rfc8785, "utf8").digest("hex")}`,
+    );
+    expect(DecionisGrantVerifier.parametersDigest(captured.intent.parameters)).toBe(
+      authorization?.payloadDigest,
+    );
   });
 
   it("returns an attestation a provider verifies with the public JWKS alone, describing exactly this claim", async () => {

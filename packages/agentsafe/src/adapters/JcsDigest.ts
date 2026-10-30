@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { CanonicalIntentHasher, type JsonValue } from "@decionis/agent-safe-pipeline";
+import { Rfc8785, type JsonValue } from "@decionis/agent-safe-pipeline";
 
 /** A digest in the one form every wire field in this repository uses. */
 export type Sha256 = `sha256:${string}`;
@@ -13,11 +13,12 @@ export class JcsError extends Error {
 
 /**
  * The canonical digest BEAP asks for: SHA-256 over the RFC 8785 canonical
- * form of the value. The canonicaliser is the pipeline's own, which sorts
- * keys by UTF-16 code unit and serialises numbers and strings the way
- * ECMAScript does; for I-JSON input those rules and RFC 8785's coincide,
- * which the conformance vectors and the authority's independent
- * canonicaliser both hold this repository to.
+ * form of the value. The canonicaliser is the pipeline's `Rfc8785`, which
+ * sorts every key by UTF-16 code unit and serialises numbers and strings the
+ * way ECMAScript does; for I-JSON input those are RFC 8785's rules, and the
+ * authority's payload digest and every verifier in another language apply
+ * them. It is not the intent's canonical form, which puts array-index keys
+ * first (spec/intent/v1 §4), so `{"10":…,"9":…}` keeps that order here.
  *
  * What the canonicaliser does not do is refuse input that is not I-JSON, so
  * this adds that gate: a lone surrogate would serialise differently in
@@ -27,14 +28,14 @@ export class JcsError extends Error {
  */
 export function jcsDigest(value: JsonValue): Sha256 {
   assertIJson(value);
-  const canonical = CanonicalIntentHasher.stringify(value);
+  const canonical = Rfc8785.stringify(value);
   return `sha256:${createHash("sha256").update(canonical).digest("hex")}`;
 }
 
 /** The canonical text itself, for a caller that wants to see what was hashed. */
 export function jcsCanonical(value: JsonValue): string {
   assertIJson(value);
-  return CanonicalIntentHasher.stringify(value);
+  return Rfc8785.stringify(value);
 }
 
 /**

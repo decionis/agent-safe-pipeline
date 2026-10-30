@@ -267,6 +267,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "conformance/vectors/array-index-keys.json",
+      "family": "Intent conformance vector",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "conformance/vectors/composed-vs-decomposed.json",
       "family": "Intent conformance vector",
       "source": "synthetic",
@@ -1846,6 +1852,12 @@
     },
     {
       "path": "packages/pipeline/test/intent/IntentConformance.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/pipeline/test/intent/Rfc8785.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false

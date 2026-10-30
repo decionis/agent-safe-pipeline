@@ -622,23 +622,69 @@ export interface LocalClaimAttestationClaims {
 }
 
 /**
- * Independent canonicalization: keys sorted by UTF-16 code unit, values encoded
- * with JSON.stringify semantics. This deliberately does not import the
- * package's hasher so the two implementations check each other.
+ * Independent canonicalization of an intent binding: keys in the order
+ * spec/intent/v1 §4 states (an array index first, by value, then every other
+ * key by UTF-16 code unit), values encoded with JSON.stringify semantics. This
+ * deliberately does not import the package's hasher so the two
+ * implementations check each other.
  */
 export function stableStringify(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map((item) => stableStringify(item)).join(",")}]`;
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  const record = value as Record<string, unknown>;
-  const entries = Object.keys(record)
-    .sort()
-    .filter((key) => record[key] !== undefined)
-    .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`);
-  return `{${entries.join(",")}}`;
+  return canonicalText(value, compareIntentKeys);
+}
+
+/**
+ * The RFC 8785 text the authority digests an execution payload in: every key
+ * by UTF-16 code unit, so `"10"` before `"9"`, where the binding's order puts
+ * `"9"` first.
+ */
+export function payloadStringify(value: unknown): string {
+  return canonicalText(value, compareCodeUnits);
 }
 
 export function hashBinding(binding: unknown): string {
   return `sha256:${createHash("sha256").update(stableStringify(binding), "utf8").digest("hex")}`;
+}
+
+/** The `execution_payload_digest` the authority binds over an action's parameters. */
+export function hashPayload(payload: unknown): string {
+  return `sha256:${createHash("sha256").update(payloadStringify(payload), "utf8").digest("hex")}`;
+}
+
+function canonicalText(value: unknown, compare: (left: string, right: string) => number): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => canonicalText(item, compare)).join(",")}]`;
+  }
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  const record = value as Record<string, unknown>;
+  const entries = Object.keys(record)
+    .sort(compare)
+    .filter((key) => record[key] !== undefined)
+    .map((key) => `${JSON.stringify(key)}:${canonicalText(record[key], compare)}`);
+  return `{${entries.join(",")}}`;
+}
+
+// An ECMAScript array index: "0" to "4294967294", no sign, no leading zero.
+const ARRAY_INDEX = /^(?:0|[1-9]\d{0,9})$/;
+const MAX_ARRAY_INDEX = 4_294_967_294;
+
+function arrayIndexOf(key: string): number | null {
+  if (!ARRAY_INDEX.test(key)) return null;
+  const index = Number(key);
+  return index <= MAX_ARRAY_INDEX ? index : null;
+}
+
+function compareCodeUnits(left: string, right: string): number {
+  if (left === right) return 0;
+  return left < right ? -1 : 1;
+}
+
+function compareIntentKeys(left: string, right: string): number {
+  const leftIndex = arrayIndexOf(left);
+  const rightIndex = arrayIndexOf(right);
+  if (leftIndex !== null && rightIndex !== null) return leftIndex - rightIndex;
+  if (leftIndex !== null) return -1;
+  if (rightIndex !== null) return 1;
+  return compareCodeUnits(left, right);
 }
 
 function bindingOf(request: Record<string, unknown>): Record<string, unknown> {
@@ -875,7 +921,7 @@ export class LocalAuthority {
       signal_id: signalId,
       version: String(Number(this.signals.get(signalId)?.reference.version ?? 0) + 1),
       observed_at: new Date(this.clock()).toISOString(),
-      value_digest: hashBinding(value),
+      value_digest: hashPayload(value),
     };
     this.signals.set(signalId, { reference, value });
     return reference;
@@ -1608,7 +1654,7 @@ export class LocalAuthority {
       expiresAt,
       nonce: randomBytes(32).toString("base64url"),
       bindingDigest,
-      payloadDigest: hashBinding(request.action.parameters),
+      payloadDigest: hashPayload(request.action.parameters),
       expectedEffectDigest: request.expected_effect_digest ?? null,
       expectedStateVersion: preconditionIn(request.context)?.version ?? null,
       receiptDossierId: approval?.receiptDossierId ?? null,
@@ -1966,7 +2012,7 @@ export class LocalAuthority {
     // It is consumed by one claim, so the executor's refusal is the one
     // observation and the next proposal sees an honest authority again.
     const payloadDigest = this.misbindNextPayloadDigest
-      ? hashBinding({ ...(intent.data.action.parameters as object), synthetic_tamper: true })
+      ? hashPayload({ ...(intent.data.action.parameters as object), synthetic_tamper: true })
       : grant.payloadDigest;
     this.misbindNextPayloadDigest = false;
     return {

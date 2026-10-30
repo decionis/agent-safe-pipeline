@@ -637,7 +637,7 @@ func (c *Client) ClaimGrant(ctx context.Context, captured intent.Captured, decis
 	payloadDigest, digestKnown := optionalDigest(claims.Binding.ExecutionPayloadDigest)
 	profile, profileKnown := optionalString(claims.Binding.Profile)
 	if digestKnown {
-		own, err := intent.HashValue(captured.Binding.Action.Parameters)
+		own, err := intent.PayloadDigest(captured.Binding.Action.Parameters)
 		if err != nil || !profileKnown || profile != jcsProfile || payloadDigest != own {
 			return nil, "AUTHORIZATION_INVALID"
 		}

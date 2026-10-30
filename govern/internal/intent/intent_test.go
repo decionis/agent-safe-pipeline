@@ -1,6 +1,8 @@
 package intent
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -169,5 +171,45 @@ func TestRandomUUIDIsVersion4(t *testing.T) {
 	}
 	if !uuidPattern.MatchString(id) || id[14] != '4' {
 		t.Fatalf("not a version 4 uuid: %s", id)
+	}
+}
+
+// The two canonical forms the contract uses differ in one place, array-index
+// keys: the intent hash puts them first by value, the payload digest (RFC 8785)
+// sorts them by code unit with every other key. A binding hashed the second
+// way, or a payload digested the first, is refused by the authority.
+func TestArrayIndexKeysOrderPerDigest(t *testing.T) {
+	value := map[string]any{"10": 12, "9": 1, "-1": 0, "a": true}
+	digest := func(text string) string {
+		sum := sha256.Sum256([]byte(text))
+		return "sha256:" + hex.EncodeToString(sum[:])
+	}
+	canonical, err := Canonical(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `{"9":1,"10":12,"-1":0,"a":true}`; string(canonical) != want {
+		t.Fatalf("intent form %s, want %s", canonical, want)
+	}
+	hash, err := HashValue(value)
+	if err != nil || hash != digest(string(canonical)) {
+		t.Fatalf("intent hash %s (%v), want the digest of %s", hash, err, canonical)
+	}
+	payload, err := PayloadDigest(value)
+	if err != nil || payload != digest(`{"-1":0,"10":12,"9":1,"a":true}`) {
+		t.Fatalf("payload digest %s (%v), want the RFC 8785 digest", payload, err)
+	}
+	if _, isIndex := arrayIndex("4294967295"); isIndex {
+		t.Fatal("4294967295 is past the largest array index")
+	}
+	for _, key := range []string{"0", "4294967294"} {
+		if _, isIndex := arrayIndex(key); !isIndex {
+			t.Fatalf("%s is an array index", key)
+		}
+	}
+	for _, key := range []string{"", "01", "-1", "+1", "1.5", " 1", "١"} {
+		if _, isIndex := arrayIndex(key); isIndex {
+			t.Fatalf("%q is not an array index", key)
+		}
 	}
 }

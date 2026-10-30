@@ -104,9 +104,15 @@ Rules:
 The canonical form of a JSON value is the string ECMAScript `JSON.stringify` produces for the
 value after every object at every depth has had its keys sorted, and nothing else:
 
-1. **Key order.** Keys sort by UTF-16 code unit, ascending, case-sensitive: `"Z"` (0x5A) before
-   `"za"` (0x7A) before `"zé"` before `"Éclair"` (0xC9). This is the ECMAScript default sort of
-   strings. Keys are not folded, trimmed or normalized.
+1. **Key order.** A key that is an array index comes first: the decimal form of an integer from
+   0 to 4294967294, with no sign, no leading zero and no fraction (`"0"`, `"9"`, `"10"`, but not
+   `"01"`, `"-1"`, `"1.5"` or `"4294967295"`). Array indices sort by numeric value, so `"9"` comes
+   before `"10"`. Every other key follows, sorted by UTF-16 code unit, ascending, case-sensitive:
+   `"Z"` (0x5A) before `"za"` (0x7A) before `"zé"` before `"Éclair"` (0xC9), and `" "`, `"-1"`
+   and `"01"` after every array index although they sort before `"0"` by code unit. This is the
+   order ECMAScript gives an ordinary object's own keys, so it is the order `JSON.stringify` writes
+   the sorted keys in; RFC 8785 alone does not produce it, since RFC 8785 sorts every key by code
+   unit. Keys are not folded, trimmed or normalized.
 2. **No whitespace** between tokens.
 3. **Strings verbatim.** No Unicode normalization: NFC and NFD forms of the same text are
    different strings with different hashes. Characters are encoded as `JSON.stringify` encodes
@@ -120,8 +126,9 @@ value after every object at every depth has had its keys sorted, and nothing els
 6. A property whose value is `undefined` in the producer's language is absent, not `null`.
 
 The vectors under [`conformance/vectors/`](../../../conformance/vectors) state each of these as a
-JSON object with its bytes and hash: `utf16-sort-order`, `composed-vs-decomposed`,
-`unicode-astral`, `negative-zero`, `fractional-exponent`, `nested-arrays`.
+JSON object with its bytes and hash: `utf16-sort-order`, `array-index-keys`,
+`composed-vs-decomposed`, `unicode-astral`, `negative-zero`, `fractional-exponent`,
+`nested-arrays`.
 
 ## 5. The intent hash
 
