@@ -16,6 +16,8 @@ gateway:
   upstreamCredential: # optional; the gateway, not its caller, presents the upstream's credential
     header: authorization # a header the gateway neither sets nor sends to the authority
     file: /run/secrets/upstream-credential # absolute; its contents are the header's whole value
+  gatewayToken: # optional; the gateway's own token, sent to the upstream as AgentSafe-Gateway-Token
+    file: /run/secrets/gateway-token # absolute; a caller's value of the header is always dropped
   hosted: false # true: run for a tenant; public-only, operator-only status, host-only cookies, shadow unless it may enforce
   tenantKeyDigests: [] # one or two "sha256:<64 hex>"; required when hosted
   rateLimit: # optional; a hosted gateway gets 50/s, burst 100
@@ -105,13 +107,14 @@ gateway.upstream)`, `CONFIG_INVALID: authority.mode (shadow or enforcement)`,
 - `upstreamCredential` needs both its header and its file, an absolute path, and a header that is
   not hop-by-hop, framing, `Content-Type`, `Idempotency-Key`, the principal header, or under
   `agentsafe-`, `x-agent-safe-` or `x-forwarded-`;
+- `gatewayToken` names a file, an absolute path, and nothing else: its header is fixed;
 - `tenantKeyDigests` holds one or two distinct `sha256:<64 hex>` digests;
 - the demo authority, `allowInsecureLoopback` and a key in the environment are refused in
   production;
 - `presence.managed` needs the Decionis authority, enforcement mode and an `approverId`;
 - `maxEmbeddedBodyBytes` is 0 or more and cannot exceed `maxBodyBytes`;
 - `principalHeader` cannot be one of the gateway's own credentials: `AgentSafe-Tenant-Key`,
-  `AgentSafe-Session` or `AgentSafe-Subject-Token`;
+  `AgentSafe-Session`, `AgentSafe-Subject-Token` or `AgentSafe-Gateway-Token`;
 - `privacy: facts` needs a `profile`, and refuses `routes`, a `principalHeader` and
   `unmatched: passthrough`;
 - `subject` needs `jwksFile` or `jwksUrl`; `refuseUnknownReads` needs `subject` and a `profile`,

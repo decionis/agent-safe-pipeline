@@ -66,6 +66,13 @@ const TenantSchema = z
     upstreamCredential: z
       .strictObject({ header: z.string().min(1).max(64), file: MountedFile })
       .optional(),
+    /**
+     * The mounted file holding the token the tenant's gateway sends its
+     * upstream as `AgentSafe-Gateway-Token`, so the tenant's API can tell the
+     * request came through it; in shadow or enforcement. The token itself is
+     * never in the registry.
+     */
+    gatewayToken: z.strictObject({ file: MountedFile }).optional(),
     /** The tenant's `presence` section, as `agentsafe.yaml` has it; enforcement only. */
     presence: z.record(z.string(), z.unknown()).optional(),
   })

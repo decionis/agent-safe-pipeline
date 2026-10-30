@@ -36,6 +36,13 @@ For a tenant, that means:
   `AgentSafe-Tenant-Key: <key>` ([the tenant key](../gateway/configuration.md#the-tenant-key)). The
   gateway removes the key, adds `X-Forwarded-For`, `X-Forwarded-Proto` and `X-Forwarded-Host`, and
   `x-agent-safe-intent-hash` on an evaluated request, and forwards the rest unchanged.
+- **The API can tell the gateway's requests.** When the tenant's entry names a
+  [gateway token](../gateway/configuration.md#the-gateway-token), every forwarded request carries
+  `AgentSafe-Gateway-Token: <token>`, in shadow and in enforcement, and an agent's own value of
+  that header is dropped. Decionis provisions the token with the tenant key, keeps it in the
+  tenant's own vault secret, mounted for the gateway alone, and shows it once to the workspace
+  admin, who can regenerate it. The API compares it to tell a request that came through the
+  gateway from one that did not; it does not say the request was allowed.
 - **The routes are fixed.** `POST`, `PUT`, `PATCH` and `DELETE` are evaluated, each under its
   derived name (`http.post`, `http.put`, `http.patch`, `http.delete`): in shadow as they pass, with
   nothing held or blocked on a verdict; in enforcement before they run, so a `BLOCK` is `403` and an
@@ -85,7 +92,7 @@ gateway is refused at start. For that tenant:
 - **The gateway holds the credential.** The entry's `upstreamCredential` names a header and a
   mounted file; the gateway sets that header on every request it forwards and drops the agent's
   value of it, so the agent carries only `AgentSafe-Tenant-Key` and cannot reach the API around
-  the gateway.
+  the gateway. The gateway token, when there is one, travels beside it in its own header.
 - **Verdicts decide.** `ALLOW` forwards once its single-use grant is claimed; `BLOCK` is `403`
   and `NOT_FORWARDED`; `ESCALATE` is `202` and `HELD`, resumed with the tenant key and the resume
   token, and managed by Decionis when the entry's `presence` section says so.

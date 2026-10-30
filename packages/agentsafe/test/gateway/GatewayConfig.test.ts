@@ -722,6 +722,63 @@ describe("the gateway configuration", () => {
     );
   });
 
+  it("sends a gateway token from a file, in shadow or enforcement, apart from the credential", () => {
+    const base = { flags: { upstream: "https://api.example" } } as const;
+    expect(load(base).upstream.gatewayToken).toBeNull();
+    expect(load(base).secrets.required).not.toContain("AGENTSAFE_GATEWAY_TOKEN");
+    const fromEnvironment = load({
+      ...base,
+      env: { AGENTSAFE_GATEWAY_TOKEN_FILE: " /run/secrets/gateway-token " },
+    });
+    expect(fromEnvironment.upstream.gatewayToken).toEqual({ file: "/run/secrets/gateway-token" });
+    expect(fromEnvironment.upstream.credential).toBeNull();
+    expect(fromEnvironment.secrets.required).toContain("AGENTSAFE_GATEWAY_TOKEN");
+    expect(fromEnvironment.sources["upstream.gatewayToken.file"]).toBe("environment");
+    const fromFile = load({
+      ...base,
+      file: {
+        version: 1,
+        gateway: {
+          gatewayToken: { file: "/run/secrets/t" },
+          upstreamCredential: { header: "authorization", file: "/run/secrets/u" },
+        },
+      },
+    });
+    expect(fromFile.upstream.gatewayToken).toEqual({ file: "/run/secrets/t" });
+    expect(fromFile.upstream.credential).toEqual({
+      header: "authorization",
+      file: "/run/secrets/u",
+    });
+    expect(fromFile.secrets.required).toEqual(
+      expect.arrayContaining(["DOWNSTREAM_CREDENTIAL", "AGENTSAFE_GATEWAY_TOKEN"]),
+    );
+    // The environment wins over the file, as for every other setting.
+    expect(
+      load({
+        ...base,
+        env: { AGENTSAFE_GATEWAY_TOKEN_FILE: "/run/secrets/from-env" },
+        file: { version: 1, gateway: { gatewayToken: { file: "/run/secrets/t" } } },
+      }).upstream.gatewayToken,
+    ).toEqual({ file: "/run/secrets/from-env" });
+    expect(
+      refusal({ ...base, env: { AGENTSAFE_GATEWAY_TOKEN_FILE: "relative/token" } }).setting,
+    ).toBe("upstream.gatewayToken.file");
+    // The header is fixed: the file names nothing else, and the token is never the principal.
+    expect(
+      refusal({
+        ...base,
+        file: {
+          version: 1,
+          gateway: { gatewayToken: { file: "/run/secrets/t", header: "authorization" } },
+        },
+      } as unknown as Partial<GatewayConfigInput>).code,
+    ).toBe("CONFIG_INVALID");
+    expect(
+      refusal({ ...base, env: { AGENTSAFE_PRINCIPAL_HEADER: "AgentSafe-Gateway-Token" } }).setting,
+    ).toBe("interception.principalHeader");
+    expect(GATEWAY_ENVIRONMENT).toContain("AGENTSAFE_GATEWAY_TOKEN_FILE");
+  });
+
   it("admits a hosted tenant only by its key's digest, one or two of them", () => {
     const other = `sha256:${"b".repeat(64)}`;
     const base = { flags: { upstream: "https://shop.tenant.example", mode: "shadow" } };

@@ -1,5 +1,10 @@
 import type { FetchLike } from "../handlers/HandlerRegistration.js";
-import { SESSION_HEADER, SUBJECT_TOKEN_HEADER, TENANT_KEY_HEADER } from "./GatewayConfig.js";
+import {
+  GATEWAY_TOKEN_HEADER,
+  SESSION_HEADER,
+  SUBJECT_TOKEN_HEADER,
+  TENANT_KEY_HEADER,
+} from "./GatewayConfig.js";
 import type { InterceptedRequest } from "./InterceptedRequest.js";
 
 /** What came back from the upstream: the status, the headers a client may see, the bytes. */
@@ -38,11 +43,15 @@ const REQUEST_OWNED: ReadonlySet<string> = new Set([
   "x-forwarded-proto",
   "x-forwarded-host",
 ]);
-/** The gateway's own credentials a client presents to it; they end at the gateway. */
+/**
+ * The gateway's own credentials: those a client presents to it, which end at
+ * the gateway, and the token only the gateway presents to the upstream.
+ */
 const GATEWAY_CREDENTIALS: ReadonlySet<string> = new Set([
   TENANT_KEY_HEADER,
   SESSION_HEADER,
   SUBJECT_TOKEN_HEADER,
+  GATEWAY_TOKEN_HEADER,
 ]);
 /** Response headers the relay recomputes, because it relays decoded bytes of a known length. */
 const RESPONSE_OWNED: ReadonlySet<string> = new Set(["content-length", "content-encoding"]);
@@ -69,6 +78,13 @@ export interface UpstreamOptions {
    * once. A caller's own value of that header is never forwarded.
    */
   readonly credential?: { readonly header: string; readonly value: () => string };
+  /**
+   * The gateway's own token, sent as `agentsafe-gateway-token` so the
+   * upstream can tell the request came through this gateway; read at each
+   * request, like the credential. A caller's value of it is never forwarded,
+   * with or without one.
+   */
+  readonly gatewayToken?: () => string;
 }
 
 /**
@@ -179,6 +195,11 @@ export class Upstream {
       const value = credential.value();
       if (!Upstream.isHeaderValue(value)) throw new Error("UPSTREAM_CREDENTIAL_INVALID");
       headers[credential.header] = value;
+    }
+    if (this.options.gatewayToken !== undefined) {
+      const token = this.options.gatewayToken();
+      if (!Upstream.isHeaderValue(token)) throw new Error("UPSTREAM_GATEWAY_TOKEN_INVALID");
+      headers[GATEWAY_TOKEN_HEADER] = token;
     }
     return headers;
   }

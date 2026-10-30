@@ -250,4 +250,45 @@ describe("the tenant registry", () => {
       expect(error.message).not.toContain("inline secret");
     }
   });
+
+  it("lets any tenant name the file its gateway token is mounted at, and nothing else of it", () => {
+    const token = { file: "/var/run/agent-safe/tenants/acme/gateway-token" };
+    const parsed = parseTenantRegistry(
+      registry([
+        tenant("acme", { gatewayToken: token }),
+        tenant("globex", {
+          mode: "enforcement",
+          upstreamCredential: { header: "authorization", file: "/var/run/agent-safe/u" },
+          gatewayToken: { file: "/var/run/agent-safe/tenants/globex/gateway-token" },
+        }),
+        tenant("initech"),
+      ]),
+    );
+    expect(parsed.tenants.map((entry) => entry.gatewayToken)).toEqual([
+      token,
+      { file: "/var/run/agent-safe/tenants/globex/gateway-token" },
+      undefined,
+    ]);
+    // Adding the token rebuilds the tenant's gateway; rotating the file rebuilds nothing.
+    const before = parseTenantRegistry(registry([tenant("acme")]));
+    expect(tenantFingerprint(parsed, parsed.tenants[0] as never)).not.toBe(
+      tenantFingerprint(before, before.tenants[0] as never),
+    );
+    for (const [entry, where] of [
+      [tenant("acme", { gatewayToken: { file: "relative/token" } }), "tenants.0.gatewayToken.file"],
+      [
+        tenant("acme", { gatewayToken: { ...token, value: "inline secret" } }),
+        "tenants.0.gatewayToken",
+      ],
+      [
+        tenant("acme", { gatewayToken: { ...token, header: "authorization" } }),
+        "tenants.0.gatewayToken",
+      ],
+    ] as const) {
+      const error = refusal(registry([entry]));
+      expect(error.code).toBe("REGISTRY_INVALID");
+      expect(error.where).toBe(where);
+      expect(error.message).not.toContain("inline secret");
+    }
+  });
 });
