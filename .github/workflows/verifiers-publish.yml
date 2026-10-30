@@ -1,0 +1,191 @@
+# Publishes the Java and .NET implementations of the Verifying Provider
+# Profile: com.decionis:verifying-provider to Maven Central and
+# Decionis.VerifyingProvider to NuGet. Run by hand from master, in the
+# package-publish environment. "verify" tests the verifier against the
+# profile's vectors and builds exactly what would be published, unsigned,
+# as a workflow artifact; "publish" also signs and uploads it. A version
+# already on the registry is never pushed again: raise the version in the
+# POM or the project file first.
+name: Publish the verifiers
+
+on:
+  workflow_dispatch:
+    inputs:
+      verifier:
+        description: Which verifier to verify or publish
+        required: true
+        default: spring
+        type: choice
+        options:
+          - spring
+          - dotnet
+      mode:
+        description: Verify only, or publish to the registry
+        required: true
+        default: verify
+        type: choice
+        options:
+          - verify
+          - publish
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verifiers-publish-${{ inputs.verifier }}
+  cancel-in-progress: false
+
+jobs:
+  spring:
+    if: ${{ inputs.verifier == 'spring' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    name: ${{ inputs.mode }} com.decionis:verifying-provider
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: package-publish
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Java
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+          cache-dependency-path: verifiers/spring/pom.xml
+          server-id: central
+          server-username: MAVEN_USERNAME
+          server-password: MAVEN_PASSWORD
+          gpg-private-key: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+          gpg-passphrase: MAVEN_GPG_PASSPHRASE
+      - name: Test against the profile's vectors and build the release artifacts, unsigned
+        working-directory: verifiers/spring
+        run: mvn -B --no-transfer-progress -Pcentral-release -Dgpg.skip verify
+      - name: Keep the artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: verifying-provider-java
+          path: verifiers/spring/target/verifying-provider-*.jar
+          if-no-files-found: error
+      - name: Check Maven Central for this version
+        id: registry
+        working-directory: verifiers/spring
+        run: |
+          set -euo pipefail
+          # The project's own version is the first <version> in the POM.
+          version="$(grep -m1 '<version>' pom.xml | sed -E 's/.*<version>([^<]+)<\/version>.*/\1/')"
+          url="https://repo1.maven.org/maven2/com/decionis/verifying-provider/${version}/verifying-provider-${version}.pom"
+          status="$(curl -sS -L -o /dev/null -w '%{http_code}' "${url}" || true)"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          if [ "${status}" = "200" ]; then
+            echo "exists=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "exists=false" >> "${GITHUB_OUTPUT}"
+          fi
+      - name: Require the publishing secrets
+        if: ${{ inputs.mode == 'publish' && steps.registry.outputs.exists != 'true' }}
+        env:
+          MAVEN_USERNAME: ${{ secrets.MAVEN_USERNAME }}
+          MAVEN_PASSWORD: ${{ secrets.MAVEN_PASSWORD }}
+          MAVEN_GPG_PRIVATE_KEY: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          missing=""
+          for name in MAVEN_USERNAME MAVEN_PASSWORD MAVEN_GPG_PRIVATE_KEY MAVEN_GPG_PASSPHRASE; do
+            if [ -z "${!name:-}" ]; then missing="${missing} ${name}"; fi
+          done
+          if [ -n "${missing}" ]; then
+            echo "::error::The package-publish environment lacks:${missing}"
+            exit 1
+          fi
+      - name: Sign and publish to Maven Central
+        if: ${{ inputs.mode == 'publish' && steps.registry.outputs.exists != 'true' }}
+        working-directory: verifiers/spring
+        env:
+          MAVEN_USERNAME: ${{ secrets.MAVEN_USERNAME }}
+          MAVEN_PASSWORD: ${{ secrets.MAVEN_PASSWORD }}
+          # maven-gpg-plugin reads the passphrase from this variable itself,
+          # so it never appears on a command line.
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+        run: mvn -B --no-transfer-progress -Pcentral-release -DskipTests deploy
+      - name: Version already on Maven Central
+        if: ${{ inputs.mode == 'publish' && steps.registry.outputs.exists == 'true' }}
+        env:
+          VERSION: ${{ steps.registry.outputs.version }}
+        run: echo "::notice::com.decionis:verifying-provider ${VERSION} is already on Maven Central; nothing was published."
+
+  dotnet:
+    if: ${{ inputs.verifier == 'dotnet' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    name: ${{ inputs.mode }} Decionis.VerifyingProvider
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: package-publish
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: "8.0.x"
+      # The restore is held to the committed packages.lock.json files, as in
+      # continuous integration.
+      - name: Test against the profile's vectors and pack
+        working-directory: verifiers/dotnet
+        run: |
+          dotnet restore --nologo --locked-mode
+          dotnet format --verify-no-changes --no-restore
+          dotnet test --nologo --no-restore -c Release
+          dotnet pack Decionis.VerifyingProvider/Decionis.VerifyingProvider.csproj --nologo --no-restore -c Release -o artifacts
+      - name: Keep the packages
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: verifying-provider-dotnet
+          path: verifiers/dotnet/artifacts/*
+          if-no-files-found: error
+      - name: Check NuGet for this version
+        id: registry
+        working-directory: verifiers/dotnet
+        run: |
+          set -euo pipefail
+          version="$(sed -n -E 's/.*<Version>([^<]+)<\/Version>.*/\1/p' Decionis.VerifyingProvider/Decionis.VerifyingProvider.csproj | head -n 1)"
+          url="https://api.nuget.org/v3-flatcontainer/decionis.verifyingprovider/${version}/decionis.verifyingprovider.${version}.nupkg"
+          status="$(curl -sS -L -o /dev/null -w '%{http_code}' "${url}" || true)"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          if [ "${status}" = "200" ]; then
+            echo "exists=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "exists=false" >> "${GITHUB_OUTPUT}"
+          fi
+      - name: Publish to NuGet
+        if: ${{ inputs.mode == 'publish' && steps.registry.outputs.exists != 'true' }}
+        working-directory: verifiers/dotnet
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+          VERSION: ${{ steps.registry.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -z "${NUGET_API_KEY:-}" ]; then
+            echo "::error::The package-publish environment lacks NUGET_API_KEY"
+            exit 1
+          fi
+          # The symbols package beside it is pushed with it.
+          dotnet nuget push "artifacts/Decionis.VerifyingProvider.${VERSION}.nupkg" \
+            --api-key "${NUGET_API_KEY}" \
+            --source https://api.nuget.org/v3/index.json
+      - name: Version already on NuGet
+        if: ${{ inputs.mode == 'publish' && steps.registry.outputs.exists == 'true' }}
+        env:
+          VERSION: ${{ steps.registry.outputs.version }}
+        run: echo "::notice::Decionis.VerifyingProvider ${VERSION} is already on NuGet; nothing was published."

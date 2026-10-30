@@ -113,3 +113,12 @@ receipt, through the library, and the module's own cases for what the vectors ca
 beyond Jackson is `io.github.erdtman:java-json-canonicalization`, the RFC 8785 canonicaliser;
 it, Jackson and the TestNG the tests run on are Apache-2.0, and the servlet API the filter
 compiles against is the container's, in `provided` scope.
+
+## Releases
+
+A release is `com.decionis:verifying-provider` on Maven Central, at the version in `pom.xml`, with
+its sources, javadoc and a signature for each. A maintainer publishes it with the
+[Publish the verifiers](../../.github/workflows/verifiers-publish.yml) workflow from `master`:
+`verify` runs the vectors and builds those artifacts unsigned for inspection, and `publish` signs and
+uploads them. A version already on Maven Central is never published again, so a release raises the
+version first. `mvn -B -Pcentral-release -Dgpg.skip verify` builds the same artifacts locally.

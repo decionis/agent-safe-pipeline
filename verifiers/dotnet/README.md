@@ -109,3 +109,11 @@ parser would read differently. The test dependencies are xunit (Apache-2.0) and 
 the restore resolved; CI restores with `dotnet restore --locked-mode`, so a package that is not what
 the lock file records fails the build rather than being taken from the feed. A restore after a
 `PackageReference` change rewrites the lock file, and the change commits both.
+
+## Releases
+
+A release is `Decionis.VerifyingProvider` on NuGet, at the version in the project file, with this
+README and a symbols package. A maintainer publishes it with the
+[Publish the verifiers](../../.github/workflows/verifiers-publish.yml) workflow from `master`:
+`verify` restores locked, format-checks, runs the vectors and packs, and `publish` also pushes the
+package. A version already on NuGet is never pushed again, so a release raises the version first.

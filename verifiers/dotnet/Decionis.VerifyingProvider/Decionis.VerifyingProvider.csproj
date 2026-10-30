@@ -16,6 +16,13 @@
     <Description>An independent .NET implementation of the Verifying Provider Profile (agent-safe.verifying-provider/1): how a system of record, or the hop in front of it, verifies the executor's signed request and the authority's claim attestation and refuses what the authority never claimed. With ASP.NET Core middleware.</Description>
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/decionis/agent-safe-pipeline</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageProjectUrl>https://github.com/decionis/agent-safe-pipeline/tree/master/verifiers/dotnet</PackageProjectUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageTags>agentsafe;decionis;verifying-provider;rfc9421;execution-authority;aspnetcore</PackageTags>
+    <!-- Symbols beside the package, so a debugger steps into the verifier a host runs. -->
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
     <!-- packages.lock.json beside the project records each package's version and hash; CI restores in locked mode, so a package that is not what it records fails the restore. -->
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
@@ -23,6 +30,10 @@
   <ItemGroup>
     <!-- The middleware is for the ASP.NET Core the application already runs; a shared framework, not a package. -->
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="../README.md" Pack="true" PackagePath="/" />
   </ItemGroup>
 
   <ItemGroup>
