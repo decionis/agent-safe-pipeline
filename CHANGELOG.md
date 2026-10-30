@@ -3,6 +3,31 @@
 Releases of `@decionis/agent-safe-pipeline` (the library) and `@decionis/agentsafe` (the runtime).
 Each entry names what an adopter can rely on and what they must do, if anything.
 
+## Library and runtime (unreleased): array-index keys, in the intent hash and the payload digest
+
+A key that is an array index (`"0"` to `"4294967294"`, no sign, no leading zero), such as a line
+number, sorts differently in the two canonical forms the contract uses. The intent hash puts it
+first, in numeric order, as `JSON.stringify` writes it and the authority recomputes it; the
+execution payload digest is RFC 8785 and sorts it by code unit with every other key.
+[Agent-Safe Intent v1 §4](spec/intent/v1/README.md#4-canonical-form) now states the first, and
+`conformance/vectors/array-index-keys.json` pins it. Where an implementation in this repository used
+one form for the other, an action whose parameters had such keys was refused although the authority
+had authorized it:
+
+- `DecionisGrantVerifier` digested the parameters in the intent's form, so a valid grant failed
+  its payload check. It uses `Rfc8785`, a new library export, now.
+- `jcsDigest` and `jcsCanonical` in the runtime were the intent's form under an RFC 8785 name, so
+  the verifying provider refused such a body that the Go, Java, .NET and Rust verifiers accept.
+  Digests of values without such keys are unchanged.
+- `LocalAuthority` (`/testing`) re-hashed the binding by code unit and refused the intent as
+  `INTENT_HASH_MISMATCH`; `hashPayload` and `payloadStringify` are its RFC 8785 side.
+- Govern hashed the binding with RFC 8785, so the authority refused the intent; its test double
+  did the same.
+
+**Nothing to do** for an intent without such keys: every existing vector reproduces unchanged. An
+evidence or journal record written before this release with such keys in a digested value keeps the
+digest it was written with; it is not recomputed.
+
 ## Runtime (unreleased): a token the gateway sends its upstream
 
 `gateway.gatewayToken: { file }` (`AGENTSAFE_GATEWAY_TOKEN_FILE`) makes the gateway send

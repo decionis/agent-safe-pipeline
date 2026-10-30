@@ -1,8 +1,9 @@
 // Package intent captures one execution intent in the agent-safe.intent/1
 // contract and hashes its canonical form: the binding the authority decides
-// on, RFC 8785 over the binding, SHA-256 over the bytes. The hash is what
-// every later record names, so the bytes here must equal the reference
-// implementation's byte for byte; the conformance vectors hold them to it.
+// on, its canonical form (spec/intent/v1 §4), SHA-256 over the bytes. The hash
+// is what every later record names, so the bytes here must equal the
+// reference implementation's byte for byte; the conformance vectors hold them
+// to it.
 package intent
 
 import (
@@ -14,8 +15,10 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
+	"unicode/utf16"
 
 	"github.com/gowebpki/jcs"
 )
@@ -198,37 +201,31 @@ func Hash(binding Binding) (Captured, error) {
 	return Captured{Binding: binding, Canonical: canonical, Hash: "sha256:" + hex.EncodeToString(sum[:])}, nil
 }
 
-// Canonical is RFC 8785 over any JSON value: keys sorted by UTF-16 code unit,
-// numbers in ECMAScript's shortest form, strings escaped as JSON.stringify
-// would, no whitespace. Bounded first, so an unbounded caller value is refused
-// before it is walked.
+// Canonical is the intent's canonical form of any JSON value (spec/intent/v1
+// §4): numbers in ECMAScript's shortest form, strings escaped as
+// JSON.stringify would, no whitespace, and keys in the order JSON.stringify
+// writes an ECMAScript object's. That is RFC 8785's order but for one thing: a
+// key that is an array index ("0" to "4294967294", no sign, no leading zero)
+// comes first, in numeric order, where RFC 8785 sorts it by code unit with the
+// rest. Bounded first, so an unbounded caller value is refused before it is
+// walked.
 func Canonical(value any) ([]byte, error) {
-	encoded, err := encode(value)
+	_, generic, err := bounded(value)
 	if err != nil {
 		return nil, err
 	}
-	var generic any
-	decoder := json.NewDecoder(bytes.NewReader(encoded))
-	decoder.UseNumber()
-	if err := decoder.Decode(&generic); err != nil {
-		return nil, fmt.Errorf("INTENT_NOT_JSON: %w", err)
-	}
-	entries := 0
-	if err := assertBounded(generic, 0, &entries); err != nil {
-		return nil, err
-	}
-	canonical, err := jcs.Transform(encoded)
-	if err != nil {
+	var out bytes.Buffer
+	if err := writeIntentForm(&out, generic); err != nil {
 		return nil, fmt.Errorf("INTENT_CANONICALIZATION_FAILED: %w", err)
 	}
-	if len(canonical) > MaxCanonicalBytes {
+	if out.Len() > MaxCanonicalBytes {
 		return nil, errors.New("INTENT_TOO_LARGE")
 	}
-	return canonical, nil
+	return out.Bytes(), nil
 }
 
-// HashValue is the digest the authority binds over a JSON value, in the
-// contract's `sha256:<hex>` form; the payload digest in a claim is one.
+// HashValue is the digest of a JSON value's canonical form, in the contract's
+// `sha256:<hex>` form: the intent hash, when the value is a binding.
 func HashValue(value any) (string, error) {
 	canonical, err := Canonical(value)
 	if err != nil {
@@ -236,6 +233,145 @@ func HashValue(value any) (string, error) {
 	}
 	sum := sha256.Sum256(canonical)
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
+}
+
+// PayloadDigest is the digest the authority binds an execution payload under
+// (`execution_payload_digest`, profile RFC8785/JCS): SHA-256 over the value's
+// RFC 8785 form, every key by UTF-16 code unit. For a value with array-index
+// keys it differs from HashValue, which orders those keys first.
+func PayloadDigest(value any) (string, error) {
+	encoded, _, err := bounded(value)
+	if err != nil {
+		return "", err
+	}
+	canonical, err := jcs.Transform(encoded)
+	if err != nil {
+		return "", fmt.Errorf("INTENT_CANONICALIZATION_FAILED: %w", err)
+	}
+	if len(canonical) > MaxCanonicalBytes {
+		return "", errors.New("INTENT_TOO_LARGE")
+	}
+	sum := sha256.Sum256(canonical)
+	return "sha256:" + hex.EncodeToString(sum[:]), nil
+}
+
+// bounded encodes a value as JSON and decodes it back, numbers kept as their
+// text, refusing it past the bounds before anything walks it.
+func bounded(value any) ([]byte, any, error) {
+	encoded, err := encode(value)
+	if err != nil {
+		return nil, nil, err
+	}
+	var generic any
+	decoder := json.NewDecoder(bytes.NewReader(encoded))
+	decoder.UseNumber()
+	if err := decoder.Decode(&generic); err != nil {
+		return nil, nil, fmt.Errorf("INTENT_NOT_JSON: %w", err)
+	}
+	entries := 0
+	if err := assertBounded(generic, 0, &entries); err != nil {
+		return nil, nil, err
+	}
+	return encoded, generic, nil
+}
+
+// writeIntentForm writes a decoded value in the intent's canonical form: the
+// structure here, each string and number as RFC 8785 writes it.
+func writeIntentForm(out *bytes.Buffer, value any) error {
+	switch typed := value.(type) {
+	case map[string]any:
+		keys := make([]string, 0, len(typed))
+		for key := range typed {
+			keys = append(keys, key)
+		}
+		sort.Slice(keys, func(i, j int) bool { return intentKeyLess(keys[i], keys[j]) })
+		out.WriteByte('{')
+		for i, key := range keys {
+			if i > 0 {
+				out.WriteByte(',')
+			}
+			if err := writeScalar(out, key); err != nil {
+				return err
+			}
+			out.WriteByte(':')
+			if err := writeIntentForm(out, typed[key]); err != nil {
+				return err
+			}
+		}
+		out.WriteByte('}')
+	case []any:
+		out.WriteByte('[')
+		for i, item := range typed {
+			if i > 0 {
+				out.WriteByte(',')
+			}
+			if err := writeIntentForm(out, item); err != nil {
+				return err
+			}
+		}
+		out.WriteByte(']')
+	default:
+		return writeScalar(out, typed)
+	}
+	return nil
+}
+
+// writeScalar writes a string, number, boolean or null exactly as RFC 8785
+// does, which is how JSON.stringify writes it for I-JSON.
+func writeScalar(out *bytes.Buffer, value any) error {
+	encoded, err := encode(value)
+	if err != nil {
+		return err
+	}
+	canonical, err := jcs.Transform(encoded)
+	if err != nil {
+		return err
+	}
+	out.Write(canonical)
+	return nil
+}
+
+// maxArrayIndex is the largest ECMAScript array index, 2^32 - 2.
+const maxArrayIndex = 4_294_967_294
+
+// arrayIndex reports whether a key is an ECMAScript array index, and its value.
+func arrayIndex(key string) (uint64, bool) {
+	if key == "" || len(key) > 10 || (len(key) > 1 && key[0] == '0') {
+		return 0, false
+	}
+	var index uint64
+	for i := 0; i < len(key); i++ {
+		if key[i] < '0' || key[i] > '9' {
+			return 0, false
+		}
+		index = index*10 + uint64(key[i]-'0')
+	}
+	return index, index <= maxArrayIndex
+}
+
+// intentKeyLess orders keys as spec/intent/v1 §4 does: array indices first, by
+// value, then every other key by UTF-16 code unit.
+func intentKeyLess(a, b string) bool {
+	aIndex, aIsIndex := arrayIndex(a)
+	bIndex, bIsIndex := arrayIndex(b)
+	switch {
+	case aIsIndex && bIsIndex:
+		return aIndex < bIndex
+	case aIsIndex != bIsIndex:
+		return aIsIndex
+	default:
+		return utf16Less(a, b)
+	}
+}
+
+func utf16Less(a, b string) bool {
+	ua, ub := utf16.Encode([]rune(a)), utf16.Encode([]rune(b))
+	for i := 0; i < len(ua) && i < len(ub); i++ {
+		if ua[i] != ub[i] {
+			return ua[i] < ub[i]
+		}
+	}
+	return len(ua) < len(ub)
 }
 
 // Timestamp is the contract's timestamp: ISO 8601, UTC, millisecond precision.

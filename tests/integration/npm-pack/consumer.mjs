@@ -131,6 +131,7 @@ const EXPECTED_RUNTIME = [
   "ReconciliationRequestSchema",
   "ReconciliationResponseSchema",
   "RegistryExecutor",
+  "Rfc8785",
   "STRICT_POSTURE",
   "SafeExecutor",
   "ShadowGate",
@@ -191,6 +192,7 @@ for (const name of [
   "createFixtureAuthorityPair",
   "InMemoryReplayStore",
   "hashBinding",
+  "hashPayload",
 ]) {
   assert.ok(name in testing, `testing entry is missing ${name}`);
 }

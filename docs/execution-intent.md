@@ -8,7 +8,8 @@ The versioned `agent-safe.intent/1` authority binding is the Decionis `Execution
 contract: `protocol_version`, `tenant_id`, `intent_id`, `captured_at`, `expires_at`, `actor`,
 `action` (type, resource, parameters), `context`, `downstream_target` (system, operation, optional
 environment and endpoint), and the optional `policy_projection` and `expected_effect_digest`. The
-contract rejects every other top-level property. Keys are sorted by UTF-16 code unit before JSON encoding and SHA-256 hashing, which is how
+contract rejects every other top-level property. Keys are sorted before JSON encoding and SHA-256 hashing (an array-index key such as
+`"10"` first, by value, then every other key by UTF-16 code unit; [§4](../spec/intent/v1/README.md#4-canonical-form)), which is how
 Decionis recomputes the hash on receipt.
 
 Input validation and canonicalization are bounded to 100 KiB by default, nesting depth 20, 5,000

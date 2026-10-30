@@ -39,6 +39,8 @@ export {
   LOCAL_AUTHORITY_ISSUER,
   LOCAL_AUTHORITY_JWKS_PATH,
   hashBinding,
+  hashPayload,
+  payloadStringify,
   stableStringify,
   type LocalAllowanceDraw,
   type LocalAllowanceUsage,

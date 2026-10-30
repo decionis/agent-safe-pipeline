@@ -81,3 +81,11 @@ Keys sort by UTF-16 code unit, case-sensitive: `"Z"` (0x5A) < `"za"` (0x7A)
 `Array.prototype.sort()` default (lexicographic code-unit order), documented
 here because it is not obvious and cross-language implementations must match
 it exactly to reproduce the hashes.
+
+One exception, pinned by `array-index-keys.json`: a key that is an array index,
+the decimal form of an integer from 0 to 4294967294 with no sign and no leading
+zero, comes before every other key, in numeric order. `{"10":…,"9":…,"-1":…}`
+canonicalizes as `{"9":…,"10":…,"-1":…}`. ECMAScript enumerates an object's
+own keys that way, so `JSON.stringify` writes them that way after the sort. An
+RFC 8785 library sorts `"-1"` and `"10"` before `"9"` and does not reproduce
+this vector on its own.

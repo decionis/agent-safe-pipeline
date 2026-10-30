@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { CanonicalIntentHasher } from "@decionis/agent-safe-pipeline";
+import { CanonicalIntentHasher, Rfc8785 } from "@decionis/agent-safe-pipeline";
 import { describe, expect, it } from "vitest";
 import {
   assertIJson,
@@ -20,10 +20,18 @@ const code = (work: () => unknown): string => {
 };
 
 describe("jcsDigest", () => {
-  it("is the digest of the pipeline's own canonical form", () => {
+  it("is the digest of the pipeline's RFC 8785 form", () => {
     const value = { b: 1, a: [true, null, "x"] };
-    expect(jcsCanonical(value)).toBe(CanonicalIntentHasher.stringify(value));
+    expect(jcsCanonical(value)).toBe(Rfc8785.stringify(value));
     expect(jcsDigest(value)).toMatch(/^sha256:[0-9a-f]{64}$/);
+  });
+
+  it("sorts array-index keys by code unit, as RFC 8785 does, not first as the intent's form does", () => {
+    // "10" before "9" and "-1" before both: what the authority's payload digest and the Go, Java,
+    // .NET and Rust verifiers compute. The intent hash orders the same keys "9", "10", "-1".
+    const value = { "9": "nine", "10": "ten", "-1": "sign" };
+    expect(jcsCanonical(value)).toBe('{"-1":"sign","10":"ten","9":"nine"}');
+    expect(CanonicalIntentHasher.stringify(value)).toBe('{"9":"nine","10":"ten","-1":"sign"}');
   });
 
   it("is stable under key order and changes with any value", () => {

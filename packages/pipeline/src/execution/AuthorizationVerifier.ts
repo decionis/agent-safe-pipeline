@@ -7,6 +7,7 @@ import { BoundedResponseBody } from "../http/BoundedResponseBody.js";
 import { CanonicalIntentHasher } from "../intent/CanonicalIntentHasher.js";
 import type { CapturedIntent } from "../intent/ExecutionIntent.js";
 import type { JsonObject, JsonValue } from "../intent/JsonValue.js";
+import { Rfc8785 } from "../intent/Rfc8785.js";
 import type { DecisionGate } from "../decision/DecisionAuthority.js";
 
 export interface VerifiedAuthorization {
@@ -363,8 +364,12 @@ export class DecionisGrantVerifier implements AuthorizationVerifier {
    * uses. Exposed so a test, or an authority implementation, can produce the
    * value this verifier will accept.
    */
+  /**
+   * The authority's `execution_payload_digest` over the parameters: RFC 8785, not the intent's
+   * canonical form, which orders array-index keys differently (spec/intent/v1 §4).
+   */
   public static parametersDigest(parameters: JsonObject): `sha256:${string}` {
-    const canonical = CanonicalIntentHasher.stringify(parameters as JsonValue);
+    const canonical = Rfc8785.stringify(parameters as JsonValue);
     return `sha256:${createHash("sha256").update(canonical, "utf8").digest("hex")}`;
   }
 

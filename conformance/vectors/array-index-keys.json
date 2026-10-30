@@ -1,0 +1,26 @@
+{
+  "description": "Keys that are array indices ('0' to '4294967294', no sign, no leading zero) come first in ascending numeric order, then every other key by UTF-16 code unit: '9' before '10', and ' ', '-1', '/', '01' and '4294967295' after '4294967294'",
+  "binding": {
+    "line_quantities": {
+      "10": 12,
+      "2": 1,
+      "1": 4
+    },
+    "keys": {
+      "a": "lowercase",
+      "A": "uppercase",
+      "4294967295": "one past the largest index: an ordinary key",
+      "4294967294": "the largest array index",
+      "1.5": "a fraction: an ordinary key",
+      "01": "a leading zero: an ordinary key",
+      "/": "below 0 in UTF-16",
+      "-1": "a sign: an ordinary key",
+      " ": "a space",
+      "10": "ten",
+      "9": "nine",
+      "0": "zero"
+    }
+  },
+  "canonical_json": "{\"keys\":{\"0\":\"zero\",\"9\":\"nine\",\"10\":\"ten\",\"4294967294\":\"the largest array index\",\" \":\"a space\",\"-1\":\"a sign: an ordinary key\",\"/\":\"below 0 in UTF-16\",\"01\":\"a leading zero: an ordinary key\",\"1.5\":\"a fraction: an ordinary key\",\"4294967295\":\"one past the largest index: an ordinary key\",\"A\":\"uppercase\",\"a\":\"lowercase\"},\"line_quantities\":{\"1\":4,\"2\":1,\"10\":12}}",
+  "intent_hash": "sha256:c6f679664d326498a6929afa77c018ec6095e6a214c9e4db0bc6761a9fc8d943"
+}

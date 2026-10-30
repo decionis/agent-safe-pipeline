@@ -69,7 +69,7 @@ export const AuthorityIntentBindingSchema = z
   .meta({
     title: "agent-safe.intent/1 binding",
     description:
-      "The execution intent as the authority receives it and as it is hashed: keys sorted by UTF-16 code unit, encoded as JSON without whitespace, and digested with SHA-256. Every property is inside the hash.",
+      "The execution intent as the authority receives it and as it is hashed: keys sorted (array indices first by value, then by UTF-16 code unit), encoded as JSON without whitespace, and digested with SHA-256. Every property is inside the hash.",
   });
 
 /** What the schema accepts; the tests hold it to the `AuthorityIntentBinding` wire interface. */
