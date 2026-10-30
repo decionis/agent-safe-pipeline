@@ -1,10 +1,11 @@
 # Verifying Provider Profile
 
-`agent-safe.verifying-provider/1`, version 0.3, status **draft**. Section 7, the effect receipt, is
+`agent-safe.verifying-provider/1`, version 0.4, status **draft**. Section 7, the effect receipt, is
 normative as of version 0.2: the Decionis OpenAPI document carries it, the executor forwards it,
 and five implementations build one from the same vectors. Step 9, the target's state version, is
 new in 0.3: the attestation carries the version of the target the grant was decided against, and
-the same five implementations hold the write to it from the same vectors.
+the same five implementations hold the write to it from the same vectors. Version 0.4 states what
+"the path" is: as the request line carries it, percent-encoding intact.
 
 A system of record is the only party that can _refuse_ an instruction rather than merely fail to
 receive it. [Bypass resistance](../bypass-resistance.md) ranks the three chokepoints an execution
@@ -112,7 +113,9 @@ credentials". For a dispatch:
 The eight components this profile knows, in the order the executor lists them: `@method`,
 `@path`, `content-digest`, `idempotency-key`, `x-agent-safe-intent-hash`, `x-agent-safe-grant-id`,
 `x-agent-safe-decision-id`, `x-agent-safe-claim-attestation`. The first five are the **base**.
-`@path` is the request path without its query. Any other header the executor sends, such as
+`@path` is the request path as the request line carries it, percent-encoding intact and never
+decoded, without its query: `/v1/accounts/acme%20corp`, not `/v1/accounts/acme corp`. Any other
+header the executor sends, such as
 `x-agent-safe-dossier-id`, is not covered and MUST NOT influence whether the provider effects.
 
 ## 5. Procedure
@@ -148,7 +151,7 @@ the order the list gives them, then the parameters line:
 
 ```text
 "@method": <the method, upper case>
-"@path": <the request path, without its query>
+"@path": <the request path as received, percent-encoded, without its query>
 "content-digest": <the content-digest value>
 "idempotency-key": <the header value>
 "x-agent-safe-intent-hash": <the header value>
@@ -394,7 +397,9 @@ tier (section 1) at which it is deployed, since the vectors cannot.
   `with_request_body` with `allow_partial_message: false`; the reference in `verifiers/envoy`
   answers the check with the refusal status and body above, which Envoy returns to the executor.
   In Kong, the plugin in `verifiers/kong` reads the body itself and runs the same Go verifier.
-- **Paths.** Verify with the path as received, before any rewrite the hop applies.
+- **Paths.** Verify with the path as received, before any rewrite the hop applies, and before any
+  decoding: a framework's routing path is usually decoded (ASP.NET Core's `Request.Path`, Go's
+  `URL.Path`), and under a mount it may have lost its prefix. Read the raw request target.
 - **Target versions.** Step 9 is the effecting layer's, because only it can make the comparison
   atomic with the write. A provider that reads its record under the lock its write takes passes
   that version to the procedure; one that cannot hands the attested version to its write as the

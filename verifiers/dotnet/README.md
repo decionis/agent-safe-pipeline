@@ -39,7 +39,9 @@ The middleware buffers the body up to its bound, verifies, and either answers `4
 profile's refusal body, `{"status":"REJECTED","reason_code":"…"}`, or hands the request on with
 its body intact. A covered header received twice is a refusal; a body beyond the bound is `413`.
 Register it ahead of anything that reads the body, and ahead of any path rewrite, since the
-profile verifies the path as received.
+profile verifies the path as received. It reads that path from the raw request target, not from
+`Request.Path`, which ASP.NET Core decodes and, under `Map`, splits into `PathBase`: a signed
+`/v1/accounts/acme%20corp` verifies as it was signed, wherever the middleware is mounted.
 
 `VerifyingProvider.Verify` is the procedure itself, for a host other than ASP.NET Core; the
 middleware is sixty lines around it.
