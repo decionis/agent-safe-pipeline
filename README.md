@@ -7,11 +7,12 @@
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/14098/badge)](https://www.bestpractices.dev/projects/14098)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
 
-**Put an authority boundary in front of any agent or API.**
+**Authorize every autonomous action, before it commits.**
 
-AgentSafe intercepts consequential actions and checks whether they are authorized before
-forwarding them. An agent, an application or a tool sends its HTTP request to AgentSafe instead of
-the target; AgentSafe captures the action as an intent, asks the [Decionis](https://decionis.com)
+AgentSafe is the open-source gateway that puts authorization in front of every action your AI
+agents, workflows and pipelines take: a payment or a settlement, a trade, a price change, an
+inspection sign-off, a deployment or any other API call. An agent, an application or a tool sends
+its HTTP request to AgentSafe instead of the target; AgentSafe captures the action as an intent, asks the [Decionis](https://decionis.com)
 control plane (the Independent Execution Authority, bound to the exact action) for a decision, and
 forwards exactly the authorized request once on a claimed single-use grant, holds it for a person,
 or refuses it, leaving a chained record of each. It decides nothing itself.
