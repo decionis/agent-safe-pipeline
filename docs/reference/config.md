@@ -54,6 +54,11 @@ interception:
 containment: # optional: what this deployment says the agent zone must not reach directly
   targets: [] # "name=host:port", at most 64; nothing dials them, they are in the fingerprint
 
+acceptance: # optional: serve acceptance runs (docs/deployment/acceptance.md); both files or neither
+  key: { file: /etc/agentsafe/acceptance.pem } # Ed25519 PKCS#8; signs acceptance reports only
+  operatorToken: { file: /etc/agentsafe/acceptance-token } # the bearer agentsafe accept presents
+  kid: null # the key's id in a report; its RFC 7638 thumbprint when unset
+
 subject: # optional: pin each session to the customer your identity provider names
   issuer: https://login.example.com/ # the token's iss, exactly
   audience: agentsafe-gateway # one of the token's aud

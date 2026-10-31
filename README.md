@@ -556,7 +556,9 @@ Decionis; `changed-conditions-demo` runs against the loopback double alone, beca
 (policy releases, published signals) is the authority's own state; `trusted-executor` runs the
 executor process once more in shadow against Decionis; the two Presence examples need an owned organization with an enrolled approver, and say so when given
 a provisional workspace; `staged-change-demo` runs against the loopback authority only, because a
-hosted plan step needs its plan registered with Decionis first.
+hosted plan step needs its plan registered with Decionis first; `acceptance-demo` runs against the
+loopback authority only, because what it proves is the tool, and a hosted deployment proves itself
+with its own run.
 
 #### How it is wired
 
@@ -657,6 +659,7 @@ Companion notes on the Execution Authority model, the authorization protocol, Pr
 - [`examples/infra-scale-demo`](./examples/infra-scale-demo) — the Compromised Principal Test: an infrastructure agent whose identity, credential and API are all valid proposes a `deployment.scale` it is not authorised for — 960 replicas, another service, another cluster, a post-authorization mutation, a swapped approval, a replayed grant, a direct call to the cluster — seven attacks, zero unauthorized effects.
 - [`examples/changed-conditions-demo`](./examples/changed-conditions-demo) — the Changed Conditions Test: an honest deploy agent's queued work meets a world that changed — a configuration at the same path, a grown target group, an allowance another rollout took, a withdrawn approval, a policy release, a reclassified security group, an allowance published after the commit rather than with it, a partner bank's mandate that lapses or whose key is revoked — twenty-four attempts refused, sixteen legitimate counterparts completed exactly once.
 - [`examples/staged-change-demo`](./examples/staged-change-demo) — one production change as a governed plan: open, drain, deploy, re-enable, each step decided and granted on its own with plan facts the authority derives from its finalization records; a deploy refused before the drain commits, a re-enable escalated after a failed deploy, a rollback under its own grant, and the plan ending `PARTIAL`.
+- [`examples/acceptance-demo`](./examples/acceptance-demo) — the real `agentsafe accept`, `identity` and `verify acceptance` against a gateway on loopback: the gateway signs `ACCEPTED` when the permitted write lands once, the prohibited one is refused and its canary read unchanged, and the outage case sends nothing on; and `NOT_ACCEPTED` when the agent's zone reaches its origin directly ([accept a deployment](./docs/deployment/acceptance.md)).
 - [`examples/basic-agent`](./examples/basic-agent) — the smallest BLOCK flow.
 - [`examples/shopify-refund-agent`](./examples/shopify-refund-agent) — amount-based ALLOW / ESCALATE / BLOCK.
 - [`examples/github-deploy-agent`](./examples/github-deploy-agent) — environment and force-push controls.

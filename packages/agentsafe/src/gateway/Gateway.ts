@@ -34,6 +34,24 @@ import { DockerProvenanceProvider } from "../provenance/DockerProvenanceProvider
 import { KubernetesProvenanceProvider } from "../provenance/KubernetesProvenanceProvider.js";
 import { NoneProvenanceProvider } from "../provenance/NoneProvenanceProvider.js";
 import { resolveWorkload, type ProvenanceProvider } from "../provenance/ProvenanceProvider.js";
+import { splitTarget, writeBody, type PlanWrite } from "../acceptance/AcceptancePlan.js";
+import {
+  acceptanceSigningKey,
+  signAcceptanceReport,
+  type AcceptanceSigningKey,
+  type CaseLine,
+} from "../acceptance/AcceptanceReport.js";
+import {
+  AcceptanceRuns,
+  type AcceptanceHost,
+  type Admission,
+  type OutageOutcome,
+  type RouteFacts,
+  type RunAnswer,
+  type ShadowOutcome,
+} from "../acceptance/AcceptanceRun.js";
+import { coverageOf } from "../acceptance/Coverage.js";
+import { AUTHORITY_UNREACHABLE, recordingUpstream } from "../acceptance/OutageDoubles.js";
 import { EffectAwareGrantVerifier } from "../adapters/EffectAwareGrantVerifier.js";
 import { EffectEvidenceRegister } from "../adapters/EffectEvidenceRegister.js";
 import { ChainJournal } from "../audit/ChainJournal.js";
@@ -69,7 +87,13 @@ import {
   RequestHolder,
   type ForwardOutcome,
 } from "./ForwardHandler.js";
-import { GATEWAY_TOKEN_SECRET, GatewayConfigLoader, type GatewayConfig } from "./GatewayConfig.js";
+import {
+  ACCEPTANCE_KEY_SECRET,
+  ACCEPTANCE_TOKEN_SECRET,
+  GATEWAY_TOKEN_SECRET,
+  GatewayConfigLoader,
+  type GatewayConfig,
+} from "./GatewayConfig.js";
 import { gatewayMetrics, type GatewayMetrics } from "./GatewayMetrics.js";
 import { processSurface, type InstallSurface } from "./InstallSurface.js";
 import {
@@ -264,6 +288,11 @@ export interface GatewayStatus {
   };
   /** The action space it loaded against the one the deciding release was checked against; absent from an older gateway. */
   readonly action_space?: ActionSpaceStatus;
+  /** The key acceptance reports are signed with, when the gateway serves runs; null when it does not; absent from an older gateway. */
+  readonly acceptance?: {
+    readonly kid: string;
+    readonly public_jwk: AcceptanceSigningKey["publicJwk"];
+  } | null;
   /**
    * A hosted gateway's tenant, the tenant keys it admits now, each as a
    * short prefix of its digest and never the digest, and the registry it was
@@ -329,6 +358,15 @@ export const RESUME_TOKEN_HEADER = "agentsafe-resume-token";
  * unchanged while the authority is asked what it would have decided.
  * Nothing here decides ALLOW, BLOCK or ESCALATE; it asks, enforces and records.
  */
+/** What a gateway that serves acceptance runs is given when it is assembled (ADR 0009). */
+interface AcceptanceParts {
+  readonly key: AcceptanceSigningKey;
+  /** A client of the same authority in shadow, whatever the gateway's own mode: it forwards nothing. */
+  readonly shadow: ShadowPipeline;
+  /** A second gateway from this configuration, its authority unreachable and its upstream recording. */
+  readonly outage: () => Promise<{ readonly gateway: Gateway; readonly writes: () => number }>;
+}
+
 export class Gateway {
   private readonly held = new Map<string, HeldEscalation>();
   /**
@@ -374,6 +412,10 @@ export class Gateway {
   /** What this gateway is: computed once, since nothing it is built from changes while it runs. */
   public readonly fingerprint: DeploymentFingerprint;
   private readonly actionSpace: ActionSpaceDrift;
+  /** Acceptance runs, when the configuration names their key and token; null otherwise. */
+  private readonly runs: AcceptanceRuns | null;
+  /** The plan write each request a run sent is, by request. */
+  private readonly acceptanceWrites = new WeakMap<InterceptedRequest, string>();
 
   private constructor(
     public readonly config: GatewayConfig,
@@ -403,6 +445,7 @@ export class Gateway {
     private readonly effects: EffectEvidenceRegister,
     /** The digest of the gateway this one replaces, when it replaces one. */
     private readonly replaced: string | null,
+    private readonly acceptance: AcceptanceParts | null,
   ) {
     this.lastShadowReportAt = clock();
     this.fingerprint = deploymentFingerprint(config, {
@@ -478,6 +521,7 @@ export class Gateway {
             journal.follow(chain, security),
             journal.follow(security.chain, security),
           ];
+    this.runs = acceptance === null ? null : new AcceptanceRuns(this.acceptanceHost(acceptance));
   }
 
   /**
@@ -530,10 +574,11 @@ export class Gateway {
       security.emit({ event: "LEAK_SUSPECTED", patterns: [...patterns] }),
     );
     if (store === null && config.secrets.required.length > 0) {
-      // The upstream credential and the gateway token are opened from the
-      // files the configuration names, and from nowhere else: never a value
-      // in the environment.
+      // The upstream credential, the gateway token and an acceptance run's key
+      // and token are opened from the files the configuration names, and from
+      // nowhere else: never a value in the environment.
       const { credential, gatewayToken } = config.upstream;
+      const { acceptance } = config;
       const secretEnvironment = {
         ...env,
         ...(credential === null
@@ -544,6 +589,14 @@ export class Gateway {
           : {
               [GATEWAY_TOKEN_SECRET]: undefined,
               [`${GATEWAY_TOKEN_SECRET}_FILE`]: gatewayToken.file,
+            }),
+        ...(acceptance === null
+          ? {}
+          : {
+              [ACCEPTANCE_KEY_SECRET]: undefined,
+              [`${ACCEPTANCE_KEY_SECRET}_FILE`]: acceptance.key.file,
+              [ACCEPTANCE_TOKEN_SECRET]: undefined,
+              [`${ACCEPTANCE_TOKEN_SECRET}_FILE`]: acceptance.operatorToken.file,
             }),
       };
       store = CompositeSecretStore.fromEnvironment(secretEnvironment, config.secrets.required, {
@@ -738,6 +791,60 @@ export class Gateway {
     ] as const) {
       if (head > 0) security.emit({ event: "CHAIN_RESUMED", chain: stream, head });
     }
+    // An acceptance run's parts (ADR 0009): its key, a client of the same
+    // authority in shadow, which decides a plan's write without forwarding
+    // it, and the second gateway its outage case runs on.
+    let acceptance: AcceptanceParts | null = null;
+    if (config.acceptance !== null) {
+      for (const name of [ACCEPTANCE_KEY_SECRET, ACCEPTANCE_TOKEN_SECRET] as const) {
+        if (secrets === null || !secrets.has(name)) {
+          throw new SecretError("CONFIG_SECRET_MISSING", name);
+        }
+      }
+      const shared = secrets as SecretStore;
+      const { kid } = config.acceptance;
+      let key: AcceptanceSigningKey;
+      try {
+        key = shared
+          .get(ACCEPTANCE_KEY_SECRET)
+          .use((value) => acceptanceSigningKey(value.toString("utf8"), kid));
+      } catch {
+        throw new SecretError("CONFIG_SECRET_INVALID", ACCEPTANCE_KEY_SECRET);
+      }
+      const observer = new DecionisGate({
+        ...connection,
+        mode: "SHADOW",
+        source: {
+          example: dependencies.clientExample ?? `agentsafe-gateway@${version}`,
+          ...(surface === null ? {} : { surface }),
+        },
+      });
+      acceptance = {
+        key,
+        shadow: new ShadowPipeline(observer, { audit, timeoutMs: config.authority.timeoutMs }),
+        outage: async () => {
+          const recorder = recordingUpstream(routes.profile);
+          const second = await Gateway.create(Gateway.outageConfig(config), {
+            env,
+            io: { stdout: () => undefined, stderr: () => undefined, color: false },
+            authorityFetch: AUTHORITY_UNREACHABLE,
+            upstreamFetch: recorder.fetch,
+            secrets: Gateway.borrowed(shared),
+            demoAuthority: () =>
+              Promise.resolve({
+                baseUrl: "http://127.0.0.1:9",
+                apiKey: "",
+                stop: () => Promise.resolve(),
+              }),
+            clock,
+            version,
+            surface,
+            provenance: [new NoneProvenanceProvider()],
+          });
+          return { gateway: second, writes: recorder.writes };
+        },
+      };
+    }
     const gateway = new Gateway(
       config,
       upstream,
@@ -765,6 +872,7 @@ export class Gateway {
       jwks,
       effects,
       continues?.fingerprint ?? null,
+      acceptance,
     );
     jwks?.start();
     // The first look at the proof starts once nothing can refuse the gateway;
@@ -1024,6 +1132,10 @@ export class Gateway {
       shadow: this.shadow === null ? null : this.ledger.summary(),
       fingerprint: { digest: this.fingerprint.digest, document: this.fingerprint.document },
       action_space: this.actionSpace.status(),
+      acceptance:
+        this.acceptance === null
+          ? null
+          : { kid: this.acceptance.key.kid, public_jwk: this.acceptance.key.publicJwk },
       hosted: this.config.hosted
         ? {
             tenant: this.config.hostedTenant,
@@ -1211,6 +1323,8 @@ export class Gateway {
       });
     }
     if (target !== null) this.plans.set(captured, target);
+    const accepted = this.acceptanceWrites.get(request);
+    if (accepted !== undefined) this.runs?.captured(accepted, captured.intent.intentId);
     this.metrics.interceptions.inc({ action });
     this.count("interceptions");
     this.activation.intercepted();
@@ -1350,6 +1464,219 @@ export class Gateway {
     if (this.demo !== null) await this.demo.stop();
     this.secrets?.close();
     this.upstream.close();
+  }
+
+  /** Whether this gateway serves acceptance runs: its configuration names their key and token. */
+  public get servesAcceptance(): boolean {
+    return this.runs !== null;
+  }
+
+  /**
+   * Whether a bearer is the acceptance runs' operator token: compared by
+   * digest, in constant time, against the file as it is now, so a rotated
+   * token takes effect at once. Never an agent's credential.
+   */
+  public acceptanceToken(presented: string | undefined): boolean {
+    if (this.runs === null || this.secrets === null || presented === undefined) return false;
+    const given = createHash("sha256").update(presented).digest();
+    return this.secrets
+      .get(ACCEPTANCE_TOKEN_SECRET)
+      .use((value) => timingSafeEqual(given, createHash("sha256").update(value).digest()));
+  }
+
+  public openAcceptance(body: unknown): RunAnswer {
+    return this.runs?.open(body) ?? { status: 404, body: { code: "NOT_FOUND" } };
+  }
+
+  public async decideAcceptance(runId: string, write: string): Promise<RunAnswer> {
+    return (await this.runs?.decide(runId, write)) ?? { status: 404, body: { code: "NOT_FOUND" } };
+  }
+
+  public async closeAcceptance(runId: string, zone: unknown): Promise<RunAnswer> {
+    return (await this.runs?.close(runId, zone)) ?? { status: 404, body: { code: "NOT_FOUND" } };
+  }
+
+  /**
+   * Whether a request carrying the run header is a write the open run names,
+   * sent as named: tracked when it is, refused when it is not. A gateway that
+   * serves no run refuses every request carrying the header.
+   */
+  public admitAcceptance(request: InterceptedRequest, tag: string | undefined): Admission {
+    if (tag === undefined) return { kind: "NONE" };
+    if (this.runs === null) return { kind: "REFUSE", code: "ACCEPTANCE_RUN_UNKNOWN" };
+    const admission = this.runs.admit(tag, request);
+    if (admission.kind === "TRACK") this.acceptanceWrites.set(request, admission.name);
+    return admission;
+  }
+
+  /** The answer to a write a run sent, for one the gateway refused before capturing it. */
+  public answeredAcceptance(request: InterceptedRequest, answer: GatewayResponse): void {
+    const name = this.acceptanceWrites.get(request);
+    if (name === undefined) return;
+    const header = (key: string): string | null =>
+      answer.headers.find(([candidate]) => candidate === key)?.[1] ?? null;
+    this.runs?.answered(name, header("agentsafe-state"), header("agentsafe-execution"));
+  }
+
+  /** What this gateway lends a run: its routes, its reads, its chain and its key. */
+  private acceptanceHost(parts: AcceptanceParts): AcceptanceHost {
+    return {
+      boundaryId: this.boundary.boundaryId,
+      fingerprint: this.fingerprint,
+      failurePolicy: this.config.authority.failurePolicy,
+      coverage: coverageOf(this.routes, this.config),
+      route: (write) => this.acceptanceRoute(write),
+      decide: async (write) => await this.acceptanceDecide(parts.shadow, write),
+      outage: async (write) => await Gateway.acceptanceOutage(parts, write),
+      settled: async () => {
+        await Promise.allSettled([...this.observing]);
+      },
+      link: (fields) => this.link(fields),
+      sign: async (report) => await signAcceptanceReport(report, parts.key),
+      clock: this.clock,
+    };
+  }
+
+  /** A plan's write as the listener would have handed it over. */
+  private static acceptanceRequest(write: PlanWrite): InterceptedRequest {
+    const { path, search } = splitTarget(write.path);
+    const body = writeBody(write);
+    return {
+      method: write.method,
+      path,
+      search,
+      headers: body.length === 0 ? {} : { "content-type": "application/json" },
+      body,
+      remoteAddress: null,
+      encrypted: false,
+    };
+  }
+
+  private acceptanceRoute(write: PlanWrite): RouteFacts {
+    const request = Gateway.acceptanceRequest(write);
+    const plan = this.plan(request.method, request.path, request.search);
+    if (plan.kind !== "GOVERN") return { enforced: false, action: null, targetRead: false };
+    const api = this.profileRequest(request);
+    return {
+      enforced: this.resolver !== null,
+      action: plan.action,
+      targetRead: api !== null && this.profile()?.stateRead(api) != null,
+    };
+  }
+
+  /**
+   * A plan's write decided in shadow: captured as its route captures it, with
+   * no read of its target, asked of the authority in shadow, and forwarded
+   * nowhere. The shadow pipeline records the decision on the evidence chain.
+   */
+  private async acceptanceDecide(shadow: ShadowPipeline, write: PlanWrite): Promise<ShadowOutcome> {
+    const request = Gateway.acceptanceRequest(write);
+    const plan = this.plan(request.method, request.path, request.search);
+    const undecided = (code: string): ShadowOutcome => ({
+      verdict: null,
+      reason_codes: [code],
+      decision_id: null,
+      dossier_id: null,
+    });
+    if (plan.kind !== "GOVERN") return undecided("ACCEPTANCE_WRITE_NOT_GOVERNED");
+    let captured: CapturedIntent;
+    try {
+      captured = this.captureIntent(request, plan.action, null, null);
+    } catch (error) {
+      return undecided(error instanceof Error ? error.message : "INTENT_INVALID");
+    }
+    const observation = await RequestContext.run(
+      { principal: this.principalOf(captured) },
+      async () => await (await shadow.observe(captured, () => Promise.resolve(null))).observation,
+    );
+    return {
+      verdict: observation.verdict,
+      reason_codes: [
+        ...(observation.status === "OBSERVED" ? [] : [observation.status]),
+        ...observation.reasonCodes,
+      ],
+      decision_id: observation.decisionId,
+      dossier_id: observation.dossierId,
+    };
+  }
+
+  /**
+   * A plan's write through a second gateway built from this configuration,
+   * its authority unreachable and its upstream recording, closed after: what
+   * it answered, and how many writes reached its upstream.
+   */
+  private static async acceptanceOutage(
+    parts: AcceptanceParts,
+    write: PlanWrite,
+  ): Promise<OutageOutcome> {
+    let second: { readonly gateway: Gateway; readonly writes: () => number };
+    try {
+      second = await parts.outage();
+    } catch {
+      return {
+        status: null,
+        execution: null,
+        reason_codes: ["ACCEPTANCE_OUTAGE_UNAVAILABLE"],
+        upstreamWrites: 0,
+      };
+    }
+    try {
+      const request = Gateway.acceptanceRequest(write);
+      const plan = second.gateway.plan(request.method, request.path, request.search);
+      const answer =
+        plan.kind === "GOVERN"
+          ? await second.gateway.govern(request, plan.action)
+          : await second.gateway.passthrough(request);
+      let reasonCodes: string[] = [];
+      try {
+        const body = JSON.parse(answer.body.toString("utf8")) as { reason_codes?: unknown };
+        if (Array.isArray(body.reason_codes)) {
+          reasonCodes = body.reason_codes.filter(
+            (code): code is string => typeof code === "string",
+          );
+        }
+      } catch {
+        // An answer that is not the gateway's own JSON carries no reason codes.
+      }
+      return {
+        status: answer.status,
+        execution: answer.headers.find(([name]) => name === "agentsafe-execution")?.[1] ?? null,
+        reason_codes: reasonCodes,
+        upstreamWrites: second.writes(),
+      };
+    } finally {
+      await second.gateway.close();
+    }
+  }
+
+  /**
+   * The configuration the outage case's second gateway is built from: this
+   * one, with nothing it could write to or wait on outside the process. No
+   * evidence file or journal (the deployed gateway's chains are its own), no
+   * upstream proof or public-only resolution, no subject keys to fetch, no
+   * reads after a refusal, and no acceptance runs of its own.
+   */
+  private static outageConfig(config: GatewayConfig): GatewayConfig {
+    return {
+      ...config,
+      upstream: { ...config.upstream, proofRequired: false, publicOnly: false },
+      interception: { ...config.interception, observeRefusals: false },
+      subject: null,
+      evidence: { ...config.evidence, enabled: false, journalDir: null },
+      output: { format: "JSON", verbose: false },
+      acceptance: null,
+    };
+  }
+
+  /** The deployed gateway's secrets, lent: the second gateway reads them and never closes them. */
+  private static borrowed(store: SecretStore): SecretStore {
+    return {
+      has: (name) => store.has(name),
+      get: (name) => store.get(name),
+      onRotate: (name, listener) => store.onRotate(name, listener),
+      reload: async (reason) => await store.reload(reason),
+      close: () => undefined,
+    };
   }
 
   private captureIntent(
@@ -2586,11 +2913,24 @@ export class Gateway {
   private report(report: GatewayReport): void {
     if (this.config.output.format === "JSON") this.io.stdout(renderJson(report));
     else this.io.stdout(renderHuman(report, { color: this.io.color }));
+    if (report.event === "INTERCEPTED") this.runs?.intercepted(report);
   }
 
-  /** One chained line on the gateway's own stream. */
-  private link(fields: ChainFields): void {
-    this.chain.link({ at: new Date(this.clock()).toISOString(), ...fields }, this.emitLine);
+  /** One chained line on the gateway's own stream, and where it went. */
+  private link(fields: ChainFields): CaseLine {
+    const record = this.chain.link(
+      { at: new Date(this.clock()).toISOString(), ...fields },
+      this.emitLine,
+    );
+    const line = {
+      stream: GATEWAY_STREAM,
+      seq: record.seq,
+      hash: record.hash,
+      event: String(fields["event"]),
+    };
+    // Assigned last in the constructor: a line linked before then has no run to belong to.
+    this.runs?.linked(fields, line);
+    return line;
   }
 
   private count(name: string): void {

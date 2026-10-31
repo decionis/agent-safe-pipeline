@@ -1,5 +1,6 @@
 import { packageVersion } from "../Version.js";
 import type { CliProcess } from "./CliProcess.js";
+import { runAccept } from "./Accept.js";
 import { runConfig } from "./ConfigCommand.js";
 import { runDoctor } from "./Doctor.js";
 import { runIdentity } from "./Identity.js";
@@ -23,6 +24,7 @@ export const GATEWAY_COMMANDS = [
   "status",
   "doctor",
   "test",
+  "accept",
   "identity",
   "config",
   "login",
@@ -63,6 +65,9 @@ export async function runGatewayCommand(
       return;
     case "doctor":
       await runDoctor(io, argv);
+      return;
+    case "accept":
+      await runAccept(io, argv);
       return;
     case "identity":
       runIdentity(io, argv);

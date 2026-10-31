@@ -127,7 +127,11 @@ allowed, held and refused so far, by action, and the switch that turns enforceme
 configuration. `--json` prints the answer as it came: the report inside it as `shadow`, the
 fingerprint as `fingerprint` (`digest` and `document`), and the comparison as `action_space`
 (`loaded`, `release`, `state`, `drifted`). A gateway older than the fingerprint answers without
-either, and the lines say so.
+either, and the lines say so. `--acceptance <report>` holds an [acceptance report](../deployment/acceptance.md)
+against the gateway that answered: checked with the key that gateway serves, and `CURRENT`, `STALE`
+with the fingerprint fields that changed, or `EXPIRED` (`acceptance_report` in `--json`). It is the
+operator's view; a buyer pins the key and runs `agentsafe verify acceptance`. Either way it is
+reported, never enforced.
 
 ### `agentsafe doctor`
 
@@ -152,8 +156,26 @@ configuration when there is one and describes what it would resolve to when ther
 can be run before anything is configured. The container, pod and node appear beneath the report
 and are bound into no intent and signed into no evidence. When a runtime declared the artifact this
 process runs as, the workload appears too, with its trust source beside it — `supplied`, never
-`verified` ([workload provenance](../authority/workload-provenance.md)). Exit `0`; see
-[the enforcement boundary](../authority/enforcement-boundary.md).
+`verified` ([workload provenance](../authority/workload-provenance.md)). When the gateway serves
+[acceptance runs](../deployment/acceptance.md), the key it signs their reports with appears as
+`acceptance_kid`, and in `--json` as `acceptance.kid` and `acceptance.public_jwk`: the public half a
+buyer pins. Exit `0`; see [the enforcement boundary](../authority/enforcement-boundary.md).
+
+### `agentsafe accept --plan <file> --token-file <file> [--out <file>] [--json]`
+
+Runs an acceptance plan from the agent's zone against the deployed gateway the plan names, and
+writes the report the gateway signs ([accept a deployment](../deployment/acceptance.md),
+[ADR 0009](../architecture/decisions/0009-acceptance-run-on-named-targets.md)). It sends nothing the
+plan does not name: each permitted write once through the gateway; each prohibited write only after
+the gateway decided it `BLOCK` or `ESCALATE` in shadow; each origin's read directly and through the
+gateway; each provider's write unattested and then signed by a key it cannot know; a TCP dial to
+each MCP server; and one `GET` to the cloud metadata endpoint when the plan asks. It lists the
+credentials it finds in its own environment and at well-known paths by name and kind, never by
+value, and marks the token it was given as its own. `--token-file` (or
+`AGENTSAFE_ACCEPTANCE_TOKEN_FILE`) is the gateway's operator token; `--tenant-key-file` presents a
+hosted gateway's tenant key on the requests it sends through it. The report goes to `--out`
+(`acceptance.jws` by default). Exit `0` when the gateway signed `ACCEPTED`, `1` when it signed
+`NOT_ACCEPTED`, `2` when nothing was signed.
 
 ### `agentsafe test [name=host:port]...`
 
@@ -301,6 +323,16 @@ Verifies an evidence bundle offline: every file's digest against the manifest, b
 signature when `AGENTSAFE_EVIDENCE_PUBLIC_KEY` holds the public key. Also spelled
 `agentsafe verify-bundle`.
 
+### `agentsafe verify acceptance <report> --key <file> [--current --gateway <url>] [--json]`
+
+Checks an [acceptance report](../deployment/acceptance.md) offline: its signature against the key
+in `--key` (the JSON `agentsafe identity --json` prints, or a bare Ed25519 JWK), its schema, that
+its fingerprint digest is the digest of the document it carries, that its verdict follows from its
+cases, and its date. With `--current`, it also compares the report's fingerprint with the one the
+gateway at `--gateway` runs: `CURRENT`, or `STALE` with the fields that changed. Exit `0` when the
+report verifies, was accepted, is unexpired and, with `--current`, current; `1` when it did not
+verify, was not accepted, has expired or is stale; `2` when it could not be checked.
+
 ### `agentsafe verify intent <file|dir>... [--json]`
 
 Agent-Safe Intent conformance, offline ([the specification](../../spec/intent/v1/README.md#7-conformance)).
@@ -344,14 +376,21 @@ Runs in the agent zone and reports whether a system of record answers without th
 
 Every path under `/_agentsafe/` is the gateway's and is never forwarded:
 
-| Route                                                | Answer                                                                                                                                                     |
-| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /_agentsafe/healthz`                            | `200 {"status":"ok"}` while the process lives                                                                                                              |
-| `GET /_agentsafe/readyz`                             | `200` once the listener is bound and the authority is configured                                                                                           |
-| `GET /_agentsafe/status`                             | what `agentsafe status` prints, as JSON, its fingerprint and action space included                                                                         |
-| `GET /_agentsafe/metrics`                            | OpenMetrics text; `401` without `Authorization: Bearer $AGENTSAFE_METRICS_TOKEN` when one is set                                                           |
-| `GET /_agentsafe/v1/escalations/{intent_id}`         | a held escalation, or `404`; `403` without the hold's `AgentSafe-Resume-Token`                                                                             |
-| `POST /_agentsafe/v1/escalations/{intent_id}/resume` | asks the authority again; `202` still held, `409` not resumable, the upstream's answer on a fresh grant; `403` without the hold's `AgentSafe-Resume-Token` |
+| Route                                                | Answer                                                                                                                                                                                                                                |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /_agentsafe/healthz`                            | `200 {"status":"ok"}` while the process lives                                                                                                                                                                                         |
+| `GET /_agentsafe/readyz`                             | `200` once the listener is bound and the authority is configured                                                                                                                                                                      |
+| `GET /_agentsafe/status`                             | what `agentsafe status` prints, as JSON, its fingerprint and action space included                                                                                                                                                    |
+| `GET /_agentsafe/metrics`                            | OpenMetrics text; `401` without `Authorization: Bearer $AGENTSAFE_METRICS_TOKEN` when one is set                                                                                                                                      |
+| `GET /_agentsafe/v1/escalations/{intent_id}`         | a held escalation, or `404`; `403` without the hold's `AgentSafe-Resume-Token`                                                                                                                                                        |
+| `POST /_agentsafe/v1/escalations/{intent_id}/resume` | asks the authority again; `202` still held, `409` not resumable, the upstream's answer on a fresh grant; `403` without the hold's `AgentSafe-Resume-Token`                                                                            |
+| `POST /_agentsafe/v1/acceptance/runs`                | opens an [acceptance run](../deployment/acceptance.md) for the plan in the body; `201` with the run's id, the fingerprint and the coverage; `409` while another is open; `422` for a write the gateway does not decide in enforcement |
+| `POST /_agentsafe/v1/acceptance/decisions`           | decides in shadow a prohibited write the open run names (`{"run_id","write"}`), reading and forwarding nothing                                                                                                                        |
+| `POST /_agentsafe/v1/acceptance/close`               | takes the zone's findings (`{"run_id","zone"}`), runs the outage case, and returns the signed report                                                                                                                                  |
+
+The three acceptance routes answer `404` unless the configuration names an acceptance key and
+operator token, and `401` without `Authorization: Bearer` and that token. Their bodies are JSON, and
+a run's id travels in them, never in a path.
 
 ## Environment
 

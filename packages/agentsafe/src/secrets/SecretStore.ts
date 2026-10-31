@@ -2,11 +2,15 @@ import type { SECRET_KEYS } from "../config/ConfigKeys.js";
 import type { SecretHandle } from "./SecretHandle.js";
 
 /**
- * A secret a store can hold: the executor's, and the token a gateway
- * presents to its upstream, which the gateway alone opens, from the file its
- * configuration names.
+ * A secret a store can hold: the executor's, and the gateway's own, which the
+ * gateway alone opens, each from the file its configuration names: the token
+ * it presents to its upstream, and an acceptance run's key and operator token.
  */
-export type SecretName = (typeof SECRET_KEYS)[number] | "AGENTSAFE_GATEWAY_TOKEN";
+export type SecretName =
+  | (typeof SECRET_KEYS)[number]
+  | "AGENTSAFE_GATEWAY_TOKEN"
+  | "AGENTSAFE_ACCEPTANCE_KEY"
+  | "AGENTSAFE_ACCEPTANCE_TOKEN";
 
 export type ReloadReason = "WATCH" | "POLL" | "SIGHUP" | "OPERATOR";
 

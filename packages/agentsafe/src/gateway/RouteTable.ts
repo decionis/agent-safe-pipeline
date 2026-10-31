@@ -138,7 +138,7 @@ export class RouteTable {
     /** The API profile the table governs by, after any explicit route; null for routes alone. */
     public readonly profile: ApiProfile | null = null,
     private readonly privacy: PrivacyMode = "FULL",
-    private readonly reads: ReadPolicy = "PASSTHROUGH",
+    public readonly reads: ReadPolicy = "PASSTHROUGH",
   ) {
     this.routes = routes.map((config) => {
       const segments = routingSegments(config.path);

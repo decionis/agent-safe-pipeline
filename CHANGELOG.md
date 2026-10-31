@@ -22,6 +22,45 @@ run now reads 24 attempts, 0 stale commits, and 16 counterparts each completed o
 **Nothing to do** unless a test of yours claims a grant after a signed signal it carried has run
 out: that claim is now refused, as it is hosted.
 
+## Runtime (unreleased): an acceptance run, signed by the gateway it tested
+
+A deployment could say what one decision established, and what this repository's build did, but
+not what the installed gateway governs, on what evidence, for how long, and where that stops.
+`agentsafe accept` answers those for one gateway, from the agent's zone, against targets a plan you
+write names, and the gateway signs what it observed
+([accept a deployment](docs/deployment/acceptance.md),
+[ADR 0009](docs/architecture/decisions/0009-acceptance-run-on-named-targets.md)).
+
+**Nothing to do** to keep things as they are: a gateway serves no run until its configuration names
+an acceptance key and operator token, and its new endpoints answer `404` until then.
+
+- `acceptance.key: { file }` and `acceptance.operatorToken: { file }` (`AGENTSAFE_ACCEPTANCE_KEY_FILE`,
+  `AGENTSAFE_ACCEPTANCE_TOKEN_FILE`), both or neither, and `acceptance.kid`. The key is Ed25519 and
+  signs acceptance reports and nothing else. `agentsafe identity` prints its `kid` and public JWK,
+  and `/_agentsafe/status` serves them as `acceptance`.
+- `POST /_agentsafe/v1/acceptance/runs`, `/decisions` and `/close`, behind the operator token. A run
+  checks its plan against the gateway's routes, decides each prohibited write in shadow before it
+  may be sent, tracks only the writes the plan names (`agentsafe-acceptance-run: <run id>:<write>`,
+  stripped before anything sees it, and refused with `409` on anything else), runs the outage case
+  on a second gateway built in the same process from the same configuration with an unreachable
+  authority and a recording upstream, and signs `agent-safe.acceptance/1`.
+- `agentsafe accept --plan acceptance.yaml --token-file …`: the permitted writes once each, the
+  prohibited writes after a shadow `BLOCK` or `ESCALATE`, each origin's read directly and through
+  the gateway, each verifying provider's write unattested and signed by a key it cannot know, MCP
+  servers by TCP, the cloud metadata endpoint when asked, and the credentials in the zone by name and
+  kind. Exit `0` on `ACCEPTED`, `1` on `NOT_ACCEPTED`, `2` when nothing was signed.
+- `agentsafe verify acceptance <report> --key <file> [--current --gateway <url>]` checks a report
+  offline against a key you pinned, and its date; with `--current`, against the running
+  fingerprint: `CURRENT`, `STALE` with the fields that changed, or `EXPIRED`.
+  `agentsafe status --acceptance <report>` shows the same. A stale report is reported, never
+  enforced.
+- The gateway's chain gains `ACCEPTANCE_RUN_OPENED`, `ACCEPTANCE_SHADOW_DECIDED` and
+  `ACCEPTANCE_SIGNED`, each naming the run by a digest of its id.
+
+A report establishes the named writes, targets and window, under the fingerprint it carries, and
+nothing else. It lists what no run establishes: grants after issuance (the zone never holds one),
+lost outcomes and restarts, downstream consequences, host integrity, node and kernel isolation.
+
 ## Library and runtime (unreleased): the deployment fingerprint, and action-space drift
 
 A gateway now says what it is, as one versioned document with one digest, and reports when the
