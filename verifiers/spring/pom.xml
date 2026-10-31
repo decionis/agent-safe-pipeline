@@ -18,12 +18,30 @@
       <url>https://www.apache.org/licenses/LICENSE-2.0</url>
     </license>
   </licenses>
+  <developers>
+    <developer>
+      <name>Decionis</name>
+      <email>security@decionis.com</email>
+      <organization>Decionis, Inc.</organization>
+      <organizationUrl>https://decionis.com</organizationUrl>
+    </developer>
+  </developers>
+  <issueManagement>
+    <system>GitHub Issues</system>
+    <url>https://github.com/decionis/agent-safe-pipeline/issues</url>
+  </issueManagement>
+  <scm>
+    <connection>scm:git:https://github.com/decionis/agent-safe-pipeline.git</connection>
+    <developerConnection>scm:git:https://github.com/decionis/agent-safe-pipeline.git</developerConnection>
+    <url>https://github.com/decionis/agent-safe-pipeline/tree/master/verifiers/spring</url>
+  </scm>
 
   <properties>
     <maven.compiler.release>17</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <jackson.version>2.22.3</jackson.version>
     <testng.version>7.12.0</testng.version>
+    <central-publishing-maven-plugin.version>0.9.0</central-publishing-maven-plugin.version>
   </properties>
 
   <dependencies>
@@ -71,4 +89,78 @@
       </plugin>
     </plugins>
   </build>
+
+  <profiles>
+    <!-- What Maven Central requires of a release: sources, javadoc and a
+         signature for each artifact, uploaded through the Central Portal.
+         .github/workflows/verifiers-publish.yml runs it; -Dgpg.skip builds
+         the same artifacts unsigned, to check them without publishing. -->
+    <profile>
+      <id>central-release</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.sonatype.central</groupId>
+            <artifactId>central-publishing-maven-plugin</artifactId>
+            <version>${central-publishing-maven-plugin.version}</version>
+            <extensions>true</extensions>
+            <configuration>
+              <publishingServerId>central</publishingServerId>
+              <autoPublish>true</autoPublish>
+              <waitUntil>published</waitUntil>
+            </configuration>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-source-plugin</artifactId>
+            <version>3.3.1</version>
+            <executions>
+              <execution>
+                <id>attach-sources</id>
+                <goals>
+                  <goal>jar-no-fork</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-javadoc-plugin</artifactId>
+            <version>3.8.0</version>
+            <configuration>
+              <doclint>none</doclint>
+            </configuration>
+            <executions>
+              <execution>
+                <id>attach-javadocs</id>
+                <goals>
+                  <goal>jar</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-gpg-plugin</artifactId>
+            <version>3.2.4</version>
+            <executions>
+              <execution>
+                <id>sign-artifacts</id>
+                <phase>verify</phase>
+                <goals>
+                  <goal>sign</goal>
+                </goals>
+              </execution>
+            </executions>
+            <configuration>
+              <gpgArguments>
+                <arg>--pinentry-mode</arg>
+                <arg>loopback</arg>
+              </gpgArguments>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>
