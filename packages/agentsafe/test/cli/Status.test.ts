@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { runStatus } from "../../src/cli/Status.js";
+import { describeActionSpace, runStatus } from "../../src/cli/Status.js";
 import { fakeProcess } from "../support/GatewayHarness.js";
 
 const status = {
@@ -48,6 +48,47 @@ describe("agentsafe status", () => {
     expect(wide.out.join("")).toContain("fail-open");
     expect(wide.out.join("")).toContain("Surface       not named; set AGENTSAFE_SURFACE");
     expect(wide.out.join("")).not.toContain("Shadow report");
+    // A gateway older than the fingerprint says nothing about it.
+    expect(text).toContain("Fingerprint   not reported by this gateway");
+    expect(text).toContain("Action space  not reported by this gateway");
+  });
+
+  it("prints what the gateway is and whether its action space is the deciding release's", async () => {
+    const loaded = `sha256:${"a".repeat(64)}`;
+    const release = `sha256:${"b".repeat(64)}`;
+    const fingerprinted = {
+      ...status,
+      fingerprint: { digest: `sha256:${"c".repeat(64)}`, document: {} },
+      action_space: { loaded, release, state: "DRIFT", drifted: [release] },
+    };
+    const io = fakeProcess({
+      fetch: (async () => new Response(JSON.stringify(fingerprinted))) as typeof fetch,
+    });
+    await runStatus(io, ["--upstream", "http://localhost:3000"]);
+    const text = io.out.join("");
+    expect(text).toContain("Fingerprint   sha256:cccccccccccc\n");
+    expect(text).toContain(
+      "Action space  DRIFT: the deciding release was checked against sha256:bbbbbbbbbbbb; this gateway loaded sha256:aaaaaaaaaaaa",
+    );
+    const json = fakeProcess({
+      fetch: (async () => new Response(JSON.stringify(fingerprinted))) as typeof fetch,
+    });
+    await runStatus(json, ["--upstream", "http://localhost:3000", "--json"]);
+    expect(JSON.parse(json.out.join(""))).toEqual(fingerprinted);
+  });
+
+  it("describes the action space in each state", () => {
+    const loaded = `sha256:${"a".repeat(64)}`;
+    const other = `sha256:${"b".repeat(64)}`;
+    const space = { loaded, release: null, state: "UNCHECKED", drifted: [] } as const;
+    expect(describeActionSpace(undefined)).toBe("not reported by this gateway");
+    expect(describeActionSpace(space)).toBe("no decision has named its release's action space yet");
+    expect(describeActionSpace({ ...space, release: loaded, state: "MATCH" })).toBe(
+      "matches the deciding release (sha256:aaaaaaaaaaaa)",
+    );
+    expect(describeActionSpace({ ...space, loaded: null, release: other, state: "DRIFT" })).toBe(
+      "DRIFT: the deciding release was checked against sha256:bbbbbbbbbbbb; this gateway loaded an action space no manifest describes",
+    );
   });
 
   it("prints the shadow report of a gateway in shadow, ending with the switch", async () => {

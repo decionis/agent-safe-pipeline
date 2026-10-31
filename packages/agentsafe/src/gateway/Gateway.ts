@@ -34,7 +34,7 @@ import { KubernetesProvenanceProvider } from "../provenance/KubernetesProvenance
 import { NoneProvenanceProvider } from "../provenance/NoneProvenanceProvider.js";
 import { resolveWorkload, type ProvenanceProvider } from "../provenance/ProvenanceProvider.js";
 import { ChainJournal } from "../audit/ChainJournal.js";
-import { HashChain } from "../audit/HashChain.js";
+import { HashChain, type ChainFields } from "../audit/HashChain.js";
 import { EVIDENCE_STREAM, HashChainedAuditSink } from "../audit/HashChainedAuditSink.js";
 import type { LineWriter } from "../audit/LineAuditSink.js";
 import { EgressPolicy } from "../egress/EgressPolicy.js";
@@ -52,6 +52,12 @@ import { CompositeSecretStore } from "../secrets/CompositeSecretStore.js";
 import { Redactor } from "../secrets/Redactor.js";
 import { SecretError, type SecretStore } from "../secrets/SecretStore.js";
 import { EscalationResolver, type EscalationHandoff } from "../service/EscalationResolver.js";
+import { ActionSpaceDrift, type ActionSpaceStatus } from "../posture/ActionSpaceDrift.js";
+import {
+  deploymentFingerprint,
+  type DeploymentFingerprint,
+  type DeploymentFingerprintDocument,
+} from "../posture/DeploymentFingerprint.js";
 import { ActivationFunnel, type ActivationMilestone } from "./Activation.js";
 import { startDemoAuthority, type DemoAuthorityHandle } from "./DemoAuthority.js";
 import {
@@ -74,7 +80,7 @@ import {
 import { normalizeFacts, normalizeRequest, type InterceptedRequest } from "./InterceptedRequest.js";
 import { TokenBucket, type RateDecision } from "./RateLimit.js";
 import { RefusalSampler } from "./RefusalSampler.js";
-import { RouteTable, type PlanQuery, type ReadPolicy, type RoutePlan } from "./RouteTable.js";
+import { RouteTable, type PlanQuery, type RoutePlan } from "./RouteTable.js";
 import {
   IssuerSubjectVerifier,
   MAX_SUBJECT_TOKEN_AGE_SECONDS,
@@ -216,6 +222,8 @@ export interface GatewayContinuation {
   readonly gateway: HashChain;
   readonly security: HashChain;
   readonly activation: ActivationFunnel;
+  /** The replaced gateway's fingerprint digest: the replacement records its own only when it differs. */
+  readonly fingerprint?: string;
 }
 
 /** Where a hosted gateway's configuration came from, when a host built it from a tenant registry. */
@@ -244,6 +252,13 @@ export interface GatewayStatus {
   readonly surface: InstallSurface | null;
   /** In shadow, what the authority would have decided so far, by verdict and action; null in enforcement. */
   readonly shadow: ShadowSummary | null;
+  /** What this gateway is (`agent-safe.deployment-fingerprint/1`) and its digest; absent from an older gateway. */
+  readonly fingerprint?: {
+    readonly digest: string;
+    readonly document: DeploymentFingerprintDocument;
+  };
+  /** The action space it loaded against the one the deciding release was checked against; absent from an older gateway. */
+  readonly action_space?: ActionSpaceStatus;
   /**
    * A hosted gateway's tenant, the tenant keys it admits now, each as a
    * short prefix of its digest and never the digest, and the registry it was
@@ -340,6 +355,9 @@ export class Gateway {
   /** The tenant keys admitted now: the configuration's, until a host replaces them in place. */
   private admitted: readonly string[];
   private registry: RegistrySource | null = null;
+  /** What this gateway is: computed once, since nothing it is built from changes while it runs. */
+  public readonly fingerprint: DeploymentFingerprint;
+  private readonly actionSpace: ActionSpaceDrift;
 
   private constructor(
     public readonly config: GatewayConfig,
@@ -366,8 +384,29 @@ export class Gateway {
     private readonly proof: UpstreamProof | null,
     private readonly sessions: SubjectSessions | null,
     private readonly jwks: WorkloadJwtVerifier | null,
+    /** The digest of the gateway this one replaces, when it replaces one. */
+    private readonly replaced: string | null,
   ) {
     this.lastShadowReportAt = clock();
+    this.fingerprint = deploymentFingerprint(config, {
+      version,
+      imageDigest: workload?.digest ?? null,
+    });
+    metrics.fingerprint.set(1, { digest: this.fingerprint.digest });
+    this.actionSpace = new ActionSpaceDrift(
+      this.fingerprint.document.action_manifest_digest,
+      (release, decision) =>
+        this.link({
+          event: "ACTION_SPACE_DRIFT",
+          fingerprint: this.fingerprint.digest,
+          loaded: this.fingerprint.document.action_manifest_digest,
+          release,
+          decision_id: decision.decisionId,
+        }),
+    );
+    // Every first decision, observed or enforced, passes the action-space
+    // check before it is used; the check only reports.
+    const decides = this.actionSpace.observing(gate);
     this.admitted = config.tenantKeys;
     this.capture = new IntentCapture({ audit, ttlSeconds: config.intentTtlSeconds });
     this.bucket = config.rateLimit === null ? null : new TokenBucket(config.rateLimit, clock);
@@ -397,11 +436,11 @@ export class Gateway {
     });
     this.shadow =
       config.authority.mode === "SHADOW"
-        ? new ShadowPipeline(gate, { audit, timeoutMs: config.authority.timeoutMs })
+        ? new ShadowPipeline(decides, { audit, timeoutMs: config.authority.timeoutMs })
         : null;
     this.resolver =
       config.authority.mode === "ENFORCEMENT"
-        ? new EscalationResolver(config.escalation, gate, audit, {})
+        ? new EscalationResolver(config.escalation, gate, audit, {}, null, decides)
         : null;
     this.stopFollowing =
       journal === null
@@ -621,14 +660,7 @@ export class Gateway {
           }),
       ...(upstreamGuard === null ? {} : { close: () => upstreamGuard.close() }),
     });
-    const routes = new RouteTable(
-      config.interception.routes,
-      config.interception.unmatched,
-      config.interception.http,
-      config.interception.profile === null ? null : ApiProfiles.get(config.interception.profile),
-      config.interception.privacy,
-      Gateway.readPolicy(config),
-    );
+    const routes = RouteTable.of(config);
     const evidence = takeUp(EVIDENCE_STREAM, continues?.evidence);
     const chain = takeUp(GATEWAY_STREAM, continues?.gateway);
     const audit = new AuditRecorder({
@@ -695,6 +727,7 @@ export class Gateway {
       proof,
       sessions,
       jwks,
+      continues?.fingerprint ?? null,
     );
     jwks?.start();
     // The first look at the proof starts once nothing can refuse the gateway;
@@ -738,12 +771,6 @@ export class Gateway {
       random: Math.random,
     });
     return { binding, check, monitor, takesOver };
-  }
-
-  /** What the gateway does with reads: checked only when it pins subjects. */
-  private static readPolicy(config: GatewayConfig): ReadPolicy {
-    if (config.subject === null) return "PASSTHROUGH";
-    return config.interception.refuseUnknownReads ? "REFUSE_UNKNOWN" : "CHECK";
   }
 
   /**
@@ -867,6 +894,14 @@ export class Gateway {
       mode: this.config.authority.mode,
       authority: this.demo === null ? "decionis" : "local/demo",
     });
+    // On start, and on a reload only when the deployment changed.
+    if (this.fingerprint.digest !== this.replaced) {
+      this.link({
+        event: "DEPLOYMENT_FINGERPRINT",
+        digest: this.fingerprint.digest,
+        document: this.fingerprint.document as unknown as ChainFields,
+      });
+    }
     this.activation.started({
       mode: this.config.authority.mode,
       authority: this.config.authority.kind,
@@ -950,6 +985,8 @@ export class Gateway {
       activation: this.activation.snapshot(),
       surface: this.surface,
       shadow: this.shadow === null ? null : this.ledger.summary(),
+      fingerprint: { digest: this.fingerprint.digest, document: this.fingerprint.document },
+      action_space: this.actionSpace.status(),
       hosted: this.config.hosted
         ? {
             tenant: this.config.hostedTenant,
@@ -995,6 +1032,7 @@ export class Gateway {
       gateway: this.chain,
       security: this.security.chain,
       activation: this.activation,
+      fingerprint: this.fingerprint.digest,
     };
   }
 
@@ -1081,6 +1119,7 @@ export class Gateway {
   }
 
   public metricsText(): string {
+    this.metrics.actionSpaceDrift.set(this.actionSpace.state === "DRIFT" ? 1 : 0);
     return this.metrics.registry.render();
   }
 
@@ -2315,7 +2354,7 @@ export class Gateway {
   }
 
   /** One chained line on the gateway's own stream. */
-  private link(fields: Record<string, string | number | boolean | null | string[]>): void {
+  private link(fields: ChainFields): void {
     this.chain.link({ at: new Date(this.clock()).toISOString(), ...fields }, this.emitLine);
   }
 

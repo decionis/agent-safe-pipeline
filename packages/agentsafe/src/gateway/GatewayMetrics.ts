@@ -1,10 +1,10 @@
 import { Metrics, type Counter, type Gauge } from "../incident/Metrics.js";
 
 /**
- * The gateway's families. Label values are verdicts, states, codes and the
- * action names the configuration itself produced, never anything a caller
- * sent, so the cardinality is the configuration's and no value can leak
- * through a label. A latency is a running sum and a count, which is what a
+ * The gateway's families. Label values are verdicts, states, codes, and the
+ * action names and fingerprint digest the configuration itself produced,
+ * never anything a caller sent, so the cardinality is the configuration's and
+ * no value can leak through a label. A latency is a running sum and a count, which is what a
  * scraper needs to compute a rate and a mean between two scrapes.
  */
 export interface GatewayMetrics {
@@ -20,6 +20,10 @@ export interface GatewayMetrics {
   readonly indeterminate: Counter;
   readonly ungoverned: Counter;
   readonly held: Gauge;
+  /** 1, labelled with the digest of what this gateway is; the label changes only with a rebuild. */
+  readonly fingerprint: Gauge;
+  /** 1 while the last decision that named one came from a release checked against another action space. */
+  readonly actionSpaceDrift: Gauge;
   observeAuthorityLatency(ms: number): void;
   observeForwardLatency(ms: number): void;
 }
@@ -69,6 +73,15 @@ export function gatewayMetrics(registry: Metrics = new Metrics()): GatewayMetric
       "Requests forwarded under an explicit fail-open policy while the authority was unavailable.",
     ),
     held: registry.gauge("agentsafe_escalations_held", "Escalations held for a human answer."),
+    fingerprint: registry.gauge(
+      "agentsafe_deployment_fingerprint",
+      "The deployment fingerprint of this gateway, as its digest label.",
+      ["digest"],
+    ),
+    actionSpaceDrift: registry.gauge(
+      "agentsafe_action_space_drift",
+      "1 while the release that last decided was checked against another action space than this gateway loaded.",
+    ),
     observeAuthorityLatency: latency(
       registry,
       "agentsafe_authority_latency_ms",

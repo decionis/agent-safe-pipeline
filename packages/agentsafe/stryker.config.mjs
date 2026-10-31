@@ -74,6 +74,12 @@ export default {
   // organization or origin as proof, takes a TXT record without a verified
   // answer from the origin, or forwards after the grace has run out turns
   // the fleet's address into a relay to an origin nobody proved.
+  // The deployment fingerprint, the gateway's action manifest and the
+  // action-space check are here because they are what a test result is held
+  // to: a mutant that leaves a covered field out of the fingerprint, writes a
+  // secret into it, describes an action space other than the one the gateway
+  // loads, or reads a drifting release as matching tells an operator a tested
+  // deployment is still the one tested when it is not.
   mutate: [
     "src/http/ExecutorHttpServer.ts",
     "src/identity/PrincipalRegistry.ts",
@@ -107,6 +113,9 @@ export default {
     "src/adapters/cards/CardPurchase.ts",
     "src/adapters/cards/CardAuthorizationMatcher.ts",
     "src/gateway/UpstreamProof.ts",
+    "src/gateway/GatewayManifest.ts",
+    "src/posture/DeploymentFingerprint.ts",
+    "src/posture/ActionSpaceDrift.ts",
   ],
   reporters: ["clear-text", "progress"],
   coverageAnalysis: "perTest",

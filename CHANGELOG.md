@@ -3,6 +3,39 @@
 Releases of `@decionis/agent-safe-pipeline` (the library) and `@decionis/agentsafe` (the runtime).
 Each entry names what an adopter can rely on and what they must do, if anything.
 
+## Library and runtime (unreleased): the deployment fingerprint, and action-space drift
+
+A gateway now says what it is, as one versioned document with one digest, and reports when the
+policy release that decided for it was checked against another action space than the one it
+loaded. Both are reports: nothing refuses to start, and no decision changes.
+
+**Nothing to do** to keep things as they are. To see drift, release your policy with the gateway's
+own manifest attached (`agentsafe actions manifest --gateway --config agentsafe.yaml`).
+
+- `agent-safe.deployment-fingerprint/1`: the runtime version and declared image digest, the RFC
+  8785 digest of the effective configuration with every secret-derived value redacted, the digest
+  of the action space the gateway loaded, the route table (route, action, mode, failure policy),
+  the principals, the upstream identity mode, the authority and tenant, and the declared
+  containment targets. It is computed from the configuration alone, so the same configuration
+  under the same build has the same digest on every start; it is in `agentsafe status` and
+  `/_agentsafe/status` (`fingerprint`), on the gateway's chain as `DEPLOYMENT_FINGERPRINT` at start
+  and on a hosted reload that changed it, and in the metric `agentsafe_deployment_fingerprint`.
+  Nothing is sent anywhere.
+- Action-space drift: the library's `DecionisGate` reads `action_manifest_digest`, the deciding
+  release's `actionManifestDigest`, which Decionis sends to `agent-safe-pipeline` 0.5.1 and later,
+  as `DecisionGate.actionManifestDigest`. The gateway compares it with its own, records
+  `ACTION_SPACE_DRIFT` once per release, and shows it in `agentsafe status`, `agentsafe doctor`
+  and the gauge `agentsafe_action_space_drift`. `LocalAuthority` takes `releaseActionManifest`
+  to model it.
+- `agentsafe actions manifest --gateway` writes the action space a gateway with this configuration
+  loads: the profile's writes exactly as `--api` writes them, and each other governed action as an
+  entry of the `gateway` family.
+- `agentsafe doctor` asks the gateway at the configuration's address for its fingerprint and
+  action space, and fails the check when it runs another configuration or drifted.
+- `containment.targets` (`AGENTSAFE_CONTAINMENT_TARGETS`) declares the systems of record the agent
+  zone must not reach directly, as `name=host:port`; the gateway never dials them.
+- [Deployment fingerprint](docs/deployment-fingerprint.md).
+
 ## Library and runtime (unreleased): array-index keys, in the intent hash and the payload digest
 
 A key that is an array index (`"0"` to `"4294967294"`, no sign, no leading zero), such as a line

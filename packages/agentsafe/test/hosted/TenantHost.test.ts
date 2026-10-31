@@ -863,10 +863,13 @@ describe("the tenant host", () => {
       EVIDENCE_STREAM,
       GATEWAY_STREAM,
     ]);
+    // The rebuilt entry is another deployment, so its fingerprint is recorded too.
     expect(chained(io, "acme", GATEWAY_STREAM).map((line) => [line["seq"], line["event"]])).toEqual(
       [
         [1, "GATEWAY_STARTED"],
-        [2, "GATEWAY_STARTED"],
+        [2, "DEPLOYMENT_FINGERPRINT"],
+        [3, "GATEWAY_STARTED"],
+        [4, "DEPLOYMENT_FINGERPRINT"],
       ],
     );
     // Each milestone once, though two gateways served the tenant.
@@ -939,11 +942,13 @@ describe("the tenant host", () => {
     for (const stream of [SECURITY_STREAM, EVIDENCE_STREAM, GATEWAY_STREAM]) {
       expect(verified.streams[`acme/${stream}`]).toMatchObject({ starts: 1 });
     }
+    // A new domain and a return change nothing the gateway runs on: one fingerprint.
     expect(chained(io, "acme", GATEWAY_STREAM).map((line) => [line["seq"], line["event"]])).toEqual(
       [
         [1, "GATEWAY_STARTED"],
-        [2, "GATEWAY_STARTED"],
+        [2, "DEPLOYMENT_FINGERPRINT"],
         [3, "GATEWAY_STARTED"],
+        [4, "GATEWAY_STARTED"],
       ],
     );
     // The heads persisted last are the live chains', not a drained gateway's.

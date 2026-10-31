@@ -19,8 +19,11 @@ The gateway writes the library's audit events (`agent-safe.audit/1`, [audit even
 through the executor's chained sink: each line carries the event, the verdict, the reason codes,
 the intent, decision, dossier and grant identifiers, the duration, and is linked by SHA-256 to the
 line before it on the `agent-safe.executor-evidence/1` stream. Its own stream,
-`agent-safe.gateway-events/1`, carries what the audit contract has no event for: the start, an
-escalation held, an escalation refused on resume, and every ungoverned forward under fail open.
+`agent-safe.gateway-events/1`, carries what the audit contract has no event for: the start, the
+[deployment fingerprint](../deployment-fingerprint.md) at start and on each change
+(`DEPLOYMENT_FINGERPRINT`), a deciding release checked against another action space
+(`ACTION_SPACE_DRIFT`, once per release), an escalation held, an escalation refused on resume, and
+every ungoverned forward under fail open.
 `agentsafe verify chain <file>` checks either stream offline and names the first break.
 
 Where the lines go is the configuration's: `evidence.journalDir` keeps `evidence.jsonl` and the

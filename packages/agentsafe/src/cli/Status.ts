@@ -1,15 +1,58 @@
-import { GATEWAY_PREFIX, type GatewayStatus } from "../gateway/Gateway.js";
+import { GATEWAY_PREFIX, shortDigest, type GatewayStatus } from "../gateway/Gateway.js";
 import {
   enforcementSwitch,
   renderShadowReport,
   type ShadowSummary,
 } from "../gateway/ShadowLedger.js";
+import type { ActionSpaceStatus } from "../posture/ActionSpaceDrift.js";
 import { parseArguments, ArgumentError } from "./Arguments.js";
 import type { CliProcess } from "./CliProcess.js";
 import { explainRefusal, resolveGateway, PROXY_ARGUMENTS } from "./Proxy.js";
 
 const STATUS_TIMEOUT_MS = 3_000;
-const MAX_STATUS_BYTES = 64 * 1024;
+/** Room for the fingerprint's route table: up to 200 routes and a profile's writes, each a path of up to 500 characters. */
+const MAX_STATUS_BYTES = 512 * 1024;
+
+/** Where a gateway listening here answers its status; a wildcard listener is asked on loopback. */
+export function statusUrl(listen: { readonly host: string; readonly port: number }): string {
+  const host = listen.host === "0.0.0.0" || listen.host === "::" ? "127.0.0.1" : listen.host;
+  return `http://${host.includes(":") ? `[${host}]` : host}:${listen.port}${GATEWAY_PREFIX}/status`;
+}
+
+/** The running gateway's status, or the code of why none answered. Nothing is started. */
+export async function readStatus(
+  io: CliProcess,
+  url: string,
+  timeoutMs: number = STATUS_TIMEOUT_MS,
+): Promise<{ readonly status: GatewayStatus } | { readonly error: string }> {
+  try {
+    const response = await io.fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+    const text = await response.text();
+    if (!response.ok || text.length > MAX_STATUS_BYTES)
+      throw new Error(`STATUS_${response.status}`);
+    return { status: JSON.parse(text) as GatewayStatus };
+  } catch (error) {
+    return {
+      error:
+        (error as { cause?: { code?: string } }).cause?.code ??
+        (error instanceof Error ? error.message : "UNREACHABLE"),
+    };
+  }
+}
+
+/**
+ * The action space in one line: what the deciding release was checked
+ * against, beside what the gateway loaded. An older gateway does not say.
+ */
+export function describeActionSpace(space: ActionSpaceStatus | undefined): string {
+  if (space === undefined) return "not reported by this gateway";
+  if (space.state === "UNCHECKED") return "no decision has named its release's action space yet";
+  const release = shortDigest(space.release ?? "");
+  if (space.state === "MATCH") return `matches the deciding release (${release})`;
+  const loaded =
+    space.loaded === null ? "an action space no manifest describes" : shortDigest(space.loaded);
+  return `DRIFT: the deciding release was checked against ${release}; this gateway loaded ${loaded}`;
+}
 
 /**
  * `agentsafe status`: asks a running gateway, at the address the same
@@ -31,23 +74,16 @@ export async function runStatus(io: CliProcess, argv: readonly string[]): Promis
     io.exit(error instanceof ArgumentError ? 2 : 1);
     return;
   }
-  const host = listen.host === "0.0.0.0" || listen.host === "::" ? "127.0.0.1" : listen.host;
-  const url = `http://${host.includes(":") ? `[${host}]` : host}:${listen.port}${GATEWAY_PREFIX}/status`;
-  let status: GatewayStatus;
-  try {
-    const response = await io.fetch(url, { signal: AbortSignal.timeout(STATUS_TIMEOUT_MS) });
-    const text = await response.text();
-    if (!response.ok || text.length > MAX_STATUS_BYTES)
-      throw new Error(`STATUS_${response.status}`);
-    status = JSON.parse(text) as GatewayStatus;
-  } catch (error) {
-    const code =
-      (error as { cause?: { code?: string } }).cause?.code ??
-      (error instanceof Error ? error.message : "UNREACHABLE");
-    io.stderr(`No gateway answered at ${url} (${code}).\n\nStart one with: agentsafe proxy\n`);
+  const url = statusUrl(listen);
+  const answer = await readStatus(io, url);
+  if ("error" in answer) {
+    io.stderr(
+      `No gateway answered at ${url} (${answer.error}).\n\nStart one with: agentsafe proxy\n`,
+    );
     io.exit(1);
     return;
   }
+  const status = answer.status;
   if (parsed.options.get("json") === true) {
     io.stdout(`${JSON.stringify(status)}\n`);
   } else {
@@ -68,6 +104,8 @@ export async function runStatus(io: CliProcess, argv: readonly string[]): Promis
         `Held          ${status.held}`,
         `Counts        ${counts === "" ? "none yet" : counts}`,
         `Evidence      seq ${status.evidence.seq}`,
+        `Fingerprint   ${status.fingerprint === undefined ? "not reported by this gateway" : shortDigest(status.fingerprint.digest)}`,
+        `Action space  ${describeActionSpace(status.action_space)}`,
         `Status        ${status.status.toUpperCase()}`,
         "",
       ].join("\n"),

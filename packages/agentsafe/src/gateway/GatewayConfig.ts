@@ -6,6 +6,7 @@ import {
   type EscalationConfig,
   type VerificationMethod,
 } from "../config/ExecutorConfig.js";
+import { parseTarget, type ContainmentTarget } from "../containment/ContainmentProbe.js";
 import { EgressPolicy } from "../egress/EgressPolicy.js";
 import type { SecretName } from "../secrets/SecretStore.js";
 import { HOSTED_DEFAULT_RATE_LIMIT, type RateLimit } from "./RateLimit.js";
@@ -237,6 +238,13 @@ export interface GatewayConfig {
   };
   /** Subject-bound sessions: null when the gateway pins no subject. */
   readonly subject: SubjectConfig | null;
+  /**
+   * The systems of record the agent zone must not reach except through this
+   * gateway, as the operator declares them. Nothing here dials them: they are
+   * part of what the deployment says it is (its fingerprint), and what
+   * `agentsafe probe-containment` is pointed at.
+   */
+  readonly containment: { readonly targets: readonly ContainmentTarget[] };
   readonly actor: { readonly id: string; readonly type: string; readonly runtime: string };
   /**
    * What the operator calls this enforcement boundary. Null leaves it to be
@@ -369,6 +377,12 @@ export const GatewayFileSchema = z.strictObject({
       sessionTtlSeconds: z.number().int().min(60).max(3_600).optional(),
     })
     .optional(),
+  containment: z
+    .strictObject({
+      // `name=host:port`, as probe-containment takes them.
+      targets: z.array(z.string().trim().min(1).max(300)).max(64).optional(),
+    })
+    .optional(),
   actor: z
     .strictObject({
       id: z.string().trim().min(1).max(200).optional(),
@@ -486,6 +500,7 @@ const ENVIRONMENT = {
   principalHeader: "AGENTSAFE_PRINCIPAL_HEADER",
   profile: "AGENTSAFE_PROFILE",
   privacy: "AGENTSAFE_PRIVACY",
+  containmentTargets: "AGENTSAFE_CONTAINMENT_TARGETS",
   presenceApproverId: "PRESENCE_APPROVER_ID",
   presenceApproverRole: "PRESENCE_APPROVER_ROLE",
   presenceLevel: "PRESENCE_VERIFICATION_LEVEL",
@@ -993,6 +1008,22 @@ export class GatewayConfigLoader {
     }
 
     const subject = GatewayConfigLoader.subject(file, allowInsecureLoopback, sources);
+    const containment = GatewayConfigLoader.containmentTargets(
+      resolve<readonly string[] | null>(
+        "containment.targets",
+        [
+          {
+            source: "environment",
+            raw: env[ENVIRONMENT.containmentTargets]
+              ?.split(",")
+              .map((value) => value.trim())
+              .filter((value) => value !== ""),
+          },
+          { source: "file", raw: file?.containment?.targets },
+        ],
+        null,
+      ) ?? [],
+    );
     // Scoping is only as good as what it covers, so pinning subjects with a
     // profile refuses what the profile cannot check unless the file says not.
     const refuseUnknownReads = resolve(
@@ -1259,6 +1290,7 @@ export class GatewayConfigLoader {
         refuseUnknownReads,
       },
       subject,
+      containment: { targets: containment },
       actor: {
         id: resolve(
           "actor.id",
@@ -1304,6 +1336,20 @@ export class GatewayConfigLoader {
       secrets: { required },
       sources,
     };
+  }
+
+  /** Each declared containment target as `name=host:port`, refused by setting when it is not one. */
+  private static containmentTargets(values: readonly string[]): readonly ContainmentTarget[] {
+    if (values.length > 64) {
+      throw new GatewayConfigError("CONFIG_INVALID", "containment.targets", "at most 64 targets");
+    }
+    return values.map((value) => {
+      try {
+        return parseTarget(value);
+      } catch {
+        throw new GatewayConfigError("CONFIG_INVALID", "containment.targets", "name=host:port");
+      }
+    });
   }
 
   /**

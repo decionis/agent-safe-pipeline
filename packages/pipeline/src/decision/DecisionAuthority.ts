@@ -169,6 +169,14 @@ export interface DecisionGate {
   readonly hosted?: HostedEvaluation;
   /** Present on an `ESCALATE` when the authority said where it goes. */
   readonly escalationRequirement?: EscalationRequirement;
+  /**
+   * The `actionManifestDigest` of the policy release that decided: the action
+   * space its assurance was checked against. Null when the authority said no
+   * governed release decided or its release attached no manifest; absent
+   * when the authority said nothing. A runtime compares it with the action
+   * space it loaded; it is never authority.
+   */
+  readonly actionManifestDigest?: string | null;
 }
 
 export interface DecisionAuthority {

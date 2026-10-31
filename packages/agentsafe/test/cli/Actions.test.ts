@@ -9,6 +9,9 @@ import { registeredActionNames } from "../../src/adapters/banking/BankingAdapter
 import { ACTIONS_COMMANDS, runActions } from "../../src/cli/Actions.js";
 import { usage } from "../../src/cli/Help.js";
 import { HttpParametersSchema } from "../../src/gateway/ForwardHandler.js";
+import { GatewayConfigLoader } from "../../src/gateway/GatewayConfig.js";
+import { deploymentFingerprint } from "../../src/posture/DeploymentFingerprint.js";
+import { packageVersion } from "../../src/Version.js";
 import { fakeProcess } from "../support/GatewayHarness.js";
 
 /** A synthetic MCP tool profile, as an operator would keep it beside the server it governs. */
@@ -165,6 +168,77 @@ describe("agentsafe actions manifest", () => {
       digest: ActionManifest.digest(document),
       actions: 2,
     });
+  });
+
+  it("describes what a gateway with this configuration loads, as its fingerprint digests it", () => {
+    const yaml = [
+      "version: 1",
+      "gateway:",
+      "  upstream: http://127.0.0.1:3000",
+      "interception:",
+      "  profile: walmart/api/v3",
+      "  routes:",
+      "    - path: /refunds",
+      "      action: refund.create",
+      "      methods: [POST]",
+    ].join("\n");
+    const files = { "/work/agentsafe.yaml": yaml };
+    const document = manifest(["--gateway", "--config", "agentsafe.yaml"], files);
+    expect(document.actions.map((entry) => entry.action)).toEqual(
+      [
+        ...ApiProfiles.get("walmart/api/v3")!.actions(),
+        "http.delete",
+        "http.patch",
+        "http.post",
+        "http.put",
+        "refund.create",
+      ].sort(),
+    );
+    const io = run(["manifest", "--gateway", "--config", "agentsafe.yaml", "--digest"], files);
+    const printed = JSON.parse(io.out.join("")) as { digest: string };
+    // The digest a running gateway with this file reports in its fingerprint.
+    const config = GatewayConfigLoader.load({
+      env: {},
+      file: {
+        version: 1,
+        gateway: { upstream: "http://127.0.0.1:3000" },
+        interception: {
+          profile: "walmart/api/v3",
+          routes: [{ path: "/refunds", action: "refund.create", methods: ["POST"] }],
+        },
+      },
+      credentials: null,
+      version: packageVersion(),
+    });
+    expect(printed.digest).toBe(
+      deploymentFingerprint(config, { version: packageVersion(), imageDigest: null }).document
+        .action_manifest_digest,
+    );
+    // The flags `agentsafe proxy` takes resolve it the same way; a source beside it joins it.
+    const combined = manifest(
+      ["--gateway", "--upstream", "http://127.0.0.1:3000", "--mcp", "crm.json"],
+      { "/work/crm.json": CRM },
+    );
+    expect(combined.actions.map((entry) => entry.action)).toEqual([
+      "customer.update",
+      "http.delete",
+      "http.patch",
+      "http.post",
+      "http.put",
+    ]);
+  });
+
+  it("refuses a gateway configuration it cannot resolve, naming the setting", () => {
+    expect(refusal(["manifest", "--gateway"])).toEqual({
+      event: "ACTIONS_GATEWAY_CONFIG_INVALID",
+      detail: expect.stringContaining("CONFIG_MISSING: upstream"),
+    });
+    // A gateway that governs nothing (its file read from the working directory) has no action space.
+    expect(
+      refusal(["manifest", "--gateway", "--upstream", "http://127.0.0.1:3000"], {
+        "/work/agentsafe.yaml": "version: 1\ninterception:\n  unmatched: passthrough\n",
+      }),
+    ).toMatchObject({ event: "ACTION_MANIFEST_INVALID" });
   });
 
   it("refuses without the manifest command, naming the commands", () => {
