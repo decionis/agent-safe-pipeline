@@ -14,6 +14,7 @@ import {
   type ApiOperationDefinition,
   type ApiProfile,
   type ApiProfileMatch,
+  type ApiRequest,
   type ApiSubjectCheck,
   type CapturedIntent,
   type DecisionGate,
@@ -33,6 +34,8 @@ import { DockerProvenanceProvider } from "../provenance/DockerProvenanceProvider
 import { KubernetesProvenanceProvider } from "../provenance/KubernetesProvenanceProvider.js";
 import { NoneProvenanceProvider } from "../provenance/NoneProvenanceProvider.js";
 import { resolveWorkload, type ProvenanceProvider } from "../provenance/ProvenanceProvider.js";
+import { EffectAwareGrantVerifier } from "../adapters/EffectAwareGrantVerifier.js";
+import { EffectEvidenceRegister } from "../adapters/EffectEvidenceRegister.js";
 import { ChainJournal } from "../audit/ChainJournal.js";
 import { HashChain } from "../audit/HashChain.js";
 import { EVIDENCE_STREAM, HashChainedAuditSink } from "../audit/HashChainedAuditSink.js";
@@ -75,6 +78,8 @@ import { normalizeFacts, normalizeRequest, type InterceptedRequest } from "./Int
 import { TokenBucket, type RateDecision } from "./RateLimit.js";
 import { RefusalSampler } from "./RefusalSampler.js";
 import { RouteTable, type PlanQuery, type ReadPolicy, type RoutePlan } from "./RouteTable.js";
+import type { EffectStatement, ObservedEffect } from "./TargetEffect.js";
+import { TargetReader, type TargetPlan, type TargetRefusal } from "./TargetReader.js";
 import {
   IssuerSubjectVerifier,
   MAX_SUBJECT_TOKEN_AGE_SECONDS,
@@ -320,6 +325,17 @@ export class Gateway {
   private readonly answerScopes = new WeakMap<InterceptedRequest, AnswerScope>();
   private readonly holder = new RequestHolder();
   /**
+   * What the gateway read of each captured write's target before the
+   * authority was asked, for the reads after it: once the write lands, or
+   * once it is refused. Keyed by the captured intent, which a held
+   * escalation keeps, so a resumed write is read back too.
+   */
+  private readonly plans = new WeakMap<CapturedIntent, TargetPlan>();
+  /** The reads after a refusal still waiting for their window; the stop waits for them. */
+  private readonly observing = new Set<Promise<void>>();
+  /** A profiled write's target reads, in enforcement only; null otherwise. */
+  private readonly reader: TargetReader | null;
+  /**
    * The key of the facts-only request digest: made here, held only here, so
    * the digest an authority receives confirms nothing about the request to
    * anyone else. A held escalation is resumed by this same gateway.
@@ -347,7 +363,7 @@ export class Gateway {
     private readonly routes: RouteTable,
     audit: AuditRecorder,
     gate: DecionisGate,
-    verifier: DecionisGrantVerifier,
+    verifier: EffectAwareGrantVerifier,
     private readonly metrics: GatewayMetrics,
     private readonly emitLine: LineWriter,
     private readonly io: GatewayIo,
@@ -366,6 +382,7 @@ export class Gateway {
     private readonly proof: UpstreamProof | null,
     private readonly sessions: SubjectSessions | null,
     private readonly jwks: WorkloadJwtVerifier | null,
+    private readonly effects: EffectEvidenceRegister,
   ) {
     this.lastShadowReportAt = clock();
     this.admitted = config.tenantKeys;
@@ -403,6 +420,17 @@ export class Gateway {
       config.authority.mode === "ENFORCEMENT"
         ? new EscalationResolver(config.escalation, gate, audit, {})
         : null;
+    const profile = this.profile();
+    // A shadow gateway changes nothing about a call, so it reads nothing for one.
+    this.reader =
+      this.resolver === null || profile === null
+        ? null
+        : new TargetReader({
+            profile,
+            upstream,
+            clock,
+            failure: (error) => this.failureOf(error).code,
+          });
     this.stopFollowing =
       journal === null
         ? []
@@ -554,7 +582,6 @@ export class Gateway {
         ...(surface === null ? {} : { surface }),
       },
     });
-    const verifier = new DecionisGrantVerifier(connection);
     const metrics = gatewayMetrics();
     // Evidence lines: always in JSON mode; in human mode to the terminal only
     // when asked, and to the journal directory's file whenever there is one.
@@ -652,6 +679,15 @@ export class Gateway {
       new NoneProvenanceProvider(),
     ];
     const workload = resolveWorkload(dependencies.provenance ?? providers, { env });
+    // What the gateway reads back of a write rides on the attempt's
+    // finalization, under the verifier's own drop rule; it names the
+    // configured observer, or the boundary.
+    const effects = new EffectEvidenceRegister();
+    const verifier = new EffectAwareGrantVerifier({
+      verifier: new DecionisGrantVerifier(connection),
+      register: effects,
+      observer: { id: config.evidence.observer ?? boundary.boundaryId, version },
+    });
     const proof = Gateway.upstreamProof(config, dependencies, security, clock, continues !== null);
     const jwks = await Gateway.subjectKeys(config, dependencies, security);
     const sessions =
@@ -695,6 +731,7 @@ export class Gateway {
       proof,
       sessions,
       jwks,
+      effects,
     );
     jwks?.start();
     // The first look at the proof starts once nothing can refuse the gateway;
@@ -1118,9 +1155,13 @@ export class Gateway {
         this.answerScopes.set(request, { session, operation: scoped.id, action });
       }
     }
+    const target = await this.targetPlan(request, action);
+    if (target !== null && "reasonCodes" in target) {
+      return this.targetUnreadable(request, action, target);
+    }
     let captured: CapturedIntent;
     try {
-      captured = this.captureIntent(request, action, session);
+      captured = this.captureIntent(request, action, session, target);
     } catch (error) {
       const code = error instanceof Error ? error.message : "INTENT_INVALID";
       return this.own(code === "INTENT_TOO_LARGE" || code === "INTENT_TOO_COMPLEX" ? 413 : 400, {
@@ -1130,6 +1171,7 @@ export class Gateway {
         execution: "NOT_FORWARDED",
       });
     }
+    if (target !== null) this.plans.set(captured, target);
     this.metrics.interceptions.inc({ action });
     this.count("interceptions");
     this.activation.intercepted();
@@ -1259,6 +1301,8 @@ export class Gateway {
   }
 
   public async close(): Promise<void> {
+    // A refusal's read finishes before what it reads with is closed.
+    await Promise.allSettled([...this.observing]);
     this.refusals.flush();
     this.handedOn();
     this.proof?.check.close();
@@ -1273,9 +1317,10 @@ export class Gateway {
     request: InterceptedRequest,
     action: string,
     session: SubjectSession | null,
+    target: TargetPlan | null,
   ): CapturedIntent {
     if (this.config.interception.privacy === "FACTS") {
-      return this.captureFacts(request, action, session);
+      return this.captureFacts(request, action, session, target);
     }
     const plan = this.plan(request.method, request.path, request.search);
     const route = plan.kind === "GOVERN" ? plan.route : null;
@@ -1316,6 +1361,7 @@ export class Gateway {
         boundary: boundarySignal(this.boundary),
         ...(this.workload === null ? {} : { workload: this.workload }),
       },
+      ...Gateway.targetBinding(target),
     };
     return this.capture.capture(normalized.proposal, trusted);
   }
@@ -1331,6 +1377,7 @@ export class Gateway {
     request: InterceptedRequest,
     action: string,
     session: SubjectSession | null,
+    target: TargetPlan | null,
   ): CapturedIntent {
     const matched = this.profileMatch(request);
     const operation =
@@ -1360,8 +1407,136 @@ export class Gateway {
         boundary: boundarySignal(this.boundary),
         ...(this.workload === null ? {} : { workload: this.workload }),
       },
+      ...Gateway.targetBinding(target),
     };
     return this.capture.capture(normalized.proposal, trusted);
+  }
+
+  /**
+   * What a captured write binds of its target, exactly as an executor binds
+   * it: the version read before the authority is asked, stamped by the
+   * capture into the hashed context as `agent_safe.precondition`, and the
+   * digest of the effect the call asks for, which the grant then commits to.
+   * Nothing for a write whose operation names no read.
+   */
+  private static targetBinding(
+    target: TargetPlan | null,
+  ): Pick<TrustedIntentContext, "precondition" | "expectedEffectDigest"> {
+    if (target === null) return {};
+    return {
+      precondition: target.precondition,
+      ...(typeof target.effect === "string" ? {} : { expectedEffectDigest: target.effect.digest }),
+    };
+  }
+
+  /**
+   * The read a profiled write's operation names, made before the authority
+   * is asked, in enforcement only; null when there is none to make: no
+   * profile, a call the profile does not name as this action, or an
+   * operation that names no read.
+   */
+  private async targetPlan(
+    request: InterceptedRequest,
+    action: string,
+  ): Promise<TargetPlan | TargetRefusal | null> {
+    if (this.reader === null) return null;
+    const call = this.profileRequest(request);
+    const matched = call === null ? null : (this.profile()?.match(call) ?? null);
+    if (call === null || matched === null || matched.action !== action) return null;
+    return await this.reader.plan(
+      matched.operation,
+      call,
+      this.config.interception.privacy === "FACTS",
+    );
+  }
+
+  /**
+   * A write whose target stated no usable version: refused before the
+   * authority is asked, as an executor's is, rather than decided against no
+   * version at all. A report line, a line on the evidence chain naming the
+   * reason, and the gateway's own `502`, since it is the upstream's answer
+   * that could not be read.
+   */
+  private targetUnreadable(
+    request: InterceptedRequest,
+    action: string,
+    refusal: TargetRefusal,
+  ): GatewayResponse {
+    this.metrics.requests.inc({ kind: "target_state_unreadable" });
+    this.count("target_state_unreadable");
+    this.link({
+      event: "TARGET_STATE_UNREADABLE",
+      action,
+      reason_codes: [...refusal.reasonCodes],
+    });
+    this.report({
+      event: "INTERCEPTED",
+      at: new Date(this.clock()).toISOString(),
+      method: request.method.toUpperCase(),
+      path: request.path,
+      action,
+      state: "ERROR",
+      verdict: null,
+      reason_codes: refusal.reasonCodes,
+      execution: "NOT_FORWARDED",
+      mode: this.config.authority.mode,
+      authority: this.demo === null ? "decionis" : "local/demo",
+      intent_id: null,
+      intent_hash: null,
+      decision_id: null,
+      dossier_id: null,
+      upstream_status: null,
+      finalization: null,
+      latency_ms: 0,
+      authority_ms: null,
+    });
+    return this.own(502, {
+      state: "ERROR",
+      verdict: null,
+      reason_codes: refusal.reasonCodes,
+      execution: "NOT_FORWARDED",
+    });
+  }
+
+  /**
+   * After a refusal of a write whose operation names a read: the target read
+   * again once the window has passed, and a chained `REFUSAL_OBSERVATION`
+   * naming the version before the decision, the version after and both
+   * instants. An unchanged version says no write landed on that resource
+   * between the two reads, by any route; nothing about another resource or
+   * another time. The caller's answer never waits for it; the stop does.
+   */
+  private observeRefusal(
+    captured: CapturedIntent,
+    refusal: "BLOCK" | "ESCALATE" | "AUTHORITY_UNAVAILABLE",
+  ): void {
+    const plan = this.plans.get(captured);
+    const reader = this.reader;
+    if (plan === undefined || reader === null || !this.config.interception.observeRefusals) return;
+    const window = this.config.interception.refusalWindowMs;
+    const observation = (async () => {
+      await new Promise<void>((resolve) => setTimeout(resolve, window).unref());
+      const read = await reader.refusal(plan);
+      this.metrics.refusalObservations.inc({ outcome: read.outcome });
+      this.link({
+        event: "REFUSAL_OBSERVATION",
+        intent_id: captured.intent.intentId,
+        intent_hash: captured.intentHash,
+        refusal,
+        operation: plan.operation,
+        source: plan.precondition.source,
+        outcome: read.outcome,
+        version_before: plan.precondition.version,
+        version_after: read.version,
+        read_before_at: plan.precondition.read_at,
+        read_after_at: read.readAt,
+      });
+    })();
+    const settle = (): void => {
+      this.observing.delete(observation);
+    };
+    this.observing.add(observation);
+    void observation.then(settle, settle);
   }
 
   /**
@@ -1694,8 +1869,13 @@ export class Gateway {
 
   /** What the gateway's API profile says about a call, its JSON body read when there is one. */
   private profileMatch(request: InterceptedRequest): ApiProfileMatch | null {
-    const profile = this.profile();
-    if (profile === null) return null;
+    const call = this.profileRequest(request);
+    return call === null ? null : (this.profile()?.match(call) ?? null);
+  }
+
+  /** A call as the gateway's API profile reads it; null when the gateway has no profile. */
+  private profileRequest(request: InterceptedRequest): ApiRequest | null {
+    if (this.profile() === null) return null;
     let body: JsonValue | undefined;
     if (request.body.length > 0 && /json/i.test(request.headers["content-type"] ?? "")) {
       try {
@@ -1704,12 +1884,12 @@ export class Gateway {
         body = undefined;
       }
     }
-    return profile.match({
+    return {
       method: request.method,
       path: request.path,
       query: Gateway.queryOf(request.search),
       ...(body === undefined ? {} : { body }),
-    });
+    };
   }
 
   private principalOf(captured: CapturedIntent): string {
@@ -1811,6 +1991,7 @@ export class Gateway {
     if (decision.verdict === "BLOCK") {
       this.metrics.blocks.inc();
       this.count("blocks");
+      this.observeRefusal(captured, "BLOCK");
       this.report({
         ...this.interception(request, captured, startedAt),
         state: "BLOCK",
@@ -1865,6 +2046,7 @@ export class Gateway {
       resumable: handoff !== null,
       held: heldOk,
     });
+    this.observeRefusal(captured, "ESCALATE");
     this.report({
       ...this.interception(request, captured, startedAt),
       state: "ESCALATE",
@@ -1934,6 +2116,7 @@ export class Gateway {
       });
       return forwarded;
     }
+    this.observeRefusal(captured, "AUTHORITY_UNAVAILABLE");
     this.report({
       ...this.interception(request, captured, startedAt),
       state: "AUTHORITY_UNAVAILABLE",
@@ -1969,7 +2152,25 @@ export class Gateway {
     authorityMs: number | null,
   ): Promise<GatewayResponse> {
     const intentId = captured.intent.intentId;
-    this.holder.hold(intentId, request, {});
+    const plan = this.plans.get(captured) ?? null;
+    // What the read after the write said, when the upstream answered 2xx and
+    // the grant committed to an effect: registered for the finalization, and
+    // kept for the report. Neither the read nor the comparison throws, so
+    // nothing here can make a write that landed read as an unknown one.
+    let observed: ObservedEffect | null = null;
+    const effect = plan === null || typeof plan.effect === "string" ? null : plan.effect;
+    const reader = this.reader;
+    this.holder.hold(
+      intentId,
+      request,
+      {},
+      plan === null || effect === null || reader === null
+        ? null
+        : async (authorization) => {
+            observed = await reader.effect(plan, effect);
+            this.effects.attach(authorization, observed.record);
+          },
+    );
     const forwardStarted = this.clock();
     let outcome: SafeExecutionResult<UpstreamResult>;
     let forward: ForwardOutcome;
@@ -1993,6 +2194,8 @@ export class Gateway {
       "agentsafe-intent-hash": captured.intentHash,
     };
     if (outcome.outcome === "COMPLETED") {
+      const said = this.effectOf(captured, plan, observed);
+      this.metrics.effects.inc({ effect: said.confirmation });
       this.report({
         ...base,
         state: "ALLOW",
@@ -2000,6 +2203,7 @@ export class Gateway {
         execution: "FORWARDED",
         upstream_status: outcome.result.status,
         finalization,
+        effect: { confirmation: said.confirmation, reason_codes: said.reasonCodes },
       });
       return this.answer(request, outcome.result, {
         ...evidenceHeaders,
@@ -2074,6 +2278,37 @@ export class Gateway {
       dossier_id: decision.dossierId,
       finalization,
     });
+  }
+
+  /**
+   * What a forwarded write's report says of its effect: what the read after
+   * it said, or why nothing was read. A write that names no read, or no
+   * effect, holds only the upstream's acknowledgement.
+   */
+  private effectOf(
+    captured: CapturedIntent,
+    plan: TargetPlan | null,
+    observed: ObservedEffect | null,
+  ): EffectStatement {
+    if (plan === null) return { confirmation: "PENDING", reasonCodes: ["EFFECT_UNDECLARED"] };
+    if (typeof plan.effect === "string") {
+      return { confirmation: "PENDING", reasonCodes: [plan.effect] };
+    }
+    // An effect the grant committed to and nothing read: the upstream
+    // answered with a redirect, which is not a write to read back after.
+    if (observed === null) return { confirmation: "PENDING", reasonCodes: ["EFFECT_NOT_READ"] };
+    this.link({
+      event: "EFFECT_OBSERVED",
+      intent_id: captured.intent.intentId,
+      intent_hash: captured.intentHash,
+      operation: plan.operation,
+      confirmation: observed.statement.confirmation,
+      mismatched: [...observed.record.mismatched],
+      expected_effect_digest: observed.record.expectedEffectDigest,
+      observed_effect_digest: observed.record.observedEffectDigest,
+      evidence_digest: observed.record.evidenceDigest,
+    });
+    return observed.statement;
   }
 
   private hold(intentId: string, entry: HeldEscalation): boolean {

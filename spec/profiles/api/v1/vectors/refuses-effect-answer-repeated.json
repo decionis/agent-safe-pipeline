@@ -1,0 +1,51 @@
+{
+  "description": "Each answer pointer is named once: two values the same place must state cannot both be expected.",
+  "definition": {
+    "profile": "agent-safe.profile.api/1.1",
+    "id": "example/api/v1",
+    "platform": "example",
+    "title": "Example API",
+    "prefixes": [""],
+    "operations": [
+      {
+        "id": "items.update",
+        "method": "PATCH",
+        "path": "/items/{itemId}",
+        "action": "item.update",
+        "summary": "Change an item.",
+        "facts": {
+          "item_id": "/path/itemId"
+        },
+        "policy_projection": null,
+        "precondition": {
+          "read": "items.get",
+          "version": "/headers/etag",
+          "state": "/body/status"
+        },
+        "effect": [
+          {
+            "answer": "/body/status",
+            "request": "/body/status"
+          },
+          {
+            "answer": "/body/status",
+            "request": "/body/state"
+          }
+        ]
+      },
+      {
+        "id": "items.get",
+        "method": "GET",
+        "path": "/items/{itemId}",
+        "action": "item.read",
+        "summary": "Read one item.",
+        "facts": {},
+        "policy_projection": null,
+        "subject": {
+          "response": "/body/owner"
+        }
+      }
+    ]
+  },
+  "error": "API_PROFILE_INVALID"
+}

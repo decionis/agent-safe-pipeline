@@ -190,6 +190,20 @@ export class Upstream {
     headers["accept-encoding"] = "identity";
     for (const [name, value] of Object.entries(extra)) headers[name.toLowerCase()] = value;
     // Last, so nothing the caller or the gateway added stands in for it.
+    return this.identified(headers);
+  }
+
+  /**
+   * The headers of a read the gateway makes on its own behalf, of the target
+   * a write names: none of any caller's, only what the gateway presents as
+   * itself, its upstream credential and its gateway token, when it holds them.
+   */
+  public ownHeaders(): Record<string, string> {
+    return this.identified({ accept: "application/json", "accept-encoding": "identity" });
+  }
+
+  /** The headers, with the gateway's credential and token set over whatever they held. */
+  private identified(headers: Record<string, string>): Record<string, string> {
     const credential = this.options.credential;
     if (credential !== undefined) {
       const value = credential.value();

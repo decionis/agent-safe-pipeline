@@ -1,6 +1,7 @@
 # API Intent Profile v1
 
-**Identifier:** `agent-safe.profile.api/1` · **Status:** draft · **Publisher:** Decionis ·
+**Identifier:** `agent-safe.profile.api/1`, and `agent-safe.profile.api/1.1` (§9) ·
+**Status:** draft · **Publisher:** Decionis ·
 **Reference implementation:** `ApiProfile` and `ApiProfiles` in
 [`@decionis/agent-safe-pipeline`](../../../../packages/pipeline) · **Schema:**
 [`schema.json`](./schema.json) · **Vectors:** [`vectors/`](./vectors) · **Changes:**
@@ -29,6 +30,8 @@ This profile defines:
 3. **Facts** (§4): how an operation's facts are read from the call.
 4. **Conformance** (§5): the vectors every implementation is held to.
 5. **Subjects** (§7): where a call's subject sits, and how a read and its answer are checked.
+6. **Preconditions** (§8): the read that states a write's target version.
+7. **Effects** (§9, 1.1): what that read must state once the write has landed.
 
 It does not define policy, verdicts, the canonical intent or its hash; those are
 [Agent-Safe Intent v1](../../../intent/v1/README.md) and the Decionis execution-authority contract.
@@ -40,7 +43,7 @@ A profile carries no credential, header or secret, and never reads one.
 
 | Field        | Meaning                                                                                                |
 | ------------ | ------------------------------------------------------------------------------------------------------ |
-| `profile`    | Always `agent-safe.profile.api/1`.                                                                     |
+| `profile`    | `agent-safe.profile.api/1`, or `agent-safe.profile.api/1.1` for a definition that names an `effect`.   |
 | `id`         | `<platform>/<api>/<version>`, the profile's directory under `profiles/`, for example `walmart/api/v3`. |
 | `platform`   | The platform identifier the native executor contract uses, for example `walmart-marketplace`.          |
 | `title`      | Plain words.                                                                                           |
@@ -61,6 +64,7 @@ An operation:
 | `policy_projection` | The policy path the authority decides the call under (`decision_type`, `transaction_type`, `workflow_key`, `channel`), or `null`. |
 | `subject`           | Optional; required of a read. Where the call's subject sits (`request`, `response`, `query`) and what may stand around it (§7).   |
 | `precondition`      | Optional, for a write. The read that states the target's version, and where its answer states it and the target's state (§8).     |
+| `effect`            | Optional, 1.1, for a write that names a `precondition`. What that read states once the write has landed (§9).                     |
 
 ### 2.2 Templates
 
@@ -86,7 +90,11 @@ A definition MUST be refused (`API_PROFILE_INVALID`) when:
   without a `response` pointer through `*`;
 - a read names a `precondition`; a precondition's `read` is not a read in the profile, or its path
   has a placeholder the write's path has not; or a `version` or `state` pointer is not rooted at
-  `/body` or `/headers/<lower-case name>`, or has a `*` token.
+  `/body` or `/headers/<lower-case name>`, or has a `*` token;
+- an operation names an `effect` in a definition that is not `agent-safe.profile.api/1.1`, or
+  without a `precondition`; an effect names one `answer` pointer twice; or an `answer` pointer is
+  not rooted like a precondition's, a `request` pointer not like a fact's, or either has a `*`
+  token.
 
 ## 3. Matching
 
@@ -146,8 +154,10 @@ naming it. A vector may also pin a `session` (the subject a session holds) and s
 `request_check` of the call against it, and a `response` (the answer's JSON body) with its
 `response_check` (§7.2), and a `state_read` (the read a write's precondition makes, or `null`) with
 a `state_answer` (the read's headers and body), the `read_at` instant and the `precondition` it
-states (§8). An implementation conforms when, for every vector, it returns the expected match
-exactly and the expected checks, or refuses the definition with the expected code.
+states (§8), and an `effect_expected` (what the call expects, or `null`) with an `effect_answer`
+(the read's answer after the write) and the `effect_observed` it states (§9). An implementation
+conforms when, for every vector, it returns the expected match exactly and the expected checks, or
+refuses the definition with the expected code.
 
 ## 6. Profiles this build ships
 
@@ -253,4 +263,35 @@ hold the write to it ([target state](../../../../docs/authority/target-state.md)
 
 A component that binds the target's state makes the read itself; the profile makes no call. The
 reference implementation is `ApiProfile.stateRead` and `ApiProfile.precondition`. The reference
-gateway does not make the read yet.
+gateway makes the read, in enforcement, for every write whose operation names one
+([the target a write names](../../../../docs/gateway/http-interception.md#the-target-a-write-names)).
+
+## 9. Effects
+
+`agent-safe.profile.api/1.1` adds one field. A write that names a `precondition` may name its
+`effect`: what the same read states once the write has landed, so a component can read the write
+back and say whether it did what was authorised.
+
+```json
+"effect": [{ "answer": "/body/blocked", "request": "/body/blocked" }]
+```
+
+- `effect` is a list of 1 to 32 pairs. `answer` is a pointer into the read's answer, rooted as a
+  precondition's `version` is; `request` is a pointer into the call, rooted as a fact's is. Neither
+  has a `*` token, and an `answer` pointer appears once.
+- The call's expectation is an object: for each pair whose `request` pointer finds a value in the
+  call, any JSON value, that value under the pair's `answer` pointer. A pair the call states no
+  value for asks nothing, so a partial update expects only what it sends, and a call that states
+  none of them expects `{}`. A call whose operation names no effect has no expectation (`null`).
+- The read's observation is, for each `answer` pointer the expectation names, the value the answer
+  states there; a pointer that finds nothing is left out, so it differs from every value the
+  expectation can hold. The effect is read as authorised when the observation equals the
+  expectation, compared as JSON values, not by reference or coercion.
+
+A 1.1 definition is a 1 definition with this field; a reader of 1 refuses a 1.1 definition by its
+`profile`, so it never meets a field it would ignore. The reference implementation is
+`ApiProfile.expectedEffect` and `ApiProfile.observedEffect`. The reference gateway binds the
+expectation's digest into the intent, reads the target after a `2xx`, and sends what it observed as
+effect evidence ([execution outcomes](../../../../docs/execution-outcomes.md#the-gateway-reads-back-a-profiled-write)).
+Name only what the platform stores as sent: a field it normalises reads back different and is
+reported as an effect that differed.

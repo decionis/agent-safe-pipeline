@@ -49,6 +49,16 @@ export interface InterceptionReport {
   readonly finalization: string | null;
   readonly latency_ms: number;
   readonly authority_ms: number | null;
+  /**
+   * A forwarded write's effect, as the gateway read it back: `CONFIRMED`
+   * when the read after it states what the call asked, `UNKNOWN` when it
+   * states something else, and `PENDING`, with why, when nothing was read.
+   * Present only for a write the upstream accepted in enforcement.
+   */
+  readonly effect?: {
+    readonly confirmation: "CONFIRMED" | "UNKNOWN" | "PENDING";
+    readonly reason_codes: readonly string[];
+  };
 }
 
 export interface StartedReport {
@@ -272,6 +282,16 @@ export function renderHuman(report: GatewayReport, options: RenderOptions): stri
         );
       }
       lines.push(row("Dossier", report.dossier_id ?? "none", width));
+      if (report.effect !== undefined) {
+        const why = report.effect.reason_codes[0];
+        lines.push(
+          row(
+            "Effect",
+            `${report.effect.confirmation}${why === undefined ? "" : ` (${why})`}`,
+            width,
+          ),
+        );
+      }
       if (report.finalization !== null) lines.push(row("Finalized", report.finalization, width));
       lines.push(row("Latency", `${report.latency_ms}ms`, width), "");
       return lines.join("\n");

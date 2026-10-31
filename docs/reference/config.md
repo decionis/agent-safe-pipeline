@@ -44,6 +44,8 @@ interception:
   profile: null # an API intent profile, e.g. walmart/api/v3; its operations follow any route
   privacy: full # full | facts: the authority receives the profile's operation and facts only
   refuseUnknownReads: false # true (the default with subject and a profile): a call the profile cannot check is refused
+  observeRefusals: true # false: a refused write's target is not read again (one GET per refusal)
+  refusalWindowMs: 1000 # how long after the refusal that read is made; 0 to 30000
   routes:
     - path: /payments/**
       action: payment.create
@@ -73,11 +75,25 @@ presence:
 evidence:
   enabled: true # false: best-effort evidence; nothing is held for a line
   journalDir: null # a directory for evidence.jsonl and the chain heads
+  observer: null # who effect evidence names as its observer; the boundary id when null
 
 output:
   format: human # human | json; json under NODE_ENV=production
   verbose: false
 ```
+
+## Reading the target
+
+In enforcement, a write whose profile operation names a `precondition` read is read three times
+by the gateway, each a `GET` it makes as itself (its `upstreamCredential` and `gatewayToken`, none
+of the caller's headers). Before the authority is asked, so the intent binds the version; after an
+`ALLOW` the upstream answered `2xx`, against the operation's `effect`; and after a BLOCK, a held
+ESCALATE or a fail-closed refusal, `refusalWindowMs` later, unless `observeRefusals` is `false`. A
+gateway that holds no upstream credential reads unauthenticated, and an upstream that refuses
+that read refuses the write (`TARGET_STATE_UNREADABLE`). `evidence.observer` is the identity the
+authority's trusted-observer allowlist must list for a read-back to be recorded `CONFIRMED`.
+[HTTP interception](../gateway/http-interception.md#the-target-a-write-names) says what each read
+establishes.
 
 ## Defaults that depend on the authority
 

@@ -24,9 +24,14 @@ itself produced, never anything a caller sent.
 | `agentsafe_execution_indeterminate_total`      |           | executions whose upstream outcome is unknown            |
 | `agentsafe_ungoverned_forwards_total`          |           | forwards under an explicit fail-open policy             |
 | `agentsafe_escalations_held`                   |           | escalations held right now (a gauge)                    |
+| `agentsafe_effects_total`                      | `effect`  | forwarded writes, by what their read-back confirmed     |
+| `agentsafe_refusal_observations_total`         | `outcome` | refused writes read again, by what the read showed      |
 
 The two latency families are a running sum and a count, from which a scraper computes rates and
-means between scrapes.
+means between scrapes. `effect` is `CONFIRMED`, `UNKNOWN` or `PENDING`, the gateway's own read-back
+of a write the upstream accepted in enforcement; `outcome` is `UNCHANGED`, `CHANGED` or
+`UNREADABLE`, the target read again after a refusal
+([HTTP interception](../gateway/http-interception.md#the-target-a-write-names)).
 
 ## The boundary, said once
 
@@ -74,6 +79,9 @@ collector knows where to look rather than where to guess.
 | `dispatch_failed`              | audit                                  | `EXECUTION_FAILED_BEFORE_DISPATCH`, `EXECUTION_REFUSED_AFTER_DISPATCH`, `EXECUTION_OUTCOME_UNKNOWN` |
 | `finalized`                    | audit + report                         | the finalization on the execution event; `INTERCEPTED.finalization`                                 |
 | `verification_failed`          | security (`agent-safe.security/1`)     | `EFFECT_MISMATCH`, `EFFECT_RECEIPT_MISMATCH`, `PROVIDER_REFUSED`                                    |
+| `target_unreadable`            | gateway chain + metrics                | `TARGET_STATE_UNREADABLE`; `agentsafe_requests_total{kind="target_state_unreadable"}`               |
+| `effect_observed`              | gateway chain + report + metrics       | `EFFECT_OBSERVED`; `INTERCEPTED.effect`; `agentsafe_effects_total{effect}`                          |
+| `refusal_observed`             | gateway chain + metrics                | `REFUSAL_OBSERVATION`; `agentsafe_refusal_observations_total{outcome}`                              |
 
 Every one of these carries identifiers, codes, digests and counts. None carries a parameter, a
 header, a body, a credential or a caller's address: the security stream's schema has no field one

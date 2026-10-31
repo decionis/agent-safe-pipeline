@@ -3,6 +3,43 @@
 Releases of `@decionis/agent-safe-pipeline` (the library) and `@decionis/agentsafe` (the runtime).
 Each entry names what an adopter can rely on and what they must do, if anything.
 
+## Library and runtime (unreleased): the gateway reads the target a profiled write names
+
+On the gateway path a forwarded `2xx` was the upstream's acknowledgement and nothing more. For a
+write whose [API profile](spec/profiles/api/v1/README.md) operation names its precondition read,
+the gateway now makes that read itself, in enforcement, at three moments
+([the target a write names](docs/gateway/http-interception.md#the-target-a-write-names)):
+
+- **Before the authority is asked**, as itself (its `upstreamCredential` and `gatewayToken`, none of
+  the caller's headers): the version, and the state when named, bound as
+  `context.agent_safe.precondition`, exactly as an executor binds it, and sent on the forwarded
+  write as `x-agent-safe-expected-state-version`. An answer that states no usable version refuses
+  the write with `502 TARGET_STATE_UNREADABLE`, before any authority is asked.
+- **After an `ALLOW` the upstream answered `2xx`**, against the operation's new `effect`: the
+  intent binds the digest of what the call asks for, so the grant commits to it, and the
+  finalization carries the read-back as `READ_AFTER_WRITE` effect evidence. A match is `CONFIRMED`
+  (recorded so only from an observer on the authority's allowlist: `evidence.observer`, the boundary
+  id by default); a difference is `EFFECT_MISMATCH`, and the authority opens an assumption breach
+  that holds the scope. The report's new `effect` says which, or `PENDING` and why. A write the
+  profile names no effect for holds only the acknowledgement, as before, and the report says so.
+- **After a BLOCK, a held ESCALATE or a fail-closed `503`**, `interception.refusalWindowMs` later
+  (a second by default): a chained `REFUSAL_OBSERVATION` with the version before, the version after
+  and both instants, `UNCHANGED`, `CHANGED` or `UNREADABLE`. On by default for any write whose
+  operation names a read; `interception.observeRefusals: false` turns it off.
+
+`agent-safe.profile.api/1.1` adds `effect`: the definition is closed, so a 1.1 definition is refused
+by a reader of 1 rather than half-read. The Business Central profile is 1.1, and `customers.update`
+names `blocked` as its effect. New: `ApiProfile.expectedEffect`, `ApiProfile.observedEffect`,
+`API_PROFILE_CONTRACT_EFFECT` and `API_PROFILE_CONTRACTS` (library); `agentsafe_effects_total` and
+`agentsafe_refusal_observations_total`, the gateway events `EFFECT_OBSERVED`,
+`REFUSAL_OBSERVATION` and `TARGET_STATE_UNREADABLE` (runtime). A shadow gateway reads nothing.
+
+**What to do:** a gateway in enforcement with a profile whose writes name a read (Business
+Central's `customers.update`) now reads before it asks. Hold the upstream credential at the gateway
+(`gateway.upstreamCredential`), or the read is unauthenticated and an upstream that refuses it
+refuses the write. To reach `CONFIRMED`, set `evidence.observer` to the identity your authority's
+trusted-observer allowlist lists. No published vector changes: none covers a profiled gateway write.
+
 ## Library and runtime (unreleased): array-index keys, in the intent hash and the payload digest
 
 A key that is an array index (`"0"` to `"4294967294"`, no sign, no leading zero), such as a line
