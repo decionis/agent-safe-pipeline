@@ -2055,6 +2055,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/pipeline/test/testing/LocalSignedSignalClaim.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/pipeline/test/testing/LocalEffectReceipt.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",

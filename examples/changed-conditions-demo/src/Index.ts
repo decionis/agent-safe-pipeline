@@ -31,8 +31,17 @@
  * grant and kept by its commit, so a proposal inside the window is refused
  * however late the producer publishes.
  *
+ * The ledger service is run for a partner bank, another institution: its
+ * canaries need the bank's standing mandate, a signal the bank signs with a
+ * key the organisation registered (the shape of a producer's signed signal).
+ * The bank withdraws it in the two ways the contract gives another
+ * institution: it lets the mandate lapse, or the organisation stops trusting
+ * the bank's key. Either way the claim looks again at who signed it and until
+ * when, and a queued rollout under it is refused there, unspent.
+ *
  * All identities, services, groups and organisations are synthetic.
  */
+import { generateKeyPairSync } from "node:crypto";
 import process from "node:process";
 import { z } from "zod";
 import {
@@ -49,6 +58,7 @@ import {
 } from "@decionis/agent-safe-pipeline";
 import {
   LocalAuthority,
+  mintSignedSignal,
   type LocalAuthorityPolicy,
   type LocalAuthorityPolicyInput,
 } from "@decionis/agent-safe-pipeline/testing";
@@ -74,6 +84,12 @@ const GROUP = "group:checkout-canary";
 const ALLOWANCE = "allowance:checkout-canary";
 const CHANGE = "change:CHG-1042";
 const classificationOf = (group: string): string => `classification:${group}`;
+/** The partner bank that runs the ledger service's change board, and the key it signs mandates with. */
+const PARTNER_BANK = "synthetic-partner-bank";
+const BANK_KEYS = {
+  first: generateKeyPairSync("ed25519"),
+  renewed: generateKeyPairSync("ed25519"),
+};
 const ADMIN_PORTS: ReadonlySet<number> = new Set([22, 3389]);
 const EVERYWHERE = "0.0.0.0/0";
 const BASTION = "10.20.0.0/24";
@@ -138,6 +154,13 @@ function policyFor(current: Controls): LocalAuthorityPolicy {
       if (hosts > current.canaryMaxHosts) return "BLOCK";
       if (Number(field(signals, ALLOWANCE, "remaining") ?? 0) < 1) return "BLOCK";
       if (field(signals, CHANGE, "status") !== "APPROVED") return "BLOCK";
+      // The partner bank's ledger rolls out only under the bank's own mandate for this agent.
+      if (
+        rollout.data.service === "ledger" &&
+        request.signed_signals?.["mandate"]?.covers_intent !== true
+      ) {
+        return "BLOCK";
+      }
       return current.blockedVersions.has(version) ? "BLOCK" : "ALLOW";
     }
     if (request.action.type === "firewall.rule.add") {
@@ -155,7 +178,10 @@ function policyFor(current: Controls): LocalAuthorityPolicy {
   };
 }
 
+/** How far the authority's clock runs ahead of the room's: a mandate's month, passed in a step. */
+let skewMs = 0;
 const authority = new LocalAuthority({
+  clock: () => Date.now() + skewMs,
   policy: policyFor(controls),
   tenantKeys: { [ORG_KEY]: ORG, [OTHER_ORG_KEY]: OTHER_ORG },
   // The reconciliations resource is reachable only on an addressable grant.
@@ -1088,6 +1114,125 @@ begin(
     "a valid renewal after a top-up: tomorrow's allowance is published and held, and the second rollout proceeds",
     "ALLOW, one rollout",
     () => completes(lane, rollout("2.5.2"), "late-renewed"),
+  );
+}
+
+// ---------------------------------------------------------------------------
+begin(
+  13,
+  "A mandate from another institution is withdrawn while the rollout is queued",
+  "The ledger is run for a partner bank, whose change board signs a standing mandate for this agent. The bank lets it lapse; then the organisation stops trusting the bank's key. A rollout is queued under the mandate each time.",
+);
+{
+  const ledger = (version: string): AgentProposal => ({
+    ...rollout(version),
+    target: "deploy:ledger/canary",
+    parameters: { ...(rollout(version).parameters as Record<string, unknown>), service: "ledger" },
+  });
+  const bankKey = (kid: string, key: (typeof BANK_KEYS)["first"]): void => {
+    // The organisation's own act (hosted, `POST /v1/execution/provider-keys` with
+    // `policy:write`), never the agent's.
+    authority.registerProviderKey({
+      kid,
+      issuer: PARTNER_BANK,
+      purpose: "signed_signal",
+      publicJwk: key.publicKey.export({ format: "jwk" }),
+    });
+  };
+  const mandate = (
+    kid: string,
+    key: (typeof BANK_KEYS)["first"],
+    lifetimeSeconds: number,
+  ): string =>
+    mintSignedSignal({
+      privateKey: key.privateKey,
+      kid,
+      issuer: PARTNER_BANK,
+      audience: ORG,
+      subject: "ledger-change-board",
+      signal: {
+        name: "mandate",
+        method: "change_board",
+        result: "VERIFIED",
+        agent: PRINCIPAL,
+        scope: { actions: ["rollout.canary"] },
+      },
+      issuedAtMs: Date.now() + skewMs,
+      lifetimeSeconds,
+    });
+  const underMandate = async (version: string, label: string, token: string) => {
+    const captured = capture(ledger(version), identity(label));
+    return { captured, decision: await lane.gate.evaluate(captured, { signals: [{ token }] }) };
+  };
+  bankKey("partner-bank-mandates-1", BANK_KEYS.first);
+
+  // The mandate stands for thirty seconds here; the authority's clock is then
+  // moved past its end, as a month would pass, within the grant's minute.
+  const lapsing = await underMandate(
+    "2.6.0",
+    "mandate-lapsing",
+    mandate("partner-bank-mandates-1", BANK_KEYS.first, 30),
+  );
+  await step(
+    "attempt",
+    "the queued rollout, after the bank let the mandate lapse",
+    "CURRENT_STATE_UNRESOLVED",
+    async () => {
+      skewMs += 31_000;
+      try {
+        return await stale(lane, lapsing, "CURRENT_STATE_UNRESOLVED");
+      } finally {
+        skewMs = 0;
+      }
+    },
+  );
+
+  const standing = mandate("partner-bank-mandates-1", BANK_KEYS.first, 3_600);
+  const revoked = await underMandate("2.6.0", "mandate-revoked", standing);
+  // The organisation revokes the bank's key (hosted, `DELETE /v1/execution/provider-keys/{kid}`).
+  authority.revokeProviderKey("partner-bank-mandates-1");
+  await step(
+    "attempt",
+    "the queued rollout, after the organisation revoked the bank's key",
+    "CURRENT_STATE_UNRESOLVED",
+    () => stale(lane, revoked, "CURRENT_STATE_UNRESOLVED"),
+  );
+  await step(
+    "attempt",
+    "the rollout proposed again under the same mandate",
+    "BLOCK SIGNED_SIGNAL_KEY_UNKNOWN at the decision",
+    async () => {
+      const again = await underMandate("2.6.0", "mandate-again", standing);
+      const result = await run(lane, again);
+      return {
+        observed: `authority ${again.decision.verdict} ${again.decision.reasonCodes.join(" ")}; executor ${outcomeOf(result)}`,
+        ok:
+          again.decision.verdict === "BLOCK" &&
+          again.decision.reasonCodes.includes("SIGNED_SIGNAL_KEY_UNKNOWN") &&
+          result.outcome === "BLOCKED",
+      };
+    },
+  );
+
+  bankKey("partner-bank-mandates-2", BANK_KEYS.renewed);
+  await step(
+    "counterpart",
+    "a valid renewal: the bank signs a new mandate under a key the organisation registered, and the rollout proceeds",
+    "ALLOW, one rollout",
+    async () => {
+      const renewed = await underMandate(
+        "2.6.0",
+        "mandate-renewed",
+        mandate("partner-bank-mandates-2", BANK_KEYS.renewed, 3_600),
+      );
+      const result = await run(lane, renewed);
+      const committed = grantOf(renewed.decision)?.finalized === "COMMITTED";
+      return {
+        observed: `authority ${renewed.decision.verdict}; executor ${outcomeOf(result)}; recorded COMMITTED ${committed}`,
+        ok: renewed.decision.verdict === "ALLOW" && result.outcome === "COMPLETED" && committed,
+        path: rolloutPath("ledger", renewed.captured.intent.idempotencyKey),
+      };
+    },
   );
 }
 

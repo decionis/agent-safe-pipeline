@@ -3,6 +3,25 @@
 Releases of `@decionis/agent-safe-pipeline` (the library) and `@decionis/agentsafe` (the runtime).
 Each entry names what an adopter can rely on and what they must do, if anything.
 
+## Library (unreleased): a signed signal at the claim, and a mandate another institution withdraws
+
+The loopback authority (`@decionis/agent-safe-pipeline/testing`) now re-checks a signed standing
+signal at the claim, as the hosted claim does. A grant keeps who signed each signal it was decided
+on, with which key, and until when. The claim refuses it with `CURRENT_STATE_UNRESOLVED`, without
+consuming it, once a signal has run out or the organisation has revoked the producer's key.
+`LocalAuthority.revokeProviderKey` and `DELETE /v1/execution/provider-keys/{kid}` revoke a key, as
+the hosted route does.
+
+The Changed Conditions Test gains a thirteenth case: a partner bank's signed standing mandate for
+the ledger service lapses, then the organisation revokes the bank's key, each while a rollout under
+it is queued. Both queued rollouts are refused at the claim, the same mandate is refused at the
+decision (`SIGNED_SIGNAL_KEY_UNKNOWN`), and a mandate renewed under a new key proceeds once. The
+run now reads 24 attempts, 0 stale commits, and 16 counterparts each completed once
+([the test](docs/changed-conditions-test.md#a-mandate-another-institution-withdraws)).
+
+**Nothing to do** unless a test of yours claims a grant after a signed signal it carried has run
+out: that claim is now refused, as it is hosted.
+
 ## Runtime (unreleased): an acceptance run, signed by the gateway it tested
 
 A deployment could say what one decision established, and what this repository's build did, but

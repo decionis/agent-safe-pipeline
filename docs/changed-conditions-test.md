@@ -45,8 +45,9 @@ pnpm --filter @decionis/agent-safe-example-changed-conditions demo
 A deploy agent's canary rollout meets a configuration changed at the path it read, a canary group
 that grew past the ceiling, a second rollout racing for the last unit of the allowance (and the same
 race when the allowance is published after the commit instead of with it), a change
-approval withdrawn while the rollout was queued, and a policy release between its grant and its
-claim. A network agent's firewall rule meets the invariant that no administrative port of a
+approval withdrawn while the rollout was queued, a partner bank's signed mandate that lapses or
+whose key the organisation revokes while a rollout under it is queued, and a policy release between
+its grant and its claim. A network agent's firewall rule meets the invariant that no administrative port of a
 production security group opens to every address, at the decision and again at the commit, when
 the group it targeted is reclassified as production while the rule waits. The same corpus replays a
 consumed grant, substitutes the proposal content, carries a grant into another organisation, and
@@ -56,7 +57,7 @@ the deploy API's own record, and are never sent twice. The run exits 0 only if n
 conditions reached the target and every counterpart reached it exactly once:
 
 ```text
-PROVEN: 21 changed-condition attempts, 0 stale commits; 15 legitimate counterparts completed, each exactly once.
+PROVEN: 24 changed-condition attempts, 0 stale commits; 16 legitimate counterparts completed, each exactly once.
 ```
 
 [`examples/changed-conditions-demo`](../examples/changed-conditions-demo) has the case table.
@@ -108,6 +109,37 @@ In the loopback double the held allowance is `LocalAuthority`'s `allowanceDraws`
 allowance at `/v1/authority/allowances`: a policy rule draws on it in `then.allowance`, and a draw
 that does not fit is refused before any grant exists. A deployment whose limits draw on no held
 allowance keeps the window described above.
+
+## A mandate another institution withdraws
+
+The thirteenth case is a joint pilot's question. An agent proposes under a mandate that another
+institution signed, and that institution has since withdrawn it. The ledger service is run for a
+partner bank, whose change board signs a standing mandate for this agent: a producer's signed
+signal, verified against the key the organisation registered for the bank. Policy lets the ledger's
+canary roll out only under it.
+
+The claim looks at the mandate again, as the hosted claim does: who signed it, and until when. The
+contract gives the other institution two ways to withdraw a mandate, and the case runs both:
+
+- **It lets the mandate lapse.** A mandate is signed to stand for a set time. A rollout queued under
+  it and claimed after that time is refused at the claim with `CURRENT_STATE_UNRESOLVED`, and the
+  grant is not consumed. The demo moves the authority's clock past the mandate's end, as a month
+  would pass.
+- **The organisation stops trusting the bank's key.** A rollout queued before the key was revoked
+  is refused at the claim the same way. Proposed again under the same mandate, it is refused at the
+  decision with `SIGNED_SIGNAL_KEY_UNKNOWN`.
+
+The counterpart: the bank signs a new mandate under a key the organisation registered, and the
+rollout proceeds once.
+
+The contract cannot say "this one mandate is withdrawn, now". A producer cannot revoke a single
+signal it issued before that signal runs out. Its lifetime bounds how long a withdrawal takes to
+bite, which is why a standing signal lives thirty days at most and a tap for one intent five minutes.
+Revoking the key is immediate, but it withdraws everything that key signed. A producer that needs
+to withdraw one mandate at once signs mandates with short lifetimes and renews them.
+
+In the loopback double this is `LocalAuthority`'s signed-signal check at the claim and
+`revokeProviderKey` (`DELETE /v1/execution/provider-keys/{kid}`), which the hosted routes mirror.
 
 ## What each proves, and what it does not
 
