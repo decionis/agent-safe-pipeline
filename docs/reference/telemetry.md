@@ -86,6 +86,7 @@ collector knows where to look rather than where to guess.
 | `target_unreadable`            | gateway chain + metrics                | `TARGET_STATE_UNREADABLE`; `agentsafe_requests_total{kind="target_state_unreadable"}`               |
 | `effect_observed`              | gateway chain + report + metrics       | `EFFECT_OBSERVED`; `INTERCEPTED.effect`; `agentsafe_effects_total{effect}`                          |
 | `refusal_observed`             | gateway chain + metrics                | `REFUSAL_OBSERVATION`; `agentsafe_refusal_observations_total{outcome}`                              |
+| `acceptance_run`               | gateway chain                          | `ACCEPTANCE_RUN_OPENED`, `ACCEPTANCE_SHADOW_DECIDED`, `ACCEPTANCE_SIGNED`                           |
 
 Every one of these carries identifiers, codes, digests and counts. None carries a parameter, a
 header, a body, a credential or a caller's address: the security stream's schema has no field one

@@ -34,6 +34,7 @@ describe("agentsafe identity", () => {
       environment: "production",
       protocol_version: "agent-safe.intent/1",
       conformance_version: "agent-safe-intent-v1",
+      acceptance: null,
       configured: true,
     });
     expect(JSON.parse(io.out.join(""))).toEqual(report);
@@ -114,6 +115,7 @@ describe("agentsafe identity", () => {
         placement: null,
         instance: null,
         workload: null,
+        acceptance: null,
         configured: false,
       },
       { color: false },
@@ -142,6 +144,7 @@ describe("agentsafe identity", () => {
           publisher: "Example Ltd",
           provenance: { source: "docker", trust_level: "supplied" },
         },
+        acceptance: null,
         configured: true,
       },
       { color: true },

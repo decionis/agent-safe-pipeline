@@ -4,6 +4,7 @@ import {
   type BoundaryPlacement,
   type EnforcementBoundary,
 } from "../boundary/BoundaryIdentity.js";
+import { acceptanceSigningKey, type AcceptanceSigningKey } from "../acceptance/AcceptanceReport.js";
 import { processSurface } from "../gateway/InstallSurface.js";
 import { DockerProvenanceProvider } from "../provenance/DockerProvenanceProvider.js";
 import { KubernetesProvenanceProvider } from "../provenance/KubernetesProvenanceProvider.js";
@@ -40,6 +41,15 @@ export interface IdentityReport {
    */
   readonly workload: WorkloadSignal | null;
   /**
+   * The key this boundary signs acceptance reports with (ADR 0009): its
+   * `kid` and public JWK, which a buyer pins to verify a report offline; the
+   * code why it could not be read; or null when the gateway serves no runs.
+   */
+  readonly acceptance:
+    | { readonly kid: string; readonly public_jwk: AcceptanceSigningKey["publicJwk"] }
+    | { readonly error: "ACCEPTANCE_KEY_UNREADABLE" }
+    | null;
+  /**
    * Whether the boundary was resolved from a usable gateway configuration.
    * Without one there is no upstream to stand in front of, so the derived id
    * is the one this process would use if nothing else changed — worth saying
@@ -52,6 +62,7 @@ export function identityReport(
   boundary: EnforcementBoundary,
   workload: WorkloadSignal | null,
   configured: boolean,
+  acceptance: IdentityReport["acceptance"] = null,
 ): IdentityReport {
   return {
     version: IDENTITY_REPORT_VERSION,
@@ -65,6 +76,7 @@ export function identityReport(
     placement: boundary.placement,
     instance: boundary.instance,
     workload,
+    acceptance,
     configured,
   };
 }
@@ -101,6 +113,10 @@ export function renderIdentityReport(
         `${workload.provenance.trust_level} (reported by ${workload.provenance.source})`,
       ),
     );
+  }
+  const acceptance = report.acceptance;
+  if (acceptance !== null) {
+    lines.push(row("acceptance_kid", "kid" in acceptance ? acceptance.kid : acceptance.error));
   }
   const placement = report.placement;
   if (placement !== null) {
@@ -160,6 +176,7 @@ export function runIdentity(io: CliProcess, argv: readonly string[]): IdentityRe
   let upstreamOrigin: string | null = null;
   let configuredId: string | null = null;
   let configured = false;
+  let acceptance: IdentityReport["acceptance"] = null;
   let env = io.env;
   try {
     const resolved = resolveGateway(io, parsed);
@@ -168,6 +185,9 @@ export function runIdentity(io: CliProcess, argv: readonly string[]): IdentityRe
     configuredId = resolved.config.boundary.id;
     env = resolved.env;
     configured = true;
+    if (resolved.config.acceptance !== null) {
+      acceptance = acceptanceKeyOf(io, resolved.config.acceptance);
+    }
   } catch {
     // No upstream, no file, or a refusal: the boundary is still describable.
   }
@@ -184,8 +204,28 @@ export function runIdentity(io: CliProcess, argv: readonly string[]): IdentityRe
     ...(boundary.deploymentType === "kubernetes" ? [new KubernetesProvenanceProvider()] : []),
     new NoneProvenanceProvider(),
   ];
-  const report = identityReport(boundary, resolveWorkload(providers, { env }), configured);
+  const report = identityReport(
+    boundary,
+    resolveWorkload(providers, { env }),
+    configured,
+    acceptance,
+  );
   io.stdout(json ? `${JSON.stringify(report)}\n` : renderIdentityReport(report, io));
   io.exit(0);
   return report;
+}
+
+/** The acceptance key's public half, read from the file the configuration names; never the key. */
+function acceptanceKeyOf(
+  io: CliProcess,
+  config: { readonly key: { readonly file: string }; readonly kid: string | null },
+): IdentityReport["acceptance"] {
+  const pem = io.files.read(config.key.file);
+  try {
+    if (pem === null) throw new Error("ACCEPTANCE_KEY_UNREADABLE");
+    const key = acceptanceSigningKey(pem, config.kid);
+    return { kid: key.kid, public_jwk: key.publicJwk };
+  } catch {
+    return { error: "ACCEPTANCE_KEY_UNREADABLE" };
+  }
 }

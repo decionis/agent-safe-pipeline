@@ -114,6 +114,16 @@ against it ([deployment fingerprint](./deployment-fingerprint.md)):
 Both are reports: neither line is written in place of a decision, and a line that cannot be written
 leaves the decision as it was.
 
+A gateway that serves [acceptance runs](./deployment/acceptance.md) writes three more, each naming
+the run by a digest of its id and never the id itself, which admits a run's requests:
+
+- `ACCEPTANCE_RUN_OPENED`: the `run_id`, the plan's `plan_digest` and the `fingerprint` the run is
+  observed under.
+- `ACCEPTANCE_SHADOW_DECIDED`: a prohibited `write` the plan names, decided in shadow before it may
+  be sent, with its `verdict` and `decision_id`.
+- `ACCEPTANCE_SIGNED`: the signed report's `report_digest` and `verdict`, so a report can be
+  matched to the chain that witnessed it.
+
 ## Verifying a chain
 
 ```bash

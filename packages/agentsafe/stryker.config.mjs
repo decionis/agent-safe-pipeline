@@ -86,6 +86,15 @@ export default {
   // secret into it, describes an action space other than the one the gateway
   // loads, or reads a drifting release as matching tells an operator a tested
   // deployment is still the one tested when it is not.
+  // The acceptance run's files are here because a signed report is the claim
+  // a buyer accepts a deployment on: the run decides which requests it sends
+  // and tracks, the report judges each case and checks what it is handed,
+  // the coverage says which routes are governed at all, the outage doubles
+  // count what got past an unreachable authority, and the zone probes read a
+  // route as contained or reachable. A mutant there admits a request the plan
+  // never named, passes a case that failed, lists an ungoverned route as
+  // governed, undercounts a write that got through, or reads a hole as
+  // contained: an accepted report the deployment never earned.
   mutate: [
     "src/http/ExecutorHttpServer.ts",
     "src/identity/PrincipalRegistry.ts",
@@ -124,6 +133,11 @@ export default {
     "src/gateway/GatewayManifest.ts",
     "src/posture/DeploymentFingerprint.ts",
     "src/posture/ActionSpaceDrift.ts",
+    "src/acceptance/AcceptanceRun.ts",
+    "src/acceptance/AcceptanceReport.ts",
+    "src/acceptance/Coverage.ts",
+    "src/acceptance/OutageDoubles.ts",
+    "src/acceptance/ZoneProbes.ts",
   ],
   reporters: ["clear-text", "progress"],
   coverageAnalysis: "perTest",

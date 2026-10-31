@@ -45,6 +45,10 @@ export const SUBJECT_TOKEN_HEADER = "agentsafe-subject-token";
 export const GATEWAY_TOKEN_HEADER = "agentsafe-gateway-token";
 /** The secret the gateway token is opened as, from the file its configuration names. */
 export const GATEWAY_TOKEN_SECRET = "AGENTSAFE_GATEWAY_TOKEN" satisfies SecretName;
+/** The secret an acceptance report is signed with, opened from `acceptance.key.file`. */
+export const ACCEPTANCE_KEY_SECRET = "AGENTSAFE_ACCEPTANCE_KEY" satisfies SecretName;
+/** The bearer of `/_agentsafe/v1/acceptance`, opened from `acceptance.operatorToken.file`. */
+export const ACCEPTANCE_TOKEN_SECRET = "AGENTSAFE_ACCEPTANCE_TOKEN" satisfies SecretName;
 const TENANT_KEY_DIGEST = /^sha256:[0-9a-f]{64}$/;
 /** A tenant's registry id: the DNS label it is served under. */
 const HOSTED_TENANT = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
@@ -257,6 +261,18 @@ export interface GatewayConfig {
    * `agentsafe probe-containment` is pointed at.
    */
   readonly containment: { readonly targets: readonly ContainmentTarget[] };
+  /**
+   * An acceptance run's two secrets, or null when the gateway serves no run
+   * (ADR 0009): the key that signs its reports and nothing else, and the
+   * bearer the operator's tool presents on `/_agentsafe/v1/acceptance`. Each
+   * is a file, opened as a secret; `kid` names the key in a report's header,
+   * its RFC 7638 thumbprint when null.
+   */
+  readonly acceptance: {
+    readonly key: { readonly file: string };
+    readonly operatorToken: { readonly file: string };
+    readonly kid: string | null;
+  } | null;
   readonly actor: { readonly id: string; readonly type: string; readonly runtime: string };
   /**
    * What the operator calls this enforcement boundary. Null leaves it to be
@@ -407,6 +423,17 @@ export const GatewayFileSchema = z.strictObject({
       targets: z.array(z.string().trim().min(1).max(300)).max(64).optional(),
     })
     .optional(),
+  acceptance: z
+    .strictObject({
+      key: z.strictObject({ file: z.string().trim().min(1).max(500) }).optional(),
+      operatorToken: z.strictObject({ file: z.string().trim().min(1).max(500) }).optional(),
+      kid: z
+        .string()
+        .trim()
+        .regex(/^[\w.-]{1,128}$/)
+        .optional(),
+    })
+    .optional(),
   actor: z
     .strictObject({
       id: z.string().trim().min(1).max(200).optional(),
@@ -526,6 +553,8 @@ const ENVIRONMENT = {
   profile: "AGENTSAFE_PROFILE",
   privacy: "AGENTSAFE_PRIVACY",
   containmentTargets: "AGENTSAFE_CONTAINMENT_TARGETS",
+  acceptanceKeyFile: "AGENTSAFE_ACCEPTANCE_KEY_FILE",
+  acceptanceTokenFile: "AGENTSAFE_ACCEPTANCE_TOKEN_FILE",
   presenceApproverId: "PRESENCE_APPROVER_ID",
   presenceApproverRole: "PRESENCE_APPROVER_ROLE",
   presenceLevel: "PRESENCE_VERIFICATION_LEVEL",
@@ -1049,6 +1078,7 @@ export class GatewayConfigLoader {
         null,
       ) ?? [],
     );
+    const acceptance = GatewayConfigLoader.acceptance(env, file, resolve);
     // Scoping is only as good as what it covers, so pinning subjects with a
     // profile refuses what the profile cannot check unless the file says not.
     const refuseUnknownReads = resolve(
@@ -1189,6 +1219,7 @@ export class GatewayConfigLoader {
     if (kind === "DECIONIS") required.push("DECIONIS_API_KEY");
     if (credential !== null) required.push("DOWNSTREAM_CREDENTIAL");
     if (gatewayToken !== null) required.push(GATEWAY_TOKEN_SECRET);
+    if (acceptance !== null) required.push(ACCEPTANCE_KEY_SECRET, ACCEPTANCE_TOKEN_SECRET);
     if (escalation.mode === "DIRECT") required.push("PRESENCE_API_KEY");
 
     const verbose = resolve(
@@ -1326,6 +1357,7 @@ export class GatewayConfigLoader {
       },
       subject,
       containment: { targets: containment },
+      acceptance,
       actor: {
         id: resolve(
           "actor.id",
@@ -1592,6 +1624,62 @@ export class GatewayConfigLoader {
       );
     }
     return { header: name, file: path };
+  }
+
+  /**
+   * An acceptance run's key and operator token, from the environment or the
+   * file: both or neither, each an absolute path. One without the other is
+   * refused, because a key with no way to ask for a run signs nothing, and a
+   * token with nothing to sign opens runs that cannot close.
+   */
+  private static acceptance(
+    env: Readonly<Record<string, string | undefined>>,
+    file: GatewayFile | null,
+    resolve: <T>(name: string, layers: readonly Layer<T>[], fallback: T) => T,
+  ): GatewayConfig["acceptance"] {
+    const path = (name: string, environment: string, fromFile: string | undefined) =>
+      resolve<string | null>(
+        name,
+        [
+          { source: "environment", raw: env[environment]?.trim() || undefined },
+          { source: "file", raw: fromFile },
+        ],
+        null,
+      );
+    const key = path(
+      "acceptance.key.file",
+      ENVIRONMENT.acceptanceKeyFile,
+      file?.acceptance?.key?.file,
+    );
+    const token = path(
+      "acceptance.operatorToken.file",
+      ENVIRONMENT.acceptanceTokenFile,
+      file?.acceptance?.operatorToken?.file,
+    );
+    if (key === null && token === null) return null;
+    for (const [name, value] of [
+      ["acceptance.key.file", key],
+      ["acceptance.operatorToken.file", token],
+    ] as const) {
+      if (value === null) {
+        throw new GatewayConfigError(
+          "CONFIG_INVALID",
+          name,
+          "both acceptance.key and acceptance.operatorToken, or neither",
+        );
+      }
+      if (!isAbsolute(value))
+        throw new GatewayConfigError("CONFIG_INVALID", name, "an absolute path");
+    }
+    return {
+      key: { file: key! },
+      operatorToken: { file: token! },
+      kid: resolve<string | null>(
+        "acceptance.kid",
+        [{ source: "file", raw: file?.acceptance?.kid }],
+        null,
+      ),
+    };
   }
 
   /**

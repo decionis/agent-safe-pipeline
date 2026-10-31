@@ -17,6 +17,7 @@ import {
   type GatewayResponse,
 } from "../gateway/Gateway.js";
 import { TENANT_KEY_HEADER } from "../gateway/GatewayConfig.js";
+import { ACCEPTANCE_RUN_HEADER } from "../acceptance/AcceptanceRun.js";
 import type { InterceptedRequest } from "../gateway/InterceptedRequest.js";
 import { UPSTREAM_PROOF_HEADER } from "../gateway/UpstreamProof.js";
 import { METRICS_CONTENT_TYPE, RESPONSE_HEADERS } from "./Routes.js";
@@ -32,6 +33,10 @@ const OWN_ROUTES = ["healthz", "readyz", "status", "metrics"] as const;
 const ESCALATIONS = `${GATEWAY_PREFIX}/v1/escalations/`;
 /** RFC 8693 token exchange: a subject token in, a session token out. */
 const SESSIONS = `${GATEWAY_PREFIX}/v1/sessions`;
+/** The acceptance runs' endpoints (ADR 0009): `runs`, `decisions` and `close`. */
+const ACCEPTANCE = `${GATEWAY_PREFIX}/v1/acceptance/`;
+/** A plan, or a run's zone findings: bounded, as the run's own schemas bound them. */
+const MAX_ACCEPTANCE_BYTES = 256 * 1024;
 /** A token exchange request is a short form; anything longer is not one. */
 const MAX_EXCHANGE_BYTES = 16 * 1024;
 const INTENT_ID = /^[0-9a-f-]{36}$/;
@@ -221,21 +226,28 @@ export class GatewayHttpServer {
           ? gateway.config.interception.maxBodyBytes
           : gateway.config.upstream.maxResponseBytes,
       );
+      // An acceptance run's header never travels on: it is taken off every
+      // request here, before the authority or the upstream can see it.
+      const { [ACCEPTANCE_RUN_HEADER]: acceptanceTag, ...headers } =
+        GatewayHttpServer.headersOf(request);
       const intercepted: InterceptedRequest = {
         method,
         path: url.pathname,
         search: url.search,
-        headers: GatewayHttpServer.headersOf(request),
+        headers,
         body,
         remoteAddress: request.socket.remoteAddress ?? null,
         encrypted: (request.socket as { encrypted?: boolean }).encrypted === true,
       };
+      const admission = gateway.admitAcceptance(intercepted, acceptanceTag);
+      if (admission.kind === "REFUSE") throw new GuardError(409, admission.code);
       const answer =
         plan.kind === "GOVERN"
           ? await gateway.govern(intercepted, plan.action)
           : plan.kind === "CHECK"
             ? await gateway.check(intercepted, plan.operation)
             : await gateway.passthrough(intercepted);
+      gateway.answeredAcceptance(intercepted, answer);
       this.write(
         response,
         proof === "MISSING"
@@ -331,6 +343,15 @@ export class GatewayHttpServer {
       throw new GuardError(
         rest.length === 1 || rest[1] === "resume" ? 405 : 404,
         rest.length === 1 || rest[1] === "resume" ? "METHOD_NOT_ALLOWED" : "NOT_FOUND",
+      );
+    }
+    if (url.pathname.startsWith(ACCEPTANCE)) {
+      return await this.acceptance(
+        gateway,
+        method,
+        url.pathname.slice(ACCEPTANCE.length),
+        request,
+        response,
       );
     }
     const name = url.pathname.slice(GATEWAY_PREFIX.length + 1);
@@ -441,6 +462,50 @@ export class GatewayHttpServer {
       chunks.push(buffer);
     }
     return Buffer.concat(chunks);
+  }
+
+  /**
+   * An acceptance run's endpoints: answered only by a gateway that serves
+   * runs, and only for the operator token, never the tenant's key or an
+   * agent's credential. Every body is JSON; a run's id travels in it, never
+   * in a path a log would keep.
+   */
+  private async acceptance(
+    gateway: Gateway,
+    method: string,
+    name: string,
+    request: IncomingMessage,
+    response: ServerResponse,
+  ): Promise<void> {
+    if (!gateway.servesAcceptance) throw new GuardError(404, "NOT_FOUND");
+    if (name !== "runs" && name !== "decisions" && name !== "close") {
+      throw new GuardError(404, "NOT_FOUND");
+    }
+    if (method !== "POST") throw new GuardError(405, "METHOD_NOT_ALLOWED");
+    const authorization = request.headers.authorization;
+    const bearer = authorization?.startsWith("Bearer ") ? authorization.slice(7) : undefined;
+    if (!gateway.acceptanceToken(bearer)) {
+      throw new GuardError(401, "ACCEPTANCE_TOKEN_INVALID", { "www-authenticate": "Bearer" });
+    }
+    const type = (request.headers["content-type"] ?? "").split(";")[0]?.trim().toLowerCase();
+    if (type !== "application/json") throw new GuardError(415, "CONTENT_TYPE_UNSUPPORTED");
+    const raw = await GatewayHttpServer.readBody(request, MAX_ACCEPTANCE_BYTES);
+    let body: Record<string, unknown>;
+    try {
+      const parsed: unknown = JSON.parse(raw.toString("utf8"));
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error();
+      body = parsed as Record<string, unknown>;
+    } catch {
+      throw new GuardError(400, "ACCEPTANCE_BODY_INVALID");
+    }
+    const text = (key: string): string => (typeof body[key] === "string" ? body[key] : "");
+    const answer =
+      name === "runs"
+        ? gateway.openAcceptance(body)
+        : name === "decisions"
+          ? await gateway.decideAcceptance(text("run_id"), text("write"))
+          : await gateway.closeAcceptance(text("run_id"), body["zone"]);
+    return GatewayHttpServer.reply(response, answer.status, answer.body);
   }
 
   /** Header names lower-cased, repeated values joined as Node joins them, `set-cookie` aside. */
