@@ -7,7 +7,7 @@ import { runIntercept } from "../../src/cli/Intercept.js";
 import type { GatewayHttpServer } from "../../src/http/GatewayHttpServer.js";
 import { GovernError, InterceptGovernor, replayed } from "../../src/http/InterceptGovernor.js";
 import { LeafIssuer } from "../../src/intercept/LeafIssuer.js";
-import { closedPort } from "../support/Environment.js";
+import { startOnFreePorts } from "../support/Environment.js";
 import { fakeProcess, UpstreamDouble, type FakeProcess } from "../support/GatewayHarness.js";
 import { TestCertificateAuthority } from "../support/TestCertificateAuthority.js";
 
@@ -52,8 +52,6 @@ describe("agentsafe intercept, governing", () => {
   beforeEach(async () => {
     upstream = new UpstreamDouble();
     await upstream.start();
-    httpPort = await closedPort();
-    httpsPort = await closedPort();
   });
 
   afterEach(async () => {
@@ -65,15 +63,21 @@ describe("agentsafe intercept, governing", () => {
   });
 
   async function start(argv: readonly string[], env: Record<string, string> = {}): Promise<void> {
-    io = fakeProcess({
-      env,
-      files: { "/run/ca.crt": operator.certificate, "/run/ca.key": operator.privateKeyPem },
-    });
-    await runIntercept(
-      io,
-      ["--http-port", String(httpPort), "--https-port", String(httpsPort), "--json", ...argv],
-      { gateway: { upstreamFetch } },
-    );
+    ({
+      ports: { http: httpPort, https: httpsPort },
+      started: io,
+    } = await startOnFreePorts(["http", "https"], async ({ http, https }) => {
+      const attempt = fakeProcess({
+        env,
+        files: { "/run/ca.crt": operator.certificate, "/run/ca.key": operator.privateKeyPem },
+      });
+      await runIntercept(
+        attempt,
+        ["--http-port", String(http), "--https-port", String(https), "--json", ...argv],
+        { gateway: { upstreamFetch } },
+      );
+      return attempt;
+    }));
     expect(io.exits).toEqual([]);
   }
 

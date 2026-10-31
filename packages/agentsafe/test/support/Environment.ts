@@ -111,14 +111,76 @@ export function openSecrets(
   });
 }
 
+/**
+ * Loopback ports nothing listens on, each a different one. Every port is held
+ * until all are picked: a port closed before the next pick can be handed out
+ * again, and on Linux it is, about once in several thousand pairs.
+ */
+async function closedPorts(count: number): Promise<number[]> {
+  const servers = Array.from({ length: count }, () => createServer());
+  for (const server of servers) {
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+  }
+  const ports = servers.map((server) => {
+    const address = server.address();
+    return typeof address === "object" && address !== null ? address.port : 0;
+  });
+  await Promise.all(
+    servers.map((server) => new Promise<void>((resolve) => server.close(() => resolve()))),
+  );
+  return ports;
+}
+
 /** A loopback port nothing listens on, for "the service is down" cases. */
 export async function closedPort(): Promise<number> {
-  const server = createServer();
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  const port = typeof address === "object" && address !== null ? address.port : 0;
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  const [port = 0] = await closedPorts(1);
   return port;
+}
+
+/** Whether another listener holds a loopback port now: a bind to it is refused as in use. */
+async function held(port: number): Promise<boolean> {
+  const probe = createServer();
+  return new Promise((resolve) => {
+    probe.once("error", (error: { code?: string }) => resolve(error.code === "EADDRINUSE"));
+    probe.listen(port, "127.0.0.1", () => probe.close(() => resolve(false)));
+  });
+}
+
+const START_ATTEMPTS = 5;
+
+/**
+ * Starts a command on loopback ports it binds itself, named as a deployment
+ * names them, and returns it with the ports it was given. A port is free only
+ * when it is picked: a test in another worker can bind it before the command
+ * does, and the command then refuses to start. A start that exits or throws
+ * while one of its ports is held elsewhere is run again on new ports, a bounded
+ * number of times. Any other outcome is returned or thrown as it was, for the
+ * test to assert, so a refusal that is not about a port is never retried away.
+ */
+export async function startOnFreePorts<
+  Name extends string,
+  Started extends { readonly exits: readonly number[] },
+>(
+  names: readonly Name[],
+  start: (ports: Readonly<Record<Name, number>>) => Promise<Started>,
+): Promise<{ readonly ports: Readonly<Record<Name, number>>; readonly started: Started }> {
+  for (let attempt = 1; ; attempt += 1) {
+    const picked = await closedPorts(names.length);
+    const ports = Object.fromEntries(names.map((name, index) => [name, picked[index]])) as Record<
+      Name,
+      number
+    >;
+    const taken = async (): Promise<boolean> =>
+      attempt < START_ATTEMPTS && (await Promise.all(picked.map(held))).includes(true);
+    let started: Started;
+    try {
+      started = await start(ports);
+    } catch (error) {
+      if (await taken()) continue;
+      throw error;
+    }
+    if (started.exits.length === 0 || !(await taken())) return { ports, started };
+  }
 }
 
 let sequence = 0;

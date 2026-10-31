@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runTcpBroker } from "../../src/cli/TcpBrokerCli.js";
 import { runHost } from "../../src/cli/Host.js";
-import { closedPort } from "../support/Environment.js";
+import { startOnFreePorts } from "../support/Environment.js";
 import { fakeProcess } from "../support/GatewayHarness.js";
 import { TestCertificateAuthority } from "../support/TestCertificateAuthority.js";
 
@@ -43,27 +43,30 @@ describe("TCP broker command", () => {
     const ca = new TestCertificateAuthority();
     const certificate = ca.issueServer(["*.decionisedge.com"]);
     writeFileSync(keyFile, certificate.key, { mode: 0o600 });
-    const io = fakeProcess({
-      files: { [certFile]: certificate.cert, [tokenFile]: "s".repeat(64) },
+    const { started: io } = await startOnFreePorts(["listen"], async ({ listen }) => {
+      const attempt = fakeProcess({
+        files: { [certFile]: certificate.cert, [tokenFile]: "s".repeat(64) },
+      });
+      await runTcpBroker(
+        attempt,
+        [
+          "--listen",
+          `127.0.0.1:${listen}`,
+          "--domain",
+          "decionisedge.com",
+          "--token-file",
+          tokenFile,
+          "--tls-key",
+          keyFile,
+          "--tls-cert",
+          certFile,
+          "--control-api",
+          "https://api.example",
+        ],
+        10,
+      );
+      return attempt;
     });
-    await runTcpBroker(
-      io,
-      [
-        "--listen",
-        `127.0.0.1:${await closedPort()}`,
-        "--domain",
-        "decionisedge.com",
-        "--token-file",
-        tokenFile,
-        "--tls-key",
-        keyFile,
-        "--tls-cert",
-        certFile,
-        "--control-api",
-        "https://api.example",
-      ],
-      10,
-    );
     expect(io.exits).toEqual([]);
     expect(io.out.join("")).toContain("TCP_BROKER_STARTED");
     io.stored.set(certFile, { text: certificate.cert + "\n", mode: undefined });

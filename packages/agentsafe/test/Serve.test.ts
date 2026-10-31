@@ -7,8 +7,8 @@ import { nodeProcess, serve, type ServeProcess } from "../src/Serve.js";
 import {
   CALLER_TOKEN,
   LOOPBACK_ORIGIN,
-  closedPort,
   offlineEnvironment,
+  startOnFreePorts,
 } from "./support/Environment.js";
 import { TestCertificateAuthority } from "./support/TestCertificateAuthority.js";
 
@@ -85,9 +85,14 @@ describe("serve", () => {
   });
 
   it("verifies posture, opens the secrets, listens, reports, and exits cleanly on a signal", async () => {
-    const port = await closedPort();
-    const run = recorded({ ...offlineEnvironment(), PORT: String(port) });
-    await serve(undefined, run.io);
+    const {
+      ports: { port },
+      started: run,
+    } = await startOnFreePorts(["port"], async ({ port }) => {
+      const attempt = recorded({ ...offlineEnvironment(), PORT: String(port) });
+      await serve(undefined, attempt.io);
+      return attempt;
+    });
     expect(run.exits).toEqual([]);
     const events = run.stdout.map((line) => parsed(line)["event"]);
     expect(events).toEqual(["POSTURE_VERIFIED", "LISTENING"]);
@@ -126,13 +131,20 @@ describe("serve with a journal and TLS material", () => {
     const env = offlineEnvironment();
     delete env["EXECUTOR_ALLOW_PLAINTEXT_LISTENER"];
     Object.assign(env, {
-      PORT: String(await closedPort()),
       EXECUTOR_TLS_CERT_FILE: join(directory, "tls", "tls.crt"),
       EXECUTOR_TLS_KEY_FILE: join(directory, "tls", "tls.key"),
       EXECUTOR_JOURNAL_DIR: join(directory, "journal"),
     });
-    const first = recorded(env);
-    await serve(undefined, first.io);
+    // Each start takes a port of its own: the journal is what carries over.
+    const start = async (): Promise<Recorded> => {
+      const { started } = await startOnFreePorts(["port"], async ({ port }) => {
+        const attempt = recorded({ ...env, PORT: String(port) });
+        await serve(undefined, attempt.io);
+        return attempt;
+      });
+      return started;
+    };
+    const first = await start();
     expect(first.exits).toEqual([]);
     expect(parsed(first.stdout[1])).toMatchObject({ event: "LISTENING", tls: true });
     first.signals.get("SIGTERM")?.();
@@ -142,8 +154,7 @@ describe("serve with a journal and TLS material", () => {
     );
     const checkpoints = first.stderr.filter((line) => line.includes('"CHAIN_CHECKPOINT"'));
     expect(checkpoints.length).toBeGreaterThanOrEqual(2);
-    const second = recorded(env);
-    await serve(undefined, second.io);
+    const second = await start();
     expect(second.exits).toEqual([]);
     const resumed = second.stderr
       .map((line) => parsed(line))

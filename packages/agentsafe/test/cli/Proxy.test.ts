@@ -10,7 +10,7 @@ import {
   speaksJson,
 } from "../../src/cli/Proxy.js";
 import { parseArguments } from "../../src/cli/Arguments.js";
-import { closedPort } from "../support/Environment.js";
+import { closedPort, startOnFreePorts } from "../support/Environment.js";
 import { fakeProcess, UpstreamDouble, LOOPBACK_ORIGIN } from "../support/GatewayHarness.js";
 
 const TENANT_ID = "00000000-0000-4000-8000-000000000009";
@@ -108,9 +108,14 @@ describe("agentsafe proxy", () => {
   });
 
   it("starts, prints the banner, governs a request, and stops on a signal", async () => {
-    const port = await closedPort();
-    const io = fakeProcess();
-    await runProxy(io, ["--upstream", upstream.baseUrl, "--port", String(port), "--json"]);
+    const {
+      ports: { port },
+      started: io,
+    } = await startOnFreePorts(["port"], async ({ port }) => {
+      const attempt = fakeProcess();
+      await runProxy(attempt, ["--upstream", upstream.baseUrl, "--port", String(port), "--json"]);
+      return attempt;
+    });
     expect(io.exits).toEqual([]);
     const banner = JSON.parse(io.out[0] ?? "{}") as Record<string, unknown>;
     expect(banner).toMatchObject({

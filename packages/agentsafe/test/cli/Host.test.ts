@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { LOCAL_AUTHORITY_API_KEY, LocalAuthority } from "@decionis/agent-safe-pipeline/testing";
 import { runHost } from "../../src/cli/Host.js";
 import { proofToken, UPSTREAM_PROOF_PATH } from "../../src/gateway/UpstreamProof.js";
-import { closedPort } from "../support/Environment.js";
+import { startOnFreePorts } from "../support/Environment.js";
 import { TestCertificateAuthority } from "../support/TestCertificateAuthority.js";
 import { fakeProcess, TENANT_KEY, TENANT_KEY_DIGEST } from "../support/GatewayHarness.js";
 
@@ -101,21 +101,26 @@ describe("agentsafe host", () => {
   });
 
   it("serves the registry's tenants, reloads on a change and on SIGHUP, and stops on a signal", async () => {
-    const port = await closedPort();
-    const io = fakeProcess({
-      env: {
-        AGENTSAFE_TENANT_REGISTRY: REGISTRY,
-        DECIONIS_API_URL: authority.baseUrl,
-        DECIONIS_ALLOW_INSECURE_LOOPBACK: "true",
-      },
-      files: { [REGISTRY]: registry(["acme"]) },
+    const {
+      ports: { port },
+      started: io,
+    } = await startOnFreePorts(["port"], async ({ port }) => {
+      const attempt = fakeProcess({
+        env: {
+          AGENTSAFE_TENANT_REGISTRY: REGISTRY,
+          DECIONIS_API_URL: authority.baseUrl,
+          DECIONIS_ALLOW_INSECURE_LOOPBACK: "true",
+        },
+        files: { [REGISTRY]: registry(["acme"]) },
+      });
+      await runHost(
+        attempt,
+        ["--listen", `127.0.0.1:${port}`],
+        { upstreamFetch: async () => new Response("ok", { status: 200 }) },
+        20,
+      );
+      return attempt;
     });
-    await runHost(
-      io,
-      ["--listen", `127.0.0.1:${port}`],
-      { upstreamFetch: async () => new Response("ok", { status: 200 }) },
-      20,
-    );
     expect(io.exits).toEqual([]);
     expect(events(io.out)).toEqual(["TENANT_REGISTRY_LOADED", "TENANT_HOST_STARTED"]);
     expect(own(io.out)[1]).toMatchObject({
@@ -175,22 +180,27 @@ describe("agentsafe host", () => {
     expect(bad.exits).toEqual([2]);
     expect(bad.err[0]).toContain("CONFIG_INVALID: tenant");
 
-    const port = await closedPort();
-    const io = fakeProcess({
-      env: {
-        AGENTSAFE_TENANT_REGISTRY: REGISTRY,
-        AGENTSAFE_HOST_TENANT: "globex",
-        DECIONIS_API_URL: authority.baseUrl,
-        DECIONIS_ALLOW_INSECURE_LOOPBACK: "true",
-      },
-      files: { [REGISTRY]: registry(["acme", "globex"]) },
+    const {
+      ports: { port },
+      started: io,
+    } = await startOnFreePorts(["port"], async ({ port }) => {
+      const attempt = fakeProcess({
+        env: {
+          AGENTSAFE_TENANT_REGISTRY: REGISTRY,
+          AGENTSAFE_HOST_TENANT: "globex",
+          DECIONIS_API_URL: authority.baseUrl,
+          DECIONIS_ALLOW_INSECURE_LOOPBACK: "true",
+        },
+        files: { [REGISTRY]: registry(["acme", "globex"]) },
+      });
+      await runHost(
+        attempt,
+        ["--listen", `127.0.0.1:${port}`],
+        { upstreamFetch: async () => new Response("ok", { status: 200 }) },
+        0,
+      );
+      return attempt;
     });
-    await runHost(
-      io,
-      ["--listen", `127.0.0.1:${port}`],
-      { upstreamFetch: async () => new Response("ok", { status: 200 }) },
-      0,
-    );
     expect(io.exits).toEqual([]);
     expect(own(io.out)[1]).toMatchObject({
       event: "TENANT_HOST_STARTED",
@@ -210,35 +220,40 @@ describe("agentsafe host", () => {
   });
 
   it("requires every tenant's upstream proof with --require-upstream-proof, and says so when it starts", async () => {
-    const port = await closedPort();
-    const io = fakeProcess({
-      env: {
-        AGENTSAFE_TENANT_REGISTRY: REGISTRY,
-        DECIONIS_API_URL: authority.baseUrl,
-        DECIONIS_ALLOW_INSECURE_LOOPBACK: "true",
-      },
-      files: { [REGISTRY]: registry(["acme", "globex"]) },
-    });
     const token = proofToken(
       { tenant: "acme", org: WORKSPACE, origin: upstreamOf("acme") },
       1_759_492_800,
     );
-    await runHost(
-      io,
-      ["--listen", `127.0.0.1:${port}`, "--require-upstream-proof"],
-      {
-        // acme's origin serves its proof; globex's does not.
-        upstreamFetch: async (input) => {
-          const url = new URL(String(input));
-          if (url.pathname !== UPSTREAM_PROOF_PATH) return new Response("ok", { status: 200 });
-          return url.host === "acme.shop.example"
-            ? new Response(token, { status: 200 })
-            : new Response("not here", { status: 404 });
+    const {
+      ports: { port },
+      started: io,
+    } = await startOnFreePorts(["port"], async ({ port }) => {
+      const attempt = fakeProcess({
+        env: {
+          AGENTSAFE_TENANT_REGISTRY: REGISTRY,
+          DECIONIS_API_URL: authority.baseUrl,
+          DECIONIS_ALLOW_INSECURE_LOOPBACK: "true",
         },
-        upstreamResolveTxt: async () => [],
-      },
-      0,
-    );
+        files: { [REGISTRY]: registry(["acme", "globex"]) },
+      });
+      await runHost(
+        attempt,
+        ["--listen", `127.0.0.1:${port}`, "--require-upstream-proof"],
+        {
+          // acme's origin serves its proof; globex's does not.
+          upstreamFetch: async (input) => {
+            const url = new URL(String(input));
+            if (url.pathname !== UPSTREAM_PROOF_PATH) return new Response("ok", { status: 200 });
+            return url.host === "acme.shop.example"
+              ? new Response(token, { status: 200 })
+              : new Response("not here", { status: 404 });
+          },
+          upstreamResolveTxt: async () => [],
+        },
+        0,
+      );
+      return attempt;
+    });
     expect(io.exits).toEqual([]);
     expect(own(io.out)[1]).toMatchObject({ event: "TENANT_HOST_STARTED", upstream_proof: true });
     let ready = 0;
@@ -260,36 +275,41 @@ describe("agentsafe host", () => {
   });
 
   it("tries a tenant it could not build again, until its key arrives, with the registry unchanged", async () => {
-    const port = await closedPort();
     const late = join(secrets, "arrives-later");
-    const io = fakeProcess({
-      env: {
-        AGENTSAFE_TENANT_REGISTRY: REGISTRY,
-        DECIONIS_API_URL: authority.baseUrl,
-        DECIONIS_ALLOW_INSECURE_LOOPBACK: "true",
-      },
-      files: {
-        [REGISTRY]: JSON.stringify({
-          version: 1,
-          domain: "decionisedge.example",
-          tenants: [
-            {
-              id: "acme",
-              upstream: upstreamOf("acme"),
-              tenantKeyDigests: [TENANT_KEY_DIGEST],
-              workspace: { tenantId: WORKSPACE, apiKeyFile: late },
-            },
-          ],
-        }),
-      },
+    const {
+      ports: { port },
+      started: io,
+    } = await startOnFreePorts(["port"], async ({ port }) => {
+      const attempt = fakeProcess({
+        env: {
+          AGENTSAFE_TENANT_REGISTRY: REGISTRY,
+          DECIONIS_API_URL: authority.baseUrl,
+          DECIONIS_ALLOW_INSECURE_LOOPBACK: "true",
+        },
+        files: {
+          [REGISTRY]: JSON.stringify({
+            version: 1,
+            domain: "decionisedge.example",
+            tenants: [
+              {
+                id: "acme",
+                upstream: upstreamOf("acme"),
+                tenantKeyDigests: [TENANT_KEY_DIGEST],
+                workspace: { tenantId: WORKSPACE, apiKeyFile: late },
+              },
+            ],
+          }),
+        },
+      });
+      await runHost(
+        attempt,
+        ["--listen", `127.0.0.1:${port}`],
+        { upstreamFetch: async () => new Response("ok", { status: 200 }) },
+        20,
+        60,
+      );
+      return attempt;
     });
-    await runHost(
-      io,
-      ["--listen", `127.0.0.1:${port}`],
-      { upstreamFetch: async () => new Response("ok", { status: 200 }) },
-      20,
-      60,
-    );
     expect(own(io.out)[0]).toMatchObject({
       event: "TENANT_REGISTRY_LOADED",
       served: 0,
@@ -328,37 +348,41 @@ describe("agentsafe host", () => {
     const first = ca.issueServer(["*.decionisedge.example", "decionisedge.example"]);
     const keyFile = join(secrets, "edge-tls.key");
     writeFileSync(keyFile, first.key, { mode: 0o600 });
-    const port = await closedPort();
-    const redirectPort = await closedPort();
-    const io = fakeProcess({
-      env: {
-        AGENTSAFE_TENANT_REGISTRY: REGISTRY,
-        DECIONIS_API_URL: authority.baseUrl,
-        DECIONIS_ALLOW_INSECURE_LOOPBACK: "true",
-      },
-      files: {
-        [REGISTRY]: registry(["acme"]),
-        "/etc/agentsafe/tls.crt": first.cert,
-        "/etc/agentsafe/apex.html": "<!doctype html><p>Operated by Decionis.</p>",
-      },
+    const {
+      ports: { port, redirectPort },
+      started: io,
+    } = await startOnFreePorts(["port", "redirectPort"], async ({ port, redirectPort }) => {
+      const attempt = fakeProcess({
+        env: {
+          AGENTSAFE_TENANT_REGISTRY: REGISTRY,
+          DECIONIS_API_URL: authority.baseUrl,
+          DECIONIS_ALLOW_INSECURE_LOOPBACK: "true",
+        },
+        files: {
+          [REGISTRY]: registry(["acme"]),
+          "/etc/agentsafe/tls.crt": first.cert,
+          "/etc/agentsafe/apex.html": "<!doctype html><p>Operated by Decionis.</p>",
+        },
+      });
+      await runHost(
+        attempt,
+        [
+          "--listen",
+          `127.0.0.1:${port}`,
+          "--tls-cert",
+          "/etc/agentsafe/tls.crt",
+          "--tls-key",
+          keyFile,
+          "--redirect-listen",
+          `127.0.0.1:${redirectPort}`,
+          "--apex-page",
+          "/etc/agentsafe/apex.html",
+        ],
+        { upstreamFetch: async () => new Response("ok", { status: 200 }) },
+        20,
+      );
+      return attempt;
     });
-    await runHost(
-      io,
-      [
-        "--listen",
-        `127.0.0.1:${port}`,
-        "--tls-cert",
-        "/etc/agentsafe/tls.crt",
-        "--tls-key",
-        keyFile,
-        "--redirect-listen",
-        `127.0.0.1:${redirectPort}`,
-        "--apex-page",
-        "/etc/agentsafe/apex.html",
-      ],
-      { upstreamFetch: async () => new Response("ok", { status: 200 }) },
-      20,
-    );
     expect(io.exits).toEqual([]);
     expect(own(io.out)[1]).toMatchObject({
       event: "TENANT_HOST_STARTED",

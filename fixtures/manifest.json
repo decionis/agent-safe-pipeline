@@ -1539,6 +1539,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/support/Environment.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/support/Environment.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
