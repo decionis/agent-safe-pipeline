@@ -59,13 +59,25 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  assurance:
-    name: Mutation assurance
+  mutation:
+    name: Mutation (${{ matrix.package }} ${{ matrix.shard }})
     runs-on: ubuntu-latest
-    # Both packages at the 100% break threshold took 15 minutes 3 seconds on
-    # 2026-10-02 (the pipeline package alone 13 minutes 37 seconds) and the old
-    # 15-minute limit cancelled a run that had killed every mutant.
+    # Both packages in one job took 15 minutes 3 seconds on 2026-10-02, and the
+    # limit went from 15 minutes to 30. By 2026-10-31 master took 20 to 25
+    # minutes (agentsafe 16, most of it on static mutants, which run every
+    # test), and a phase that added two files to the gate ran out of time. So
+    # each package runs on its own, and agentsafe's list is split three ways
+    # (scripts/MutationShard.mjs): every mutant is still run, against the same
+    # break threshold, in parallel.
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { package: pipeline, directory: packages/pipeline, shard: 1/1 }
+          - { package: agentsafe, directory: packages/agentsafe, shard: 1/3 }
+          - { package: agentsafe, directory: packages/agentsafe, shard: 2/3 }
+          - { package: agentsafe, directory: packages/agentsafe, shard: 3/3 }
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
@@ -89,9 +101,30 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - name: Install dependencies without lifecycle scripts
         run: pnpm install --frozen-lockfile --ignore-scripts
-      - name: Mutation-test trust-boundary tests
-        run: pnpm mutation
+      - name: Mutation-test this shard of the trust-boundary files
+        env:
+          DIRECTORY: ${{ matrix.directory }}
+          SHARD: ${{ matrix.shard }}
+        run: node scripts/MutationShard.mjs "$DIRECTORY" "$SHARD"
 
+  assurance:
+    # The required check: it keeps the name branch protection and the release
+    # job know, and it passes only when every shard above passed. It runs
+    # whatever they did, because a skipped required check reads as passing.
+    name: Mutation assurance
+    needs: mutation
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+      - name: Require every mutation shard to pass
+        env:
+          RESULT: ${{ needs.mutation.result }}
+        run: test "$RESULT" = success
   verifiers:
     name: Verifying provider (Go)
     runs-on: ubuntu-latest
