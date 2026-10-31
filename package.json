@@ -29,7 +29,9 @@
       "tmp": "0.2.7",
       "smol-toml": "1.7.1",
       "re2js": "2.8.7",
-      "@decionis/presence-types": "0.3.0"
+      "@decionis/presence-types": "0.3.0",
+      "minimatch@3": "11.0.1",
+      "minimatch@10": "11.0.1"
     }
   },
   "engines": {
