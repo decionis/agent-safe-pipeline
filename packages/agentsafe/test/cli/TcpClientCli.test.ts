@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { readTcpCredentialFile, runConnector, runTunnel } from "../../src/cli/TcpClientCli.js";
 import { TcpClientError } from "../../src/tcp/TcpWire.js";
 import { fakeProcess, type FakeProcess } from "../support/GatewayHarness.js";
-import { closedPort } from "../support/Environment.js";
+import { startOnFreePorts } from "../support/Environment.js";
 
 const KEY = "synthetic-role-specific-key";
 const FILE = "/keys/connector";
@@ -80,9 +80,14 @@ describe("agentsafe connector and tunnel", () => {
   });
 
   it("starts one loopback tunnel and closes its listener cleanly", async () => {
-    const port = await closedPort();
-    const io = fakeProcess({ files: { [FILE]: KEY } });
-    await runTunnel(io, [...ARGS, "--port", String(port)], memoryCredentials(io));
+    const {
+      ports: { port },
+      started: io,
+    } = await startOnFreePorts(["port"], async ({ port }) => {
+      const attempt = fakeProcess({ files: { [FILE]: KEY } });
+      await runTunnel(attempt, [...ARGS, "--port", String(port)], memoryCredentials(attempt));
+      return attempt;
+    });
     expect(io.exits).toEqual([]);
     expect(io.out.join("")).toContain(`127.0.0.1:${port}`);
     io.signals.get("SIGINT")?.();

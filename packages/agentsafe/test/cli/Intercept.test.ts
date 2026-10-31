@@ -11,7 +11,7 @@ import {
   runIntercept,
 } from "../../src/cli/Intercept.js";
 import { INTERCEPT_DEFAULTS } from "../../src/http/InterceptServer.js";
-import { closedPort } from "../support/Environment.js";
+import { closedPort, startOnFreePorts } from "../support/Environment.js";
 import { fakeProcess } from "../support/GatewayHarness.js";
 
 const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 50));
@@ -279,10 +279,14 @@ describe("runIntercept", () => {
     upstream.listen(0, "127.0.0.1");
     await once(upstream, "listening");
     servers.push(upstream);
-    const httpPort = await closedPort();
-    const httpsPort = await closedPort();
-    const io = fakeProcess({ env: { NODE_ENV: "production" } });
-    await runIntercept(io, ["--http-port", String(httpPort), "--https-port", String(httpsPort)]);
+    const {
+      ports: { http: httpPort, https: httpsPort },
+      started: io,
+    } = await startOnFreePorts(["http", "https"], async ({ http, https }) => {
+      const attempt = fakeProcess({ env: { NODE_ENV: "production" } });
+      await runIntercept(attempt, ["--http-port", String(http), "--https-port", String(https)]);
+      return attempt;
+    });
     expect(io.exits).toEqual([]);
     const started = JSON.parse(io.out[0] ?? "{}") as { event: string; listeners: unknown[] };
     expect(started.event).toBe("INTERCEPT_STARTED");
@@ -337,10 +341,14 @@ describe("runIntercept", () => {
   });
 
   it("speaks to a terminal in lines, and refuses bad arguments and a taken port by name", async () => {
-    const httpPort = await closedPort();
-    const httpsPort = await closedPort();
-    const io = fakeProcess();
-    await runIntercept(io, ["--http-port", String(httpPort), "--https-port", String(httpsPort)]);
+    const {
+      ports: { http: httpPort },
+      started: io,
+    } = await startOnFreePorts(["http", "https"], async ({ http, https }) => {
+      const attempt = fakeProcess();
+      await runIntercept(attempt, ["--http-port", String(http), "--https-port", String(https)]);
+      return attempt;
+    });
     expect(io.out[0]).toContain(`AgentSafe intercept`);
     expect(io.out[0]).toContain(`127.0.0.1:${httpPort} (for :80)`);
     io.signals.get("SIGTERM")?.();
