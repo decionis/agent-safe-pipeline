@@ -6,7 +6,8 @@ decisions the user took on 2026-10-31. D-1 replaces the earlier D6: a run touche
 the operator names, in a plan the operator writes. D-2: a dedicated key signs the report. D-3:
 drift and a stale report are reported, never enforced. The user accepted the choices this ADR makes
 beyond those three, as written, on the same day. Each rejected alternative is recorded under
-"Options considered".
+"Options considered". "The gateway's side" below is as built: the endpoints' paths, a run's id kept
+out of every path, and the shadow endpoint narrowed to the plan's own prohibited writes.
 
 ## Problem
 
@@ -130,9 +131,8 @@ the fingerprint moved. A canary is the operator's statement, and the report reco
 The gateway checks the plan against its own route table when the run opens. It refuses the run if
 any of these holds:
 
-- a prohibited write maps to a route that is not in enforcement;
-- a prohibited write's profile operation names no read;
-- a write maps to no route.
+- a write, permitted or prohibited, maps to no route the gateway decides in enforcement;
+- a prohibited write's profile operation names no read.
 
 ### The cases
 
@@ -158,7 +158,8 @@ word it stays.
     fails at the transport and the control succeeds. Any direct HTTP answer is `REACHABLE`.
     Anything else is `INCONCLUSIVE`.
   - Each provider's write is sent twice: unattested, then signed with a fresh key the provider
-    cannot know. Each must be refused with a `4xx` and a reason code.
+    cannot know. Each must be refused with a `4xx`; its reason code is recorded when it gives one.
+    The signed write is not sent when the unattested one landed, so a canary is written once.
   - Reachable MCP servers are listed.
   - Credentials in the environment and at well-known file paths are reported by name and kind,
     never by value.
@@ -188,19 +189,26 @@ A new configuration section, `acceptance`, is off unless both of its keys are se
 When the section is absent, the endpoints under `/_agentsafe/v1/acceptance` answer `404`. When it
 is present:
 
-- `POST /runs` opens a run. It answers with the run id, the fingerprint, and the coverage: the
-  governed paths, and the ungoverned ones by kind (reads, shadow routes, fail-open routes, writes
-  whose profile names no read). Only one run is open at a time, and a run closes itself after 15
-  minutes.
-- `POST /runs/{id}/decisions` decides one request in shadow, captured exactly as its route
-  captures it, with no read and no forward. The decision is recorded on the gateway's chain.
-- Requests the tool sends through the ordinary listener carry `agentsafe-acceptance-run: <id>`.
-  The gateway keeps their chain lines for the run, at most 64 per run. It removes the header
-  before the authority or the upstream sees anything, and the header changes no decision.
-- `POST /runs/{id}/outage` runs the authority-unreachable case.
-- `POST /runs/{id}/close` takes the zone's findings and waits for any refusal observation still
-  due. It then assembles and signs the report, records `ACCEPTANCE_SIGNED` with the report's digest
-  on the chain, and returns the report.
+- `POST /runs` opens a run for the plan in the body. It answers with the run id, the fingerprint,
+  and the coverage: the governed paths, each saying whether its target is read, and the ungoverned
+  ones by kind (shadow, fail-open, passthrough), with how reads are treated. Only one run is open
+  at a time, and a run closes itself after 15 minutes.
+- `POST /decisions` (`{"run_id", "write"}`) decides in shadow one prohibited write the open plan
+  names, once, captured exactly as its route captures it, with no read and no forward. It decides
+  nothing else. The decision is recorded on the gateway's chain.
+- Requests the tool sends through the ordinary listener carry
+  `agentsafe-acceptance-run: <run id>:<write name>`. The gateway tracks one only when it is the
+  write the plan names, sent as the plan wrote it, once, and, when prohibited, after a shadow
+  `BLOCK` or `ESCALATE`. It refuses anything else carrying the header with `409`, before the
+  authority is asked. It removes the header before the authority or the upstream sees anything, and
+  the header changes no decision. It keeps at most 16 chain lines a write.
+- `POST /close` (`{"run_id", "zone"}`) takes the zone's findings, runs the authority-unreachable
+  case on the second gateway, and waits for any refusal observation still due. It then assembles
+  the report, checks it against the report's own schema, signs it, records `ACCEPTANCE_SIGNED` with
+  the report's digest on the chain, and returns it.
+
+A run's id admits requests, so it travels in a body or a header and never in a path a log would
+keep. The chain and the report name the run by a digest of its id.
 
 ### The report: `agent-safe.acceptance/1`
 
@@ -209,7 +217,8 @@ holds:
 
 - the fingerprint document and its digest, which is the report's validity condition, and the
   plan's `expires_at`;
-- the coverage: the governed paths, and the ungoverned ones by kind;
+- the coverage: the governed paths, each saying whether its target is read, and the ungoverned
+  ones by kind;
 - each case with its decision id, dossier id, chain line hashes, the target versions observed, and
   `observed_by` (`GATEWAY` or `ZONE`);
 - the fixed list of what is never established;
@@ -266,18 +275,21 @@ plan and the report, and new operator endpoints on the gateway.
   target in it, and every canary statement.
 - **New surface on the gateway.** The acceptance endpoints are new, and they are off by default.
   When on, they require a dedicated bearer, keep at most one run open, close it after 15 minutes,
-  and keep at most 64 tagged requests per run.
+  and track only the writes the plan names, once each.
 - **The shadow endpoint is a policy oracle.** Whoever holds the operator token can learn the
-  policy's answer without performing the write. That is why the token is never an agent's, why
-  every decision made on the endpoint is on the chain, and why the token lives in the agent's zone
-  only for the run.
+  policy's answer without performing the write. It answers only for the prohibited writes the open
+  run's plan names, once each. The token is never an agent's, every decision made on the endpoint
+  is on the chain, and the token lives in the agent's zone only for the run.
 - **The token during the run.** The zone's own credential scan reports the operator token by name,
   like any other credential. It grants runs and shadow decisions, nothing more, and the operator
   removes it afterwards.
 - **The run tag cannot change a decision.** The header is stripped before the authority or the
   upstream sees the request.
 - **The second gateway.** It has no listener. Its upstream and authority are in-process doubles,
-  and it is built from the configuration object already loaded, without reading the file again.
+  and it is built from the configuration object already loaded, without reading the file again. It
+  writes no evidence file or journal, proves no upstream, fetches no subject keys, makes no read
+  after a refusal and serves no runs of its own. It borrows the deployed gateway's secrets and
+  never closes them.
 - **What the report holds.** Credentials appear by name and kind, never by value. The report holds
   no header value and no body except what the plan wrote.
 - **The acceptance key** signs nothing but acceptance reports.
