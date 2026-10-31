@@ -236,9 +236,10 @@ Three different things can follow an authorised request, and no record here take
 | Consequential | Nothing in this repository or in the authority                         | Nowhere. With every dossier, the Decionis verifier [`@decionis/verify`](https://www.npmjs.com/package/@decionis/verify) lists `downstream_consequences` as never established, because no authorization governs them |
 
 An adapter family with an effect plane keeps the first two apart: banking, cards, or an
-`EffectAdapter` of your own. The gateway path records only the first. A forwarded `2xx` is the
-upstream's acknowledgement, and the gateway reads nothing back
-([below](#the-gateway-opens-no-breach-of-its-own)). The exception is a verifying provider's receipt.
+`EffectAdapter` of your own. So does the gateway for a write whose API profile declares its effect:
+it reads the target back after a `2xx` ([below](#the-gateway-reads-back-a-profiled-write)). For
+every other call the gateway forwards, a `2xx` is the upstream's acknowledgement and nothing more,
+unless a verifying provider's receipt rides on it.
 
 What a confirmed effect leads to downstream is not a question an authorization answers: a
 settlement, a service's health after a deploy, a customer's next step. A deployment that needs it
