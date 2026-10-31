@@ -20,7 +20,8 @@ import * as prettier from "prettier";
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const PROFILES = join(ROOT, "profiles");
 const MIRROR = join(ROOT, "packages/pipeline/src/profile/BuiltInApiProfiles.ts");
-const CONTRACT = "agent-safe.profile.api/1";
+/** Every version a profile.json may declare: 1, and 1.1, which admits a write's `effect`. */
+const CONTRACTS = ["agent-safe.profile.api/1", "agent-safe.profile.api/1.1"];
 
 /** Every directory under profiles/ that holds an API intent profile, in a stable order. */
 function profileDirectories() {
@@ -30,7 +31,7 @@ function profileDirectories() {
       const path = join(directory, entry);
       if (!statSync(path).isDirectory()) continue;
       const file = join(path, "profile.json");
-      if (existsSync(file) && JSON.parse(readFileSync(file, "utf8")).profile === CONTRACT) {
+      if (existsSync(file) && CONTRACTS.includes(JSON.parse(readFileSync(file, "utf8")).profile)) {
         found.push(path);
       } else {
         walk(path);

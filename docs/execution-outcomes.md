@@ -288,17 +288,35 @@ at that target to a person, for every executor of the organisation. The halt sta
 backstop: it needs no policy and no network, and it still holds when the authority cannot be reached.
 `ALERT`, with a hosted policy that reads the breach, narrows the stop to the scope that failed.
 
-### The gateway opens no breach of its own
+### The gateway reads back a profiled write
 
-The gateway path (`agentsafe gateway`) forwards a call and relays the answer. It has no effect plane:
-its grants bind no expected effect, it reads nothing back and it sends no effect evidence, so nothing
-it observes can contradict a grant, and **it opens no assumption breach from its own observation**.
-The one breach a gateway attempt can open comes from the upstream: a verifying provider's receipt
-rides on the attempt, and when it verifies and contradicts the outcome the gateway reports (a 2xx
-whose receipt says `REFUSED`, or a refusal whose receipt says `EFFECTED`), the authority opens one.
-In front of an upstream that signs no receipts, the gateway opens none. Actions whose outcome must be
-able to hold their scope belong on an adapter family with an effect plane: banking, cards, or an
-`EffectAdapter` of your own.
+The gateway path (`agentsafe gateway`) forwards a call and relays the answer. For a write whose
+[API profile](../spec/profiles/api/v1/README.md#9-effects) operation names its effect (a 1.1
+profile: pointers into the operation's precondition read that must state values of the call), it
+has an effect plane of its own. The intent binds the digest of what the call asks for, so the grant
+commits to it; after an `ALLOW` the upstream answered `2xx`, the gateway reads the target again,
+compares, and finalizes with that observation as effect evidence (`READ_AFTER_WRITE`) under the
+drop rule above:
+
+- a match is `CONFIRMED`, which the authority records only from an observer on its trusted-observer
+  allowlist (the gateway's `evidence.observer`, the boundary id by default);
+- a difference is `UNCONFIRMED` with the observed digest, `EFFECT_MISMATCH` in the gateway's report,
+  and the authority opens an assumption breach from it, which holds the scope as above;
+- a read after the write that does not answer is `UNCONFIRMED` with no observed digest, and opens
+  nothing.
+
+Everything else the gateway forwards still holds only the upstream's acknowledgement, and says so:
+the report's `effect` is `PENDING`, with `EFFECT_UNDECLARED` (no effect, or no read, in the profile),
+`EFFECT_UNSTATED` (the call states none of what the effect names), `EFFECT_NOT_BOUND` (facts-only
+privacy, where no digest of the call's values may leave the gateway) or `EFFECT_NOT_READ` (a
+redirect). For those, the one breach a gateway attempt can open comes from the upstream: a verifying
+provider's receipt rides on the attempt, and when it verifies and contradicts the outcome the gateway
+reports (a 2xx whose receipt says `REFUSED`, or a refusal whose receipt says `EFFECTED`), the
+authority opens one. The gateway never halts itself on a mismatch: the authority's breach is the
+hold. An action whose outcome a single read cannot state, or whose platform normalises what it
+stores, belongs on an adapter family with an effect plane of its own: banking, cards, or an
+`EffectAdapter` of your own. The [HTTP interception](./gateway/http-interception.md#the-target-a-write-names)
+page has the whole of what the gateway reads.
 
 ## A refusal after dispatch
 

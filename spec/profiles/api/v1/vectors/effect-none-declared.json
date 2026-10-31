@@ -1,0 +1,60 @@
+{
+  "description": "A write that names a precondition and no effect asks the read nothing after it lands: there is no expectation.",
+  "definition": {
+    "profile": "agent-safe.profile.api/1.1",
+    "id": "example/api/v1",
+    "platform": "example",
+    "title": "Example API",
+    "prefixes": [""],
+    "operations": [
+      {
+        "id": "items.update",
+        "method": "PATCH",
+        "path": "/items/{itemId}",
+        "action": "item.update",
+        "summary": "Change an item.",
+        "facts": {
+          "item_id": "/path/itemId"
+        },
+        "policy_projection": null,
+        "precondition": {
+          "read": "items.get",
+          "version": "/headers/etag",
+          "state": "/body/status"
+        }
+      },
+      {
+        "id": "items.get",
+        "method": "GET",
+        "path": "/items/{itemId}",
+        "action": "item.read",
+        "summary": "Read one item.",
+        "facts": {},
+        "policy_projection": null,
+        "subject": {
+          "response": "/body/owner"
+        }
+      }
+    ]
+  },
+  "request": {
+    "method": "PATCH",
+    "path": "/items/A-1",
+    "body": {
+      "status": "retired"
+    }
+  },
+  "expected": {
+    "operation": "items.update",
+    "action": "item.update",
+    "facts": {
+      "item_id": "A-1"
+    },
+    "policy_projection": null
+  },
+  "state_read": {
+    "method": "GET",
+    "path": "/items/A-1"
+  },
+  "effect_expected": null
+}

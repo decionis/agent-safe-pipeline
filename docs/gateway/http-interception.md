@@ -125,6 +125,7 @@ and nothing is sent. Then, exactly once:
 - `X-Forwarded-For` appended with the caller's address, `X-Forwarded-Proto`, `X-Forwarded-Host`;
 - `Accept-Encoding: identity`, so the bytes relayed back are the bytes received;
 - `x-agent-safe-intent-hash`, `x-agent-safe-decision-id`, `x-agent-safe-dossier-id`;
+- `x-agent-safe-expected-state-version`, when the intent bound the target's version (below);
 - the raw body bytes.
 
 Redirects from the upstream are relayed, never followed. The response is read in full, under 16
@@ -145,6 +146,61 @@ A `4xx` is the provider's own refusal: the request reached it and nothing was ef
 or a lost connection is unknown, and is recorded as such rather than guessed either way. See
 [execution outcomes](../execution-outcomes.md) for the vocabulary the executor uses for the same
 distinctions.
+
+## The target a write names
+
+An [API profile](../../spec/profiles/api/v1/README.md#8-preconditions) may name, for a write, the
+read that states its target's version, and from `agent-safe.profile.api/1.1` what that read must
+state once the write has landed (its [effect](../../spec/profiles/api/v1/README.md#9-effects)). In
+enforcement the gateway makes that read at three moments. Each is a `GET` it makes as itself: its
+`upstreamCredential` and `gatewayToken` when it holds them, `Accept: application/json`, and none of
+the caller's headers. Nothing a read returns is relayed to the caller.
+
+1. **Before the authority is asked.** The answer's version, and the target's state when the
+   operation names where, ride into the intent's hashed context as `agent_safe.precondition`,
+   exactly as an executor binds them ([target state](../authority/target-state.md)). The grant is
+   decided against that version, a verifying provider holds the write to it, and the forwarded
+   write carries it as `x-agent-safe-expected-state-version`, as a verifying hop sets it; an
+   upstream that takes writes only through the gateway's credential and honours it refuses a write
+   whose target has moved, which the gateway reports as the provider's refusal (`FAILED`). A read
+   that does not answer `2xx`, or whose answer states no usable version, refuses the write with
+   `502`, state `ERROR`, `execution: NOT_FORWARDED` and
+   `reason_codes: ["TARGET_STATE_UNREADABLE", <why>]` (`TARGET_VERSION_UNSTATED`,
+   `UPSTREAM_STATUS_<n>`, or a forward's own failure code), chained as `TARGET_STATE_UNREADABLE`.
+   No authority is asked. A gateway that holds no upstream credential reads unauthenticated.
+2. **After an `ALLOW` the upstream answered `2xx`.** When the operation names an effect and the
+   call states a value it names, the intent also binds the digest of what the call asks for
+   (`expected_effect_digest`), so the grant commits to it. After the write the gateway reads the
+   target again and compares, before the attempt is finalized, and the finalization carries the
+   observation as effect evidence (`READ_AFTER_WRITE`) under the verifier's
+   [drop rule](../execution-outcomes.md#the-drop-rule). The report's `effect` says what it found,
+   and `EFFECT_OBSERVED` is chained with the digests and the differing pointers, never a value:
+
+   | `effect.confirmation` | `effect.reason_codes` | Meaning                                                                     |
+   | --------------------- | --------------------- | --------------------------------------------------------------------------- |
+   | `CONFIRMED`           | none                  | the read states what the call asked, at every pointer the effect names      |
+   | `UNKNOWN`             | `EFFECT_MISMATCH`     | it states something else, or nothing, at one of them; a breach opens        |
+   | `PENDING`             | `EFFECT_UNDECLARED`   | the operation names no effect, or no read: only the acknowledgement is held |
+   | `PENDING`             | `EFFECT_UNSTATED`     | the call states none of the values its effect names                         |
+   | `PENDING`             | `EFFECT_NOT_BOUND`    | facts-only privacy: no digest of the call's values leaves the gateway       |
+   | `PENDING`             | `EFFECT_NOT_READ`     | the upstream answered with a redirect                                       |
+   | `PENDING`             | `EFFECT_UNREADABLE`   | the read after the write did not answer                                     |
+
+   The authority records a `CONFIRMED` observation only from an observer on its trusted-observer
+   allowlist (`evidence.observer`, the boundary id by default); otherwise it refuses the evidence,
+   and the verifier's evidence-free retry records the commit without it
+   ([effect evidence](../execution-outcomes.md#effect-evidence)).
+
+3. **After a BLOCK, a held ESCALATE or a fail-closed `503`.** The caller's answer does not wait.
+   `interception.refusalWindowMs` later (a second by default) the gateway reads the target again
+   and chains `REFUSAL_OBSERVATION`: the refusal, the operation, the read's source, `version_before`
+   (the version the decision was asked about), `version_after`, `read_before_at`, `read_after_at`
+   and the `outcome`, `UNCHANGED`, `CHANGED` or `UNREADABLE`. `UNCHANGED` says no write landed on
+   that one resource between the two reads, by any route: it is observed at the target, and it is
+   no more than that, nothing about another resource or another time. `CHANGED` is a write someone
+   made in that window, by a route that may not be the gateway's. `interception.observeRefusals:
+false` turns the read off; a write whose operation names no read is not observed, and the
+   evidence states no observation for it. The stop waits for reads still in their window.
 
 ## Responses the gateway makes itself
 
@@ -217,7 +273,8 @@ while the authority is asked what it would have decided. The response carries `a
 SHADOW` and `agentsafe-execution: PASSTHROUGH`; a request passed through without being evaluated
 carries the second alone, so `agentsafe-mode` marks the requests the authority was asked about. The
 observation is reported when it settles and is never a grant. Shadow measures policy impact; it
-protects nothing, and the output says so. See [shadow mode](../shadow-mode.md).
+protects nothing, and the output says so. A shadow gateway makes none of the target reads above,
+so the authority is asked without the target's version. See [shadow mode](../shadow-mode.md).
 
 ## Not yet
 

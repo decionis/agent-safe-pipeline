@@ -80,6 +80,9 @@ const CREDENTIAL_PREFIXES_REFUSED = ["agentsafe-", "x-agent-safe-", "x-forwarded
 export const LOCAL_TENANT_ID = "00000000-0000-4000-8000-000000000009";
 export const DEFAULT_AUTHORITY_ENDPOINT = "https://api.decionis.com";
 export const DEFAULT_LISTEN = { host: "127.0.0.1", port: 8080 } as const;
+/** How long after a refusal its target is read again, by default, and at most. */
+export const DEFAULT_REFUSAL_WINDOW_MS = 1_000;
+export const MAX_REFUSAL_WINDOW_MS = 30_000;
 const DEFAULT_TIMEOUT_MS = 4_000;
 const DEFAULT_UPSTREAM_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_BODY_BYTES = 1024 * 1024;
@@ -234,6 +237,15 @@ export interface GatewayConfig {
      * the gateway pins subjects with a profile.
      */
     readonly refuseUnknownReads: boolean;
+    /**
+     * After a BLOCK, a held ESCALATE or a fail-closed refusal of a write whose
+     * profile operation names a read, read the target again and record what
+     * it showed (`REFUSAL_OBSERVATION`): one more `GET` per refusal. On by
+     * default; enforcement only.
+     */
+    readonly observeRefusals: boolean;
+    /** How long after the refusal that read is made, so the window it covers is not empty. */
+    readonly refusalWindowMs: number;
   };
   /** Subject-bound sessions: null when the gateway pins no subject. */
   readonly subject: SubjectConfig | null;
@@ -246,7 +258,16 @@ export interface GatewayConfig {
   readonly boundary: { readonly id: string | null };
   readonly intentTtlSeconds: number;
   readonly escalation: EscalationConfig;
-  readonly evidence: { readonly enabled: boolean; readonly journalDir: string | null };
+  readonly evidence: {
+    readonly enabled: boolean;
+    readonly journalDir: string | null;
+    /**
+     * Who the gateway's effect evidence names as its observer: the identity
+     * the authority's trusted-observer allowlist must list for a read-back to
+     * be recorded `CONFIRMED`. Null names the boundary.
+     */
+    readonly observer: string | null;
+  };
   readonly output: { readonly format: OutputFormat; readonly verbose: boolean };
   readonly production: boolean;
   readonly secrets: { readonly required: readonly SecretName[] };
@@ -351,6 +372,9 @@ export const GatewayFileSchema = z.strictObject({
       privacy: lowerEnum(["full", "facts"]).optional(),
       // true: a read no profile operation names is refused; needs subject and a profile.
       refuseUnknownReads: z.boolean().optional(),
+      // false: a refused write's target is not read again; on by default.
+      observeRefusals: z.boolean().optional(),
+      refusalWindowMs: z.number().int().min(0).max(MAX_REFUSAL_WINDOW_MS).optional(),
     })
     .optional(),
   subject: z
@@ -392,6 +416,7 @@ export const GatewayFileSchema = z.strictObject({
     .strictObject({
       enabled: z.boolean().optional(),
       journalDir: z.string().trim().min(1).max(500).optional(),
+      observer: z.string().trim().min(1).max(500).optional(),
     })
     .optional(),
   output: z
@@ -1257,6 +1282,16 @@ export class GatewayConfigLoader {
         profile,
         privacy,
         refuseUnknownReads,
+        observeRefusals: resolve(
+          "interception.observeRefusals",
+          [{ source: "file", raw: file?.interception?.observeRefusals }],
+          true,
+        ),
+        refusalWindowMs: resolve(
+          "interception.refusalWindowMs",
+          [{ source: "file", raw: file?.interception?.refusalWindowMs }],
+          DEFAULT_REFUSAL_WINDOW_MS,
+        ),
       },
       subject,
       actor: {
@@ -1296,6 +1331,11 @@ export class GatewayConfigLoader {
             { source: "environment", raw: env[ENVIRONMENT.evidenceDir]?.trim() },
             { source: "file", raw: file?.evidence?.journalDir },
           ],
+          null,
+        ),
+        observer: resolve<string | null>(
+          "evidence.observer",
+          [{ source: "file", raw: file?.evidence?.observer }],
           null,
         ),
       },

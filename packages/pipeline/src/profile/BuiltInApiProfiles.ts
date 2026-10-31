@@ -9,7 +9,7 @@ import type { ApiProfileDefinition } from "./ApiProfile.js";
  */
 export const BUILT_IN_API_PROFILES: readonly ApiProfileDefinition[] = [
   {
-    profile: "agent-safe.profile.api/1",
+    profile: "agent-safe.profile.api/1.1",
     id: "businesscentral/api/v2",
     platform: "business-central",
     title:
@@ -164,6 +164,12 @@ export const BUILT_IN_API_PROFILES: readonly ApiProfileDefinition[] = [
           version: "/body/@odata.etag",
           state: "/body/blocked",
         },
+        effect: [
+          {
+            answer: "/body/blocked",
+            request: "/body/blocked",
+          },
+        ],
       },
       {
         id: "customers.list",

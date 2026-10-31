@@ -21,8 +21,17 @@ import { TargetPreconditionSchema, type TargetPrecondition } from "../intent/Tar
  * a row version), and where that read's answer states it: a component that
  * binds the target's state reads it once before the authority is asked, and
  * the version rides into the intent as its precondition.
+ *
+ * `agent-safe.profile.api/1.1` adds one thing: a write that names that read
+ * may also name its `effect`, the values of the call the same read's answer
+ * must state once the write has landed, so a component can read the write
+ * back and say whether it did what was authorised.
  */
 export const API_PROFILE_CONTRACT = "agent-safe.profile.api/1";
+/** The minor version that admits a write's `effect`; every 1 definition is a 1.1 definition. */
+export const API_PROFILE_CONTRACT_EFFECT = "agent-safe.profile.api/1.1";
+/** Every version a definition may declare, oldest first. */
+export const API_PROFILE_CONTRACTS = [API_PROFILE_CONTRACT, API_PROFILE_CONTRACT_EFFECT] as const;
 
 export const API_PROFILE_SCHEMA_ID =
   "https://github.com/decionis/agent-safe-pipeline/blob/master/spec/profiles/api/v1/schema.json";
@@ -150,6 +159,22 @@ export const ApiPreconditionSchema = z.strictObject({
   state: z.string().max(300).regex(STATE_POINTER).optional(),
 });
 
+/**
+ * What a write's read must state once the write has landed: each pair names
+ * a pointer into the read's answer, `{ body, headers }` like a precondition's,
+ * and a pointer into the call, `{ path, query, body }` like a fact's, whose
+ * value the answer must state there. Neither goes through `*`.
+ */
+export const ApiEffectSchema = z
+  .array(
+    z.strictObject({
+      answer: z.string().max(300).regex(STATE_POINTER),
+      request: z.string().max(300).regex(POINTER),
+    }),
+  )
+  .min(1)
+  .max(32);
+
 export const ApiOperationSchema = z.strictObject({
   /** The operation's name in the profile, unique, dotted lower camel case. */
   id: operationId,
@@ -172,10 +197,12 @@ export const ApiOperationSchema = z.strictObject({
   subject: ApiSubjectSchema.optional(),
   /** For a write, the read that states its target's version. */
   precondition: ApiPreconditionSchema.optional(),
+  /** For a write that names a precondition, what that read states once it has landed (1.1). */
+  effect: ApiEffectSchema.optional(),
 });
 
 export const ApiProfileDefinitionSchema = z.strictObject({
-  profile: z.literal(API_PROFILE_CONTRACT),
+  profile: z.enum(API_PROFILE_CONTRACTS),
   /** `<platform>/<api>/<version>`, the profile's directory under `profiles/`. */
   id: z
     .string()
@@ -197,6 +224,7 @@ export const ApiProfileDefinitionSchema = z.strictObject({
 export type ApiPolicyProjection = z.infer<typeof ApiPolicyProjectionSchema>;
 export type ApiSubject = z.infer<typeof ApiSubjectSchema>;
 export type ApiPrecondition = z.infer<typeof ApiPreconditionSchema>;
+export type ApiEffect = z.infer<typeof ApiEffectSchema>;
 export type ApiOperationDefinition = z.infer<typeof ApiOperationSchema>;
 export type ApiProfileDefinition = z.infer<typeof ApiProfileDefinitionSchema>;
 
@@ -309,6 +337,7 @@ export class ApiProfile {
         ApiProfile.pointerSegments(pointer, operation.id);
       ApiProfile.subjectRules(operation);
       ApiProfile.preconditionRules(operation, definition.operations);
+      ApiProfile.effectRules(operation, definition.profile);
       const matchers: RegExp[] = [];
       const placeholders: string[][] = [];
       for (const prefix of definition.prefixes) {
@@ -648,6 +677,53 @@ export class ApiProfile {
     return parsed.success ? parsed.data : null;
   }
 
+  /**
+   * What a write asks its target to state once it has landed: for each pair
+   * of the operation's `effect` whose request pointer finds a value in the
+   * call, that value under the pair's answer pointer. A pair the call states
+   * no value for asks nothing, so a partial update expects only what it
+   * sends; a call that states none of them expects `{}`. Null when the call
+   * matches no write, or its operation names no effect.
+   */
+  public expectedEffect(request: ApiRequest): JsonObject | null {
+    const selected = this.select(request.method, request.path, request.query ?? {});
+    const effect = selected?.operation.definition.effect;
+    if (selected === null || effect === undefined) return null;
+    const root: JsonObject = {
+      path: selected.parameters,
+      query: ApiProfile.queryRoot(request.query ?? {}),
+      ...(request.body === undefined ? {} : { body: request.body }),
+    };
+    const expected: JsonObject = {};
+    for (const pair of effect) {
+      const value = ApiProfile.walk(
+        root,
+        ApiProfile.pointerSegments(pair.request, selected.operation.definition.id),
+      );
+      if (value !== undefined) expected[pair.answer] = value;
+    }
+    return expected;
+  }
+
+  /**
+   * What a read's answer states where an expectation looks: for each answer
+   * pointer the expectation names, the value there, any JSON value; a
+   * pointer that finds nothing is left out, so it differs from every value
+   * the expectation can hold.
+   */
+  public observedEffect(operationId: string, answer: ApiAnswer, expected: JsonObject): JsonObject {
+    const root: JsonObject = {
+      headers: { ...answer.headers },
+      ...(answer.body === undefined ? {} : { body: answer.body }),
+    };
+    const observed: JsonObject = {};
+    for (const pointer of Object.keys(expected)) {
+      const value = ApiProfile.walk(root, ApiProfile.pointerSegments(pointer, operationId));
+      if (value !== undefined) observed[pointer] = value;
+    }
+    return observed;
+  }
+
   private select(
     method: string,
     path: string,
@@ -818,6 +894,35 @@ export class ApiProfile {
     for (const pointer of [precondition.version, precondition.state]) {
       if (pointer !== undefined && ApiProfile.pointerSegments(pointer, operation.id).includes("*"))
         refuse("names a precondition pointer through *");
+    }
+  }
+
+  /**
+   * What an effect must be: declared by a 1.1 definition, on a write that
+   * names the precondition read it is observed by, with each answer pointer
+   * once and no pointer through `*`, since each pair is one value.
+   */
+  private static effectRules(
+    operation: ApiOperationDefinition,
+    version: (typeof API_PROFILE_CONTRACTS)[number],
+  ): void {
+    const effect = operation.effect;
+    if (effect === undefined) return;
+    const refuse = (detail: string): never => {
+      throw new ApiProfileError("API_PROFILE_INVALID", `operation ${operation.id} ${detail}`);
+    };
+    if (version !== API_PROFILE_CONTRACT_EFFECT)
+      refuse(`names an effect, which only ${API_PROFILE_CONTRACT_EFFECT} states`);
+    if (operation.precondition === undefined)
+      refuse("names an effect without a precondition read to observe it by");
+    const answers = new Set<string>();
+    for (const pair of effect) {
+      if (answers.has(pair.answer)) refuse(`names the effect answer ${pair.answer} twice`);
+      answers.add(pair.answer);
+      for (const pointer of [pair.answer, pair.request]) {
+        if (ApiProfile.pointerSegments(pointer, operation.id).includes("*"))
+          refuse("names an effect pointer through *");
+      }
     }
   }
 

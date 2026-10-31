@@ -669,9 +669,11 @@ describe("a gateway that pins subjects", () => {
     const victim = `${BASE}/customers(9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d)`;
     for (const mode of ["enforcement", "shadow"] as const) {
       await build(fileWith(), mode);
+      // The double answers the gateway's read of the customer, made before the
+      // authority is asked, the same way: its @odata.etag is the version bound.
       upstream.answers.set(victim, {
         status: 200,
-        body: { id: "9a8b", number: OTHER, phoneNumber: "+44 0000 000001" },
+        body: { "@odata.etag": 'W/"1"', id: "9a8b", number: OTHER, phoneNumber: "+44 0000 000001" },
       });
       const answer = await fetch(`${origin}${victim}`, {
         method: "PATCH",
@@ -695,7 +697,10 @@ describe("a gateway that pins subjects", () => {
       expect(text).not.toContain(OTHER);
       expect(text).not.toContain("+44");
       // The session's own record is relayed as it came.
-      upstream.answers.set(victim, { status: 200, body: { id: "9a8b", number: MINE } });
+      upstream.answers.set(victim, {
+        status: 200,
+        body: { "@odata.etag": 'W/"1"', id: "9a8b", number: MINE },
+      });
       const own = await fetch(`${origin}${victim}`, {
         method: "PATCH",
         headers: { "content-type": "application/json", "agentsafe-subject-token": await token() },

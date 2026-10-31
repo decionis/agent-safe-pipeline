@@ -1,5 +1,5 @@
 {
-  "profile": "agent-safe.profile.api/1",
+  "profile": "agent-safe.profile.api/1.1",
   "id": "businesscentral/api/v2",
   "platform": "business-central",
   "title": "Business Central API v2.0: the postings and master-data writes an agent can make, and the customer reads it can be scoped to",
@@ -152,7 +152,8 @@
         "read": "customers.get",
         "version": "/body/@odata.etag",
         "state": "/body/blocked"
-      }
+      },
+      "effect": [{ "answer": "/body/blocked", "request": "/body/blocked" }]
     },
     {
       "id": "customers.list",

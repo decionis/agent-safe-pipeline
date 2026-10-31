@@ -1,0 +1,47 @@
+{
+  "description": "An effect's answer pointer is rooted where a precondition's is, at /body or /headers/<lower-case name>; its request pointer where a fact's is.",
+  "definition": {
+    "profile": "agent-safe.profile.api/1.1",
+    "id": "example/api/v1",
+    "platform": "example",
+    "title": "Example API",
+    "prefixes": [""],
+    "operations": [
+      {
+        "id": "items.update",
+        "method": "PATCH",
+        "path": "/items/{itemId}",
+        "action": "item.update",
+        "summary": "Change an item.",
+        "facts": {
+          "item_id": "/path/itemId"
+        },
+        "policy_projection": null,
+        "precondition": {
+          "read": "items.get",
+          "version": "/headers/etag",
+          "state": "/body/status"
+        },
+        "effect": [
+          {
+            "answer": "/path/itemId",
+            "request": "/body/status"
+          }
+        ]
+      },
+      {
+        "id": "items.get",
+        "method": "GET",
+        "path": "/items/{itemId}",
+        "action": "item.read",
+        "summary": "Read one item.",
+        "facts": {},
+        "policy_projection": null,
+        "subject": {
+          "response": "/body/owner"
+        }
+      }
+    ]
+  },
+  "error": "API_PROFILE_INVALID"
+}

@@ -15,6 +15,8 @@ console.log(`Imported ${exports.length} exports:`, exports);
 const EXPECTED_RUNTIME = [
   "ACTION_MANIFEST_CONTRACT",
   "API_PROFILE_CONTRACT",
+  "API_PROFILE_CONTRACTS",
+  "API_PROFILE_CONTRACT_EFFECT",
   "API_PROFILE_METHODS",
   "API_PROFILE_READ_METHOD",
   "API_PROFILE_SCHEMA_ID",
@@ -25,6 +27,7 @@ const EXPECTED_RUNTIME = [
   "ActionManifestSourceSchema",
   "ActionRegistry",
   "AgentProposalSchema",
+  "ApiEffectSchema",
   "ApiOperationSchema",
   "ApiPolicyProjectionSchema",
   "ApiPreconditionSchema",

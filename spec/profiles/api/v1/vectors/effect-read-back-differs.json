@@ -1,0 +1,95 @@
+{
+  "description": "The read after the write states another value at one pointer and none at another: the observation carries what the answer states and leaves the missing one out, so it differs from the expectation at both.",
+  "definition": {
+    "profile": "agent-safe.profile.api/1.1",
+    "id": "example/api/v1",
+    "platform": "example",
+    "title": "Example API",
+    "prefixes": [""],
+    "operations": [
+      {
+        "id": "items.update",
+        "method": "PATCH",
+        "path": "/items/{itemId}",
+        "action": "item.update",
+        "summary": "Change an item.",
+        "facts": {
+          "item_id": "/path/itemId"
+        },
+        "policy_projection": null,
+        "precondition": {
+          "read": "items.get",
+          "version": "/headers/etag",
+          "state": "/body/status"
+        },
+        "effect": [
+          {
+            "answer": "/body/status",
+            "request": "/body/status"
+          },
+          {
+            "answer": "/body/price/amount",
+            "request": "/body/price/amount"
+          },
+          {
+            "answer": "/body/sku",
+            "request": "/path/itemId"
+          }
+        ]
+      },
+      {
+        "id": "items.get",
+        "method": "GET",
+        "path": "/items/{itemId}",
+        "action": "item.read",
+        "summary": "Read one item.",
+        "facts": {},
+        "policy_projection": null,
+        "subject": {
+          "response": "/body/owner"
+        }
+      }
+    ]
+  },
+  "request": {
+    "method": "PATCH",
+    "path": "/items/A-1",
+    "body": {
+      "status": "retired",
+      "price": {
+        "amount": 1250
+      }
+    }
+  },
+  "expected": {
+    "operation": "items.update",
+    "action": "item.update",
+    "facts": {
+      "item_id": "A-1"
+    },
+    "policy_projection": null
+  },
+  "state_read": {
+    "method": "GET",
+    "path": "/items/A-1"
+  },
+  "effect_expected": {
+    "/body/status": "retired",
+    "/body/price/amount": 1250,
+    "/body/sku": "A-1"
+  },
+  "effect_answer": {
+    "headers": {
+      "etag": "\"8\""
+    },
+    "body": {
+      "sku": "A-1",
+      "owner": "synthetic-owner-1",
+      "status": "active"
+    }
+  },
+  "effect_observed": {
+    "/body/status": "active",
+    "/body/sku": "A-1"
+  }
+}

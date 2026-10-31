@@ -19,6 +19,8 @@ export interface GatewayMetrics {
   readonly authorityErrors: Counter;
   readonly indeterminate: Counter;
   readonly ungoverned: Counter;
+  readonly effects: Counter;
+  readonly refusalObservations: Counter;
   readonly held: Gauge;
   observeAuthorityLatency(ms: number): void;
   observeForwardLatency(ms: number): void;
@@ -67,6 +69,16 @@ export function gatewayMetrics(registry: Metrics = new Metrics()): GatewayMetric
     ungoverned: registry.counter(
       "agentsafe_ungoverned_forwards",
       "Requests forwarded under an explicit fail-open policy while the authority was unavailable.",
+    ),
+    effects: registry.counter(
+      "agentsafe_effects",
+      "Forwarded writes by what was read back of their effect: CONFIRMED, UNKNOWN or PENDING.",
+      ["effect"],
+    ),
+    refusalObservations: registry.counter(
+      "agentsafe_refusal_observations",
+      "Refused writes whose target was read again: UNCHANGED, CHANGED or UNREADABLE.",
+      ["outcome"],
     ),
     held: registry.gauge("agentsafe_escalations_held", "Escalations held for a human answer."),
     observeAuthorityLatency: latency(

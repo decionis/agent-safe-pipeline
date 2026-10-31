@@ -6,7 +6,10 @@
   "properties": {
     "profile": {
       "type": "string",
-      "const": "agent-safe.profile.api/1"
+      "enum": [
+        "agent-safe.profile.api/1",
+        "agent-safe.profile.api/1.1"
+      ]
     },
     "id": {
       "type": "string",
@@ -237,6 +240,31 @@
               "version"
             ],
             "additionalProperties": false
+          },
+          "effect": {
+            "minItems": 1,
+            "maxItems": 32,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "answer": {
+                  "type": "string",
+                  "maxLength": 300,
+                  "pattern": "^\\/(body(\\/.*)?|headers\\/[a-z0-9][a-z0-9-]{0,63})$"
+                },
+                "request": {
+                  "type": "string",
+                  "maxLength": 300,
+                  "pattern": "^\\/(path|query|body)(\\/.*)?$"
+                }
+              },
+              "required": [
+                "answer",
+                "request"
+              ],
+              "additionalProperties": false
+            }
           }
         },
         "required": [

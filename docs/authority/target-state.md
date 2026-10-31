@@ -30,6 +30,15 @@ call wrote them), and `ApiProfile.precondition` turns the read's answer into the
 Business Central profile's `customers.update` declares one: its version is the `@odata.etag`
 Business Central requires back as `If-Match`, and its state is `blocked`.
 
+The gateway makes the same read, in enforcement, for every write whose profile operation names
+one: a `GET` it makes as itself, with its own upstream credential and gateway token and none of the
+caller's headers, before the authority is asked. An answer that is not `2xx`, or states no usable
+version, refuses the write (`TARGET_STATE_UNREADABLE`), as a read that fails refuses an executor's
+submission. It sends the bound version on the forwarded write as
+`x-agent-safe-expected-state-version`, the header a verifying hop sets, and reads the same target
+again after the write and after a refusal
+([the target a write names](../gateway/http-interception.md#the-target-a-write-names)).
+
 ## 2. The intent binds what was read
 
 The runner hands the read to the capture as the trusted context's `precondition`, and the capture
@@ -78,8 +87,7 @@ nothing, sends the version as the write's own precondition (`If-Match`) itself, 
   version guarantees is that such a change refuses the write rather than lets it land.
 - It does not make a provider that ignores the version check it. A system of record that neither
   verifies at VP-2 nor honours a conditional write takes the write whatever its state.
-- The gateway does not read preconditions yet: a profile's `precondition` is used by executors
-  that call `ApiProfile.stateRead` and `ApiProfile.precondition` themselves.
+- It does not read in shadow: a shadow gateway asks the authority without the target's version.
 - `LocalAuthority` carries the version into its attestations as Decionis does, and refuses a
   malformed precondition (`INTENT_PRECONDITION_INVALID`), but it does not evaluate
   `allowed_transitions`: its policy is the hook a test gives it.
