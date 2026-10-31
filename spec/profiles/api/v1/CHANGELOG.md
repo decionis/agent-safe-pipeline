@@ -2,6 +2,22 @@
 
 Every entry names the pull request that made it and the vectors that pin it.
 
+## 2026-10-31: effects, as `agent-safe.profile.api/1.1`
+
+The definition is closed, so the new field is a new minor version: every 1 definition, match and
+vector is a 1.1 one with the same answer, and a reader of 1 refuses a 1.1 definition by its
+`profile` rather than ignore a field it does not know.
+
+- A write that names a `precondition` may name its `effect` (§9): pairs of a pointer into the
+  read's answer and a pointer into the call, so the read after the write states whether it did
+  what was authorised. A 1 definition naming one, one without a precondition, an answer pointer
+  named twice, a pointer through `*` or rooted elsewhere are refused (§2.3).
+- [`schema.json`](./schema.json): `profile` admits `agent-safe.profile.api/1.1`; an operation
+  admits `effect`.
+- [`vectors/`](./vectors): an effect read back as expected, one that differs, a partial update, a
+  write that names none, and five definition refusals. The Business Central profile is 1.1, and its
+  `customers.update` names `blocked` as its effect.
+
 ## 2026-10-23: preconditions
 
 - A write may name a `precondition`: the read in the same profile that states the target's

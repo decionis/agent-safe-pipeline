@@ -1,0 +1,42 @@
+{
+  "description": "An effect is observed by the write's precondition read, so a write that names no precondition names no effect.",
+  "definition": {
+    "profile": "agent-safe.profile.api/1.1",
+    "id": "example/api/v1",
+    "platform": "example",
+    "title": "Example API",
+    "prefixes": [""],
+    "operations": [
+      {
+        "id": "items.update",
+        "method": "PATCH",
+        "path": "/items/{itemId}",
+        "action": "item.update",
+        "summary": "Change an item.",
+        "facts": {
+          "item_id": "/path/itemId"
+        },
+        "policy_projection": null,
+        "effect": [
+          {
+            "answer": "/body/status",
+            "request": "/body/status"
+          }
+        ]
+      },
+      {
+        "id": "items.get",
+        "method": "GET",
+        "path": "/items/{itemId}",
+        "action": "item.read",
+        "summary": "Read one item.",
+        "facts": {},
+        "policy_projection": null,
+        "subject": {
+          "response": "/body/owner"
+        }
+      }
+    ]
+  },
+  "error": "API_PROFILE_INVALID"
+}

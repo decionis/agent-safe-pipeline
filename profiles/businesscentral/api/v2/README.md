@@ -1,6 +1,6 @@
 # Business Central API v2.0
 
-**Profile:** `businesscentral/api/v2` · **Contract:** [`agent-safe.profile.api/1`](../../../../spec/profiles/api/v1/README.md) ·
+**Profile:** `businesscentral/api/v2` · **Contract:** [`agent-safe.profile.api/1.1`](../../../../spec/profiles/api/v1/README.md) ·
 **Platform:** `business-central` · **Definition:** [`profile.json`](./profile.json) ·
 **Vectors:** [`vectors/`](./vectors) · **Manifest:** [`MANIFEST.sha256`](./MANIFEST.sha256)
 
@@ -27,7 +27,11 @@ gateway's upstream already carries the API base. An OData key may be quoted or n
 - `customers.update` names its precondition: `customers.get` on the same customer, whose
   `@odata.etag` is the version the change is decided against (Business Central requires it back
   as `If-Match`), and whose `blocked` is the state a transition rule reads
-  ([preconditions](../../../../spec/profiles/api/v1/README.md#8-preconditions)).
+  ([preconditions](../../../../spec/profiles/api/v1/README.md#8-preconditions)). It names its
+  effect too: once the change has landed, the same read states `blocked` as the change sent it
+  ([effects](../../../../spec/profiles/api/v1/README.md#9-effects)). Only `blocked`: it is an
+  enumeration Business Central stores as sent, where a field it normalises would read back
+  different and be reported as an effect that differed.
 - The profile states no policy path: Business Central's rules are keyed on these action types.
 - Any write not listed is no operation of this profile.
 

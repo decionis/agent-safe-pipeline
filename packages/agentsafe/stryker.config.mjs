@@ -74,6 +74,12 @@ export default {
   // organization or origin as proof, takes a TXT record without a verified
   // answer from the origin, or forwards after the grace has run out turns
   // the fleet's address into a relay to an origin nobody proved.
+  // The target reader and the effect comparison are here because they decide
+  // what the gateway says a write did: the version a grant is decided
+  // against, whether what landed is what was authorised, and whether a
+  // refused write's target stayed where it was. A mutant there binds no
+  // version or the wrong one, confirms an effect that differed (so no breach
+  // holds the scope), or reports a target unchanged that moved.
   // The deployment fingerprint, the gateway's action manifest and the
   // action-space check are here because they are what a test result is held
   // to: a mutant that leaves a covered field out of the fingerprint, writes a
@@ -113,6 +119,8 @@ export default {
     "src/adapters/cards/CardPurchase.ts",
     "src/adapters/cards/CardAuthorizationMatcher.ts",
     "src/gateway/UpstreamProof.ts",
+    "src/gateway/TargetReader.ts",
+    "src/gateway/TargetEffect.ts",
     "src/gateway/GatewayManifest.ts",
     "src/posture/DeploymentFingerprint.ts",
     "src/posture/ActionSpaceDrift.ts",

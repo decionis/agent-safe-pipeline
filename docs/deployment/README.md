@@ -11,6 +11,7 @@ Choose the execution boundary, then configure its network, authority and operati
 | [Production](./production.md)                                     | Pin the image, configure enforcement and failure behavior, and operate the deployment.                                                          |
 | [High availability](./high-availability.md)                       | Plan replica routing, held requests, evidence and capacity.                                                                                     |
 | [Security](./security.md)                                         | Understand what the image/runtime establish and what the platform must enforce.                                                                 |
+| [What an integration requires](./integration-disclosure.md)       | See, for each form, what you supply, what code you write, whether the effect is read back, what you measure and who supports what.              |
 
 The [public deployment overview](https://decionis.ai/deployments) introduces these options.
 The runnable examples and configuration contracts live in this repository.

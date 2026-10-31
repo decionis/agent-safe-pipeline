@@ -225,6 +225,27 @@ Two rules decide every row. An acknowledgement is never a confirmation: a provid
 error is never success: only a read-back whose projection matches what was authorised confirms
 anything, which is also why a reconciliation completes only on a matching read-back.
 
+## Acknowledged, effected, consequential
+
+Three different things can follow an authorised request, and no record here takes one for another.
+
+|               | What establishes it                                                    | Where it is recorded                                                                                                                                                                                                |
+| ------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Acknowledged  | The provider answered that it took the request: a `2xx`, an "accepted" | The outcome: the handler returned (`COMPLETED`) or, on the gateway, the status it relayed                                                                                                                           |
+| Effected      | A read-back of the target whose projection matches what was authorised | The confirmation (`CONFIRMED`), and the effect evidence the authority binds to the grant                                                                                                                            |
+| Consequential | Nothing in this repository or in the authority                         | Nowhere. With every dossier, the Decionis verifier [`@decionis/verify`](https://www.npmjs.com/package/@decionis/verify) lists `downstream_consequences` as never established, because no authorization governs them |
+
+An adapter family with an effect plane keeps the first two apart: banking, cards, or an
+`EffectAdapter` of your own. So does the gateway for a write whose API profile declares its effect:
+it reads the target back after a `2xx` ([below](#the-gateway-reads-back-a-profiled-write)). For
+every other call the gateway forwards, a `2xx` is the upstream's acknowledgement and nothing more,
+unless a verifying provider's receipt rides on it.
+
+What a confirmed effect leads to downstream is not a question an authorization answers: a
+settlement, a service's health after a deploy, a customer's next step. A deployment that needs it
+observed observes it with its own monitoring. It may publish what it sees as a material signal, and
+the next decision that reads the signal decides on it.
+
 ## Effect mismatch
 
 When the observed projection differs from the authorised one, the pipeline's outcome stays
@@ -268,17 +289,35 @@ at that target to a person, for every executor of the organisation. The halt sta
 backstop: it needs no policy and no network, and it still holds when the authority cannot be reached.
 `ALERT`, with a hosted policy that reads the breach, narrows the stop to the scope that failed.
 
-### The gateway opens no breach of its own
+### The gateway reads back a profiled write
 
-The gateway path (`agentsafe gateway`) forwards a call and relays the answer. It has no effect plane:
-its grants bind no expected effect, it reads nothing back and it sends no effect evidence, so nothing
-it observes can contradict a grant, and **it opens no assumption breach from its own observation**.
-The one breach a gateway attempt can open comes from the upstream: a verifying provider's receipt
-rides on the attempt, and when it verifies and contradicts the outcome the gateway reports (a 2xx
-whose receipt says `REFUSED`, or a refusal whose receipt says `EFFECTED`), the authority opens one.
-In front of an upstream that signs no receipts, the gateway opens none. Actions whose outcome must be
-able to hold their scope belong on an adapter family with an effect plane: banking, cards, or an
-`EffectAdapter` of your own.
+The gateway path (`agentsafe gateway`) forwards a call and relays the answer. For a write whose
+[API profile](../spec/profiles/api/v1/README.md#9-effects) operation names its effect (a 1.1
+profile: pointers into the operation's precondition read that must state values of the call), it
+has an effect plane of its own. The intent binds the digest of what the call asks for, so the grant
+commits to it; after an `ALLOW` the upstream answered `2xx`, the gateway reads the target again,
+compares, and finalizes with that observation as effect evidence (`READ_AFTER_WRITE`) under the
+drop rule above:
+
+- a match is `CONFIRMED`, which the authority records only from an observer on its trusted-observer
+  allowlist (the gateway's `evidence.observer`, the boundary id by default);
+- a difference is `UNCONFIRMED` with the observed digest, `EFFECT_MISMATCH` in the gateway's report,
+  and the authority opens an assumption breach from it, which holds the scope as above;
+- a read after the write that does not answer is `UNCONFIRMED` with no observed digest, and opens
+  nothing.
+
+Everything else the gateway forwards still holds only the upstream's acknowledgement, and says so:
+the report's `effect` is `PENDING`, with `EFFECT_UNDECLARED` (no effect, or no read, in the profile),
+`EFFECT_UNSTATED` (the call states none of what the effect names), `EFFECT_NOT_BOUND` (facts-only
+privacy, where no digest of the call's values may leave the gateway) or `EFFECT_NOT_READ` (a
+redirect). For those, the one breach a gateway attempt can open comes from the upstream: a verifying
+provider's receipt rides on the attempt, and when it verifies and contradicts the outcome the gateway
+reports (a 2xx whose receipt says `REFUSED`, or a refusal whose receipt says `EFFECTED`), the
+authority opens one. The gateway never halts itself on a mismatch: the authority's breach is the
+hold. An action whose outcome a single read cannot state, or whose platform normalises what it
+stores, belongs on an adapter family with an effect plane of its own: banking, cards, or an
+`EffectAdapter` of your own. The [HTTP interception](./gateway/http-interception.md#the-target-a-write-names)
+page has the whole of what the gateway reads.
 
 ## A refusal after dispatch
 

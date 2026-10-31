@@ -1120,13 +1120,17 @@ describe("the gateway configuration", () => {
       file: {
         version: 1,
         intentTtlSeconds: 45,
-        evidence: { enabled: false, journalDir: "/elsewhere" },
+        evidence: { enabled: false, journalDir: "/elsewhere", observer: "synthetic-observer" },
         output: { format: "human", verbose: false },
         actor: { id: "synthetic-other", type: "OTHER" },
       },
     });
     expect(config.output).toEqual({ format: "JSON", verbose: true });
-    expect(config.evidence).toEqual({ enabled: false, journalDir: "/var/lib/agentsafe" });
+    expect(config.evidence).toEqual({
+      enabled: false,
+      journalDir: "/var/lib/agentsafe",
+      observer: "synthetic-observer",
+    });
     expect(config.actor).toMatchObject({ id: "synthetic-agent", type: "AI_AGENT" });
     expect(config.upstream).toMatchObject({
       timeoutMs: 2000,

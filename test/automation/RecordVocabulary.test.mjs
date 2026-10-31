@@ -41,7 +41,7 @@ function tableRows(markdown, file) {
         .slice(1, -1)
         .map((cell) => cell.trim()),
     );
-  assert.equal(rows.length, 11, `${file} table has eleven rows`);
+  assert.equal(rows.length, 13, `${file} table has thirteen rows`);
   return rows;
 }
 

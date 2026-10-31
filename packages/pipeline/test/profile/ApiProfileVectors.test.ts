@@ -3,6 +3,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   API_PROFILE_CONTRACT,
+  API_PROFILE_CONTRACTS,
   ApiProfile,
   ApiProfileError,
   apiProfileJsonSchema,
@@ -11,7 +12,7 @@ import {
   type ApiRequest,
   type ApiSubjectCheck,
 } from "../../src/profile/ApiProfile.js";
-import type { JsonValue } from "../../src/intent/JsonValue.js";
+import type { JsonObject, JsonValue } from "../../src/intent/JsonValue.js";
 import type { TargetPrecondition } from "../../src/intent/TargetPrecondition.js";
 import { ApiProfiles } from "../../src/profile/ApiProfiles.js";
 import { BUILT_IN_API_PROFILES } from "../../src/profile/BuiltInApiProfiles.js";
@@ -58,6 +59,11 @@ interface Vector {
   readonly state_answer?: ApiAnswer;
   readonly read_at?: string;
   readonly precondition?: TargetPrecondition | null;
+  /** What the write expects its read to state once it has landed, or null when it names no effect. */
+  readonly effect_expected?: JsonObject | null;
+  /** The read's answer after the write, and what it states where the expectation looks. */
+  readonly effect_answer?: ApiAnswer;
+  readonly effect_observed?: JsonObject;
 }
 
 function json<T>(url: URL): T {
@@ -80,7 +86,12 @@ function profileIds(): string[] {
       if (!statSync(new URL(`profiles/${relative}${entry}`, ROOT)).isDirectory()) continue;
       const child = `${relative}${entry}/`;
       const file = new URL(`profiles/${child}profile.json`, ROOT);
-      if (existsSync(file) && json<{ profile: string }>(file).profile === API_PROFILE_CONTRACT) {
+      if (
+        existsSync(file) &&
+        (API_PROFILE_CONTRACTS as readonly string[]).includes(
+          json<{ profile: string }>(file).profile,
+        )
+      ) {
         found.push(child.slice(0, -1));
       } else {
         walk(child);
@@ -132,6 +143,17 @@ function expectPrecondition(
   ).toEqual(vector.precondition);
 }
 
+/** A vector's effect, when it pins one: what the call expects, then what the answer states. */
+function expectEffect(profile: ApiProfile, match: ApiProfileMatch | null, vector: Vector): void {
+  if (vector.effect_expected === undefined) return;
+  const expected = profile.expectedEffect(vector.request!);
+  expect(expected).toEqual(vector.effect_expected);
+  if (vector.effect_answer === undefined) return;
+  expect(profile.observedEffect(match!.operation, vector.effect_answer, expected!)).toEqual(
+    vector.effect_observed,
+  );
+}
+
 function refusal(work: () => unknown): string {
   try {
     work();
@@ -159,6 +181,17 @@ describe("agent-safe.profile.api/1 definition vectors", () => {
     expect(asVector(match)).toEqual(vector.expected);
     expectChecks(profile, match, vector);
     expectPrecondition(profile, match, vector);
+    expectEffect(profile, match, vector);
+  });
+
+  it("pins an effect read back as expected, one that differs, a partial one and none", () => {
+    const pinned = vectors.filter(([, vector]) => vector.effect_expected !== undefined);
+    expect(pinned.map(([name]) => name)).toEqual([
+      "effect-call-states-part.json",
+      "effect-none-declared.json",
+      "effect-read-back-differs.json",
+      "effect-read-back-matches.json",
+    ]);
   });
 
   it("pins a precondition read from a header and from a body, and one that states none", () => {
@@ -229,6 +262,7 @@ describe("the profiles this build ships", () => {
       expect(asVector(match), name).toEqual(vector.expected);
       expectChecks(profile, match, vector);
       expectPrecondition(profile, match, vector);
+      expectEffect(profile, match, vector);
       if (match !== null) covered.add(match.operation);
     }
     expect([...covered].sort()).toEqual(

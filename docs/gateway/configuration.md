@@ -107,7 +107,9 @@ neither sets nor sends to the authority: not a hop-by-hop or framing header, not
 `Idempotency-Key` (both bound into the intent), not the principal header, and nothing under
 `agentsafe-`, `x-agent-safe-` or `x-forwarded-`. The value never reaches the intent, a report line,
 the evidence or `/_agentsafe/status`, which names the header only. The upstream's proof is fetched
-without it.
+without it. The reads an enforcing gateway makes of a profiled write's target are made with it
+([the target a write names](./http-interception.md#the-target-a-write-names)), so a gateway that
+reads a target should hold it.
 
 ### The gateway token
 
@@ -477,3 +479,11 @@ chain heads a restart resumes from. Without it, the lines go to the terminal in 
 with `--verbose`, and are otherwise not written; the banner says which. `output.format` is `human`
 on a terminal and `json` under `NODE_ENV=production`; `AGENTSAFE_LOG_FORMAT=json` forces one line
 of JSON per event, which is what a container's log pipeline wants.
+
+`evidence.observer` is who the effect evidence the gateway sends with a finalization names as its
+observer, when it read a profiled write back after the upstream's `2xx`: the boundary id when unset.
+The authority records a `CONFIRMED` observation only from an identity on its trusted-observer
+allowlist, so set it to that identity to have a matching read-back recorded as confirmed. Beside
+it, `interception.observeRefusals` (on by default) and `interception.refusalWindowMs` (1000 by
+default, at most 30000) govern the read of a refused write's target, chained as
+`REFUSAL_OBSERVATION` ([the target a write names](./http-interception.md#the-target-a-write-names)).

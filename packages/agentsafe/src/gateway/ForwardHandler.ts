@@ -1,10 +1,12 @@
 import { z } from "zod";
 import {
   JsonValueSchema,
+  preconditionOf,
   PreDispatchRefusal,
   ProviderRefusal,
   type ActionHandler,
   type ActionRegistry,
+  type VerifiedAuthorization,
 } from "@decionis/agent-safe-pipeline";
 import { EFFECT_RECEIPT_HEADER } from "../verify/EffectReceipt.js";
 import { dispatchBudgetMs, MonotonicDeadline } from "../time/MonotonicClock.js";
@@ -46,6 +48,21 @@ export const HttpParametersSchema = z.union([
   HttpFactsParametersSchema,
 ]) as z.ZodType<HttpParameters>;
 
+/**
+ * The header a write carries the target version its intent bound in, as a
+ * verifying hop sets it after checking an attestation: an upstream that takes
+ * writes only through the gateway's credential, and honours it, refuses a
+ * write whose target has moved since the decision.
+ */
+export const EXPECTED_STATE_VERSION_HEADER = "x-agent-safe-expected-state-version";
+
+/**
+ * Told when the upstream answered a forwarded write with a `2xx`, after the
+ * point of no return and before the attempt is finalized, so what it does
+ * rides on the finalization. It never throws.
+ */
+export type Landed = (authorization: VerifiedAuthorization) => Promise<void>;
+
 /** What the handler leaves behind for the relay, whichever way the attempt ended. */
 export interface ForwardOutcome {
   readonly response: UpstreamResult | null;
@@ -65,6 +82,7 @@ class UpstreamIndeterminate extends Error {
 interface Held {
   readonly request: InterceptedRequest;
   readonly extraHeaders: Readonly<Record<string, string>>;
+  readonly landed: Landed | null;
   outcome: ForwardOutcome;
 }
 
@@ -80,8 +98,14 @@ export class RequestHolder {
     intentId: string,
     request: InterceptedRequest,
     extraHeaders: Readonly<Record<string, string>>,
+    landed: Landed | null = null,
   ): void {
-    this.held.set(intentId, { request, extraHeaders, outcome: { response: null, failure: null } });
+    this.held.set(intentId, {
+      request,
+      extraHeaders,
+      landed,
+      outcome: { response: null, failure: null },
+    });
   }
 
   /** @internal */
@@ -107,7 +131,10 @@ export class RequestHolder {
  * The upstream's status is the attempt's outcome: `2xx` and `3xx` commit,
  * `4xx` is the provider's own refusal, `5xx` and a lost connection are
  * unknown. A facts-only intent carries no path to compare: the held request
- * is bound by its keyed digest instead, which covers the same bytes.
+ * is bound by its keyed digest instead, which covers the same bytes. When
+ * the intent bound its target's version, the write says so to the upstream,
+ * and a `2xx` is handed to whoever held the request before the runner
+ * finalizes the attempt.
  */
 export function httpForwardHandler(
   upstream: Upstream,
@@ -131,16 +158,18 @@ export function httpForwardHandler(
       if (request.method.toUpperCase() !== parameters.method || !bound) {
         throw new PreDispatchRefusal("PAYLOAD_BINDING_MISMATCH");
       }
+      const precondition = preconditionOf(context);
       const headers = upstream.headersFor(request, {
         ...held.extraHeaders,
         "x-agent-safe-intent-hash": intent.intentHash,
         "x-agent-safe-decision-id": authorization.decisionId,
         "x-agent-safe-dossier-id": authorization.dossierId,
+        ...(precondition === null ? {} : { [EXPECTED_STATE_VERSION_HEADER]: precondition.version }),
       });
       // The upstream is never given more time than the authorization has
       // left, and the budget is monotonic, so a clock change cannot extend it.
       const deadline = MonotonicDeadline.after(dispatchBudgetMs(upstream.timeoutMs, authorization));
-      return await dispatch.run(async () => {
+      const answered = await dispatch.run(async () => {
         // Everything after this line is the point of no return.
         let response: UpstreamResult;
         try {
@@ -181,6 +210,10 @@ export function httpForwardHandler(
         held.outcome = { response, failure: null };
         return response;
       });
+      // Past the point of no return: what follows observes the write, and
+      // can change neither its outcome nor whether it happened.
+      if (answered.status < 300) await held.landed?.(authorization);
+      return answered;
     },
   };
 }
