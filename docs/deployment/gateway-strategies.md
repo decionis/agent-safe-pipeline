@@ -366,6 +366,11 @@ belong to the customer; any hosted egress allowlist must use addresses agreed wi
 Run checks from the real agent network namespace and identity, against a synthetic or approved
 test API. Keep a counter or receipt log at the API to establish whether an effect occurred.
 
+`agentsafe accept` runs the first five checks below from the agent's zone, against the targets a
+plan you write names, and the gateway signs what it observed
+([accept a deployment](./acceptance.md)). An escalation's resume, alternate names and addresses
+you do not list as origins, spoofed identity, and restarts stay manual.
+
 | Check                                                 | Evidence required                                                                                       |
 | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | Gateway ALLOW                                         | Gateway decision/claim evidence and exactly one test effect at the API                                  |

@@ -8,8 +8,19 @@ import type { ActionSpaceStatus } from "../posture/ActionSpaceDrift.js";
 import { parseArguments, ArgumentError } from "./Arguments.js";
 import type { CliProcess } from "./CliProcess.js";
 import { explainRefusal, resolveGateway, PROXY_ARGUMENTS } from "./Proxy.js";
+import {
+  describeVerification,
+  verifyAcceptance,
+  type AcceptanceVerification,
+} from "./VerifyAcceptance.js";
 
 const STATUS_TIMEOUT_MS = 3_000;
+
+/** `proxy`'s arguments, and the acceptance report to hold against the running gateway. */
+export const STATUS_ARGUMENTS = {
+  valued: [...PROXY_ARGUMENTS.valued, "acceptance"],
+  flags: [...PROXY_ARGUMENTS.flags],
+} as const;
 /** Room for the fingerprint's route table: up to 200 routes and a profile's writes, each a path of up to 500 characters. */
 const MAX_STATUS_BYTES = 512 * 1024;
 
@@ -63,7 +74,7 @@ export async function runStatus(io: CliProcess, argv: readonly string[]): Promis
   let listen: { host: string; port: number };
   let enforce: string;
   try {
-    parsed = parseArguments(argv, PROXY_ARGUMENTS);
+    parsed = parseArguments(argv, STATUS_ARGUMENTS);
     const { config } = resolveGateway(io, parsed);
     listen = config.listen;
     enforce = enforcementSwitch(config);
@@ -84,8 +95,11 @@ export async function runStatus(io: CliProcess, argv: readonly string[]): Promis
     return;
   }
   const status = answer.status;
+  const acceptance = await acceptanceStanding(io, parsed.options.get("acceptance"), status);
   if (parsed.options.get("json") === true) {
-    io.stdout(`${JSON.stringify(status)}\n`);
+    io.stdout(
+      `${JSON.stringify(acceptance === undefined ? status : { ...status, acceptance_report: acceptance })}\n`,
+    );
   } else {
     const counts = Object.entries(status.counts)
       .map(([name, value]) => `${name}=${value}`)
@@ -106,6 +120,11 @@ export async function runStatus(io: CliProcess, argv: readonly string[]): Promis
         `Evidence      seq ${status.evidence.seq}`,
         `Fingerprint   ${status.fingerprint === undefined ? "not reported by this gateway" : shortDigest(status.fingerprint.digest)}`,
         `Action space  ${describeActionSpace(status.action_space)}`,
+        ...(acceptance === undefined
+          ? []
+          : [
+              `Acceptance    ${typeof acceptance === "string" ? acceptance : describeVerification(acceptance)}`,
+            ]),
         `Status        ${status.status.toUpperCase()}`,
         "",
       ].join("\n"),
@@ -129,4 +148,25 @@ export async function runStatus(io: CliProcess, argv: readonly string[]): Promis
     }
   }
   io.exit(0);
+}
+
+/**
+ * An acceptance report held against the gateway that answered: checked with
+ * the key that gateway serves, and its fingerprint compared with the one it
+ * runs. Undefined when none was named; a sentence when it cannot be checked.
+ * It is the operator's view of the gateway's own word: a buyer pins the key
+ * from `agentsafe identity` and runs `agentsafe verify acceptance` instead.
+ */
+async function acceptanceStanding(
+  io: CliProcess,
+  path: string | true | undefined,
+  status: GatewayStatus,
+): Promise<AcceptanceVerification | string | undefined> {
+  if (typeof path !== "string") return undefined;
+  const token = io.files.read(path);
+  if (token === null) return `cannot read ${path}`;
+  const key = status.acceptance?.public_jwk;
+  if (key === undefined || key === null) return "this gateway serves no acceptance key";
+  if (status.fingerprint === undefined) return "this gateway reports no fingerprint";
+  return await verifyAcceptance(token, key, Date.now(), status.fingerprint);
 }

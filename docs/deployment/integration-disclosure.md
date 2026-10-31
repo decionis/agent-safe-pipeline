@@ -46,7 +46,8 @@ figures and the budgets its suite asserts ([card authorization](../banking/card-
 
 ## Before enforcement
 
-Run the checks in [Verify the boundary before promotion](./gateway-strategies.md#verify-the-boundary-before-promotion)
-from the agent's own network and identity. Record the image, the configuration and the network
-policy they ran against. [Four questions](../../EVALUATION-PATH.md#four-questions-and-where-each-answer-stops)
+Run an [acceptance plan](./acceptance.md) from the agent's own network and identity, and keep the
+report the gateway signs: it binds the fingerprint it was observed under. Run the checks in
+[Verify the boundary before promotion](./gateway-strategies.md#verify-the-boundary-before-promotion)
+that it does not cover by hand, and record the network policy they ran against. [Four questions](../../EVALUATION-PATH.md#four-questions-and-where-each-answer-stops)
 says what that evidence establishes for a deployment, and what it leaves unsaid.

@@ -80,6 +80,18 @@ importers:
         specifier: ^2.9.0
         version: 2.9.0
 
+  examples/acceptance-demo:
+    dependencies:
+      '@decionis/agent-safe-pipeline':
+        specifier: workspace:*
+        version: link:../../packages/pipeline
+      '@decionis/agentsafe':
+        specifier: workspace:*
+        version: link:../../packages/agentsafe
+      yaml:
+        specifier: ^2.9.0
+        version: 2.9.0
+
   examples/basic-agent:
     dependencies:
       '@decionis/agent-safe-pipeline':

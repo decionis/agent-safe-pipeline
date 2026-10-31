@@ -1,0 +1,18 @@
+{
+  "name": "@decionis/agent-safe-example-acceptance",
+  "version": "0.1.0",
+  "private": true,
+  "description": "An acceptance run against a gateway on loopback: the real agentsafe accept, identity and verify acceptance, and a target that counts what reached it.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "build": "node ../../scripts/CleanBuildOutput.mjs && tsc -p tsconfig.json",
+    "demo": "pnpm --filter @decionis/agent-safe-pipeline build && pnpm --filter @decionis/agentsafe build && pnpm build && node dist/Index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@decionis/agent-safe-pipeline": "workspace:*",
+    "@decionis/agentsafe": "workspace:*",
+    "yaml": "^2.9.0"
+  }
+}

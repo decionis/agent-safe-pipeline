@@ -11,7 +11,9 @@
  * offline: every file's digest against the manifest, both chains, and the
  * signature when the bundle carries one. `verify intent <file|dir>...`
  * checks Agent-Safe Intent vectors, or prints the canonical bytes and hash
- * of a binding, offline. `actions manifest` writes the action space this
+ * of a binding, offline. `verify acceptance <report> --key <file>` checks
+ * an acceptance report offline, and with `--current` against the running
+ * gateway's fingerprint. `actions manifest` writes the action space this
  * build can run (its families, API profiles and MCP profile files) as one
  * `agent-safe.actions/1` document. `probe-containment <name=host:port>...` runs in
  * the agent zone and reports whether a system of record answers without the
@@ -28,6 +30,7 @@ import { runCards } from "./cli/Cards.js";
 import { runProfile } from "./cli/Profile.js";
 import { runRecords } from "./cli/Records.js";
 import { runEdge } from "./cli/Edge.js";
+import { runVerifyAcceptance } from "./cli/VerifyAcceptance.js";
 import { usage } from "./cli/Help.js";
 import { runVerifyIntent } from "./cli/VerifyIntent.js";
 import { runTcpBroker } from "./cli/TcpBrokerCli.js";
@@ -57,6 +60,7 @@ const COMMANDS = [
   "verify-chain",
   "verify-bundle",
   "verify-intent",
+  "verify-acceptance",
   "probe-containment",
   "edge",
   "cards",
@@ -78,11 +82,14 @@ async function main(): Promise<void> {
 
   if (command === "--version" || command === "-v") command = "version";
   if (command === "--help" || command === "-h") command = "help";
-  // `verify chain`, `verify bundle` and `verify intent` are the verifiers
+  // `verify chain`, `verify bundle`, `verify intent` and `verify acceptance` are the verifiers
   // under one word; the hyphenated names keep working as they always have.
   if (
     command === "verify" &&
-    (rest[0] === "chain" || rest[0] === "bundle" || rest[0] === "intent")
+    (rest[0] === "chain" ||
+      rest[0] === "bundle" ||
+      rest[0] === "intent" ||
+      rest[0] === "acceptance")
   ) {
     command = `verify-${rest[0]}`;
     rest = rest.slice(1);
@@ -150,6 +157,8 @@ async function main(): Promise<void> {
     runActions(nodeCliProcess(), rest);
   } else if (command === "verify-intent") {
     runVerifyIntent(nodeCliProcess(), rest);
+  } else if (command === "verify-acceptance") {
+    await runVerifyAcceptance(nodeCliProcess(), rest);
   } else if (command === "probe-containment") {
     const arguments_ = rest;
     if (arguments_.length === 0) {
