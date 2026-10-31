@@ -151,7 +151,7 @@ Each case is paired with a legitimate counterpart that must still complete (a va
 proceeds, a safe retry keeps its identity, a repaired dependency allows reauthorized work), because
 a boundary that refuses everything after any change has prevented nothing worth claiming.
 
-[`examples/changed-conditions-demo`](./examples/changed-conditions-demo) runs twelve cases over real
+[`examples/changed-conditions-demo`](./examples/changed-conditions-demo) runs thirteen cases over real
 HTTP against the loopback authority, among them the invariant that no administrative port of a
 production security group opens to every address, and counts what reached the target with the
 recording target behind `agentsafe test`; `pnpm examples:prove` runs it in CI. Two grants racing

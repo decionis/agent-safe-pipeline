@@ -413,6 +413,13 @@ export interface LocalGrantRecord {
   readonly policyVersion: string;
   /** The material signals the decision rested on, at the versions it read them. */
   readonly materialSignals: readonly LocalMaterialSignal[];
+  /**
+   * The signed standing signals the decision rested on: who signed each, with
+   * which key, and until when. The claim re-checks both, as the hosted claim
+   * does: a key the organisation has since revoked, or a signal that has run
+   * out, admits nothing more.
+   */
+  readonly signedSignals: readonly LocalBoundSignedSignal[];
   /** The concurrency scopes a claim of this grant holds until its outcome is known. */
   readonly scopes: readonly string[];
   claimed: boolean;
@@ -422,6 +429,14 @@ export interface LocalGrantRecord {
   finalized: "COMMITTED" | "FAILED" | "INDETERMINATE" | null;
   /** The provider's effect receipt as this authority read it at finalization, when one came. */
   receipt: LocalEffectReceiptRecord | null;
+}
+
+/** A signed signal as a grant binds it: enough to re-check it at the claim, never the token. */
+export interface LocalBoundSignedSignal {
+  readonly name: string;
+  readonly producer: string;
+  readonly key_id: string;
+  readonly expires_at: string;
 }
 
 /**
@@ -882,6 +897,15 @@ export class LocalAuthority {
   }
 
   /**
+   * Revokes a provider key, as the hosted `DELETE /v1/execution/provider-keys/{kid}`
+   * does: nothing it signed is accepted from now on, at a decision or at a
+   * claim. False when there was no such key.
+   */
+  public revokeProviderKey(kid: string): boolean {
+    return this.providerKeys.delete(kid);
+  }
+
+  /**
    * Registers the public half of a provider's receipt key, as the hosted
    * `POST /v1/execution/provider-keys` does; a test or a demo provider calls
    * it directly rather than over HTTP.
@@ -1268,6 +1292,13 @@ export class LocalAuthority {
     }
     if (req.method === "DELETE" && escalationLookup !== null) {
       return this.cancelManaged(res, record, decodeURIComponent(escalationLookup[1] ?? ""));
+    }
+    const providerKey = url.pathname.match(/^\/v1\/execution\/provider-keys\/([^/]+)$/);
+    if (req.method === "DELETE" && providerKey !== null) {
+      const kid = decodeURIComponent(providerKey[1] ?? "");
+      return this.revokeProviderKey(kid)
+        ? this.send(res, record, 200, { service: "decionis", kid, revoked: true })
+        : this.send(res, record, 404, { error: "NOT_FOUND", message: "No such provider key." });
     }
     if (req.method !== "POST") return this.send(res, record, 405, { error: "METHOD_NOT_ALLOWED" });
     if (req.headers["content-type"] !== "application/json") {
@@ -1659,6 +1690,17 @@ export class LocalAuthority {
     // instead; this double does not, so that flows written before it modelled
     // scopes, such as two open card claims on one card, keep their behaviour.
     const scopes = materialSignals.map((signal) => `signal:${signal.signal_id}`);
+    // Verified a moment ago, when the decision was made; what the grant keeps
+    // is who signed each and until when, for the claim to look at again.
+    const signed = this.signedSignalsOf(request);
+    const signedSignals = Object.entries("facts" in signed ? (signed.facts ?? {}) : {}).map(
+      ([name, facts]) => ({
+        name,
+        producer: facts.producer,
+        key_id: facts.key_id,
+        expires_at: facts.expires_at,
+      }),
+    );
     this.grants.set(token, {
       jti,
       tenantId: request.tenant_id,
@@ -1678,6 +1720,7 @@ export class LocalAuthority {
       receiptDossierId: approval?.receiptDossierId ?? null,
       policyVersion: this.policyVersion,
       materialSignals,
+      signedSignals,
       scopes,
       claimed: false,
       claimToken: null,
@@ -1990,8 +2033,22 @@ export class LocalAuthority {
       return rejected("PRESENCE_APPROVAL_STALE");
     }
     // Authority is re-derived from current state before anything is claimed,
-    // in the hosted order, so a stale grant never burns its nonce: the policy
-    // release first, then every material signal the decision read.
+    // in the hosted order, so a stale grant never burns its nonce. The hosted
+    // current state cannot be resolved for a signed signal whose key the
+    // organisation has revoked since, or that has run out; then the policy
+    // release, then every material signal the decision read.
+    if (
+      grant.signedSignals.some((bound) => {
+        const key = this.signedSignalKey(bound.key_id);
+        return (
+          key === null ||
+          key.issuer !== bound.producer ||
+          !(Date.parse(bound.expires_at) > this.clock())
+        );
+      })
+    ) {
+      return rejected("CURRENT_STATE_UNRESOLVED");
+    }
     if (grant.policyVersion !== this.policyVersion) return rejected("POLICY_VERSION_STALE");
     if (
       grant.materialSignals.some(
