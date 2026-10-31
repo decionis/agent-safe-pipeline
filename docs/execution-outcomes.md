@@ -225,6 +225,26 @@ Two rules decide every row. An acknowledgement is never a confirmation: a provid
 error is never success: only a read-back whose projection matches what was authorised confirms
 anything, which is also why a reconciliation completes only on a matching read-back.
 
+## Acknowledged, effected, consequential
+
+Three different things can follow an authorised request, and no record here takes one for another.
+
+|               | What establishes it                                                    | Where it is recorded                                                                                                                                                                                                |
+| ------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Acknowledged  | The provider answered that it took the request: a `2xx`, an "accepted" | The outcome: the handler returned (`COMPLETED`) or, on the gateway, the status it relayed                                                                                                                           |
+| Effected      | A read-back of the target whose projection matches what was authorised | The confirmation (`CONFIRMED`), and the effect evidence the authority binds to the grant                                                                                                                            |
+| Consequential | Nothing in this repository or in the authority                         | Nowhere. With every dossier, the Decionis verifier [`@decionis/verify`](https://www.npmjs.com/package/@decionis/verify) lists `downstream_consequences` as never established, because no authorization governs them |
+
+An adapter family with an effect plane keeps the first two apart: banking, cards, or an
+`EffectAdapter` of your own. The gateway path records only the first. A forwarded `2xx` is the
+upstream's acknowledgement, and the gateway reads nothing back
+([below](#the-gateway-opens-no-breach-of-its-own)). The exception is a verifying provider's receipt.
+
+What a confirmed effect leads to downstream is not a question an authorization answers: a
+settlement, a service's health after a deploy, a customer's next step. A deployment that needs it
+observed observes it with its own monitoring. It may publish what it sees as a material signal, and
+the next decision that reads the signal decides on it.
+
 ## Effect mismatch
 
 When the observed projection differs from the authorised one, the pipeline's outcome stays
