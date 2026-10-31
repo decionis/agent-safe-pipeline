@@ -81,6 +81,39 @@ the chain's own bookkeeping (`CHAIN_RESUMED`, `CHAIN_CHECKPOINT`). Every field i
 count, checked against a schema before the line is written; an event that does not fit is dropped
 and counted rather than written incomplete.
 
+## The gateway's stream
+
+A gateway writes the evidence and security streams in the same envelope, and a third chain of its
+own, `agent-safe.gateway-events/1`, for what the audit contract has no event for ([evidence](./authority/evidence.md)).
+Two of its lines say what the deployment is and whether the policy that decided was checked
+against it ([deployment fingerprint](./deployment-fingerprint.md)):
+
+- `DEPLOYMENT_FINGERPRINT`, right after `GATEWAY_STARTED`, and on a reload only when the deployment
+  changed: the fingerprint's `digest` and the whole `document`, which holds digests, route patterns,
+  action names, header names and declared addresses, and never a secret or a value derived from
+  one.
+- `ACTION_SPACE_DRIFT`, once for each policy release whose action manifest is not the one this
+  gateway loaded: the gateway's `fingerprint`, its `loaded` digest (`null` when no manifest
+  describes it), the `release` digest and the `decision_id` that first named that release.
+
+```json
+{
+  "stream": "agent-safe.gateway-events/1",
+  "seq": 3,
+  "prev_hash": "sha256:5d0a…",
+  "at": "2026-10-31T10:04:12.311Z",
+  "event": "ACTION_SPACE_DRIFT",
+  "fingerprint": "sha256:91fe…",
+  "loaded": "sha256:7c2b…",
+  "release": "sha256:e40d…",
+  "decision_id": "…",
+  "hash": "sha256:0b83…"
+}
+```
+
+Both are reports: neither line is written in place of a decision, and a line that cannot be written
+leaves the decision as it was.
+
 ## Verifying a chain
 
 ```bash

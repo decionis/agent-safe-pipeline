@@ -1202,4 +1202,40 @@ describe("the gateway configuration", () => {
     });
     expect(load({ file: parse(text) as unknown }).interception.routes).toEqual([route]);
   });
+
+  it("reads the declared containment targets from the environment or the file, refused by setting", () => {
+    const base = { flags: { upstream: "http://localhost:3000" } } as const;
+    expect(load(base).containment).toEqual({ targets: [] });
+    expect(load(base).sources["containment.targets"]).toBe("default");
+    const fromEnvironment = load({
+      ...base,
+      env: { AGENTSAFE_CONTAINMENT_TARGETS: " ledger=10.0.0.5:5432 , ,cards=cards.internal:443" },
+    });
+    expect(fromEnvironment.containment.targets).toEqual([
+      { name: "ledger", host: "10.0.0.5", port: 5432 },
+      { name: "cards", host: "cards.internal", port: 443 },
+    ]);
+    expect(fromEnvironment.sources["containment.targets"]).toBe("environment");
+    const fromFile = load({
+      ...base,
+      file: { version: 1, containment: { targets: ["ledger=10.0.0.5:5432"] } },
+    });
+    expect(fromFile.containment.targets).toEqual([
+      { name: "ledger", host: "10.0.0.5", port: 5432 },
+    ]);
+    expect(fromFile.sources["containment.targets"]).toBe("file");
+    for (const env of [
+      { AGENTSAFE_CONTAINMENT_TARGETS: "ledger=10.0.0.5" },
+      { AGENTSAFE_CONTAINMENT_TARGETS: "ledger=10.0.0.5:0" },
+      {
+        AGENTSAFE_CONTAINMENT_TARGETS: Array.from({ length: 65 }, (_, i) => `t${i}=h:1`).join(","),
+      },
+    ]) {
+      expect(refusal({ ...base, env })).toMatchObject({
+        code: "CONFIG_INVALID",
+        setting: "containment.targets",
+      });
+    }
+    expect(GATEWAY_ENVIRONMENT).toContain("AGENTSAFE_CONTAINMENT_TARGETS");
+  });
 });

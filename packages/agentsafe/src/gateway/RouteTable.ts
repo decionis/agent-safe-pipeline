@@ -1,7 +1,8 @@
-import type { ApiProfile } from "@decionis/agent-safe-pipeline";
+import { ApiProfile, ApiProfiles } from "@decionis/agent-safe-pipeline";
 import {
   CONSEQUENTIAL_METHODS,
   type ConsequentialMethod,
+  type GatewayConfig,
   type PrivacyMode,
   type RouteConfig,
   type UnmatchedPolicy,
@@ -39,6 +40,19 @@ export type RoutePlan =
       /** The API profile operation that named the action, when a profile did. */
       readonly operation?: string;
     };
+
+/**
+ * One row of what the table does with a consequential request, as it tries
+ * them: the methods and path pattern (`/**` for the rest), and the action it
+ * governs under (`GOVERN`), or that it passes the request (`PASSTHROUGH`) or
+ * refuses it (`REFUSE`) without asking anyone.
+ */
+export interface RouteRow {
+  readonly methods: readonly ConsequentialMethod[];
+  readonly path: string;
+  readonly action: string | null;
+  readonly disposition: "GOVERN" | "PASSTHROUGH" | "REFUSE";
+}
 
 /** A request's query, as the gateway reads it for planning: each name to one value or a list. */
 export type PlanQuery = { readonly [key: string]: string | readonly string[] };
@@ -121,7 +135,8 @@ export class RouteTable {
     routes: readonly RouteConfig[],
     private readonly unmatched: UnmatchedPolicy,
     private readonly enabled: boolean = true,
-    private readonly profile: ApiProfile | null = null,
+    /** The API profile the table governs by, after any explicit route; null for routes alone. */
+    public readonly profile: ApiProfile | null = null,
     private readonly privacy: PrivacyMode = "FULL",
     private readonly reads: ReadPolicy = "PASSTHROUGH",
   ) {
@@ -134,12 +149,91 @@ export class RouteTable {
     });
   }
 
+  /**
+   * The table a gateway with this configuration plans by. Reads are checked
+   * only when the gateway pins subjects, and unknown ones refused only when
+   * the configuration says so.
+   */
+  public static of(config: GatewayConfig): RouteTable {
+    const reads: ReadPolicy =
+      config.subject === null
+        ? "PASSTHROUGH"
+        : config.interception.refuseUnknownReads
+          ? "REFUSE_UNKNOWN"
+          : "CHECK";
+    return new RouteTable(
+      config.interception.routes,
+      config.interception.unmatched,
+      config.interception.http,
+      config.interception.profile === null ? null : ApiProfiles.get(config.interception.profile),
+      config.interception.privacy,
+      reads,
+    );
+  }
+
   /** Every action name this table can produce, for the registry to be sealed over. */
   public actions(): readonly string[] {
     const names = new Set<string>(CONSEQUENTIAL_METHODS.map((method) => derivedAction(method)));
     for (const route of this.routes) names.add(route.config.action);
     for (const action of this.profile?.actions() ?? []) names.add(action);
     return [...names];
+  }
+
+  /**
+   * What the table governs, in the order `plan` tries it: the explicit routes
+   * (none in facts-only privacy, which never reads them), the profile's
+   * writes, then what becomes of every other consequential request. A read
+   * is never governed, so it is not a row.
+   */
+  public rows(): readonly RouteRow[] {
+    if (!this.enabled) {
+      return [
+        { methods: CONSEQUENTIAL_METHODS, path: "/**", action: null, disposition: "PASSTHROUGH" },
+      ];
+    }
+    const rows: RouteRow[] = [];
+    for (const route of this.privacy === "FACTS" ? [] : this.routes) {
+      rows.push({
+        methods: route.config.methods,
+        path: route.config.path,
+        action: route.config.action,
+        disposition: "GOVERN",
+      });
+    }
+    for (const operation of this.profile?.definition.operations ?? []) {
+      if (ApiProfile.isRead(operation)) continue;
+      rows.push({
+        methods: [operation.method as ConsequentialMethod],
+        path: operation.path,
+        action: operation.action,
+        disposition: "GOVERN",
+      });
+    }
+    if (this.privacy === "FACTS" || this.reads === "REFUSE_UNKNOWN") {
+      rows.push({
+        methods: CONSEQUENTIAL_METHODS,
+        path: "/**",
+        action: null,
+        disposition: "REFUSE",
+      });
+    } else if (this.unmatched === "PASSTHROUGH") {
+      rows.push({
+        methods: CONSEQUENTIAL_METHODS,
+        path: "/**",
+        action: null,
+        disposition: "PASSTHROUGH",
+      });
+    } else {
+      for (const method of CONSEQUENTIAL_METHODS) {
+        rows.push({
+          methods: [method],
+          path: "/**",
+          action: derivedAction(method),
+          disposition: "GOVERN",
+        });
+      }
+    }
+    return rows;
   }
 
   /**

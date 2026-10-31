@@ -98,6 +98,47 @@ describe("DecionisGate", () => {
     expect(malformed.failClosed).toBe(true);
   });
 
+  it("carries the deciding release's action-manifest digest as the authority named it, in either mode", async () => {
+    const intent = captured();
+    const digest = `sha256:${"c".repeat(64)}`;
+    const enforcement = await gateWith(
+      vi.fn<typeof fetch>(async () =>
+        json(decisionBody(intent, { action_manifest_digest: digest })),
+      ),
+    ).evaluate(intent);
+    expect(enforcement.verdict).toBe("ALLOW");
+    expect(enforcement.actionManifestDigest).toBe(digest);
+    const shadow = await gateWith(
+      vi.fn<typeof fetch>(async () =>
+        json(
+          decisionBody(intent, {
+            mode: "SHADOW",
+            status: "BLOCK",
+            should_execute: false,
+            execution_token: null,
+            execution_token_expires_at: null,
+            action_manifest_digest: null,
+          }),
+        ),
+      ),
+      "SHADOW",
+    ).evaluate(intent);
+    expect(shadow.verdict).toBe("BLOCK");
+    expect(shadow.actionManifestDigest).toBeNull();
+    // An authority that says nothing leaves nothing; a digest of another shape fails closed.
+    const silent = await gateWith(
+      vi.fn<typeof fetch>(async () => json(decisionBody(intent))),
+    ).evaluate(intent);
+    expect("actionManifestDigest" in silent).toBe(false);
+    const malformed = await gateWith(
+      vi.fn<typeof fetch>(async () =>
+        json(decisionBody(intent, { action_manifest_digest: "sha256:ABC" })),
+      ),
+    ).evaluate(intent);
+    expect(malformed.failClosed).toBe(true);
+    expect(malformed.reasonCodes).toEqual(["AUTHORITY_UNAVAILABLE"]);
+  });
+
   it("reads the credential at each request, so a rotation needs no new gate", async () => {
     const intent = captured();
     const seen: string[] = [];

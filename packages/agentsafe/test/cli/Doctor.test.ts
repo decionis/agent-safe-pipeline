@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { runDoctor } from "../../src/cli/Doctor.js";
-import { DEFAULT_AUTHORITY_ENDPOINT } from "../../src/gateway/GatewayConfig.js";
+import {
+  DEFAULT_AUTHORITY_ENDPOINT,
+  GatewayConfigLoader,
+} from "../../src/gateway/GatewayConfig.js";
+import { deploymentFingerprint } from "../../src/posture/DeploymentFingerprint.js";
+import { packageVersion } from "../../src/Version.js";
 import { fakeProcess } from "../support/GatewayHarness.js";
 
 const TENANT_ID = "00000000-0000-4000-8000-000000000009";
@@ -196,5 +201,110 @@ describe("agentsafe doctor", () => {
     const off = byName(await runDoctor(disabled, ["--no-network"], { nodeVersion: "22.14.0" }));
     expect(off["evidence configuration"]).toMatchObject({ ok: false });
     expect(disabled.exits).toEqual([1]);
+  });
+
+  describe("the gateway running at this configuration's address", () => {
+    const loaded = `sha256:${"a".repeat(64)}`;
+    const release = `sha256:${"b".repeat(64)}`;
+    const local = deploymentFingerprint(
+      GatewayConfigLoader.load({
+        flags: { upstream: "http://localhost:3000" },
+        env: {},
+        file: null,
+        credentials: null,
+        version: packageVersion(),
+      }),
+      { version: packageVersion(), imageDigest: null },
+    );
+    /** The upstream, and a gateway at :8080 that answers its status with this. */
+    function answering(status: Record<string, unknown> | null): typeof fetch {
+      return (async (input: string | URL | Request) => {
+        if (!String(input).endsWith("/_agentsafe/status"))
+          return new Response(null, { status: 404 });
+        if (status === null)
+          throw Object.assign(new Error("fetch failed"), { cause: { code: "ECONNREFUSED" } });
+        return new Response(JSON.stringify(status), { status: 200 });
+      }) as typeof fetch;
+    }
+    const doctor = async (
+      status: Record<string, unknown> | null,
+      argv: string[] = [],
+      files: Record<string, string> = {},
+    ) => {
+      const io = fakeProcess({ fetch: answering(status), files });
+      const checks = byName(
+        await runDoctor(io, ["--upstream", "http://localhost:3000", ...argv], {
+          nodeVersion: "22.14.0",
+        }),
+      );
+      return { io, checks };
+    };
+
+    it("says nothing is running, or that it reports no fingerprint, without failing", async () => {
+      const none = await doctor(null);
+      expect(none.checks["deployment fingerprint"]).toMatchObject({
+        ok: true,
+        detail: "no gateway answering at http://127.0.0.1:8080/_agentsafe/status",
+      });
+      expect(none.checks["action space"]).toBeUndefined();
+      const older = await doctor({ status: "ready" });
+      expect(older.checks["deployment fingerprint"]).toMatchObject({
+        ok: true,
+        detail: "the gateway at http://127.0.0.1:8080/_agentsafe/status reports none",
+      });
+      expect(older.io.exits).toEqual([0]);
+      // Without the network it asks nothing at all.
+      const offline = await doctor(null, ["--no-network"]);
+      expect(offline.checks["deployment fingerprint"]).toBeUndefined();
+    });
+
+    it("passes when the running gateway is this configuration and its release matches", async () => {
+      const { io, checks } = await doctor({
+        fingerprint: {
+          digest: local.digest,
+          // Another build of the same configuration is the same deployment here.
+          document: { ...local.document, runtime: { version: "9.9.9", image_digest: release } },
+        },
+        action_space: { loaded, release: loaded, state: "MATCH", drifted: [] },
+      });
+      expect(checks["deployment fingerprint"]).toMatchObject({
+        ok: true,
+        detail: `${local.digest.slice(0, 19)} at http://127.0.0.1:8080/_agentsafe/status, as this configuration describes it`,
+      });
+      expect(checks["action space"]).toMatchObject({
+        ok: true,
+        detail: "matches the deciding release (sha256:aaaaaaaaaaaa)",
+      });
+      expect(io.exits).toEqual([0]);
+    });
+
+    it("fails, and says what to do, when it runs another configuration or its release drifted", async () => {
+      const { io, checks } = await doctor(
+        {
+          fingerprint: {
+            digest: release,
+            document: { ...local.document, routes: [], containment: ["ledger=10.0.0.5:5432"] },
+          },
+          action_space: { loaded, release, state: "DRIFT", drifted: [release] },
+        },
+        ["--config", "gateway.yaml"],
+        { "/work/gateway.yaml": "version: 1\n" },
+      );
+      expect(checks["deployment fingerprint"]).toMatchObject({
+        ok: false,
+        detail:
+          "the gateway at http://127.0.0.1:8080/_agentsafe/status runs another configuration: routes, containment differ",
+      });
+      expect(checks["action space"]).toMatchObject({
+        ok: false,
+        detail:
+          "DRIFT: the deciding release was checked against sha256:bbbbbbbbbbbb; this gateway loaded sha256:aaaaaaaaaaaa",
+      });
+      const text = io.out.join("");
+      expect(text).toContain("agentsafe actions manifest --gateway --config /work/gateway.yaml");
+      expect(text).toContain("Drift is reported, never enforced: the gateway keeps deciding.");
+      expect(text).toContain("Restart it (or reload its host) to run this configuration;");
+      expect(io.exits).toEqual([1]);
+    });
   });
 });

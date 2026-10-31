@@ -44,6 +44,11 @@ export function effectiveConfig(config: GatewayConfig): Record<string, unknown> 
         ...(route.policyVersion === undefined ? {} : { policyVersion: route.policyVersion }),
       })),
     },
+    containment: {
+      targets: config.containment.targets.map(
+        (target) => `${target.name}=${target.host}:${target.port}`,
+      ),
+    },
     actor: { ...config.actor },
     intentTtlSeconds: config.intentTtlSeconds,
     presence:

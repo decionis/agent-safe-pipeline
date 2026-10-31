@@ -1,10 +1,13 @@
 import { AuthorityPaths } from "@decionis/agent-safe-pipeline";
+import { shortDigest } from "../gateway/Gateway.js";
 import type { GatewayConfig } from "../gateway/GatewayConfig.js";
+import { changedFields, deploymentFingerprint } from "../posture/DeploymentFingerprint.js";
 import { packageVersion } from "../Version.js";
 import { parseArguments, ArgumentError } from "./Arguments.js";
 import type { CliProcess } from "./CliProcess.js";
 import { credentialsPath, readCredentials } from "./Credentials.js";
 import { explainRefusal, resolveGateway, PROXY_ARGUMENTS } from "./Proxy.js";
+import { describeActionSpace, readStatus, statusUrl } from "./Status.js";
 
 export const DOCTOR_ARGUMENTS = {
   valued: [...PROXY_ARGUMENTS.valued],
@@ -87,10 +90,12 @@ export async function runDoctor(
   const json = parsed.options.get("json") === true;
   const network = parsed.options.get("no-network") !== true;
   let config: GatewayConfig | null = null;
+  let configPath: string | null = null;
   let env: Readonly<Record<string, string | undefined>> = io.env;
   try {
     const resolved = resolveGateway(io, parsed);
     config = resolved.config;
+    configPath = resolved.configPath;
     env = resolved.env;
     checks.push({
       name: "configuration valid",
@@ -219,6 +224,9 @@ export async function runDoctor(
       remedy: ["Enable evidence: it is what a decision leaves behind."],
     });
   }
+  if (config !== null && network) {
+    checks.push(...(await runningGateway(io, config, configPath, version, timeoutMs)));
+  }
   const failed = checks.filter((check) => !check.ok);
   if (json) {
     io.stdout(`${JSON.stringify({ version, ok: failed.length === 0, checks })}\n`);
@@ -237,6 +245,74 @@ export async function runDoctor(
   }
   io.exit(failed.length === 0 ? 0 : 1);
   return checks;
+}
+
+/**
+ * What the gateway answering at this configuration's address says about
+ * itself: whether it runs this configuration (its fingerprint, the runtime
+ * aside), and whether the release that decided was checked against the
+ * action space it loaded. Both are reports: a gateway in drift keeps deciding.
+ */
+async function runningGateway(
+  io: CliProcess,
+  config: GatewayConfig,
+  configPath: string | null,
+  version: string,
+  timeoutMs: number,
+): Promise<readonly DoctorCheck[]> {
+  const url = statusUrl(config.listen);
+  const answer = await readStatus(io, url, timeoutMs);
+  if ("error" in answer) {
+    return [
+      {
+        name: "deployment fingerprint",
+        ok: true,
+        detail: `no gateway answering at ${url}`,
+        remedy: [],
+      },
+    ];
+  }
+  const running = answer.status.fingerprint;
+  if (running === undefined) {
+    return [
+      {
+        name: "deployment fingerprint",
+        ok: true,
+        detail: `the gateway at ${url} reports none`,
+        remedy: [],
+      },
+    ];
+  }
+  const local = deploymentFingerprint(config, { version, imageDigest: null });
+  const changed = changedFields(running.document, local.document).filter(
+    (field) => field !== "runtime",
+  );
+  const manifest = `agentsafe actions manifest --gateway${configPath === null ? "" : ` --config ${configPath}`}`;
+  const space = answer.status.action_space;
+  return [
+    {
+      name: "deployment fingerprint",
+      ok: changed.length === 0,
+      detail:
+        changed.length === 0
+          ? `${shortDigest(running.digest)} at ${url}, as this configuration describes it`
+          : `the gateway at ${url} runs another configuration: ${changed.join(", ")} differ`,
+      remedy: [
+        "Restart it (or reload its host) to run this configuration;",
+        "anything tested against the running one no longer describes it.",
+      ],
+    },
+    {
+      name: "action space",
+      ok: space?.state !== "DRIFT",
+      detail: describeActionSpace(space),
+      remedy: [
+        "Release a policy revision whose action manifest is this gateway's:",
+        manifest,
+        "Drift is reported, never enforced: the gateway keeps deciding.",
+      ],
+    },
+  ];
 }
 
 function readKeyFile(

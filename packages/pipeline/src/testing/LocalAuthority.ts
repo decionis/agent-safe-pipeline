@@ -566,6 +566,14 @@ export interface LocalAuthorityOptions {
    */
   readonly verificationLinks?: boolean;
   /**
+   * The `actionManifestDigest` of the release every decision names, as the
+   * hosted authority attaches it as `action_manifest_digest` for a runtime
+   * that reads it: a digest, or null for a release that attached no manifest.
+   * Absent, decisions name none. `releaseActionManifest` changes it between
+   * decisions, as a new release would.
+   */
+  readonly releaseActionManifest?: string | null;
+  /**
    * Where every ESCALATE goes, as the hosted authority reads it from the
    * policy and attaches it to the decision as `escalation_requirement`: the
    * selector (kind and role) and who proves the person. A test names a
@@ -772,6 +780,8 @@ export class LocalAuthority {
     { readonly request: LocalAuthorityRequest; readonly decision: Decision }
   >();
   private readonly verificationLinks: boolean;
+  /** What the deciding release's action manifest is, from now on; undefined names none. */
+  public releaseActionManifest: string | null | undefined;
   private readonly escalationRouting: LocalAuthorityOptions["escalationRouting"];
   private server: Server | null = null;
   private port = 0;
@@ -787,6 +797,7 @@ export class LocalAuthority {
     if (process.env.NODE_ENV === "production") throw new Error("LOCAL_DOUBLE_FORBIDDEN");
     this.apiKey = options.apiKey ?? LOCAL_AUTHORITY_API_KEY;
     this.verificationLinks = options.verificationLinks === true;
+    this.releaseActionManifest = options.releaseActionManifest;
     this.escalationRouting = options.escalationRouting;
     this.presence = options.presence;
     this.legacyVerifyReceipt = options.verifyReceipt;
@@ -1427,8 +1438,15 @@ export class LocalAuthority {
     return { status: "ESCALATE", reasonCode: "ASSUMPTION_BREACH_OPEN", approval: null };
   }
 
-  /** Keeps a minted decision for its dossier route, with the envelope when links are on. */
-  private remember(request: LocalAuthorityRequest, decision: Decision): Decision {
+  /**
+   * Keeps a minted decision for its dossier route, with the envelope when
+   * links are on and the release's action manifest when one is named.
+   */
+  private remember(request: LocalAuthorityRequest, minted: Decision): Decision {
+    const decision =
+      this.releaseActionManifest === undefined
+        ? minted
+        : { ...minted, action_manifest_digest: this.releaseActionManifest };
     const dossierId = decision["dossier_id"];
     if (typeof dossierId !== "string") return decision;
     const linked = this.verificationLinks

@@ -51,6 +51,9 @@ interception:
       action: payment.create
       methods: [POST] # default: POST, PUT, PATCH, DELETE
 
+containment: # optional: what this deployment says the agent zone must not reach directly
+  targets: [] # "name=host:port", at most 64; nothing dials them, they are in the fingerprint
+
 subject: # optional: pin each session to the customer your identity provider names
   issuer: https://login.example.com/ # the token's iss, exactly
   audience: agentsafe-gateway # one of the token's aud

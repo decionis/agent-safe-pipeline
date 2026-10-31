@@ -80,6 +80,12 @@ export default {
   // refused write's target stayed where it was. A mutant there binds no
   // version or the wrong one, confirms an effect that differed (so no breach
   // holds the scope), or reports a target unchanged that moved.
+  // The deployment fingerprint, the gateway's action manifest and the
+  // action-space check are here because they are what a test result is held
+  // to: a mutant that leaves a covered field out of the fingerprint, writes a
+  // secret into it, describes an action space other than the one the gateway
+  // loads, or reads a drifting release as matching tells an operator a tested
+  // deployment is still the one tested when it is not.
   mutate: [
     "src/http/ExecutorHttpServer.ts",
     "src/identity/PrincipalRegistry.ts",
@@ -115,6 +121,9 @@ export default {
     "src/gateway/UpstreamProof.ts",
     "src/gateway/TargetReader.ts",
     "src/gateway/TargetEffect.ts",
+    "src/gateway/GatewayManifest.ts",
+    "src/posture/DeploymentFingerprint.ts",
+    "src/posture/ActionSpaceDrift.ts",
   ],
   reporters: ["clear-text", "progress"],
   coverageAnalysis: "perTest",

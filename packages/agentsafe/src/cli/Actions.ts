@@ -16,14 +16,20 @@ import { CARD_EFFECT_TYPE } from "../adapters/cards/CardEffect.js";
 import { cardHandlers } from "../adapters/cards/CardHandlers.js";
 import { EffectEvidenceRegister } from "../adapters/EffectEvidenceRegister.js";
 import { HttpParametersSchema } from "../gateway/ForwardHandler.js";
+import { gatewayManifest } from "../gateway/GatewayManifest.js";
+import { RouteTable } from "../gateway/RouteTable.js";
 import { forwardRequestHandlers } from "../handlers/ForwardRequestHandler.js";
 import type { HandlerRegistration } from "../handlers/HandlerRegistration.js";
 import { ArgumentError, optionValues, parseArguments, type ParsedArguments } from "./Arguments.js";
 import type { CliProcess } from "./CliProcess.js";
+import { explainRefusal, PROXY_ARGUMENTS, resolveGateway } from "./Proxy.js";
 
 export const ACTIONS_COMMANDS = ["manifest"] as const;
 
-const SPEC = { valued: ["family", "api", "mcp"], flags: ["digest"] } as const;
+const SPEC = {
+  valued: ["family", "api", "mcp", ...PROXY_ARGUMENTS.valued],
+  flags: ["digest", "gateway", ...PROXY_ARGUMENTS.flags],
+} as const;
 
 interface Family {
   readonly registration: () => HandlerRegistration;
@@ -61,10 +67,12 @@ const FAMILIES: Readonly<Record<string, Family>> = {
  * one `agent-safe.actions/1` document: the families it registers in code
  * (`--family`), the writes of the API profiles it ships (`--api`), and the
  * tools of MCP profile files (`--mcp`), each source named as often as it is
- * needed. A Decionis policy release is held to it: a manifest action that no
- * rule but the default matches is refused before release. `--digest` prints
- * the document's digest instead, which is what the signed release manifest
- * records.
+ * needed; or what a gateway with this configuration loads (`--gateway`, with
+ * the flags, environment and file `agentsafe proxy` would read), which is the
+ * action space the gateway's fingerprint digests. A Decionis policy release is
+ * held to it: a manifest action that no rule but the default matches is
+ * refused before release. `--digest` prints the document's digest instead,
+ * which is what the signed release manifest records.
  */
 export function runActions(io: CliProcess, argv: readonly string[]): void {
   const refuse = (event: Record<string, unknown>): void => {
@@ -90,12 +98,27 @@ export function runActions(io: CliProcess, argv: readonly string[]): void {
   const families = optionValues(parsed, "family");
   const apis = optionValues(parsed, "api");
   const mcps = optionValues(parsed, "mcp");
-  if (families.length + apis.length + mcps.length === 0) {
+  const gateway = parsed.options.get("gateway") === true;
+  if (families.length + apis.length + mcps.length === 0 && !gateway) {
     refuse({
       event: "ACTIONS_SOURCE_REQUIRED",
-      detail: "--family forward|banking|cards, --api <profile id> or --mcp <file>",
+      detail: "--family forward|banking|cards, --api <profile id>, --mcp <file> or --gateway",
     });
     return;
+  }
+  let routes: RouteTable | null = null;
+  if (gateway) {
+    try {
+      routes = RouteTable.of(resolveGateway(io, parsed).config);
+    } catch (error) {
+      refuse({
+        event: "ACTIONS_GATEWAY_CONFIG_INVALID",
+        detail: explainRefusal(error)
+          .replace(/^AgentSafe refused to start\.\n\n/, "")
+          .trim(),
+      });
+      return;
+    }
   }
   const entries: ActionManifestEntry[] = [];
   for (const name of families) {
@@ -132,6 +155,7 @@ export function runActions(io: CliProcess, argv: readonly string[]): void {
     }
   }
   try {
+    if (routes !== null) entries.push(...gatewayManifest(routes).actions);
     const document = ActionManifest.document(entries);
     io.stdout(
       parsed.options.has("digest")

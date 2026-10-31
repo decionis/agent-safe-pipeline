@@ -15,6 +15,8 @@ describe("the gateway's metric families", () => {
     metrics.indeterminate.inc();
     metrics.ungoverned.inc();
     metrics.held.set(2);
+    metrics.fingerprint.set(1, { digest: `sha256:${"a".repeat(64)}` });
+    metrics.actionSpaceDrift.set(1);
     metrics.observeAuthorityLatency(12);
     metrics.observeAuthorityLatency(-3);
     metrics.observeForwardLatency(40);
@@ -30,6 +32,8 @@ describe("the gateway's metric families", () => {
     expect(text).toContain("agentsafe_execution_indeterminate_total 1");
     expect(text).toContain("agentsafe_ungoverned_forwards_total 1");
     expect(text).toContain("agentsafe_escalations_held 2");
+    expect(text).toContain(`agentsafe_deployment_fingerprint{digest="sha256:${"a".repeat(64)}"} 1`);
+    expect(text).toContain("agentsafe_action_space_drift 1");
     expect(text).toContain("agentsafe_authority_latency_ms_sum 12");
     expect(text).toContain("agentsafe_authority_latency_ms_count 2");
     expect(text).toContain("agentsafe_forward_latency_ms_sum 40");

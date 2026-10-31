@@ -1017,6 +1017,18 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/gateway/GatewayFingerprint.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/gateway/GatewayManifest.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/gateway/GatewayMetrics.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
@@ -1396,6 +1408,18 @@
     },
     {
       "path": "packages/agentsafe/test/posture/HostPosture.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/posture/ActionSpaceDrift.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/posture/DeploymentFingerprint.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false

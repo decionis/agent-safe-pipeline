@@ -176,6 +176,7 @@ const AuthorityResponseSchema = z
     managed_escalation: ManagedEscalationWireSchema.nullable().optional(),
     verification: VerificationEnvelopeSchema.nullable().optional(),
     escalation_requirement: EscalationRequirementWireSchema.nullable().optional(),
+    action_manifest_digest: intentHash.nullable().optional(),
   })
   .strict();
 
@@ -790,6 +791,12 @@ export class DecionisGate implements DecisionAuthority {
             ),
           }
         : {};
+    // The action space the deciding release was checked against, as the
+    // authority named it; absent when it said nothing. Never authority.
+    const manifest =
+      parsed.action_manifest_digest === undefined
+        ? {}
+        : { actionManifestDigest: parsed.action_manifest_digest };
     if (this.evaluationMode === "SHADOW") {
       return immutableDecisionGate({
         verdict,
@@ -801,6 +808,7 @@ export class DecionisGate implements DecisionAuthority {
         failClosed: parsed.status === "ERROR",
         ...verification,
         ...routing,
+        ...manifest,
         ...(evidence === undefined ? {} : { evidence }),
       });
     }
@@ -837,6 +845,7 @@ export class DecionisGate implements DecisionAuthority {
       failClosed: parsed.status === "ERROR",
       ...verification,
       ...routing,
+      ...manifest,
       ...(evidence === undefined ? {} : { evidence }),
       ...(managedEscalation === undefined ? {} : { managedEscalation }),
     });

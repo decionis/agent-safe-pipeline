@@ -118,10 +118,16 @@ apply as they do to `proxy`.
 ### `agentsafe status`
 
 Asks the gateway that the same configuration would start, at `/_agentsafe/status`, and prints its
-mode, authority, install surface, counts and evidence head. For a gateway in shadow it goes on to
-print the [shadow report](../shadow-mode.md#from-shadow-to-enforcement): what the authority would
-have allowed, held and refused so far, by action, and the switch that turns enforcement on for
-this configuration. `--json` prints the answer as it came, the report inside it as `shadow`.
+mode, authority, install surface, counts and evidence head; its
+[deployment fingerprint](../deployment-fingerprint.md) (`Fingerprint`, the short digest); and its
+action space against the deciding release's (`Action space`: not yet named, a match, or `DRIFT`
+with both digests). For a gateway in shadow it goes on to print the
+[shadow report](../shadow-mode.md#from-shadow-to-enforcement): what the authority would have
+allowed, held and refused so far, by action, and the switch that turns enforcement on for this
+configuration. `--json` prints the answer as it came: the report inside it as `shadow`, the
+fingerprint as `fingerprint` (`digest` and `document`), and the comparison as `action_space`
+(`loaded`, `release`, `state`, `drifted`). A gateway older than the fingerprint answers without
+either, and the lines say so.
 
 ### `agentsafe doctor`
 
@@ -129,7 +135,12 @@ Checks, in order: the binary and Node version; the configuration; the upstream (
 any HTTP answer is reachable); Decionis (`GET /v1/health`); the credentials (an empty `POST` to
 `enforce-and-bind`, which Decionis refuses as malformed once it has accepted the key, so no decision
 is minted: `401`/`403` is a rejected key, `400`/`422` an accepted one); the Presence configuration;
-the evidence configuration. Each failure says what to do. `--no-network` skips the three probes;
+the evidence configuration; then, from the gateway answering at the configuration's own address,
+its [deployment fingerprint](../deployment-fingerprint.md) (failed when it differs from the one this
+configuration describes, the runtime aside, naming the fields) and its `action space` (failed on
+`DRIFT`, with the command that writes the gateway's manifest for the next release). No gateway
+answering, or one that reports no fingerprint, passes. Each failure says what to do; drift is
+reported and never enforced. `--no-network` skips the three probes and the running gateway;
 `--json` prints the checks as data. Exit `1` when any check fails.
 
 ### `agentsafe identity`
@@ -231,6 +242,7 @@ source as often as you need it; at least one is required.
 | `--family <forward\|banking\|cards>` | a family this build registers in code, described by its own registration: exactly the actions and schemas an executor running it admits against                                |
 | `--api <profile id>`                 | a shipped API profile's writes (`agentsafe profile list` names them), one entry per action with every operation that becomes it; reads are never intents, so they are left out |
 | `--mcp <file>`                       | an [MCP tool profile](../../spec/profiles/mcp/v1/README.md) file, one entry per tool                                                                                           |
+| `--gateway`                          | what a gateway with this configuration loads, read as `agentsafe proxy` reads it: the action space its [fingerprint](../deployment-fingerprint.md) digests                     |
 | `--digest`                           | print `{ manifest, digest, actions }` instead of the document                                                                                                                  |
 
 Actions are listed once each, in code-point order; an action two sources both produce is refused
@@ -239,6 +251,14 @@ runs under it. Decionis holds a policy release to the manifest attached to it: a
 leaves a manifest action matched by no rule but its default is refused before it can be promoted.
 The digest is SHA-256 over the document's RFC 8785 form, and it is what the signed release
 manifest records as `actionManifestDigest`. Nothing is read but the files named; nothing is sent.
+
+`--gateway` writes the profile's writes as `--api` does, and each other action a route governs
+(an explicit route's, or the derived `http.<method>` when the rest is governed) as one entry of
+the `gateway` family with every method and path that produces it. Attach that document to the
+policy revision and the release that decides for this gateway is checked against what it loads;
+when one is not, the gateway reports [action-space drift](../deployment-fingerprint.md#action-space-drift).
+A gateway that governs nothing has no action space to describe (`ACTION_MANIFEST_INVALID`); a
+configuration it cannot resolve is `ACTIONS_GATEWAY_CONFIG_INVALID`, naming the setting.
 
 ### `agentsafe config`
 
@@ -328,7 +348,7 @@ Every path under `/_agentsafe/` is the gateway's and is never forwarded:
 | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `GET /_agentsafe/healthz`                            | `200 {"status":"ok"}` while the process lives                                                                                                              |
 | `GET /_agentsafe/readyz`                             | `200` once the listener is bound and the authority is configured                                                                                           |
-| `GET /_agentsafe/status`                             | what `agentsafe status` prints, as JSON                                                                                                                    |
+| `GET /_agentsafe/status`                             | what `agentsafe status` prints, as JSON, its fingerprint and action space included                                                                         |
 | `GET /_agentsafe/metrics`                            | OpenMetrics text; `401` without `Authorization: Bearer $AGENTSAFE_METRICS_TOKEN` when one is set                                                           |
 | `GET /_agentsafe/v1/escalations/{intent_id}`         | a held escalation, or `404`; `403` without the hold's `AgentSafe-Resume-Token`                                                                             |
 | `POST /_agentsafe/v1/escalations/{intent_id}/resume` | asks the authority again; `202` still held, `409` not resumable, the upstream's answer on a fresh grant; `403` without the hold's `AgentSafe-Resume-Token` |

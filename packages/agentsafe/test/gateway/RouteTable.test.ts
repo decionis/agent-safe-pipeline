@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { ApiProfiles } from "@decionis/agent-safe-pipeline";
+import { GatewayConfigLoader } from "../../src/gateway/GatewayConfig.js";
 import { derivedAction, RouteTable } from "../../src/gateway/RouteTable.js";
 
 const routes = [
@@ -153,5 +155,114 @@ describe("the route table", () => {
     ]);
     expect(new RouteTable([...routes, routes[0]!], "GOVERN").actions()).toHaveLength(8);
     expect(derivedAction("DELETE")).toBe("http.delete");
+  });
+});
+
+describe("what the route table governs, as rows", () => {
+  const ALL = ["POST", "PUT", "PATCH", "DELETE"];
+  const profile = ApiProfiles.get("businesscentral/api/v2")!;
+  const writes = profile.definition.operations
+    .filter((operation) => operation.method !== "GET")
+    .map((operation) => ({
+      methods: [operation.method],
+      path: operation.path,
+      action: operation.action,
+      disposition: "GOVERN",
+    }));
+
+  it("lists the routes, then the profile's writes, then the derived rest, as plan tries them", () => {
+    const rows = new RouteTable([routes[0]!], "GOVERN", true, profile).rows();
+    expect(rows).toEqual([
+      { methods: ["POST"], path: "/payments", action: "payment.create", disposition: "GOVERN" },
+      ...writes,
+      ...ALL.map((method) => ({
+        methods: [method],
+        path: "/**",
+        action: `http.${method.toLowerCase()}`,
+        disposition: "GOVERN",
+      })),
+    ]);
+    // A read is checked at most, never governed, so it is no row.
+    expect(writes).toHaveLength(10);
+  });
+
+  it("states the rest it passes or refuses, and everything when interception is off", () => {
+    const rest = (disposition: string) => ({
+      methods: ALL,
+      path: "/**",
+      action: null,
+      disposition,
+    });
+    expect(new RouteTable([routes[0]!], "PASSTHROUGH").rows().at(-1)).toEqual(rest("PASSTHROUGH"));
+    // Facts-only privacy never reads the explicit routes.
+    expect(new RouteTable([routes[0]!], "GOVERN", true, profile, "FACTS").rows()).toEqual([
+      ...writes,
+      rest("REFUSE"),
+    ]);
+    expect(
+      new RouteTable([], "GOVERN", true, profile, "FULL", "REFUSE_UNKNOWN").rows().at(-1),
+    ).toEqual(rest("REFUSE"));
+    expect(new RouteTable([], "GOVERN", true, profile, "FULL", "CHECK").rows().at(-1)).toEqual({
+      methods: ["DELETE"],
+      path: "/**",
+      action: "http.delete",
+      disposition: "GOVERN",
+    });
+    expect(new RouteTable(routes, "GOVERN", false, profile).rows()).toEqual([rest("PASSTHROUGH")]);
+  });
+
+  it("is built from a gateway's configuration the way the gateway plans by it", () => {
+    const load = (file: unknown) =>
+      GatewayConfigLoader.load({
+        flags: { upstream: "http://127.0.0.1:3000" },
+        env: {},
+        file,
+        credentials: null,
+        version: "0.0.0-test",
+      });
+    const subject = {
+      issuer: "https://idp.example",
+      audience: "agentsafe",
+      jwksUrl: "https://idp.example/jwks",
+    };
+    const read = "/companies(c1)/customers(k1)";
+    const plain = RouteTable.of(
+      load({
+        version: 1,
+        interception: { routes: [routes[0]], http: true, unmatched: "passthrough" },
+      }),
+    );
+    expect(plain.plan("POST", "/payments")).toMatchObject({ action: "payment.create" });
+    expect(plain.rows().at(-1)).toMatchObject({ disposition: "PASSTHROUGH" });
+    // Without subjects, reads pass unchecked.
+    const profiled = { profile: "businesscentral/api/v2" };
+    expect(RouteTable.of(load({ version: 1, interception: profiled })).plan("GET", read)).toEqual({
+      kind: "PASSTHROUGH",
+      reason: "SAFE_METHOD",
+    });
+    // Pinning subjects checks reads, and refuses unknown ones unless told not to.
+    const checked = RouteTable.of(
+      load({ version: 1, interception: { ...profiled, refuseUnknownReads: false }, subject }),
+    );
+    expect(checked.plan("GET", read)).toMatchObject({ kind: "CHECK", action: "customer.read" });
+    expect(checked.plan("GET", "/elsewhere")).toEqual({
+      kind: "PASSTHROUGH",
+      reason: "SAFE_METHOD",
+    });
+    const refusing = RouteTable.of(load({ version: 1, interception: profiled, subject }));
+    expect(refusing.plan("GET", "/elsewhere")).toEqual({
+      kind: "REFUSE",
+      code: "READ_OPERATION_UNMATCHED",
+    });
+    // Off, nothing is governed.
+    expect(
+      RouteTable.of(load({ version: 1, interception: { http: false } })).plan("POST", "/payments"),
+    ).toEqual({ kind: "PASSTHROUGH", reason: "DISABLED" });
+    // Facts-only privacy reaches the table too.
+    expect(
+      RouteTable.of(load({ version: 1, interception: { ...profiled, privacy: "facts" } }))
+        .rows()
+        .at(-1),
+    ).toMatchObject({ disposition: "REFUSE" });
   });
 });

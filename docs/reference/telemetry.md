@@ -6,8 +6,8 @@ What the gateway measures, what it records about adoption, and what it never sen
 
 `GET /_agentsafe/metrics` renders OpenMetrics text (guarded by `AGENTSAFE_METRICS_TOKEN` when one
 is set), which a Prometheus scraper or an OpenTelemetry collector's Prometheus receiver reads. No
-SDK is embedded. Label values are verdicts, states, codes and the action names the configuration
-itself produced, never anything a caller sent.
+SDK is embedded. Label values are verdicts, states, codes, and the action names and fingerprint
+digest the configuration itself produced, never anything a caller sent.
 
 | Family                                         | Labels    | Meaning                                                 |
 | ---------------------------------------------- | --------- | ------------------------------------------------------- |
@@ -26,6 +26,8 @@ itself produced, never anything a caller sent.
 | `agentsafe_escalations_held`                   |           | escalations held right now (a gauge)                    |
 | `agentsafe_effects_total`                      | `effect`  | forwarded writes, by what their read-back confirmed     |
 | `agentsafe_refusal_observations_total`         | `outcome` | refused writes read again, by what the read showed      |
+| `agentsafe_deployment_fingerprint`             | `digest`  | `1`, labelled with this gateway's fingerprint digest    |
+| `agentsafe_action_space_drift`                 |           | `1` while the deciding release drifted (a gauge)        |
 
 The two latency families are a running sum and a count, from which a scraper computes rates and
 means between scrapes. `effect` is `CONFIRMED`, `UNKNOWN` or `PENDING`, the gateway's own read-back
@@ -69,6 +71,8 @@ collector knows where to look rather than where to guess.
 | `gateway_started`              | report (`agent-safe.gateway-events/1`) | `GATEWAY_STARTED`                                                                                   |
 | `boundary_identified`          | report                                 | `BOUNDARY_IDENTIFIED`                                                                               |
 | `workload_resolved`            | report                                 | `WORKLOAD_RESOLVED`, when a provider had something to say                                           |
+| `deployment_fingerprinted`     | gateway chain + metrics                | `DEPLOYMENT_FINGERPRINT` at start, then on a change; `agentsafe_deployment_fingerprint`             |
+| `action_space_drifted`         | gateway chain + metrics                | `ACTION_SPACE_DRIFT`, once per release; `agentsafe_action_space_drift`                              |
 | `intent_intercepted`           | report / audit                         | `INTERCEPTED`; `INTENT_CAPTURED` on the evidence chain                                              |
 | `authority_requested`          | audit (`agent-safe.audit/1`)           | `AUTHORITY_DECISION`, or `AUTHORITY_FAILED_CLOSED` when it failed closed                            |
 | `allow` / `block` / `escalate` | report + metrics                       | `INTERCEPTED.state` and `.verdict`; `agentsafe_decisions_total{verdict}`                            |
