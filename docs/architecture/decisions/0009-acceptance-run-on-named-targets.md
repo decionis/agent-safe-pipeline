@@ -1,11 +1,11 @@
 # ADR 0009: an acceptance run touches only what the operator's plan names
 
-Status: proposed, 2026-10-31. Amends [ADR 0002](./0002-boundary-test-on-a-synthetic-target.md)
+Status: accepted, 2026-10-31. Amends [ADR 0002](./0002-boundary-test-on-a-synthetic-target.md)
 for one new command, `agentsafe accept`; `agentsafe test` is unchanged. It builds on three
 decisions the user took on 2026-10-31. D-1 replaces the earlier D6: a run touches only targets
 the operator names, in a plan the operator writes. D-2: a dedicated key signs the report. D-3:
-drift and a stale report are reported, never enforced. The choices this ADR makes beyond those
-three are the user's to accept or send back, and each rejected alternative is recorded under
+drift and a stale report are reported, never enforced. The user accepted the choices this ADR makes
+beyond those three, as written, on the same day. Each rejected alternative is recorded under
 "Options considered".
 
 ## Problem
