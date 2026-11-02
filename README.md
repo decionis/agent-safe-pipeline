@@ -30,7 +30,8 @@ agentsafe proxy \
 [Kubernetes](./docs/install/kubernetes.md) · [Hosted](./docs/install/hosted.md)
 
 [Agent integration and deployment guide](./docs/gateway/deployment.md): put the gateway in front
-of tool calls, deploy on premises, or connect to the Decionis-managed shadow gateway.
+of tool calls, deploy on premises, or connect to the Decionis-managed shadow gateway. For a Drupal
+Commerce store, [the gateway holds the Fincra key](./docs/gateway/drupal-commerce.md).
 
 [Deployment strategies](./docs/deployment/gateway-strategies.md): Docker with TLS ingress,
 Kubernetes, Istio, AWS and Azure network isolation, and deployment acceptance checks.
@@ -428,6 +429,10 @@ implementation's ([Agent-Safe Intent v1](./spec/intent/v1/README.md#7-conformanc
 ```bash
 agentsafe verify intent conformance/vectors conformance/agent-safe-intent-v1.json
 ```
+
+Outside this repository, `decionis/php-client` (PHP 8.1 or later, Apache-2.0) reproduces the
+canonical bytes and hash of every vector in the corpus, framework records included. It ships
+inside Decionis for Drupal and is not on Packagist yet.
 
 ## Architecture
 
