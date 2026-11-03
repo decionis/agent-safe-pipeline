@@ -107,7 +107,9 @@ neither sets nor sends to the authority: not a hop-by-hop or framing header, not
 `Idempotency-Key` (both bound into the intent), not the principal header, and nothing under
 `agentsafe-`, `x-agent-safe-` or `x-forwarded-`. The value never reaches the intent, a report line,
 the evidence or `/_agentsafe/status`, which names the header only. The upstream's proof is fetched
-without it. The reads an enforcing gateway makes of a profiled write's target are made with it
+without it. The gateway answers only under `/_agentsafe/` itself: every other path it forwards, a
+bare `/healthz` included, carries the credential, so a health check belongs on
+`/_agentsafe/healthz` or `/_agentsafe/readyz`. The reads an enforcing gateway makes of a profiled write's target are made with it
 ([the target a write names](./http-interception.md#the-target-a-write-names)), so a gateway that
 reads a target should hold it.
 
@@ -469,8 +471,9 @@ presence:
 With `presence.managed: true` an `ESCALATE` is orchestrated by Decionis: the gateway holds the
 request, Decionis runs the Presence ceremony with the named approver, and a resume asks Decionis
 again; a fresh `ALLOW` with a grant executes the held request once. It needs the Decionis
-authority and enforcement mode, and no Presence credential exists in the gateway. Without it, an
-`ESCALATE` is held and reported, and that is the answer.
+authority and enforcement mode, and no Presence credential exists in the gateway. It also needs
+`approverId`: a gateway with `managed: true` and no approver refuses to start. Without
+`managed`, an `ESCALATE` is held and reported, and that is the answer.
 
 ## Evidence and output
 
