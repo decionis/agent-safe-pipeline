@@ -430,9 +430,10 @@ implementation's ([Agent-Safe Intent v1](./spec/intent/v1/README.md#7-conformanc
 agentsafe verify intent conformance/vectors conformance/agent-safe-intent-v1.json
 ```
 
-Outside this repository, `decionis/php-client` (PHP 8.1 or later, Apache-2.0) reproduces the
-canonical bytes and hash of every vector in the corpus, framework records included. It ships
-inside Decionis for Drupal and is not on Packagist yet.
+Outside this repository, [`decionis/php-client`](https://packagist.org/packages/decionis/php-client)
+(PHP 8.1 or later, Apache-2.0) reproduces the canonical bytes and hash of every vector in the
+corpus, framework records included. Decionis for Drupal uses it, and any PHP code can install it
+with `composer require decionis/php-client`.
 
 ## Architecture
 
