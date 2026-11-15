@@ -23,15 +23,16 @@
       "brace-expansion@5": "5.0.12",
       "qs": "6.16.1",
       "vite": "6.4.5",
-      "hono": "4.13.11",
-      "@hono/node-server": "2.1.5",
+      "hono": "4.13.16",
+      "@hono/node-server": "2.1.6",
       "js-yaml": "4.3.2\n4.3.2",
       "tmp": "0.2.7",
       "smol-toml": "1.7.1",
       "re2js": "2.8.7",
       "@decionis/presence-types": "0.3.0",
       "minimatch@3": "11.0.1",
-      "minimatch@10": "11.0.1"
+      "minimatch@10": "11.0.1",
+      "katex": "0.18.2"
     }
   },
   "engines": {
