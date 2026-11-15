@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "decionis": {
+      "type": "http",
+      "url": "https://protocol.decionis.com/mcp"
+    }
+  }
+}

@@ -14,7 +14,7 @@ Commerce owns ongoing development of this client. AgentSafe retains its [release
 Add the published MCP server (local STDIO):
 
     command: npx
-    args: ["-y", "@decionis/commerce@0.1.6"]
+    args: ["-y", "@decionis/commerce@0.3.0"]
     env: DECIONIS_API_KEY (secret), DECIONIS_ORG_ID, DECIONIS_API_BASE (optional)
 
 Run `commercegate_describe_capabilities` first; it works without credentials.

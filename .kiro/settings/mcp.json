@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    "decionis": {
+      "url": "https://protocol.decionis.com/mcp",
+      "disabled": false
+    },
+    "decionis-policyagent-local": {
+      "command": "npx",
+      "args": [
+        "--yes",
+        "@decionis/mcp@0.6.0"
+      ],
+      "env": {
+        "DECIONIS_POLICY_CONNECTED": "1",
+        "DECIONIS_POLICY_WORKSPACE_ID": "${DECIONIS_POLICY_WORKSPACE_ID}",
+        "DECIONIS_POLICY_OAUTH_TOKEN": "${DECIONIS_POLICY_OAUTH_TOKEN}"
+      },
+      "disabled": true
+    }
+  }
+}
