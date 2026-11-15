@@ -12,11 +12,16 @@ the whole answer: `resume` says `409 ESCALATION_NOT_RESUMABLE`, and the operator
 
 ## Managed
 
-With `presence.managed: true` and an `approverId`, the gateway asks Decionis to orchestrate the
+With `presence.managed: true`, the gateway asks Decionis to orchestrate the
 ceremony at evaluation time (`EscalationResolver` in `MANAGED` mode, the same class the executor
 uses). Decionis creates the Presence request bound to the exact intent hash, the person completes
 the ceremony on their own enrolled device, Decionis verifies the receipt and re-evaluates policy.
 The gateway holds no Presence credential and polls Decionis only.
+
+Who approves is the policy's: the rule that escalates names its approvers, and Decionis asks them.
+`approverId` and `approverRole` are optional and only narrow that; Decionis refuses an approver the
+policy does not name (`APPROVER_IDENTITY_MISMATCH`, `APPROVER_ROLE_MISMATCH`). A hosted gateway
+sets `managed: true` alone.
 
 `POST /_agentsafe/v1/escalations/{intent_id}/resume` is one bounded lookup: while the person is
 deciding it is `202` again with the escalation's state; a refusal is `403` (or `503` when the

@@ -683,6 +683,73 @@ describe("the gateway with a managed escalation", () => {
   }, 30_000);
 });
 
+describe("the gateway with a managed escalation the policy routes", () => {
+  const upstream = new UpstreamDouble();
+  const presence = new LocalPresence({
+    pendingLookups: 1,
+    roles: { "synthetic-policy-approver": "FINANCE_LEAD" },
+  });
+  const authority = new LocalAuthority({
+    presence,
+    policy: demoPolicy,
+    managedApproverId: "synthetic-policy-approver",
+  });
+  afterAll(async () => {
+    await authority.stop();
+    await presence.stop();
+    await upstream.stop();
+  });
+
+  it("leaves who approves to the policy and releases on its passkey", async () => {
+    await upstream.start();
+    await presence.start();
+    await authority.start();
+    // A hosted gateway's tenant entry: `presence: { managed: true }` and nothing else.
+    const env = {
+      DECIONIS_API_KEY: LOCAL_AUTHORITY_API_KEY,
+      DECIONIS_API_URL: authority.baseUrl,
+      DECIONIS_ALLOW_INSECURE_LOOPBACK: "true",
+      DECIONIS_TENANT_ID: TENANT_ID,
+      AGENTSAFE_PRESENCE_MANAGED: "true",
+    };
+    const gateway = await Gateway.create(
+      testConfig(upstream.baseUrl, { env, flags: { mode: "enforcement" } }),
+      { env, io: collectedIo() },
+    );
+    expect(gateway.config.escalation).toMatchObject({
+      mode: "MANAGED",
+      approverId: null,
+      approverRole: null,
+    });
+    const held = await gateway.govern(
+      request("POST", "/payments", { amount: 500 }, { "idempotency-key": "pay-policy-routed" }),
+      "http.post",
+    );
+    expect(held.status).toBe(202);
+    const asked = authority.requests.find(
+      (entry) =>
+        entry.method === "POST" &&
+        (entry.body as { escalation?: unknown } | null)?.escalation !== undefined,
+    );
+    // The gateway asks for a managed ceremony and leaves who approves to the policy.
+    expect((asked?.body as { escalation: Record<string, unknown> }).escalation).toEqual({
+      mode: "MANAGED",
+      verification_requirements: { methods: ["WEBAUTHN"], level: "STANDARD" },
+    });
+    const body = json(held.body);
+    const intentId = String(body["intent_id"]);
+    const token = String(body["resume_token"]);
+    const before = upstream.seen.length;
+    let resumed = await gateway.resume(intentId, token);
+    for (let attempt = 0; attempt < 6 && resumed.status === 202; attempt += 1) {
+      await settle();
+      resumed = await gateway.resume(intentId, token);
+    }
+    expect(resumed.status).toBe(201);
+    expect(upstream.seen.length).toBe(before + 1);
+    await gateway.close();
+  }, 30_000);
+});
 describe("what a hosted call says about where the runtime came from", () => {
   const upstream = new UpstreamDouble();
   const authority = new LocalAuthority({ policy: demoPolicy });

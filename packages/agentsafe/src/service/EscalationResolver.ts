@@ -199,13 +199,17 @@ export class EscalationResolver {
     evidence?: DecisionEvidence,
   ): Promise<DecisionGate> {
     if (this.config.mode !== "MANAGED") return await this.first.evaluate(captured, evidence);
+    const { approverId, approverRole } = this.config;
+    // With neither set, the policy's own approvers decide; the authority
+    // refuses an approver the policy does not name either way.
+    const approver = {
+      ...(approverId === null ? {} : { principal_id: approverId }),
+      ...(approverRole === null ? {} : { role_id: approverRole }),
+    };
     return await this.first.evaluate(captured, evidence, {
       escalation: {
         mode: "MANAGED",
-        approver: {
-          principal_id: this.config.approverId,
-          ...(this.config.approverRole === null ? {} : { role_id: this.config.approverRole }),
-        },
+        ...(approverId === null && approverRole === null ? {} : { approver }),
         verification_requirements: {
           methods: this.config.requirements.methods,
           level: this.config.requirements.level,

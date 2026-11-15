@@ -75,7 +75,7 @@ intentTtlSeconds: 120 # how long a captured intent, and a held escalation, stays
 
 presence:
   managed: false # true: Decionis orchestrates the ceremony on an ESCALATE
-  approverId: null # required with managed: true
+  approverId: null # optional: narrows the policy's approvers to one person
   approverRole: null
   level: standard # standard | high_confidence
   methods: [webauthn] # webauthn, active_liveness
@@ -135,7 +135,8 @@ gateway.upstream)`, `CONFIG_INVALID: authority.mode (shadow or enforcement)`,
 - `tenantKeyDigests` holds one or two distinct `sha256:<64 hex>` digests;
 - the demo authority, `allowInsecureLoopback` and a key in the environment are refused in
   production;
-- `presence.managed` needs the Decionis authority, enforcement mode and an `approverId`;
+- `presence.managed` needs the Decionis authority and enforcement mode; `approverId` needs
+  `managed: true`;
 - `maxEmbeddedBodyBytes` is 0 or more and cannot exceed `maxBodyBytes`;
 - `principalHeader` cannot be one of the gateway's own credentials: `AgentSafe-Tenant-Key`,
   `AgentSafe-Session`, `AgentSafe-Subject-Token` or `AgentSafe-Gateway-Token`;

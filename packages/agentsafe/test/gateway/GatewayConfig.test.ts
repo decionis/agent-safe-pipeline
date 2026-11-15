@@ -1050,13 +1050,19 @@ describe("the gateway configuration", () => {
         file: { version: 1, presence: { managed: true, approverId: "synthetic-cro" } },
       }).setting,
     ).toMatch(/presence\.managed/);
+    // No approver of its own: the policy's rule names who approves.
     expect(
-      refusal({
+      load({
         flags: { upstream: "https://api.example", mode: "enforcement" },
         env,
         file: { version: 1, presence: { managed: true } },
-      }).setting,
-    ).toMatch(/approverId/);
+      }).escalation,
+    ).toEqual({
+      mode: "MANAGED",
+      approverId: null,
+      approverRole: null,
+      requirements: { methods: ["WEBAUTHN"], level: "STANDARD" },
+    });
     expect(
       refusal({
         flags: { upstream: "http://localhost:1" },
