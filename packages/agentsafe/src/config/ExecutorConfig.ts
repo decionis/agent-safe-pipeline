@@ -91,7 +91,12 @@ export type EscalationConfig =
     }
   | {
       readonly mode: "MANAGED";
-      readonly approverId: string;
+      /**
+       * Narrows who may approve to one person. Null leaves it to the policy:
+       * the rule that escalates names its approvers, and the authority asks
+       * them.
+       */
+      readonly approverId: string | null;
       readonly approverRole: string | null;
       readonly requirements: {
         readonly methods: readonly VerificationMethod[];

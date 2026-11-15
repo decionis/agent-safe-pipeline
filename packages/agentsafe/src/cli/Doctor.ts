@@ -208,7 +208,7 @@ export async function runDoctor(
       detail:
         config.escalation.mode === "NONE"
           ? "none: an ESCALATE is held and reported"
-          : `${config.escalation.mode}; approver ${config.escalation.approverId}`,
+          : `${config.escalation.mode}; approver ${config.escalation.approverId ?? "named by the policy"}`,
       remedy: [],
     });
     const evidence =

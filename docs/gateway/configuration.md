@@ -469,11 +469,12 @@ presence:
 ```
 
 With `presence.managed: true` an `ESCALATE` is orchestrated by Decionis: the gateway holds the
-request, Decionis runs the Presence ceremony with the named approver, and a resume asks Decionis
+request, Decionis runs the Presence ceremony with the policy's approver, and a resume asks Decionis
 again; a fresh `ALLOW` with a grant executes the held request once. It needs the Decionis
-authority and enforcement mode, and no Presence credential exists in the gateway. It also needs
-`approverId`: a gateway with `managed: true` and no approver refuses to start. Without
-`managed`, an `ESCALATE` is held and reported, and that is the answer.
+authority and enforcement mode, and no Presence credential exists in the gateway. Who approves
+is the policy's: `approverId` and `approverRole` are optional and only narrow the approvers the
+escalating rule names, and Decionis refuses one the policy does not name. Without `managed`, an
+`ESCALATE` is held and reported, and that is the answer.
 
 ## Evidence and output
 

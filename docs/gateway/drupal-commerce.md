@@ -60,7 +60,7 @@ presence:
   approverId: "owner@example.com"
 ```
 
-A gateway with `presence.managed: true` and no `approverId` refuses to start. Without the block, an
+`approverId` is optional: without it, the approvers the policy's rule names are asked. Without the block, an
 `ESCALATE` is held and reported, and nothing is forwarded.
 
 ## 2. Where the key lives

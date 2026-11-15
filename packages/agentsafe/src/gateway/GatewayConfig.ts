@@ -1904,13 +1904,6 @@ export class GatewayConfigLoader {
         "the demo authority holds; it orchestrates nothing",
       );
     }
-    if (approverId === null) {
-      throw new GatewayConfigError(
-        "CONFIG_MISSING",
-        "presence.approverId",
-        "who approves a managed escalation",
-      );
-    }
     const level = resolve<"STANDARD" | "HIGH_CONFIDENCE">(
       "presence.level",
       [
