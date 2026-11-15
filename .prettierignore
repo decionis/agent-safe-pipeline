@@ -26,3 +26,15 @@ spec/profiles/mcp/v1/schema.json
 packages/agentsafe/contracts/OutcomeEvidence.v1.json
 # Templates `govern init` renders: the placeholders are not YAML until rendered
 govern/internal/scaffold/templates
+
+# Written by `npx @decionis/mcp context install`; reinstall instead of reformatting
+.claude/skills
+.claude/agents
+.codex/agents
+.codex/config.toml
+.github/agents
+.github/instructions
+.github/prompts
+.kiro
+.cursor
+.mcp.json
