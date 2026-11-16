@@ -228,6 +228,10 @@ describe("the tenant registry", () => {
       [tenant("acme", { mode: "enforcement" }), "tenants.0.upstreamCredential"],
       [tenant("acme", { upstreamCredential: credential }), "tenants.0.upstreamCredential"],
       [tenant("acme", { mode: "shadow", presence: { managed: true } }), "tenants.0.presence"],
+      [
+        tenant("acme", { holds: { dir: "/var/lib/agent-safe/holds", keyFile: "/k" } }),
+        "tenants.0.holds",
+      ],
       [tenant("acme", { mode: "enforce" }), "tenants.0.mode"],
       [
         tenant("acme", {

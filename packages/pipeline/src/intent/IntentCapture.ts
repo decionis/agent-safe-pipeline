@@ -22,7 +22,16 @@ export interface IntentCaptureOptions {
   readonly clock?: () => Date;
   readonly createId?: () => string;
   readonly ttlSeconds?: number;
+  /**
+   * The longest `ttlSeconds` may be: 300 unless raised, and never over seven
+   * days. Only a runtime whose escalations leave their approvers to the
+   * policy raises it; the authority refuses a longer intent from any other.
+   */
+  readonly maxTtlSeconds?: number;
 }
+
+/** The authority's limit on an intent that leaves its approvers to the policy. */
+const MAX_POLICY_ROUTED_INTENT_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 export class IntentCapture {
   private readonly hasher: CanonicalIntentHasher;
@@ -35,7 +44,11 @@ export class IntentCapture {
     this.hasher = options?.hasher ?? new CanonicalIntentHasher();
     this.clock = options?.clock ?? (() => new Date());
     this.createId = options?.createId ?? randomUUID;
-    this.ttlSeconds = Math.min(Math.max(options?.ttlSeconds ?? 60, 1), 300);
+    const max = Math.min(
+      Math.max(options?.maxTtlSeconds ?? 300, 300),
+      MAX_POLICY_ROUTED_INTENT_TTL_SECONDS,
+    );
+    this.ttlSeconds = Math.min(Math.max(options?.ttlSeconds ?? 60, 1), max);
     this.audit = options?.audit;
   }
 

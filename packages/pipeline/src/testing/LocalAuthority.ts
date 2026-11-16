@@ -733,6 +733,9 @@ function defaultPolicy(request: LocalAuthorityRequest): Verdict {
   return "ALLOW";
 }
 
+/** How long Decionis lets a managed intent live when the policy names its approvers. */
+const POLICY_ROUTED_INTENT_MAX_LIFETIME_MS = 7 * 24 * 60 * 60_000;
+
 export class LocalAuthority {
   /** Every request seen, oldest first, with bounded bodies and the response given. */
   public readonly requests: LocalAuthorityRequestRecord[] = [];
@@ -740,6 +743,8 @@ export class LocalAuthority {
   public readonly grants = new Map<string, LocalGrantRecord>();
   /** Managed escalations keyed by their opaque identifier. */
   public readonly escalations = new Map<string, LocalManagedEscalationRecord>();
+  /** Intents first seen as managed escalations that leave the approvers to the policy. */
+  private readonly policyRoutedIntents = new Set<string>();
   /** The verifying providers' receipt keys, by `kid`, as `/v1/execution/provider-keys` registers them. */
   public readonly providerKeys = new Map<string, LocalProviderKey>();
   private readonly apiKey: string;
@@ -1425,6 +1430,14 @@ export class LocalAuthority {
     }
     if (record.headers["idempotency-key"] !== request.intent_id) {
       return { status: 400, body: { error: "IDEMPOTENCY_KEY_MISMATCH" } };
+    }
+    // As Decionis does: a managed intent that leaves its approvers to the
+    // policy may live up to seven days; every other intent five minutes.
+    if (
+      request.escalation?.mode === "MANAGED" &&
+      request.escalation.approver?.principal_id === undefined
+    ) {
+      this.policyRoutedIntents.add(request.intent_id);
     }
     const bindingError = this.assertBinding(request, record);
     if (bindingError !== null) return { status: 400, body: { error: bindingError } };
@@ -2290,7 +2303,10 @@ export class LocalAuthority {
     if (capturedAt > now + 5_000) return "INTENT_CAPTURED_IN_FUTURE";
     if (expiresAt <= now) return "INTENT_EXPIRED";
     if (expiresAt <= capturedAt) return "INTENT_TIME_ORDER_INVALID";
-    if (expiresAt - capturedAt > 300_000) return "INTENT_LIFETIME_TOO_LONG";
+    const maxLifetimeMs = this.policyRoutedIntents.has(request.intent_id)
+      ? POLICY_ROUTED_INTENT_MAX_LIFETIME_MS
+      : 300_000;
+    if (expiresAt - capturedAt > maxLifetimeMs) return "INTENT_LIFETIME_TOO_LONG";
     if (preconditionIn(request.context) === undefined) return "INTENT_PRECONDITION_INVALID";
     return null;
   }

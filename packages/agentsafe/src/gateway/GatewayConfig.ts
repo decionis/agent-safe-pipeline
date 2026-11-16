@@ -93,6 +93,14 @@ const DEFAULT_UPSTREAM_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_BODY_BYTES = 1024 * 1024;
 const DEFAULT_MAX_EMBEDDED_BODY_BYTES = 64 * 1024;
 const DEFAULT_INTENT_TTL_SECONDS = 120;
+/** The longest intent a short-lived action may have: the authority's own limit. */
+const MAX_INTENT_TTL_SECONDS = 300;
+/**
+ * The longest a hold may last: the authority lets an intent live this long
+ * only when it asks the policy for its approvers (a managed escalation that
+ * names no approver), and still mints its grant only after the approval.
+ */
+export const MAX_HOLD_TTL_SECONDS = 7 * 24 * 60 * 60;
 const DEFAULT_SESSION_TTL_SECONDS = 900;
 /** The most a body may be, so the bound is a bound and not a suggestion. */
 const MAX_BODY_BYTES = 16 * 1024 * 1024;
@@ -281,6 +289,12 @@ export interface GatewayConfig {
    */
   readonly boundary: { readonly id: string | null };
   readonly intentTtlSeconds: number;
+  /**
+   * Where held requests are kept: a directory every replica mounts, each hold
+   * sealed under the key in `keyFile`. Null keeps them in this process's
+   * memory, where a restart loses them and only this replica can resume them.
+   */
+  readonly holds: { readonly dir: string; readonly keyFile: string } | null;
   readonly escalation: EscalationConfig;
   readonly evidence: {
     readonly enabled: boolean;
@@ -452,6 +466,14 @@ export const GatewayFileSchema = z.strictObject({
     })
     .optional(),
   intentTtlSeconds: positiveInt.max(300).optional(),
+  holds: z
+    .strictObject({
+      dir: z.string().trim().min(1).max(500),
+      keyFile: z.string().trim().min(1).max(500),
+      /** How long a captured intent, and so a hold, lives; over 300 only for a hold the policy routes. */
+      ttlSeconds: positiveInt.max(MAX_HOLD_TTL_SECONDS).optional(),
+    })
+    .optional(),
   presence: PresenceSchema.optional(),
   evidence: z
     .strictObject({
@@ -1215,6 +1237,7 @@ export class GatewayConfigLoader {
       ) ?? (hosted ? HOSTED_DEFAULT_RATE_LIMIT : null);
 
     const escalation = GatewayConfigLoader.escalation(file, env, mode, kind, resolve);
+    const holds = GatewayConfigLoader.holds(file, mode, escalation);
     const required: SecretName[] = [];
     if (kind === "DECIONIS") required.push("DECIONIS_API_KEY");
     if (credential !== null) required.push("DOWNSTREAM_CREDENTIAL");
@@ -1379,9 +1402,10 @@ export class GatewayConfigLoader {
       },
       intentTtlSeconds: resolve(
         "intentTtlSeconds",
-        [{ source: "file", raw: file?.intentTtlSeconds }],
+        [{ source: "file", raw: file?.holds?.ttlSeconds ?? file?.intentTtlSeconds }],
         DEFAULT_INTENT_TTL_SECONDS,
       ),
+      holds,
       escalation,
       evidence: {
         enabled: resolve(
@@ -1850,6 +1874,48 @@ export class GatewayConfigLoader {
     let end = checked.length;
     while (end > 0 && checked.charCodeAt(end - 1) === 47) end -= 1;
     return checked.slice(0, end);
+  }
+
+  /**
+   * Where held requests live. A shared directory is for enforcement only
+   * (shadow never holds), named by absolute paths, and the only place a hold
+   * may outlive the authority's short intent window: that longer window is
+   * for a managed escalation whose approvers the policy names, which is the
+   * one the authority lets live up to seven days.
+   */
+  private static holds(
+    file: GatewayFile | null,
+    mode: GatewayMode,
+    escalation: EscalationConfig,
+  ): { readonly dir: string; readonly keyFile: string } | null {
+    const section = file?.holds;
+    if (section === undefined) return null;
+    if (mode === "SHADOW") {
+      throw new GatewayConfigError("CONFIG_INVALID", "holds", "shadow never holds a request");
+    }
+    for (const [setting, path] of [
+      ["holds.dir", section.dir],
+      ["holds.keyFile", section.keyFile],
+    ] as const) {
+      if (!isAbsolute(path))
+        throw new GatewayConfigError("CONFIG_INVALID", setting, "an absolute path");
+    }
+    if (section.ttlSeconds !== undefined && file?.intentTtlSeconds !== undefined) {
+      throw new GatewayConfigError(
+        "CONFIG_INVALID",
+        "holds.ttlSeconds",
+        "set it here or as intentTtlSeconds, not both",
+      );
+    }
+    const policyRouted = escalation.mode === "MANAGED" && escalation.approverId === null;
+    if ((section.ttlSeconds ?? 0) > MAX_INTENT_TTL_SECONDS && !policyRouted) {
+      throw new GatewayConfigError(
+        "CONFIG_INVALID",
+        "holds.ttlSeconds",
+        `over ${MAX_INTENT_TTL_SECONDS} only with presence.managed and no presence.approverId`,
+      );
+    }
+    return { dir: section.dir, keyFile: section.keyFile };
   }
 
   /**
