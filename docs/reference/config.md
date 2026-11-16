@@ -73,6 +73,11 @@ actor:
 
 intentTtlSeconds: 120 # how long a captured intent, and a held escalation, stays valid; at most 300
 
+holds: # optional: holds in a directory every replica mounts, sealed; enforcement only
+  dir: /var/lib/agent-safe/holds
+  keyFile: /var/run/agent-safe/custody/hold-key
+  ttlSeconds: 86400 # over 300 only with presence.managed and no approverId; at most 604800
+
 presence:
   managed: false # true: Decionis orchestrates the ceremony on an ESCALATE
   approverId: null # optional: narrows the policy's approvers to one person

@@ -416,6 +416,7 @@ export class TenantHost {
         ...(rateLimit === undefined ? {} : { gateway: { rateLimit } }),
         ...(tenant.interception === undefined ? {} : { interception: tenant.interception }),
         ...(tenant.presence === undefined ? {} : { presence: tenant.presence }),
+        ...(tenant.holds === undefined ? {} : { holds: tenant.holds }),
         ...(registry.evidenceDir === undefined
           ? {}
           : { evidence: { journalDir: join(registry.evidenceDir, tenant.id) } }),

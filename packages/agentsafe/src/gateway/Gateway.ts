@@ -91,9 +91,19 @@ import {
   ACCEPTANCE_KEY_SECRET,
   ACCEPTANCE_TOKEN_SECRET,
   GATEWAY_TOKEN_SECRET,
+  GATEWAY_TOKEN_HEADER,
   GatewayConfigLoader,
+  SESSION_HEADER,
+  SUBJECT_TOKEN_HEADER,
+  TENANT_KEY_HEADER,
   type GatewayConfig,
 } from "./GatewayConfig.js";
+import {
+  FileHoldStore,
+  MemoryHoldStore,
+  type HeldEscalation,
+  type HoldStore,
+} from "./HoldStore.js";
 import { gatewayMetrics, type GatewayMetrics } from "./GatewayMetrics.js";
 import { processSurface, type InstallSurface } from "./InstallSurface.js";
 import {
@@ -148,8 +158,6 @@ export const GATEWAY_STREAM = "agent-safe.gateway-events/1";
 export const GATEWAY_PREFIX = "/_agentsafe";
 /** The version of the wire shape the gateway answers with on its own responses. */
 export const GATEWAY_RESPONSE_VERSION = "agent-safe.gateway/1";
-/** The most escalations held at once; beyond it a new hold is refused rather than an old one dropped. */
-const MAX_HELD = 1_000;
 const RETRY_AFTER_SECONDS = 5;
 /**
  * The transport codes of a send that ended before a connection to the
@@ -326,17 +334,6 @@ interface AnswerScope {
   readonly action: string;
 }
 
-interface HeldEscalation {
-  readonly captured: CapturedIntent;
-  readonly request: InterceptedRequest;
-  readonly decision: DecisionGate;
-  readonly handoff: EscalationHandoff | null;
-  readonly heldAt: string;
-  readonly expiresAt: number;
-  /** SHA-256 of the resume token handed to the caller whose request was held; the token itself is not kept. */
-  readonly resumeDigest: Buffer;
-}
-
 /** Why a caller cannot see or resume a hold: nothing is held, or the token is not the holder's. */
 type HoldRefusal = "ESCALATION_NOT_HELD" | "RESUME_TOKEN_INVALID";
 
@@ -368,7 +365,8 @@ interface AcceptanceParts {
 }
 
 export class Gateway {
-  private readonly held = new Map<string, HeldEscalation>();
+  /** The requests held for a person's decision: in memory, or in a directory every replica shares. */
+  private readonly holds: HoldStore;
   /**
    * For each governed request whose operation names where the subject sits
    * in its answer: the session and operation the answer is checked against,
@@ -468,7 +466,22 @@ export class Gateway {
     // check before it is used; the check only reports.
     const decides = this.actionSpace.observing(gate);
     this.admitted = config.tenantKeys;
-    this.capture = new IntentCapture({ audit, ttlSeconds: config.intentTtlSeconds });
+    // The loader allows an intent over five minutes only for a hold the
+    // policy routes; the capture takes the window it was given.
+    this.capture = new IntentCapture({
+      audit,
+      ttlSeconds: config.intentTtlSeconds,
+      maxTtlSeconds: config.intentTtlSeconds,
+    });
+    this.holds =
+      config.holds === null
+        ? new MemoryHoldStore(clock)
+        : new FileHoldStore(
+            config.holds.dir,
+            config.holds.keyFile,
+            config.authority.tenantId,
+            clock,
+          );
     this.bucket = config.rateLimit === null ? null : new TokenBucket(config.rateLimit, clock);
     this.refusals = new RefusalSampler(
       (code) => security.emit({ event: "AUTH_FAILED", method: "tenant_key", code }),
@@ -1124,7 +1137,7 @@ export class Gateway {
       failure_policy: this.config.authority.failurePolicy,
       upstream: this.config.upstream.url,
       routes: this.config.interception.routes.length,
-      held: this.held.size,
+      held: this.holds.sweep(),
       counts: { ...this.counts },
       evidence: this.evidence.head,
       activation: this.activation.snapshot(),
@@ -1431,8 +1444,8 @@ export class Gateway {
         escalation: resolution.handoff,
       });
     }
-    this.release(intentId);
     if (resolution.kind === "REFUSED") {
+      this.release(intentId);
       const state: GatewayState = resolution.failClosed ? "AUTHORITY_UNAVAILABLE" : "BLOCK";
       this.link({
         event: "ESCALATION_REFUSED",
@@ -1448,8 +1461,21 @@ export class Gateway {
         intent_id: intentId,
       });
     }
-    return await RequestContext.run({ principal: this.principalOf(entry.captured) }, () =>
-      this.execute(entry.request, entry.captured, resolution.decision, startedAt, null),
+    // One resume runs the request: another replica, or a second call, that
+    // reaches this point for the same hold finds it already taken.
+    const claimed = this.holds.claim(intentId);
+    this.metrics.held.set(this.holds.sweep());
+    if (claimed === undefined) {
+      return this.own(409, {
+        state: "ERROR",
+        verdict: null,
+        reason_codes: ["ESCALATION_ALREADY_RESUMED"],
+        execution: "NOT_FORWARDED",
+        intent_id: intentId,
+      });
+    }
+    return await RequestContext.run({ principal: this.principalOf(claimed.captured) }, () =>
+      this.execute(claimed.request, claimed.captured, resolution.decision, startedAt, null),
     );
   }
 
@@ -1460,7 +1486,7 @@ export class Gateway {
     this.handedOn();
     this.proof?.check.close();
     this.jwks?.stop();
-    this.held.clear();
+    this.holds.close();
     if (this.demo !== null) await this.demo.stop();
     this.secrets?.close();
     this.upstream.close();
@@ -2395,7 +2421,7 @@ export class Gateway {
     const resumeToken = randomBytes(32).toString("base64url");
     const entry: HeldEscalation = {
       captured,
-      request,
+      request: this.holdable(request),
       decision,
       handoff: handoff === null ? null : { ...handoff, intent: captured.intent },
       heldAt: new Date(this.clock()).toISOString(),
@@ -2678,11 +2704,32 @@ export class Gateway {
   }
 
   private hold(intentId: string, entry: HeldEscalation): boolean {
-    this.expireHeld();
-    if (this.held.size >= MAX_HELD) return false;
-    this.held.set(intentId, entry);
-    this.metrics.held.set(this.held.size);
-    return true;
+    const held = this.holds.put(intentId, entry);
+    this.metrics.held.set(this.holds.sweep());
+    return held;
+  }
+
+  /**
+   * The request as a hold keeps it: without the gateway's own credentials
+   * (they end here, and the caller was admitted when it was held) or the
+   * upstream credential, which the gateway sets again when it forwards.
+   */
+  private holdable(request: InterceptedRequest): InterceptedRequest {
+    const dropped = new Set([
+      TENANT_KEY_HEADER,
+      SESSION_HEADER,
+      SUBJECT_TOKEN_HEADER,
+      GATEWAY_TOKEN_HEADER,
+      ...(this.config.upstream.credential === null
+        ? []
+        : [this.config.upstream.credential.header.toLowerCase()]),
+    ]);
+    return {
+      ...request,
+      headers: Object.fromEntries(
+        Object.entries(request.headers).filter(([name]) => !dropped.has(name)),
+      ),
+    };
   }
 
   /**
@@ -2691,8 +2738,7 @@ export class Gateway {
    * someone who read an intent id and is not its caller.
    */
   private heldFor(intentId: string, resumeToken: string | null): HeldEscalation | HoldRefusal {
-    this.expireHeld();
-    const entry = this.held.get(intentId);
+    const entry = this.holds.get(intentId);
     if (entry === undefined) return "ESCALATION_NOT_HELD";
     if (
       resumeToken === null ||
@@ -2713,16 +2759,8 @@ export class Gateway {
   }
 
   private release(intentId: string): void {
-    this.held.delete(intentId);
-    this.metrics.held.set(this.held.size);
-  }
-
-  private expireHeld(): void {
-    const now = this.clock();
-    for (const [id, entry] of this.held) {
-      if (entry.expiresAt <= now) this.held.delete(id);
-    }
-    this.metrics.held.set(this.held.size);
+    this.holds.delete(intentId);
+    this.metrics.held.set(this.holds.sweep());
   }
 
   private holdBody(entry: HeldEscalation): Record<string, unknown> {

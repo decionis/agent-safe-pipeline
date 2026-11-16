@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -749,6 +749,159 @@ describe("the gateway with a managed escalation the policy routes", () => {
     expect(upstream.seen.length).toBe(before + 1);
     await gateway.close();
   }, 30_000);
+});
+
+describe("the gateway with durable holds", () => {
+  const upstream = new UpstreamDouble();
+  const presence = new LocalPresence({
+    pendingLookups: 1,
+    roles: { "synthetic-policy-approver": "FINANCE_LEAD" },
+  });
+  const authority = new LocalAuthority({
+    presence,
+    policy: demoPolicy,
+    managedApproverId: "synthetic-policy-approver",
+  });
+  const root = mkdtempSync(join(tmpdir(), "agentsafe-gateway-holds-"));
+  afterAll(async () => {
+    await authority.stop();
+    await presence.stop();
+    await upstream.stop();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("holds for a day, and any replica, or a restarted one, runs the held request once", async () => {
+    await upstream.start();
+    await presence.start();
+    await authority.start();
+    const keyFile = join(root, "hold-key");
+    writeFileSync(keyFile, randomBytes(32).toString("base64url"), { mode: 0o600 });
+    const env = {
+      DECIONIS_API_KEY: LOCAL_AUTHORITY_API_KEY,
+      DECIONIS_API_URL: authority.baseUrl,
+      DECIONIS_ALLOW_INSECURE_LOOPBACK: "true",
+      DECIONIS_TENANT_ID: TENANT_ID,
+      AGENTSAFE_PRESENCE_MANAGED: "true",
+    };
+    const file = {
+      version: 1,
+      holds: { dir: join(root, "holds"), keyFile, ttlSeconds: 86_400 },
+    };
+    const replica = async (): Promise<Gateway> =>
+      await Gateway.create(
+        testConfig(upstream.baseUrl, { env, flags: { mode: "enforcement" }, file }),
+        { env, io: collectedIo() },
+      );
+    const first = await replica();
+    const held = await first.govern(
+      request("POST", "/payments", { amount: 500 }, { "idempotency-key": "pay-durable" }),
+      "http.post",
+    );
+    expect(held.status).toBe(202);
+    const body = json(held.body);
+    const intentId = String(body["intent_id"]);
+    const token = String(body["resume_token"]);
+    // A day, not two minutes: the authority accepted an intent that lives that long.
+    const lifetime = Date.parse(String(body["expires_at"])) - Date.now();
+    expect(lifetime).toBeGreaterThan(86_000_000);
+    await first.close();
+
+    const second = await replica();
+    const third = await replica();
+    expect(second.escalation(intentId, token)).toMatchObject({ resumable: true });
+    expect(second.escalation(intentId, "not-the-token")).toBe("RESUME_TOKEN_INVALID");
+    const before = upstream.seen.length;
+    let resumed = await second.resume(intentId, token);
+    for (let attempt = 0; attempt < 6 && resumed.status === 202; attempt += 1) {
+      await settle();
+      resumed = await third.resume(intentId, token);
+    }
+    expect(resumed.status).toBe(201);
+    expect(upstream.seen.length).toBe(before + 1);
+    expect(upstream.seen.at(-1)?.body).toBe('{"amount":500}');
+    expect(upstream.seen.at(-1)?.headers["idempotency-key"]).toBe("pay-durable");
+    // Taken once: no replica has it any more.
+    expect((await second.resume(intentId, token)).status).toBe(404);
+    expect((await third.resume(intentId, token)).status).toBe(404);
+    expect(upstream.seen.length).toBe(before + 1);
+    await second.close();
+    await third.close();
+  }, 30_000);
+
+  it("runs an approved hold once when two replicas resume it at the same moment", async () => {
+    await upstream.start();
+    await presence.start();
+    await authority.start();
+    const keyFile = join(root, "race-key");
+    writeFileSync(keyFile, randomBytes(32).toString("base64url"), { mode: 0o600 });
+    const env = {
+      DECIONIS_API_KEY: LOCAL_AUTHORITY_API_KEY,
+      DECIONIS_API_URL: authority.baseUrl,
+      DECIONIS_ALLOW_INSECURE_LOOPBACK: "true",
+      DECIONIS_TENANT_ID: TENANT_ID,
+      AGENTSAFE_PRESENCE_MANAGED: "true",
+    };
+    const file = { version: 1, holds: { dir: join(root, "race"), keyFile, ttlSeconds: 3_600 } };
+    const replica = async (): Promise<Gateway> =>
+      await Gateway.create(
+        testConfig(upstream.baseUrl, { env, flags: { mode: "enforcement" }, file }),
+        { env, io: collectedIo() },
+      );
+    const [a, b] = [await replica(), await replica()];
+    const held = json(
+      (
+        await a.govern(
+          request("POST", "/payments", { amount: 700 }, { "idempotency-key": "pay-race" }),
+          "http.post",
+        )
+      ).body,
+    );
+    const intentId = String(held["intent_id"]);
+    const token = String(held["resume_token"]);
+    // Let the approval land: the first lookup finds the person still deciding.
+    expect((await a.resume(intentId, token)).status).toBe(202);
+    await settle();
+    const before = upstream.seen.length;
+    const answers = await Promise.all([a.resume(intentId, token), b.resume(intentId, token)]);
+    const statuses = answers.map((answer) => answer.status).sort();
+    expect(statuses.filter((status) => status === 201)).toHaveLength(1);
+    expect(statuses.filter((status) => status === 201 || status === 202)).not.toHaveLength(2);
+    expect(upstream.seen.length).toBe(before + 1);
+    await a.close();
+    await b.close();
+  }, 30_000);
+
+  it("refuses holds in shadow, relative paths, and a long hold the gateway narrows to one person", () => {
+    const keyFile = join(root, "hold-key");
+    const env = { DECIONIS_API_KEY: "k", DECIONIS_TENANT_ID: TENANT_ID };
+    const holds = { dir: join(root, "h"), keyFile, ttlSeconds: 86_400 };
+    const refused = (file: unknown, extra: Record<string, string> = {}, mode = "enforcement") => {
+      try {
+        testConfig("https://api.example", {
+          env: { ...env, ...extra },
+          flags: { mode: mode as "enforcement" },
+          file,
+        });
+        return null;
+      } catch (error) {
+        return (error as { setting?: string }).setting ?? String(error);
+      }
+    };
+    expect(refused({ version: 1, holds }, {}, "shadow")).toBe("holds");
+    expect(refused({ version: 1, holds: { ...holds, dir: "relative/holds" } })).toBe("holds.dir");
+    expect(refused({ version: 1, holds })).toBe("holds.ttlSeconds");
+    expect(
+      refused(
+        { version: 1, holds },
+        { AGENTSAFE_PRESENCE_MANAGED: "true", PRESENCE_APPROVER_ID: "synthetic-cro" },
+      ),
+    ).toBe("holds.ttlSeconds");
+    expect(
+      refused({ version: 1, intentTtlSeconds: 60, holds }, { AGENTSAFE_PRESENCE_MANAGED: "true" }),
+    ).toBe("holds.ttlSeconds");
+    expect(refused({ version: 1, holds }, { AGENTSAFE_PRESENCE_MANAGED: "true" })).toBeNull();
+    expect(refused({ version: 1, holds: { dir: holds.dir, keyFile, ttlSeconds: 300 } })).toBeNull();
+  });
 });
 describe("what a hosted call says about where the runtime came from", () => {
   const upstream = new UpstreamDouble();
