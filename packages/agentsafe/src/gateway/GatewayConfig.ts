@@ -93,6 +93,8 @@ const DEFAULT_UPSTREAM_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_BODY_BYTES = 1024 * 1024;
 const DEFAULT_MAX_EMBEDDED_BODY_BYTES = 64 * 1024;
 const DEFAULT_INTENT_TTL_SECONDS = 120;
+/** The longest a shadow answer may wait for its observation: well under any caller's timeout. */
+export const MAX_SHADOW_VERDICT_WAIT_MS = 2_000;
 /** The longest intent a short-lived action may have: the authority's own limit. */
 const MAX_INTENT_TTL_SECONDS = 300;
 /**
@@ -290,6 +292,13 @@ export interface GatewayConfig {
   readonly boundary: { readonly id: string | null };
   readonly intentTtlSeconds: number;
   /**
+   * In shadow, how long a forwarded answer may wait, after the upstream has
+   * answered, for the observation to settle so `AgentSafe-Shadow-Verdict`
+   * can name it. 0, the default, never waits: the header says what had
+   * settled by then, or `PENDING`.
+   */
+  readonly shadowVerdictWaitMs: number;
+  /**
    * Where held requests are kept: a directory every replica mounts, each hold
    * sealed under the key in `keyFile`. Null keeps them in this process's
    * memory, where a restart loses them and only this replica can resume them.
@@ -466,6 +475,11 @@ export const GatewayFileSchema = z.strictObject({
     })
     .optional(),
   intentTtlSeconds: positiveInt.max(300).optional(),
+  shadow: z
+    .strictObject({
+      verdictWaitMs: z.number().int().min(0).max(MAX_SHADOW_VERDICT_WAIT_MS).optional(),
+    })
+    .optional(),
   holds: z
     .strictObject({
       dir: z.string().trim().min(1).max(500),
@@ -568,6 +582,7 @@ const ENVIRONMENT = {
   logLevel: "AGENTSAFE_LOG_LEVEL",
   logFormat: "AGENTSAFE_LOG_FORMAT",
   evidenceDir: "AGENTSAFE_EVIDENCE_DIR",
+  shadowVerdictWaitMs: "AGENTSAFE_SHADOW_VERDICT_WAIT_MS",
   actorId: "AGENTSAFE_ACTOR_ID",
   actorType: "AGENTSAFE_ACTOR_TYPE",
   boundaryId: "AGENTSAFE_BOUNDARY_ID",
@@ -1406,6 +1421,17 @@ export class GatewayConfigLoader {
         DEFAULT_INTENT_TTL_SECONDS,
       ),
       holds,
+      shadowVerdictWaitMs: resolve(
+        "shadow.verdictWaitMs",
+        [
+          {
+            source: "environment",
+            raw: GatewayConfigLoader.verdictWait(env[ENVIRONMENT.shadowVerdictWaitMs]),
+          },
+          { source: "file", raw: file?.shadow?.verdictWaitMs },
+        ],
+        0,
+      ),
       escalation,
       evidence: {
         enabled: resolve(
@@ -2011,6 +2037,19 @@ export class GatewayConfigLoader {
       ),
       requirements: { methods, level },
     };
+  }
+
+  private static verdictWait(value: string | undefined): number | undefined {
+    if (value === undefined || value.trim() === "") return undefined;
+    const wait = Number(value.trim());
+    if (!Number.isInteger(wait) || wait < 0 || wait > MAX_SHADOW_VERDICT_WAIT_MS) {
+      throw new GatewayConfigError(
+        "CONFIG_INVALID",
+        ENVIRONMENT.shadowVerdictWaitMs,
+        `whole milliseconds, 0 to ${MAX_SHADOW_VERDICT_WAIT_MS}`,
+      );
+    }
+    return wait;
   }
 
   private static level(

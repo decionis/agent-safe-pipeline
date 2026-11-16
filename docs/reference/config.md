@@ -73,6 +73,9 @@ actor:
 
 intentTtlSeconds: 120 # how long a captured intent, and a held escalation, stays valid; at most 300
 
+shadow:
+  verdictWaitMs: 0 # how long a shadow answer may wait for agentsafe-shadow-verdict; at most 2000
+
 holds: # optional: holds in a directory every replica mounts, sealed; enforcement only
   dir: /var/lib/agent-safe/holds
   keyFile: /var/run/agent-safe/custody/hold-key
