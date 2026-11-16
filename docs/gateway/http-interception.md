@@ -252,8 +252,10 @@ gateway.
 
 ### Holds and resume
 
-An `ESCALATE` is held in memory until the intent expires (`intentTtlSeconds`, 120 by default,
-at most 300) or 1,000 holds are pending, whichever comes first. With Presence configured,
+An `ESCALATE` is held until the intent expires (`intentTtlSeconds`, 120 by default, at most 300)
+or 1,000 holds are pending, whichever comes first. By default a hold lives in the memory of the
+process that made it: a restart loses it, and only that replica can resume it. With `holds` (see
+[Durable holds](#durable-holds)) it lives in a directory every replica mounts. With Presence configured,
 `POST /_agentsafe/v1/escalations/{intent_id}/resume` asks the authority again; only a fresh `ALLOW`
 with a grant executes, once. Without Presence the hold is the answer and resume says so (`409`).
 
@@ -265,6 +267,35 @@ hold stays for its owner, and the refusal is chained to the evidence as `ESCALAT
 The `intent_id` is a correlation id: it appears in every report line and in the evidence, so it is
 not enough to see a hold or to receive the answer the upstream gives once the person approves,
 which was produced with the held request's own `Authorization` and `Cookie`.
+
+### Durable holds
+
+```yaml
+holds:
+  dir: /var/lib/agent-safe/holds # every replica mounts it
+  keyFile: /var/run/agent-safe/custody/hold-key # 32 bytes, base64 or hex
+  ttlSeconds: 86400 # optional; over 300 only for a hold the policy routes, at most 604800
+```
+
+With `holds`, each hold is a file in `dir`, sealed with AES-256-GCM under the key in `keyFile`. The
+associated data binds it to the authority tenant and its intent id, so a file copied into another
+tenant's directory, or renamed to another intent, does not open. Files are named by a digest of the
+intent id. What a hold keeps is what a resume needs: the captured intent, the request (without the
+gateway's own credentials or the upstream credential, which the gateway sets again when it forwards),
+the decision, the managed handoff, its expiry and the resume token's SHA-256. It never keeps the
+resume token. A hold that has expired, or that does not open, is removed, and a sweep removes the
+rest.
+
+Any replica can resume a hold, and a restart or a configuration reload loses none. A resume takes the
+hold by renaming its file before it forwards, which succeeds for one caller only, so two replicas
+resuming the same approved hold forward it once. The other answers `409 ESCALATION_ALREADY_RESUMED`,
+or `404` once the file is gone. The authority's single-use grant is the backstop.
+
+`ttlSeconds` sets how long a captured intent, and so a hold, lives. Over 300 seconds is allowed only
+with `presence.managed: true` and no `presence.approverId`. That is the escalation Decionis lets live
+up to seven days, because it asks the policy for its approvers, and it still mints the grant only
+after the approval, with its own short lifetime. `holds` is refused in shadow mode, where nothing is
+held, and with relative paths. Set the lifetime here or as `intentTtlSeconds`, not both.
 
 ## Shadow
 

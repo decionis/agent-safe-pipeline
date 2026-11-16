@@ -75,6 +75,12 @@ const TenantSchema = z
     gatewayToken: z.strictObject({ file: MountedFile }).optional(),
     /** The tenant's `presence` section, as `agentsafe.yaml` has it; enforcement only. */
     presence: z.record(z.string(), z.unknown()).optional(),
+    /**
+     * The tenant's `holds` section, as `agentsafe.yaml` has it: the directory
+     * every one of its pods mounts and the mounted key its holds are sealed
+     * with; enforcement only. Validated by the gateway's loader.
+     */
+    holds: z.record(z.string(), z.unknown()).optional(),
   })
   .superRefine((tenant, context) => {
     const enforces = tenant.mode === "enforcement";
@@ -85,7 +91,7 @@ const TenantSchema = z
         message: "an enforcing tenant's gateway holds the upstream credential",
       });
     }
-    for (const field of ["upstreamCredential", "presence"] as const) {
+    for (const field of ["upstreamCredential", "presence", "holds"] as const) {
       if (!enforces && tenant[field] !== undefined) {
         context.addIssue({
           code: "custom",
