@@ -2284,6 +2284,33 @@ export class Gateway {
     };
   }
 
+  /**
+   * The observation, when it has settled by now or settles within `waitMs`;
+   * otherwise null. With 0 it never waits: an already settled promise wins
+   * the race against the resolved sentinel because it is listed first.
+   */
+  private static async settledWithin(
+    observation: Promise<ShadowObservation>,
+    waitMs: number,
+  ): Promise<ShadowObservation | null> {
+    const late = Symbol("late");
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline =
+      waitMs <= 0
+        ? Promise.resolve(late)
+        : new Promise<typeof late>((resolve) => {
+            timer = setTimeout(() => resolve(late), waitMs);
+          });
+    try {
+      const winner = await Promise.race([observation, deadline]);
+      return winner === late ? null : winner;
+    } catch {
+      return null;
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
+  }
+
   private principalOf(captured: CapturedIntent): string {
     const claimed = captured.intent.context["claimed_principal"];
     return typeof claimed === "string" ? claimed : this.config.actor.id;
@@ -2314,9 +2341,15 @@ export class Gateway {
     let answer: GatewayResponse;
     if (production.status === "COMPLETED") {
       upstreamStatus = production.result.status;
+      // What the policy would have decided, if it is known by now (or within
+      // the wait the operator allows): the caller sees it, and nothing waits
+      // longer than that for it.
+      const seen = await Gateway.settledWithin(run.observation, this.config.shadowVerdictWaitMs);
       answer = this.answer(request, production.result, {
         "agentsafe-mode": "SHADOW",
         "agentsafe-execution": "PASSTHROUGH",
+        "agentsafe-shadow-verdict": seen === null ? "PENDING" : (seen.verdict ?? "NONE"),
+        ...(seen?.decisionId ? { "agentsafe-decision-id": seen.decisionId } : {}),
       });
     } else {
       failure = this.failureOf(production.error);

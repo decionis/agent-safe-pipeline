@@ -37,6 +37,7 @@ export const SHARED_ENVIRONMENT = [
   "DECIONIS_ALLOW_INSECURE_LOOPBACK",
   "AGENTSAFE_UPSTREAM_TIMEOUT_MS",
   "AGENTSAFE_FAILURE_POLICY",
+  "AGENTSAFE_SHADOW_VERDICT_WAIT_MS",
 ] as const;
 
 /** How long a replaced or removed tenant's gateway keeps finishing requests already in flight. */

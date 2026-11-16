@@ -367,6 +367,89 @@ describe("the gateway's evidence", () => {
   });
 });
 
+describe("the gateway's shadow verdict header", () => {
+  const upstream = new UpstreamDouble();
+  const authority = new LocalAuthority({ policy: demoPolicy });
+  afterAll(async () => {
+    await authority.stop();
+    await upstream.stop();
+  });
+  const env = (): Record<string, string> => ({
+    DECIONIS_API_KEY: LOCAL_AUTHORITY_API_KEY,
+    DECIONIS_API_URL: authority.baseUrl,
+    DECIONIS_ALLOW_INSECURE_LOOPBACK: "true",
+    DECIONIS_TENANT_ID: TENANT_ID,
+  });
+  const shadowGateway = async (verdictWaitMs: number, io = collectedIo()): Promise<Gateway> =>
+    await Gateway.create(
+      testConfig(upstream.baseUrl, {
+        env: env(),
+        flags: { mode: "shadow" },
+        file: { version: 1, shadow: { verdictWaitMs } },
+      }),
+      { env: env(), io },
+    );
+
+  it("never waits by default: an observation still running is PENDING, and still reported", async () => {
+    await upstream.start();
+    await authority.start();
+    const io = collectedIo();
+    const gateway = await shadowGateway(0, io);
+    authority.scriptOnce("enforce", { delayMs: 400 });
+    const startedAt = Date.now();
+    const answer = await gateway.govern(request("POST", "/payments", { amount: 5 }), "http.post");
+    expect(Date.now() - startedAt).toBeLessThan(350);
+    expect(answer.status).toBe(201);
+    const headers = Object.fromEntries(answer.headers);
+    expect(headers["agentsafe-shadow-verdict"]).toBe("PENDING");
+    expect(headers["agentsafe-decision-id"]).toBeUndefined();
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(reports(io).at(-1)).toMatchObject({ state: "SHADOW", execution: "PASSTHROUGH" });
+    expect(reports(io).at(-1)?.["verdict"]).not.toBeNull();
+    await gateway.close();
+  }, 15_000);
+
+  it("names the verdict and the decision when they settle within the wait it allows", async () => {
+    const io = collectedIo();
+    const gateway = await shadowGateway(1_000, io);
+    authority.scriptOnce("enforce", { delayMs: 200 });
+    const answer = await gateway.govern(request("POST", "/payments", { amount: 5 }), "http.post");
+    expect(answer.status).toBe(201);
+    const headers = Object.fromEntries(answer.headers);
+    await settle();
+    const report = reports(io).at(-1)!;
+    expect(["ALLOW", "ESCALATE", "BLOCK"]).toContain(headers["agentsafe-shadow-verdict"]);
+    expect(headers["agentsafe-shadow-verdict"]).toBe(report["verdict"]);
+    expect(headers["agentsafe-decision-id"]).toBe(report["decision_id"]);
+    // The answer is still the upstream's own, forwarded unchanged.
+    expect(headers["agentsafe-execution"]).toBe("PASSTHROUGH");
+    expect(upstream.seen.at(-1)?.body).toBe('{"amount":5}');
+    await gateway.close();
+  }, 15_000);
+
+  it("refuses a wait that is not whole milliseconds up to two seconds", () => {
+    const refused = (overrides: {
+      env?: Record<string, string>;
+      file?: unknown;
+    }): string | null => {
+      try {
+        testConfig("https://api.example", { flags: { mode: "shadow" }, ...overrides });
+        return null;
+      } catch (error) {
+        return (error as { setting?: string }).setting ?? String(error);
+      }
+    };
+    expect(refused({ env: { AGENTSAFE_SHADOW_VERDICT_WAIT_MS: "soon" } })).toBe(
+      "AGENTSAFE_SHADOW_VERDICT_WAIT_MS",
+    );
+    expect(refused({ env: { AGENTSAFE_SHADOW_VERDICT_WAIT_MS: "2001" } })).toBe(
+      "AGENTSAFE_SHADOW_VERDICT_WAIT_MS",
+    );
+    expect(refused({ file: { version: 1, shadow: { verdictWaitMs: 2_001 } } })).not.toBeNull();
+    expect(refused({ env: { AGENTSAFE_SHADOW_VERDICT_WAIT_MS: "1500" } })).toBeNull();
+  });
+});
+
 describe("the gateway in shadow", () => {
   const upstream = new UpstreamDouble();
   afterAll(() => upstream.stop());

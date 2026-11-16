@@ -307,6 +307,15 @@ observation is reported when it settles and is never a grant. Shadow measures po
 protects nothing, and the output says so. A shadow gateway makes none of the target reads above,
 so the authority is asked without the target's version. See [shadow mode](../shadow-mode.md).
 
+The answer also says what the policy would have decided, in `agentsafe-shadow-verdict`: `ALLOW`,
+`ESCALATE` or `BLOCK` when the observation settled by the time the upstream answered, with
+`agentsafe-decision-id`; `NONE` when it settled without a verdict (the authority was unavailable or
+failed closed); `PENDING` when it had not settled. By default nothing waits for it, so shadow adds no
+latency. `shadow.verdictWaitMs` (or `AGENTSAFE_SHADOW_VERDICT_WAIT_MS`, at most 2000) lets the
+answer wait that long, after the upstream has answered, for the observation to settle: a workflow
+step then usually reads the would-be verdict in the same call. The header is information, never a
+grant. The report line and the ledger record the verdict whatever the header said.
+
 ## Not yet
 
 HTTP/2 between the gateway and either side, streaming of governed bodies (they are read in full
