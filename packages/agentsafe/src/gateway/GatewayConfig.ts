@@ -246,6 +246,13 @@ export interface GatewayConfig {
     /** `FACTS`: the authority receives the profile's operation and facts, never the request. */
     readonly privacy: PrivacyMode;
     /**
+     * Facts-only privacy: a file in the tenant's custody holding the key its
+     * keyed digests (`request_hmac_sha256`, the keyed idempotency key) are
+     * derived from, so every replica states the same values. Null keys them
+     * with a secret each gateway process makes for itself.
+     */
+    readonly digestKeyFile: string | null;
+    /**
      * Refuse a call the profile cannot check: a read no profile operation
      * names, a path beneath one, and a write neither a route nor an operation
      * names (a batch included), whatever `unmatched` says. On by default when
@@ -417,6 +424,8 @@ export const GatewayFileSchema = z.strictObject({
       profile: z.string().trim().min(1).max(120).optional(),
       // facts: the authority receives the profile's operation and facts, never the request.
       privacy: lowerEnum(["full", "facts"]).optional(),
+      // facts only: the custody file the keyed digests are derived from, the same on every replica.
+      digestKeyFile: z.string().trim().min(1).max(500).optional(),
       // true: a read no profile operation names is refused; needs subject and a profile.
       refuseUnknownReads: z.boolean().optional(),
       // false: a refused write's target is not read again; on by default.
@@ -1097,6 +1106,23 @@ export class GatewayConfigLoader {
         sources["interception.unmatched"] === "default" ? null : unmatched,
       );
     }
+    const digestKeyFile = file?.interception?.digestKeyFile ?? null;
+    if (digestKeyFile !== null) {
+      if (privacy !== "FACTS") {
+        throw new GatewayConfigError(
+          "CONFIG_INVALID",
+          "interception.digestKeyFile",
+          "only with privacy: facts, whose digests it keys",
+        );
+      }
+      if (!isAbsolute(digestKeyFile)) {
+        throw new GatewayConfigError(
+          "CONFIG_INVALID",
+          "interception.digestKeyFile",
+          "an absolute path",
+        );
+      }
+    }
 
     const subject = GatewayConfigLoader.subject(file, allowInsecureLoopback, sources);
     const containment = GatewayConfigLoader.containmentTargets(
@@ -1381,6 +1407,7 @@ export class GatewayConfigLoader {
         principalHeader: principalHeader === null ? null : principalHeader.toLowerCase(),
         profile,
         privacy,
+        digestKeyFile,
         refuseUnknownReads,
         observeRefusals: resolve(
           "interception.observeRefusals",

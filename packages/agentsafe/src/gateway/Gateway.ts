@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, hkdfSync, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { Resolver } from "node:dns/promises";
 import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -92,6 +92,7 @@ import {
   ACCEPTANCE_TOKEN_SECRET,
   GATEWAY_TOKEN_SECRET,
   GATEWAY_TOKEN_HEADER,
+  GatewayConfigError,
   GatewayConfigLoader,
   SESSION_HEADER,
   SUBJECT_TOKEN_HEADER,
@@ -172,6 +173,8 @@ export const GATEWAY_PREFIX = "/_agentsafe";
 /** The version of the wire shape the gateway answers with on its own responses. */
 export const GATEWAY_RESPONSE_VERSION = "agent-safe.gateway/1";
 const RETRY_AFTER_SECONDS = 5;
+/** What the facts-only digest key is derived for, so the custody key derives nothing else alike. */
+const DIGEST_KEY_INFO = "agentsafe.facts-digest/1";
 /**
  * The transport codes of a send that ended before a connection to the
  * upstream existed: the name did not resolve, or the connection was refused
@@ -416,11 +419,13 @@ export class Gateway {
   /** A profiled write's target reads, in enforcement only; null otherwise. */
   private readonly reader: TargetReader | null;
   /**
-   * The key of the facts-only request digest: made here, held only here, so
-   * the digest an authority receives confirms nothing about the request to
-   * anyone else. A held escalation is resumed by this same gateway.
+   * The key of the facts-only request digest, so the digest an authority
+   * receives confirms nothing about the request to anyone without it:
+   * derived from the tenant's key in custody (`interception.digestKeyFile`),
+   * the same on every replica; otherwise made here and held only here, so a
+   * held escalation is resumed by this same gateway.
    */
-  private readonly digestKey = randomBytes(32);
+  private readonly digestKey: Buffer;
   private readonly capture: IntentCapture;
   private readonly executor: SafeExecutor;
   private readonly shadow: ShadowPipeline | null;
@@ -475,6 +480,7 @@ export class Gateway {
     private readonly acceptance: AcceptanceParts | null,
   ) {
     this.lastShadowReportAt = clock();
+    this.digestKey = Gateway.digestKeyOf(config);
     this.fingerprint = deploymentFingerprint(config, {
       version,
       imageDigest: workload?.digest ?? null,
@@ -573,6 +579,31 @@ export class Gateway {
             journal.follow(security.chain, security),
           ];
     this.runs = acceptance === null ? null : new AcceptanceRuns(this.acceptanceHost(acceptance));
+  }
+
+  /**
+   * The facts-only digest key: derived from the custody file for this
+   * tenant (HKDF-SHA-256, the tenant as salt), so every replica that mounts
+   * the file derives the same key and no other use of the file's key shares
+   * it; 32 random bytes of this process's own without one. The file's
+   * contents are never logged: a refusal names the setting only.
+   */
+  private static digestKeyOf(config: GatewayConfig): Buffer {
+    const file = config.interception.digestKeyFile;
+    if (file === null) return randomBytes(32);
+    let key: Buffer;
+    try {
+      key = FileHoldStore.readKey(file);
+    } catch {
+      throw new GatewayConfigError(
+        "CONFIG_INVALID",
+        "interception.digestKeyFile",
+        "a readable file of 32 bytes, base64 or hex",
+      );
+    }
+    return Buffer.from(
+      hkdfSync("sha256", key, Buffer.from(config.authority.tenantId, "utf8"), DIGEST_KEY_INFO, 32),
+    );
   }
 
   /**
