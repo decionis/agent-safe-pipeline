@@ -20,6 +20,14 @@ export interface ExposureLimit {
   readonly actorTypes?: readonly string[];
   /** A sequence limit's segregation-of-duties steps. */
   readonly steps?: readonly string[];
+  /** An amount limit's caps, in integer minor units per currency. */
+  readonly caps?: readonly { readonly currency: string; readonly maxAmount: number }[];
+}
+
+/** One subject's current use of an amount limit, per currency, in integer minor units. */
+export interface ExposureSubjectUsage {
+  readonly currency: string;
+  readonly used: number;
 }
 
 /** `CommerceExposureReserveSchema`: what one reservation states. Subjects arrive as digests only. */
@@ -76,4 +84,14 @@ export interface ExposureLedger {
   settle(limitKey: string, reservationId: string, amount?: number): Promise<void>;
   /** The payment did not happen: the reservation stops counting. */
   release(limitKey: string, reservationId: string): Promise<void>;
+  /**
+   * Read-only: one subject's usage of every amount limit that counts its kind (or the whole
+   * organisation), by limit key; null for a limit it does not apply to. What a gateway in shadow
+   * asks instead of reserving. Optional: a ledger without it is previewed by reserving and
+   * releasing at once.
+   */
+  subjectUsage?(
+    kind: string,
+    idDigest: string,
+  ): Promise<ReadonlyMap<string, readonly ExposureSubjectUsage[] | null>>;
 }

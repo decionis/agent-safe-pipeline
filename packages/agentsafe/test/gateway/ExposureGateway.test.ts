@@ -593,20 +593,24 @@ describe("a route that releases money", () => {
       exposure: { status: "EXCEEDED" },
     });
     expect(ledger.used("vendor-daily")).toBe(0);
+    expect(ledger.reservesOf("vendor-daily")).toHaveLength(0);
+    expect(observed).toMatchObject({ read_only: true });
     expect(gateway.status().shadow?.exposure).toEqual({ EXCEEDED: 1 });
   });
 
-  it("in shadow, releases a would-be reservation at once under a key of its own", async () => {
+  it("in shadow, asks the ledger read-only and reserves nothing", async () => {
     const { gateway, io } = await gatewayFor("shadow");
     try {
       await gateway.govern(payment(), "payment.release");
     } finally {
       await gateway.close();
     }
-    expect(ledger.reservations.map((entry) => entry.state)).toEqual(["RELEASED", "RELEASED"]);
-    expect(
-      ledger.reservations.every((entry) => entry.reservationKey.startsWith("agentsafe-shadow:")),
-    ).toBe(true);
-    expect(events(io, "EXPOSURE_OBSERVED")[0]).toMatchObject({ would: "WITHIN_LIMIT" });
+    // A hosted gateway's shadow key may only read: every call is a GET, none a reservation.
+    expect(ledger.reservations).toHaveLength(0);
+    expect(ledger.calls.every((call) => call.method === "GET")).toBe(true);
+    expect(events(io, "EXPOSURE_OBSERVED")[0]).toMatchObject({
+      would: "WITHIN_LIMIT",
+      read_only: true,
+    });
   });
 });

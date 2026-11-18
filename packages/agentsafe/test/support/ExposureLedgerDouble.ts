@@ -94,8 +94,26 @@ export class ExposureLedgerDouble {
         throw Object.assign(new TypeError("fetch failed"), { cause: { code: "ECONNREFUSED" } });
       }
       if (this.down) return ExposureLedgerDouble.json(503, { error: "EXPOSURE_UNAVAILABLE" });
-      return this.answer(init?.method ?? "GET", url.pathname, body);
+      return this.answer(init?.method ?? "GET", url.pathname, body, url.searchParams);
     };
+  }
+
+  /** The read-only usage Decionis reports for one subject; null where the limit does not count it. */
+  private subjectUsage(
+    limit: DoubleLimit,
+    kind: string,
+    digest: string,
+  ): { currency: string; used: number }[] | null {
+    if ((limit.kind ?? "payment_release") === "sequence") return null;
+    if (limit.subject !== kind && limit.subject !== "org") return null;
+    const subjectDigest = limit.subject === "org" ? "0".repeat(64) : digest;
+    const totals = new Map<string, number>();
+    for (const entry of this.reservations) {
+      if (entry.limitKey !== limit.key || entry.subjectDigest !== subjectDigest) continue;
+      if (entry.state === "RELEASED") continue;
+      totals.set(entry.currency, (totals.get(entry.currency) ?? 0) + entry.amount);
+    }
+    return [...totals].map(([currency, used]) => ({ currency, used }));
   }
 
   public used(limitKey: string): number {
@@ -110,8 +128,15 @@ export class ExposureLedgerDouble {
     );
   }
 
-  private answer(method: string, path: string, body: string): Response {
+  private answer(
+    method: string,
+    path: string,
+    body: string,
+    query: URLSearchParams = new URLSearchParams(),
+  ): Response {
     const segments = path.split("/").slice(4);
+    const kind = query.get("subject_kind");
+    const digest = query.get("subject_digest");
     if (method === "GET" && segments.length === 0) {
       return ExposureLedgerDouble.json(200, {
         service: "decionis",
@@ -130,6 +155,10 @@ export class ExposureLedgerDouble {
           ...(limit.actor_types === undefined ? {} : { actor_types: [...limit.actor_types] }),
           ...(limit.steps === undefined ? {} : { steps: [...limit.steps] }),
           usage: [],
+          // As Decionis answers a named subject: its own live usage, read-only.
+          ...(kind !== null && digest !== null
+            ? { subject_usage: this.subjectUsage(limit, kind, digest) }
+            : {}),
         })),
       });
     }

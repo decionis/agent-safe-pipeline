@@ -275,6 +275,72 @@ describe("the exposure gate", () => {
     expect(await gate.conclude(check, "NOT_EXECUTED", binding)).toBe("RELEASED");
   });
 
+  it("in shadow, previews read-only when the ledger can say a subject's usage", async () => {
+    const asked: string[] = [];
+    class ReadingLedger extends ScriptedLedger {
+      public constructor(
+        list: readonly ExposureLimit[],
+        private readonly usage: Record<string, { currency: string; used: number }[] | null>,
+        private readonly fault: ExposureUnavailable | null = null,
+      ) {
+        super(list);
+      }
+      public subjectUsage(kind: string, digest: string) {
+        asked.push(`${kind}:${digest}`);
+        if (this.fault !== null) return Promise.reject(this.fault);
+        return Promise.resolve(new Map(Object.entries(this.usage)));
+      }
+    }
+    const caps = (max: number) => [{ currency: facts.currency, maxAmount: max }];
+    const at = (used: number) => [{ currency: facts.currency, used }];
+    // Exactly at the cap is within it, one minor unit over is not: the ledger's own comparison.
+    const within = new ReadingLedger([limit({ key: "org", caps: caps(facts.amount + 100) })], {
+      org: at(100),
+    });
+    expect(await gateFor(within).gate.observe(facts, binding)).toMatchObject({
+      status: "WITHIN_LIMIT",
+    });
+    expect(within.reserves).toHaveLength(0);
+    expect(within.ends).toHaveLength(0);
+    expect(asked.at(-1)).toBe(`vendor:${"0".repeat(64)}`);
+    const over = new ReadingLedger([limit({ key: "org", caps: caps(facts.amount + 100) })], {
+      org: at(101),
+    });
+    const { gate, lines } = gateFor(over);
+    expect(await gate.observe(facts, binding)).toMatchObject({
+      status: "EXCEEDED",
+      limitKey: "org",
+      reasonCode: "EXPOSURE_LIMIT_EXCEEDED",
+    });
+    expect(over.reserves).toHaveLength(0);
+    expect(lines.at(-1)).toMatchObject({
+      event: "EXPOSURE_OBSERVED",
+      would: "EXCEEDED",
+      read_only: true,
+    });
+    // A currency without a cap is not limited; a sequence limit counts steps and is named.
+    const sequence = new ReadingLedger(
+      [
+        limit({ key: "uncapped", caps: [{ currency: "XXX", maxAmount: 1 }] }),
+        limit({ key: "sod", kind: "sequence", subject: "vendor", steps: ["payment_release"] }),
+      ],
+      { uncapped: at(0), sod: null },
+    );
+    const seq = gateFor(sequence);
+    expect(await seq.gate.observe(facts, binding)).toMatchObject({ status: "WITHIN_LIMIT" });
+    expect(seq.lines.at(-1)).toMatchObject({ unpreviewed: ["sod"] });
+    // The read failing is unavailable, as a reservation failing is.
+    const down = new ReadingLedger(
+      [limit({ key: "org", caps: caps(1) })],
+      {},
+      new ExposureUnavailable("EXPOSURE_HTTP_503", true),
+    );
+    expect(await gateFor(down).gate.observe(facts, binding)).toMatchObject({
+      status: "UNAVAILABLE",
+      code: "EXPOSURE_HTTP_503",
+    });
+  });
+
   it("in shadow, reserves under a key of its own and releases at once", async () => {
     const ledger = new ScriptedLedger([limit({ key: "a" })]);
     const { gate, lines } = gateFor(ledger);

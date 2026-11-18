@@ -80,6 +80,7 @@ describe("the Decionis exposure ledger client", () => {
         subject: "vendor",
         onExceed: "HOLD",
         actionTypes: ["PAYMENT_RELEASE"],
+        caps: [{ currency: "USD", maxAmount: 10 }],
       },
     ]);
     expect(seen[0]).toMatchObject({
@@ -88,6 +89,47 @@ describe("the Decionis exposure ledger client", () => {
     });
     expect(seen[0]?.headers.get("authorization")).toBe("Bearer synthetic-key");
     expect(seen[0]?.url).not.toContain("org_id");
+  });
+
+  it("reads one subject's usage read-only, and refuses a subject it would have to escape", async () => {
+    const { ledger, seen } = ledgerAnswering(() =>
+      json(200, {
+        limits: [
+          {
+            key: "vendor-daily",
+            kind: "payment_release",
+            subject: "vendor",
+            on_exceed: "HOLD",
+            action_types: ["PAYMENT_RELEASE"],
+            subject_usage: [{ currency: "USD", used: 7 }],
+          },
+          {
+            key: "sod",
+            kind: "sequence",
+            subject: "vendor",
+            on_exceed: "ESCALATE",
+            action_types: ["PAYMENT_RELEASE"],
+            subject_usage: null,
+          },
+        ],
+      }),
+    );
+    const usage = await ledger.subjectUsage("vendor", "ab".repeat(32));
+    expect(usage.get("vendor-daily")).toEqual([{ currency: "USD", used: 7 }]);
+    expect(usage.get("sod")).toBeNull();
+    expect(seen[0]).toMatchObject({
+      method: "GET",
+      url: `https://api.decionis.example/v1/commerce/exposure?subject_kind=vendor&subject_digest=${"ab".repeat(32)}`,
+    });
+    expect(await codeOf(ledger.subjectUsage("vendor", "not-a-digest"))).toEqual([
+      "EXPOSURE_SUBJECT_INVALID",
+      false,
+    ]);
+    expect(await codeOf(ledger.subjectUsage("vendor&x=1", "ab".repeat(32)))).toEqual([
+      "EXPOSURE_SUBJECT_INVALID",
+      false,
+    ]);
+    expect(seen).toHaveLength(1);
   });
 
   it("reserves, settles and releases on the documented paths", async () => {

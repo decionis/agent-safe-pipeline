@@ -188,13 +188,23 @@ ungoverned under `failOpen`. A deployment that keeps its own ledger passes an `E
 ## Shadow
 
 In shadow every payment is forwarded unchanged, as everything is. After the authority's would-be
-`ALLOW` settles, the gateway asks the ledger what it would have said, without counting the payment:
-it reserves under a key of its own (`agentsafe-shadow:` and the intent hash) and releases each
-reservation at once. The observation's report line carries `exposure` (`WITHIN_LIMIT`,
-`NOT_APPLICABLE`, `EXCEEDED`, `UNAVAILABLE`, or `UNREADABLE` when the request did not state its
-facts), the gateway's stream an `EXPOSURE_OBSERVED` line, and the shadow report and
-`/_agentsafe/status` a count by status under `exposure`. While a shadow reservation is held, for
-the length of two ledger calls, it counts toward its limit for every other channel.
+`ALLOW` settles, the gateway asks the ledger what it would have said, without counting the payment.
+
+- **Read-only, against Decionis.** It reads each covering subject's usage
+  (`GET /v1/commerce/exposure?subject_kind=…&subject_digest=…`, `subject_usage`) and compares
+  usage plus this amount with each limit's cap, as the ledger does: over the cap when the total
+  exceeds it, and a currency without a cap is not limited. Nothing is reserved. This is the only
+  ledger call a hosted gateway's `decision:shadow` key may make.
+- **A sequence limit** counts steps, not amounts, so it cannot be previewed. The observation names
+  it in `unpreviewed`.
+- **A ledger without that read** (`ExposureLedger.subjectUsage` absent) is asked by reserving
+  under a key of its own (`agentsafe-shadow:` and the intent hash) and releasing at once. For the
+  length of two ledger calls, that reservation counts toward its limit for every other channel.
+
+The observation's report line carries `exposure` (`WITHIN_LIMIT`, `NOT_APPLICABLE`, `EXCEEDED`,
+`UNAVAILABLE`, or `UNREADABLE` when the request did not state its facts). The gateway's stream gets
+an `EXPOSURE_OBSERVED` line (with `read_only: true` when previewed). The shadow report and
+`/_agentsafe/status` count by status under `exposure`.
 
 ## Evidence
 

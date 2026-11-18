@@ -3,6 +3,17 @@
 Releases of `@decionis/agent-safe-pipeline` (the library) and `@decionis/agentsafe` (the runtime).
 Each entry names what an adopter can rely on and what they must do, if anything.
 
+## Runtime (unreleased): shadow previews cumulative limits read-only
+
+In shadow, a money route no longer reserves and releases to learn what the exposure ledger would
+have said. It reads the subject's usage from Decionis
+(`GET /v1/commerce/exposure?subject_kind&subject_digest`) and compares it with each limit's cap, so
+a shadow observation never counts toward a limit, even briefly. A hosted gateway's
+`decision:shadow` key can make that read and no other ledger call. Sequence limits can't be
+previewed and are named in `unpreviewed` on `EXPOSURE_OBSERVED`. A custom `ExposureLedger` without
+`subjectUsage` keeps the reserve-and-release preview.
+**Nothing to do**; this needs the Decionis read (decionis/Decionis#1704).
+
 ## Runtime (unreleased): a retry of an unknown payment is counted once
 
 When a payment's outcome was unknown, its cumulative-limit reservations were kept, and a retry under

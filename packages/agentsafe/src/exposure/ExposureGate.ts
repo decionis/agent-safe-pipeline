@@ -8,6 +8,7 @@ import {
   type ExposureLedger,
   type ExposureLimit,
   type ExposureReservationRequest,
+  type ExposureSubjectUsage,
 } from "./ExposureLedger.js";
 
 /**
@@ -21,6 +22,8 @@ const STEP_OF: Readonly<Record<string, string>> = {
   PAYMENT_RELEASE: "payment_release",
   VENDOR_BANK_CHANGE: "vendor_bank_change",
 };
+/** The digest an organisation-wide limit counts under (Decionis `ORG_SUBJECT_DIGEST`). */
+const ORG_SUBJECT_DIGEST = "0".repeat(64);
 /** `source.platform` and `source.channel` of every reservation the gateway makes. */
 const SOURCE = { platform: "agentsafe", channel: "gateway" } as const;
 /** An enforced reservation key: what an earlier attempt's record may name. */
@@ -210,12 +213,25 @@ export class ExposureGate {
 
   /**
    * In shadow, what the ledger would have said, without counting the
-   * payment: each reservation is made under a shadow key of its own and
-   * released at once. The payment itself went through unchanged.
+   * payment. A ledger that reports a subject's usage read-only is asked
+   * that, and nothing is reserved: the amount is compared with each
+   * covering limit's cap exactly as the ledger compares it (over the cap
+   * when used + amount exceeds it; a currency without a cap is not
+   * limited). A sequence limit counts steps, not amounts, so it cannot be
+   * previewed and is named as such. A ledger without that read is asked by
+   * reserving under a shadow key and releasing at once. The payment itself
+   * went through unchanged.
    */
   public async observe(facts: ExposureFacts, binding: ExposureBinding): Promise<ExposureCheck> {
-    const check = await this.draw(facts, binding, ExposureGate.reservationKey(binding, true));
-    if (check.status !== "EXCEEDED") await this.end(check.held, "release", binding);
+    const previewing = this.options.ledger.subjectUsage !== undefined;
+    let check: ExposureCheck;
+    let unpreviewed: readonly string[] = [];
+    if (previewing) {
+      ({ check, unpreviewed } = await this.preview(facts));
+    } else {
+      check = await this.draw(facts, binding, ExposureGate.reservationKey(binding, true));
+      if (check.status !== "EXCEEDED") await this.end(check.held, "release", binding);
+    }
     this.record({
       event: "EXPOSURE_OBSERVED",
       intent_id: binding.intentId,
@@ -226,8 +242,84 @@ export class ExposureGate {
         : {}),
       ...(check.status === "UNAVAILABLE" ? { reason_code: check.code } : {}),
       unstated: [...check.unstated],
+      ...(previewing ? { read_only: true, unpreviewed: [...unpreviewed] } : {}),
     });
     return check;
+  }
+
+  /** Shadow's read-only answer: usage plus this amount against each covering limit's cap. */
+  private async preview(
+    facts: ExposureFacts,
+  ): Promise<{ check: ExposureCheck; unpreviewed: readonly string[] }> {
+    const unavailable = (error: unknown) => ({
+      check: {
+        status: "UNAVAILABLE" as const,
+        code: ExposureGate.codeOf(error),
+        held: [],
+        unstated: [],
+        ungoverned: false,
+      },
+      unpreviewed: [],
+    });
+    let limits: readonly ExposureLimit[];
+    try {
+      limits = await this.retrying(() => this.options.ledger.limits());
+    } catch (error) {
+      return unavailable(error);
+    }
+    const unstated: string[] = [];
+    const unpreviewed: string[] = [];
+    const asked = new Map<string, ReadonlyMap<string, readonly ExposureSubjectUsage[] | null>>();
+    const covering = limits
+      .filter((limit) => this.covers(limit, facts))
+      .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+    for (const limit of covering) {
+      if (limit.kind === "sequence") {
+        unpreviewed.push(limit.key);
+        continue;
+      }
+      const cap = limit.caps?.find((entry) => entry.currency === facts.currency);
+      if (cap === undefined) continue;
+      let kind = "vendor";
+      let digest = ORG_SUBJECT_DIGEST;
+      if (limit.subject !== "org") {
+        const id = facts.subjects[limit.subject as keyof ExposureFacts["subjects"]];
+        if (id === undefined) {
+          unstated.push(limit.key);
+          continue;
+        }
+        kind = limit.subject;
+        digest = this.digest(limit.subject, id);
+      }
+      let usage = asked.get(`${kind}:${digest}`);
+      if (usage === undefined) {
+        try {
+          usage = await this.retrying(() => this.options.ledger.subjectUsage!(kind, digest));
+        } catch (error) {
+          return unavailable(error);
+        }
+        asked.set(`${kind}:${digest}`, usage);
+      }
+      const counted = usage.get(limit.key);
+      if (counted === undefined || counted === null) {
+        unpreviewed.push(limit.key);
+        continue;
+      }
+      const used = counted.find((entry) => entry.currency === facts.currency)?.used ?? 0;
+      if (facts.amount > Math.max(0, cap.maxAmount - used)) {
+        return {
+          check: {
+            status: "EXCEEDED",
+            limitKey: limit.key,
+            onExceed: limit.onExceed,
+            reasonCode: "EXPOSURE_LIMIT_EXCEEDED",
+            unstated,
+          },
+          unpreviewed,
+        };
+      }
+    }
+    return { check: { status: "WITHIN_LIMIT", held: [], unstated }, unpreviewed };
   }
 
   /**
