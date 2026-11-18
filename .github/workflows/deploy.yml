@@ -1008,7 +1008,7 @@ jobs:
           - target: windows-x64
             runner: windows-latest
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - name: Harden runner
         if: runner.os == 'Linux'
