@@ -3,6 +3,16 @@
 Releases of `@decionis/agent-safe-pipeline` (the library) and `@decionis/agentsafe` (the runtime).
 Each entry names what an adopter can rely on and what they must do, if anything.
 
+## Runtime (unreleased): a retry of an unknown payment is counted once
+
+When a payment's outcome was unknown, its cumulative-limit reservations were kept, and a retry under
+the same `Idempotency-Key` drew the amount a second time. That could refuse the retry of a payment
+that fitted the limit. The retry now reserves under the unknown attempt's reservation key, which is
+remembered with the attempt. The ledger answers with what the attempt kept, and the retry's outcome
+settles or releases it. A reservation released by hand, or an attempt older than a day, draws afresh.
+`EXPOSURE_RESERVED` carries `retry_of` and `replayed` for a retry.
+**Nothing to do.**
+
 ## Runtime (unreleased): cumulative limits on the payments a gateway forwards
 
 A Decionis finance policy can cap the money released per vendor, per agent or per organisation over

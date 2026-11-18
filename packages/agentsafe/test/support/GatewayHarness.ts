@@ -30,6 +30,8 @@ export const RECEIPT = "eyJhbGciOiJFZERTQSJ9.eyJzdWIiOiJnMSJ9.c2ln";
 
 export class UpstreamDouble {
   public readonly seen: SeenRequest[] = [];
+  /** Statuses the next requests are answered with, whatever their path: one each, in order. */
+  public readonly next: number[] = [];
   private server: Server | null = null;
   private port = 0;
 
@@ -74,15 +76,17 @@ export class UpstreamDouble {
       response.end(Buffer.alloc(3 * 1024 * 1024, 1));
       return;
     }
-    const status = path.startsWith("/fail")
-      ? 500
-      : path.startsWith("/timeout")
-        ? 408
-        : path.startsWith("/refuse") || path.startsWith("/receipt/refuse")
-          ? 422
-          : request.method === "GET"
-            ? 200
-            : 201;
+    const status =
+      this.next.shift() ??
+      (path.startsWith("/fail")
+        ? 500
+        : path.startsWith("/timeout")
+          ? 408
+          : path.startsWith("/refuse") || path.startsWith("/receipt/refuse")
+            ? 422
+            : request.method === "GET"
+              ? 200
+              : 201);
     response.writeHead(status, {
       "content-type": "application/json",
       "x-upstream": "double",
