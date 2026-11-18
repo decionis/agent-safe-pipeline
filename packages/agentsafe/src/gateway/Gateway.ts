@@ -104,6 +104,13 @@ import {
   type HeldEscalation,
   type HoldStore,
 } from "./HoldStore.js";
+import {
+  ATTEMPT_TTL_MS,
+  FileAttemptStore,
+  MemoryAttemptStore,
+  type AttemptStore,
+  type IndeterminateAttempt,
+} from "./AttemptStore.js";
 import { gatewayMetrics, type GatewayMetrics } from "./GatewayMetrics.js";
 import { processSurface, type InstallSurface } from "./InstallSurface.js";
 import {
@@ -114,7 +121,13 @@ import {
   type GatewayState,
   type InterceptionReport,
 } from "./GatewayReport.js";
-import { normalizeFacts, normalizeRequest, type InterceptedRequest } from "./InterceptedRequest.js";
+import {
+  idempotencyKeyOf,
+  normalizeFacts,
+  normalizeRequest,
+  retryDigest,
+  type InterceptedRequest,
+} from "./InterceptedRequest.js";
 import { TokenBucket, type RateDecision } from "./RateLimit.js";
 import { RefusalSampler } from "./RefusalSampler.js";
 import { RouteTable, type PlanQuery, type RoutePlan } from "./RouteTable.js";
@@ -334,6 +347,20 @@ interface AnswerScope {
   readonly action: string;
 }
 
+/**
+ * A governed request's place among its idempotency key's attempts: the
+ * earlier INDETERMINATE attempt it retries, if any. Null when the request
+ * has no key, or when the gateway links nothing (shadow).
+ */
+interface RetryLink {
+  readonly key: string;
+  readonly digest: string;
+  readonly retryOf: IndeterminateAttempt | null;
+}
+
+/** The response header that names the dossier of the INDETERMINATE attempt a request retries. */
+export const RETRY_OF_HEADER = "agentsafe-retry-of";
+
 /** Why a caller cannot see or resume a hold: nothing is held, or the token is not the holder's. */
 type HoldRefusal = "ESCALATION_NOT_HELD" | "RESUME_TOKEN_INVALID";
 
@@ -367,6 +394,8 @@ interface AcceptanceParts {
 export class Gateway {
   /** The requests held for a person's decision: in memory, or in a directory every replica shares. */
   private readonly holds: HoldStore;
+  /** The INDETERMINATE attempts a retry with the same idempotency key is linked to: kept where the holds are. */
+  private readonly attempts: AttemptStore;
   /**
    * For each governed request whose operation names where the subject sits
    * in its answer: the session and operation the answer is checked against,
@@ -477,6 +506,15 @@ export class Gateway {
       config.holds === null
         ? new MemoryHoldStore(clock)
         : new FileHoldStore(
+            config.holds.dir,
+            config.holds.keyFile,
+            config.authority.tenantId,
+            clock,
+          );
+    this.attempts =
+      config.holds === null
+        ? new MemoryAttemptStore(clock)
+        : new FileAttemptStore(
             config.holds.dir,
             config.holds.keyFile,
             config.authority.tenantId,
@@ -1319,13 +1357,20 @@ export class Gateway {
         this.answerScopes.set(request, { session, operation: scoped.id, action });
       }
     }
+    // A key that promised another operation is refused before anything,
+    // the target read included, reaches the upstream.
+    const retry = this.retryLink(request);
+    if (retry !== null && retry.retryOf !== null && retry.retryOf.requestDigest !== retry.digest) {
+      return this.keyReused(request, action, retry.retryOf);
+    }
+    const retryOf = retry?.retryOf ?? null;
     const target = await this.targetPlan(request, action);
     if (target !== null && "reasonCodes" in target) {
       return this.targetUnreadable(request, action, target);
     }
     let captured: CapturedIntent;
     try {
-      captured = this.captureIntent(request, action, session, target);
+      captured = this.captureIntent(request, action, session, target, retryOf);
     } catch (error) {
       const code = error instanceof Error ? error.message : "INTENT_INVALID";
       return this.own(code === "INTENT_TOO_LARGE" || code === "INTENT_TOO_COMPLEX" ? 413 : 400, {
@@ -1343,7 +1388,80 @@ export class Gateway {
     this.activation.intercepted();
     return await RequestContext.run({ principal: this.principalOf(captured) }, async () => {
       if (this.shadow !== null) return await this.observe(request, captured, startedAt);
-      return await this.enforce(request, captured, startedAt);
+      const answer = await this.enforce(request, captured, startedAt);
+      if (retryOf === null || retryOf.dossierId === null) return answer;
+      return { ...answer, headers: [...answer.headers, [RETRY_OF_HEADER, retryOf.dossierId]] };
+    });
+  }
+
+  /**
+   * Where an enforced request stands among its idempotency key's attempts:
+   * null without a key, or in shadow, which forwards every request as it
+   * came and so links none.
+   */
+  private retryLink(request: InterceptedRequest): RetryLink | null {
+    if (this.resolver === null) return null;
+    const key = idempotencyKeyOf(request);
+    if (key === null) return null;
+    return { key, digest: retryDigest(request), retryOf: this.attempts.find(key) ?? null };
+  }
+
+  /**
+   * The same idempotency key with another request, while the key's last
+   * attempt is INDETERMINATE: the key promised one operation, which may
+   * already have happened, so this one is refused and never forwarded.
+   */
+  private keyReused(
+    request: InterceptedRequest,
+    action: string,
+    earlier: IndeterminateAttempt,
+  ): GatewayResponse {
+    this.metrics.requests.inc({ kind: "idempotency_key_reused" });
+    this.count("idempotency_key_reused");
+    this.link({
+      event: "IDEMPOTENCY_KEY_REUSED",
+      method: request.method.toUpperCase(),
+      path: request.path,
+      action,
+      retry_of_intent_id: earlier.intentId,
+      retry_of_dossier_id: earlier.dossierId,
+    });
+    return this.own(409, {
+      state: "ERROR",
+      verdict: null,
+      reason_codes: ["IDEMPOTENCY_KEY_REUSED"],
+      execution: "NOT_FORWARDED",
+    });
+  }
+
+  /**
+   * After an enforced execution, what its idempotency key remembers: an
+   * INDETERMINATE attempt is recorded for a retry to be linked to; a
+   * definite outcome (forwarded and answered, or answered with a refusal)
+   * settles the key, so a later request is not linked to an attempt that
+   * is no longer unknown. Anything that sent nothing leaves the record.
+   */
+  private settleAttempt(
+    request: InterceptedRequest,
+    captured: CapturedIntent,
+    decision: DecisionGate,
+    outcome: "INDETERMINATE" | "DEFINITE",
+  ): void {
+    const key = idempotencyKeyOf(request);
+    if (key === null) return;
+    const digest = retryDigest(request);
+    if (outcome === "DEFINITE") {
+      this.attempts.forget(key, digest);
+      return;
+    }
+    const now = this.clock();
+    this.attempts.record(key, {
+      requestDigest: digest,
+      intentId: captured.intent.intentId,
+      decisionId: decision.decisionId,
+      dossierId: decision.dossierId,
+      recordedAt: new Date(now).toISOString(),
+      expiresAt: now + ATTEMPT_TTL_MS,
     });
   }
 
@@ -1487,6 +1605,7 @@ export class Gateway {
     this.proof?.check.close();
     this.jwks?.stop();
     this.holds.close();
+    this.attempts.close();
     if (this.demo !== null) await this.demo.stop();
     this.secrets?.close();
     this.upstream.close();
@@ -1607,7 +1726,7 @@ export class Gateway {
     if (plan.kind !== "GOVERN") return undecided("ACCEPTANCE_WRITE_NOT_GOVERNED");
     let captured: CapturedIntent;
     try {
-      captured = this.captureIntent(request, plan.action, null, null);
+      captured = this.captureIntent(request, plan.action, null, null, null);
     } catch (error) {
       return undecided(error instanceof Error ? error.message : "INTENT_INVALID");
     }
@@ -1710,9 +1829,10 @@ export class Gateway {
     action: string,
     session: SubjectSession | null,
     target: TargetPlan | null,
+    retryOf: IndeterminateAttempt | null,
   ): CapturedIntent {
     if (this.config.interception.privacy === "FACTS") {
-      return this.captureFacts(request, action, session, target);
+      return this.captureFacts(request, action, session, target, retryOf);
     }
     const plan = this.plan(request.method, request.path, request.search);
     const route = plan.kind === "GOVERN" ? plan.route : null;
@@ -1746,6 +1866,7 @@ export class Gateway {
         ...(normalized.principal === null ? {} : { claimed_principal: normalized.principal }),
         ...this.profileFacts(request, action),
         ...Gateway.sessionContext(session),
+        ...Gateway.retryContext(retryOf),
       },
       idempotencyKey: normalized.idempotencyKey ?? randomUUID(),
       ...(normalized.correlationId === null ? {} : { correlationId: normalized.correlationId }),
@@ -1770,6 +1891,7 @@ export class Gateway {
     action: string,
     session: SubjectSession | null,
     target: TargetPlan | null,
+    retryOf: IndeterminateAttempt | null,
   ): CapturedIntent {
     const matched = this.profileMatch(request);
     const operation =
@@ -1793,6 +1915,7 @@ export class Gateway {
         ...matched.facts,
         api_profile: { id: matched.profile, operation: matched.operation },
         ...Gateway.sessionContext(session),
+        ...Gateway.retryContext(retryOf),
       },
       idempotencyKey: normalized.idempotencyKey ?? randomUUID(),
       signals: {
@@ -1936,6 +2059,17 @@ export class Gateway {
    * A verified claim of the identity provider, never a value of the request;
    * absent, never null, when the request presented no session.
    */
+  /**
+   * What the intent says of the INDETERMINATE attempt it retries: that
+   * attempt's dossier, so policy can decide a retry of a write that may
+   * already have happened, and the new dossier names the earlier one.
+   */
+  private static retryContext(retryOf: IndeterminateAttempt | null): JsonObject {
+    return retryOf === null
+      ? {}
+      : { retry_of: { dossier_id: retryOf.dossierId, outcome: "INDETERMINATE" } };
+  }
+
   private static sessionContext(session: SubjectSession | null): JsonObject {
     return session === null ? {} : { session: { subject: session.subject } };
   }
@@ -2619,6 +2753,7 @@ export class Gateway {
       "agentsafe-intent-hash": captured.intentHash,
     };
     if (outcome.outcome === "COMPLETED") {
+      this.settleAttempt(request, captured, decision, "DEFINITE");
       const said = this.effectOf(captured, plan, observed);
       this.metrics.effects.inc({ effect: said.confirmation });
       this.report({
@@ -2636,6 +2771,7 @@ export class Gateway {
       });
     }
     if (outcome.outcome === "DEFINITELY_NOT_EXECUTED" && forward.response !== null) {
+      this.settleAttempt(request, captured, decision, "DEFINITE");
       this.report({
         ...base,
         state: "EXECUTION_FAILED",
@@ -2649,6 +2785,7 @@ export class Gateway {
     if (outcome.outcome === "UNKNOWN_AFTER_DISPATCH") {
       this.metrics.indeterminate.inc();
       this.count("indeterminate");
+      this.settleAttempt(request, captured, decision, "INDETERMINATE");
       const codes = [outcome.reason, ...(forward.failure === null ? [] : [forward.failure])];
       this.report({
         ...base,

@@ -102,7 +102,9 @@ needs `interception.profile`, and refuses at start, by name, an explicit route
 `interception.unmatched: passthrough`. The facts themselves are request values you chose to send:
 review what an operation names before turning this on. A held escalation can be resumed only by the
 gateway process that holds it, which was already true; a retry sent to another replica states a
-different keyed idempotency key.
+different keyed idempotency key. A [retry after `INDETERMINATE`](#retrying-after-indeterminate) is
+still linked on any replica that shares the durable holds: the gateway compares the key the client
+sent, not the keyed one.
 
 The intent is canonicalized (RFC 8785) and hashed by `CanonicalIntentHasher`, and sent to the
 authority as the `ExecutionAuthorityRequest` the [execution intent](../execution-intent.md) page
@@ -146,6 +148,34 @@ A `4xx` is the provider's own refusal: the request reached it and nothing was ef
 or a lost connection is unknown, and is recorded as such rather than guessed either way. See
 [execution outcomes](../execution-outcomes.md) for the vocabulary the executor uses for the same
 distinctions.
+
+### Retrying after INDETERMINATE
+
+The gateway never retries a request itself. When an answer says `agentsafe-execution: INDETERMINATE`,
+check the upstream first. If it did not act, send the request again with the **same**
+`Idempotency-Key`; never mint a new one.
+
+In enforcement, the gateway remembers each `INDETERMINATE` attempt that carried an `Idempotency-Key`,
+by tenant and key, for 24 hours. With [durable holds](#durable-holds) the record sits beside them, so
+every replica sees it and a restart keeps it; without them it is in the memory of the replica that
+answered. What happens to the next request with that key:
+
+| The next request with the key                    | What the gateway does                                                                                                                                                                                                                                                                                   |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The same method, path, query, content type, body | Decided afresh, as any request. Its intent carries `context.retry_of: { dossier_id, outcome: "INDETERMINATE" }`, naming the earlier attempt's dossier, so policy can treat the retry differently and the new dossier names the earlier one. Every answer to it adds `agentsafe-retry-of: <dossier id>`. |
+| Anything else                                    | Refused with `409`, `reason_codes: ["IDEMPOTENCY_KEY_REUSED"]` and `agentsafe-execution: NOT_FORWARDED`. Neither the upstream nor the authority is called. The refusal is chained as `IDEMPOTENCY_KEY_REUSED`.                                                                                          |
+
+Other headers and the caller's address are not compared, so a retry from another egress address,
+or with a new trace id, is still the same request. A retry that is `INDETERMINATE` again replaces the
+record, so the next retry names the latest attempt. A retry that the upstream answers (`FORWARDED` or
+`FAILED`) settles the key, and a later request with it is linked to nothing. A retry that is held,
+blocked or not forwarded leaves the record as it was.
+
+A request without an `Idempotency-Key` has nothing to link: it is governed exactly as before, and a
+retry of it is a new request. Shadow links and refuses nothing. The record keeps the request's
+digest, the earlier intent, decision and dossier ids, and nothing of the request itself; with durable
+holds it is sealed under the hold key and named by a keyed digest of the key, so the directory shows
+no key a client sent.
 
 ## The target a write names
 
@@ -284,7 +314,8 @@ intent id. What a hold keeps is what a resume needs: the captured intent, the re
 gateway's own credentials or the upstream credential, which the gateway sets again when it forwards),
 the decision, the managed handoff, its expiry and the resume token's SHA-256. It never keeps the
 resume token. A hold that has expired, or that does not open, is removed, and a sweep removes the
-rest.
+rest. The same directory and key also keep the [`INDETERMINATE` attempts](#retrying-after-indeterminate)
+a retry is linked to, in `dir/attempts`.
 
 Any replica can resume a hold, and a restart or a configuration reload loses none. A resume takes the
 hold by renaming its file before it forwards, which succeeds for one caller only, so two replicas

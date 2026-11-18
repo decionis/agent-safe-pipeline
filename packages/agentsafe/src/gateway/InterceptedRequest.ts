@@ -103,6 +103,28 @@ export function keyedRequestDigest(
   return `hmac-sha256:${createHmac("sha256", key).update(requestDigest(request), "utf8").digest("hex")}`;
 }
 
+/**
+ * What a client's idempotency key promises: one operation, named by its
+ * method, path, query, content type and body bytes. Unlike `requestDigest`
+ * it leaves out the other headers and the caller's address, which a retry
+ * from another egress, or with a new trace id, changes without changing
+ * the operation. Kept only by the gateway, never sent to the authority.
+ */
+export function retryDigest(request: InterceptedRequest): `sha256:${string}` {
+  const metadata = JSON.stringify([
+    request.method.toUpperCase(),
+    request.path,
+    request.search,
+    request.headers["content-type"] ?? null,
+  ]);
+  return `sha256:${createHash("sha256").update(metadata, "utf8").update(request.body).digest("hex")}`;
+}
+
+/** The client's `Idempotency-Key` as the intent would state it, or null when absent, empty or over the bound. */
+export function idempotencyKeyOf(request: InterceptedRequest): string | null {
+  return header(request.headers, "idempotency-key", MAX_IDEMPOTENCY_KEY_LENGTH);
+}
+
 /** Query pairs as an object: one value, or a list where a key repeats; keys sorted for stable hashing. */
 function queryObject(search: string): { [key: string]: string | string[] } {
   const grouped = new Map<string, string[]>();

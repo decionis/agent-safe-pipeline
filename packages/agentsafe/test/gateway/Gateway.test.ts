@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -986,6 +986,244 @@ describe("the gateway with durable holds", () => {
     expect(refused({ version: 1, holds: { dir: holds.dir, keyFile, ttlSeconds: 300 } })).toBeNull();
   });
 });
+describe("a retry after an INDETERMINATE result", () => {
+  const authority = new LocalAuthority({ policy: demoPolicy });
+  const root = mkdtempSync(join(tmpdir(), "agentsafe-gateway-retry-"));
+  const env = {
+    DECIONIS_API_KEY: LOCAL_AUTHORITY_API_KEY,
+    DECIONIS_ALLOW_INSECURE_LOOPBACK: "true",
+    DECIONIS_TENANT_ID: TENANT_ID,
+  };
+  /** The upstream: answers each request with the next scripted status, 201 when the script is spent. */
+  const sent: string[] = [];
+  const script: number[] = [];
+  const upstreamFetch = async (_input: string | URL | Request, init?: RequestInit) => {
+    sent.push(Buffer.from((init?.body as Uint8Array | undefined) ?? []).toString("utf8"));
+    const status = script.shift() ?? 201;
+    return new Response(JSON.stringify({ ok: status < 400 }), {
+      status,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  let offset = 0;
+  const clock = (): number => Date.now() + offset;
+  beforeAll(async () => {
+    await authority.start();
+  });
+  afterAll(async () => {
+    await authority.stop();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  /** A replica sharing the store in `name`, or keeping it in memory when null. */
+  async function replica(
+    name: string | null,
+    extra: Record<string, string> = {},
+    flags: Record<string, unknown> = { mode: "enforcement" },
+  ): Promise<Gateway> {
+    const live = { ...env, DECIONIS_API_URL: authority.baseUrl, ...extra };
+    const file =
+      name === null
+        ? { version: 1 }
+        : { version: 1, holds: { dir: join(root, name), keyFile: keyOf(name) } };
+    return await Gateway.create(
+      testConfig("https://shop.tenant.example", { env: live, flags, file }),
+      {
+        env: live,
+        io: collectedIo(),
+        upstreamFetch,
+        clock,
+      },
+    );
+  }
+  function keyOf(name: string): string {
+    const path = join(root, `${name}.key`);
+    try {
+      readFileSync(path);
+    } catch {
+      writeFileSync(path, randomBytes(32).toString("base64url"), { mode: 0o600 });
+    }
+    return path;
+  }
+  const pay = (amount: number, key: string | null): InterceptedRequest =>
+    request("POST", "/payments", { amount }, key === null ? {} : { "idempotency-key": key });
+  /** The trusted context of the last intent the authority was asked about. */
+  const lastContext = (): Record<string, unknown> =>
+    (
+      authority.requests.filter((seen) => seen.path === "/v1/authority/grants").at(-1)?.body as {
+        context: Record<string, unknown>;
+      }
+    ).context;
+  const headerOf = (answer: { headers: readonly (readonly [string, string])[] }, name: string) =>
+    Object.fromEntries(answer.headers)[name];
+
+  it("links a retry with the same key and request, on another replica and after a restart", async () => {
+    const first = await replica("shared");
+    script.push(503);
+    const unknown = await first.govern(pay(50, "pay-retry-1"), "http.post");
+    expect(headerOf(unknown, "agentsafe-execution")).toBe("INDETERMINATE");
+    const dossier = headerOf(unknown, "agentsafe-dossier-id");
+    expect(dossier).toMatch(/\S/);
+    expect(lastContext()["retry_of"]).toBeUndefined();
+    await first.close();
+
+    // A restarted replica, or another one: the record is in the shared store.
+    const second = await replica("shared");
+    const retried = await second.govern(pay(50, "pay-retry-1"), "http.post");
+    expect(retried.status).toBe(201);
+    expect(headerOf(retried, "agentsafe-execution")).toBe("FORWARDED");
+    expect(headerOf(retried, "agentsafe-retry-of")).toBe(dossier);
+    expect(lastContext()["retry_of"]).toEqual({ dossier_id: dossier, outcome: "INDETERMINATE" });
+    expect(headerOf(retried, "agentsafe-dossier-id")).not.toBe(dossier);
+
+    // The retry settled the key: the next request with it links nothing.
+    const third = await replica("shared");
+    const again = await third.govern(pay(50, "pay-retry-1"), "http.post");
+    expect(again.status).toBe(201);
+    expect(headerOf(again, "agentsafe-retry-of")).toBeUndefined();
+    expect(lastContext()["retry_of"]).toBeUndefined();
+    await second.close();
+    await third.close();
+  });
+
+  it("links each retry to the latest unknown attempt, and nothing to a request that was only held", async () => {
+    const gateway = await replica(null);
+    script.push(500, 502);
+    const one = await gateway.govern(pay(50, "pay-retry-chain"), "http.post");
+    const two = await gateway.govern(pay(50, "pay-retry-chain"), "http.post");
+    expect(headerOf(two, "agentsafe-retry-of")).toBe(headerOf(one, "agentsafe-dossier-id"));
+    const three = await gateway.govern(pay(50, "pay-retry-chain"), "http.post");
+    expect(headerOf(three, "agentsafe-retry-of")).toBe(headerOf(two, "agentsafe-dossier-id"));
+
+    script.push(503);
+    const unknown = await gateway.govern(pay(500, "pay-retry-held"), "http.post");
+    expect(unknown.status).toBe(202);
+    // Held, not executed: nothing is recorded, so nothing is linked.
+    const held = await gateway.govern(pay(500, "pay-retry-held"), "http.post");
+    expect(headerOf(held, "agentsafe-retry-of")).toBeUndefined();
+    script.length = 0;
+    await gateway.close();
+  });
+
+  it("refuses the same key with another request, and the upstream and authority never hear of it", async () => {
+    const gateway = await replica("reuse");
+    script.push(503);
+    const unknown = await gateway.govern(pay(50, "pay-reused"), "http.post");
+    expect(headerOf(unknown, "agentsafe-execution")).toBe("INDETERMINATE");
+    const upstreamBefore = sent.length;
+    const authorityBefore = authority.requests.length;
+    for (const other of [
+      pay(51, "pay-reused"),
+      request("PUT", "/payments", { amount: 50 }, { "idempotency-key": "pay-reused" }),
+      request("POST", "/payments", { amount: 50 }, { "idempotency-key": "pay-reused" }, "?x=1"),
+    ]) {
+      const refused = await gateway.govern(other, "http.post");
+      expect(refused.status).toBe(409);
+      expect(headerOf(refused, "agentsafe-execution")).toBe("NOT_FORWARDED");
+      expect(json(refused.body)).toMatchObject({
+        state: "ERROR",
+        verdict: null,
+        reason_codes: ["IDEMPOTENCY_KEY_REUSED"],
+        execution: "NOT_FORWARDED",
+      });
+    }
+    expect(sent.length).toBe(upstreamBefore);
+    expect(authority.requests.length).toBe(authorityBefore);
+    expect(gateway.status().counts["idempotency_key_reused"]).toBe(3);
+    // The same request is still a retry: the refusals did not disturb the record.
+    const retried = await gateway.govern(pay(50, "pay-reused"), "http.post");
+    expect(headerOf(retried, "agentsafe-retry-of")).toBe(headerOf(unknown, "agentsafe-dossier-id"));
+    await gateway.close();
+  });
+
+  it("changes nothing for a request without a key, or in shadow", async () => {
+    const gateway = await replica("nokey");
+    script.push(503);
+    await gateway.govern(pay(50, null), "http.post");
+    const again = await gateway.govern(pay(51, null), "http.post");
+    expect(again.status).toBe(201);
+    expect(headerOf(again, "agentsafe-retry-of")).toBeUndefined();
+    expect(lastContext()["retry_of"]).toBeUndefined();
+    await gateway.close();
+
+    const shadow = await replica(null, {}, { mode: "shadow" });
+    script.push(503);
+    await shadow.govern(pay(50, "pay-shadow"), "http.post");
+    const other = await shadow.govern(pay(51, "pay-shadow"), "http.post");
+    expect(other.status).toBe(201);
+    expect(headerOf(other, "agentsafe-retry-of")).toBeUndefined();
+    await shadow.close();
+  });
+
+  it("forgets an attempt after a day", async () => {
+    const gateway = await replica("expiry");
+    script.push(503);
+    await gateway.govern(pay(50, "pay-expiry"), "http.post");
+    offset = 24 * 60 * 60 * 1_000;
+    try {
+      const later = await gateway.govern(pay(51, "pay-expiry"), "http.post");
+      expect(later.status).toBe(201);
+      expect(headerOf(later, "agentsafe-retry-of")).toBeUndefined();
+      expect(lastContext()["retry_of"]).toBeUndefined();
+    } finally {
+      offset = 0;
+    }
+    await gateway.close();
+  });
+
+  it("links nothing from a record that was altered, or kept for another tenant", async () => {
+    const gateway = await replica("tamper");
+    script.push(503);
+    await gateway.govern(pay(50, "pay-tamper"), "http.post");
+    const dir = join(root, "tamper", "attempts");
+    const [name] = readdirSync(dir);
+    const path = join(dir, name!);
+    const sealed = JSON.parse(readFileSync(path, "utf8")) as { data: string };
+    const bytes = Buffer.from(sealed.data, "base64url");
+    bytes[0] = bytes[0]! ^ 1;
+    writeFileSync(path, JSON.stringify({ ...sealed, data: bytes.toString("base64url") }));
+    const after = await gateway.govern(pay(50, "pay-tamper"), "http.post");
+    expect(headerOf(after, "agentsafe-retry-of")).toBeUndefined();
+    await gateway.close();
+
+    // Another tenant mounting the same directory and key finds none of this tenant's attempts.
+    const mine = await replica("tenants");
+    script.push(503);
+    await mine.govern(pay(50, "pay-tenant"), "http.post");
+    const theirs = await replica("tenants", {
+      DECIONIS_TENANT_ID: "00000000-0000-4000-8000-000000000010",
+    });
+    const other = await theirs.govern(pay(51, "pay-tenant"), "http.post");
+    expect(other.status).toBe(201);
+    expect(headerOf(other, "agentsafe-retry-of")).toBeUndefined();
+    expect(lastContext()["retry_of"]).toBeUndefined();
+    await mine.close();
+    await theirs.close();
+  });
+
+  it("links concurrent retries on two replicas and refuses the one that changed the request", async () => {
+    const [a, b] = [await replica("race"), await replica("race")];
+    script.push(503);
+    const unknown = await a.govern(pay(50, "pay-race-retry"), "http.post");
+    const dossier = headerOf(unknown, "agentsafe-dossier-id");
+    const upstreamBefore = sent.length;
+    const answers = await Promise.all([
+      a.govern(pay(50, "pay-race-retry"), "http.post"),
+      b.govern(pay(50, "pay-race-retry"), "http.post"),
+      b.govern(pay(52, "pay-race-retry"), "http.post"),
+    ]);
+    expect(answers.map((answer) => answer.status)).toEqual([201, 201, 409]);
+    expect(answers.slice(0, 2).map((answer) => headerOf(answer, "agentsafe-retry-of"))).toEqual([
+      dossier,
+      dossier,
+    ]);
+    // Each retry was decided afresh and forwarded on its own grant; the changed one never was.
+    expect(sent.slice(upstreamBefore)).toEqual(['{"amount":50}', '{"amount":50}']);
+    await a.close();
+    await b.close();
+  });
+});
+
 describe("what a hosted call says about where the runtime came from", () => {
   const upstream = new UpstreamDouble();
   const authority = new LocalAuthority({ policy: demoPolicy });

@@ -76,8 +76,8 @@ intentTtlSeconds: 120 # how long a captured intent, and a held escalation, stays
 shadow:
   verdictWaitMs: 0 # how long a shadow answer may wait for agentsafe-shadow-verdict; at most 2000
 
-holds: # optional: holds in a directory every replica mounts, sealed; enforcement only
-  dir: /var/lib/agent-safe/holds
+holds: # optional: holds, and INDETERMINATE attempts a retry links to, in a directory every replica mounts, sealed; enforcement only
+  dir: /var/lib/agent-safe/holds # INDETERMINATE attempts in dir/attempts, kept 24 hours
   keyFile: /var/run/agent-safe/custody/hold-key
   ttlSeconds: 86400 # over 300 only with presence.managed and no approverId; at most 604800
 
