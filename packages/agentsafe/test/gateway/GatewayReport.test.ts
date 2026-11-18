@@ -251,3 +251,49 @@ describe("the gateway's reports", () => {
     expect(renderJson(base)).not.toContain("\n");
   });
 });
+
+describe("a payment's cumulative limits in the report", () => {
+  it("names what the ledger said and how the reservations ended", () => {
+    const text = renderHuman(
+      {
+        ...base,
+        state: "ALLOW",
+        verdict: "ALLOW",
+        execution: "FORWARDED",
+        upstream_status: 201,
+        exposure: {
+          status: "WITHIN_LIMIT",
+          reason_codes: [],
+          limits: ["vendor-daily"],
+          unstated: [],
+          settlement: "SETTLED",
+        },
+      },
+      { color: false },
+    );
+    expect(text).toContain("Exposure     WITHIN_LIMIT, SETTLED");
+  });
+
+  it("shows a limit's refusal under its own state, never as a BLOCK", () => {
+    const text = renderHuman(
+      {
+        ...base,
+        state: "EXPOSURE_EXCEEDED",
+        verdict: "ALLOW",
+        execution: "NOT_FORWARDED",
+        exposure: {
+          status: "EXCEEDED",
+          reason_codes: ["EXPOSURE_LIMIT_EXCEEDED", "EXPOSURE_ON_EXCEED_ESCALATE"],
+          limits: ["vendor-daily"],
+          unstated: [],
+          settlement: "NONE",
+        },
+      },
+      { color: true },
+    );
+    expect(text).toContain("EXPOSURE EXCEEDED");
+    expect(text).toContain("EXCEEDED (EXPOSURE_LIMIT_EXCEEDED)");
+    expect(text).not.toContain("BLOCK");
+    expect(stateLabel("EXPOSURE_UNAVAILABLE")).toBe("EXPOSURE UNAVAILABLE");
+  });
+});

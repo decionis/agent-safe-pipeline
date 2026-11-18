@@ -324,6 +324,65 @@ describe("the gateway configuration", () => {
     ]);
   });
 
+  it("resolves a route's money declaration from YAML, every default applied", () => {
+    const file = parse(
+      [
+        "version: 1",
+        "interception:",
+        "  routes:",
+        "    - path: /payments",
+        "      action: payment.release",
+        "      methods: [POST]",
+        "      exposure:",
+        "        amount: /body/amount",
+        "        currency: usd",
+        "        subjects:",
+        "          vendor: /body/payee_id",
+      ].join("\n"),
+    ) as unknown;
+    const [route] = load({ flags: { upstream: "http://localhost:1" }, file }).interception.routes;
+    expect(route?.exposure).toEqual({
+      actionType: "PAYMENT_RELEASE",
+      amount: "/body/amount",
+      amountUnit: "MINOR",
+      currency: "USD",
+      subjects: { vendor: "/body/payee_id" },
+      settledAmount: null,
+      failurePolicy: "FAIL_CLOSED",
+    });
+  });
+
+  it("keeps a route that declares no money as it was", () => {
+    const config = load({
+      flags: { upstream: "http://localhost:1" },
+      file: { version: 1, interception: { routes: [{ path: "/orders", action: "order.create" }] } },
+    });
+    expect(config.interception.routes[0]).not.toHaveProperty("exposure");
+  });
+
+  it.each([
+    [{ currency: "USD" }, "amount"],
+    [{ amount: "body/amount", currency: "USD" }, "amount"],
+    [{ amount: "/cookies/amount", currency: "USD" }, "amount"],
+    [{ amount: "/body/amount", currency: "US" }, "currency"],
+    [{ amount: "/body/amount", currency: "USD", actionType: "WIRE" }, "actionType"],
+    [{ amount: "/body/amount", currency: "USD", amountUnit: "cents" }, "amountUnit"],
+    [{ amount: "/body/amount", currency: "USD", subjects: { payee: "/body/p" } }, "subjects"],
+    [{ amount: "/body/amount", currency: "USD", settledAmount: "/query/x" }, "settledAmount"],
+    [{ amount: "/body/amount", currency: "USD", failurePolicy: "skip" }, "failurePolicy"],
+  ])("refuses an invalid money declaration %j by name", (exposure, field) => {
+    const error = refusal({
+      flags: { upstream: "http://localhost:1" },
+      file: {
+        version: 1,
+        interception: { routes: [{ path: "/payments", action: "payment.release", exposure }] },
+      },
+    });
+    expect(error.code).toBe("CONFIG_INVALID");
+    expect(error.setting.startsWith(`interception.routes.0.exposure`)).toBe(true);
+    expect(error.setting).toContain(field === "subjects" ? "subjects" : field);
+  });
+
   it.each([
     ["policyId", "payment.create"],
     ["policyId", ""],

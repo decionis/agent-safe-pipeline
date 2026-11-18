@@ -31,7 +31,16 @@ export interface AcceptedCounts {
   readonly BLOCK: number;
 }
 
+/** Of the would-be ALLOWs of payments, what the exposure ledger would have said, by status. */
+export type ExposureCounts = Readonly<Record<string, number>>;
+
 export interface ShadowSummary {
+  /**
+   * Present once a route that releases money was observed: of its would-be
+   * ALLOWs, what the exposure ledger would have said (`WITHIN_LIMIT`,
+   * `EXCEEDED`, `UNAVAILABLE`, ...). Nothing was counted against a limit.
+   */
+  readonly exposure?: ExposureCounts;
   /** When the first and the last observation settled; null before any did. */
   readonly since: string | null;
   readonly until: string | null;
@@ -61,6 +70,7 @@ export class ShadowLedger {
   private would: ShadowCounts = ZERO;
   private accepted: AcceptedCounts = { ESCALATE: 0, BLOCK: 0 };
   private readonly byAction = new Map<string, ShadowCounts>();
+  private exposure: Record<string, number> | null = null;
 
   /** How many observations have settled so far. */
   public get observed(): number {
@@ -93,8 +103,15 @@ export class ShadowLedger {
     this.byAction.set(name, { ...counts, [outcome]: counts[outcome] + 1 });
   }
 
+  /** What the exposure ledger would have said about one would-be ALLOW of a payment. */
+  public recordExposure(status: string): void {
+    this.exposure ??= {};
+    this.exposure[status] = (this.exposure[status] ?? 0) + 1;
+  }
+
   public summary(): ShadowSummary {
     return {
+      ...(this.exposure === null ? {} : { exposure: { ...this.exposure } }),
       since: this.since,
       until: this.until,
       observed: this.count,
@@ -201,6 +218,15 @@ export function renderShadowReport(
         ),
       );
     });
+  }
+  if (shadow.exposure !== undefined) {
+    const counts = Object.entries(shadow.exposure).sort(([a], [b]) => (a < b ? -1 : 1));
+    lines.push(
+      row(
+        "Limits",
+        `${counts.map(([status, count]) => `${status.toLowerCase().replace(/_/g, " ")} ${String(count)}`).join("  ")}${dim("   payments the ledger was asked about; none was counted")}`,
+      ),
+    );
   }
   const changed = would.ESCALATE + would.BLOCK;
   lines.push(

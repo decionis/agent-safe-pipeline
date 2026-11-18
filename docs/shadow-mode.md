@@ -145,6 +145,11 @@ unasked on its own cadence: as the count of observations reaches 10, 100, 1,000 
 power of ten, and whenever a day has passed since the last report at the moment an observation
 settles. A gateway that observes nothing says nothing.
 
+For a route that releases money, the report also counts, under `exposure` (`Limits` on a terminal),
+what the organisation's cumulative limits would have said about each would-be `ALLOW`. The gateway
+asks the exposure ledger with a reservation it releases at once, so nothing is counted against a
+limit ([cumulative limits](./gateway/exposure.md#shadow)).
+
 ```text
 Shadow report
 
