@@ -60,7 +60,13 @@ issue or private advisory, depending on disclosure risk, with a bounded follow-u
 
 ## Recorded exceptions
 
-None open.
+Open:
+
+- [GHSA-fc5q-39xc-vjpf](https://github.com/advisories/GHSA-fc5q-39xc-vjpf) (`picomatch` ReDoS,
+  high), approved by Festus B. Jejelowo on 18 November 2026. Build tooling only (ESLint, vite,
+  vitest, coverage, Stryker); `security:production` is unaffected. No fixed release exists
+  (4.0.7, the latest, is affected). `pnpm.auditConfig.ignoreGhsas` names this advisory only.
+  Remove it when a fixed `picomatch` ships; re-review by 18 December 2026.
 
 Closed:
 
