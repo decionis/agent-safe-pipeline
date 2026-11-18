@@ -43,6 +43,7 @@ interception:
   principalHeader: null # a request header whose value is carried as claimed_principal
   profile: null # an API intent profile, e.g. walmart/api/v3; its operations follow any route
   privacy: full # full | facts: the authority receives the profile's operation and facts only
+  digestKeyFile: null # facts only: a 32-byte key in custody; every replica then states the same keyed digests
   refuseUnknownReads: false # true (the default with subject and a profile): a call the profile cannot check is refused
   observeRefusals: true # false: a refused write's target is not read again (one GET per refusal)
   refusalWindowMs: 1000 # how long after the refusal that read is made; 0 to 30000
@@ -150,6 +151,8 @@ gateway.upstream)`, `CONFIG_INVALID: authority.mode (shadow or enforcement)`,
   `AgentSafe-Session`, `AgentSafe-Subject-Token` or `AgentSafe-Gateway-Token`;
 - `privacy: facts` needs a `profile`, and refuses `routes`, a `principalHeader` and
   `unmatched: passthrough`;
+- `digestKeyFile` needs `privacy: facts` and an absolute path; a gateway whose file is unreadable,
+  or does not hold 32 bytes (base64, base64url or hex), does not start;
 - `subject` needs `jwksFile` or `jwksUrl`; `refuseUnknownReads` needs `subject` and a `profile`,
   and cannot be `false` with `subject` on a gateway that holds the upstream credential;
 - an `authority.endpoint` other than `local` must be `https://`, or loopback with the allowance.

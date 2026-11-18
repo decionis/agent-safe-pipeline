@@ -81,7 +81,7 @@ authority receives only what an [API profile](./routes.md#by-an-api-profile) say
 | `target`                             | `<METHOD> <path template>`, for example `POST /companies({companyId})/salesOrders`                   |
 | `parameters`                         | `method`, `operation` (the operation id) and `path_template`; no path, query or body                 |
 | `context`                            | the facts the operation names, `api_profile: { id, operation }`, `ingress` and `request_hmac_sha256` |
-| `context.request_hmac_sha256`        | the complete request digest above, keyed with a secret made by and held in the gateway process       |
+| `context.request_hmac_sha256`        | the complete request digest above, keyed with the [digest key](#the-digest-key)                      |
 | `idempotencyKey`                     | the client's `Idempotency-Key` keyed the same way, else a fresh one                                  |
 | `correlationId`, `claimed_principal` | never carried                                                                                        |
 
@@ -100,16 +100,41 @@ under a derived name, because its intent would carry the raw path. Facts-only pr
 needs `interception.profile`, and refuses at start, by name, an explicit route
 (`interception.routes`: its target is the raw path), a principal header (a raw header value) and
 `interception.unmatched: passthrough`. The facts themselves are request values you chose to send:
-review what an operation names before turning this on. A held escalation can be resumed only by the
-gateway process that holds it, which was already true; a retry sent to another replica states a
-different keyed idempotency key. A [retry after `INDETERMINATE`](#retrying-after-indeterminate) is
-still linked on any replica that shares the durable holds: the gateway compares the key the client
-sent, not the keyed one.
+review what an operation names before turning this on.
 
 The intent is canonicalized (RFC 8785) and hashed by `CanonicalIntentHasher`, and sent to the
 authority as the `ExecutionAuthorityRequest` the [execution intent](../execution-intent.md) page
 describes, with `Idempotency-Key: <intent id>`. A body too large or too deep to bind is refused
 with `413` before anyone is asked.
+
+#### The digest key
+
+By default the key behind `request_hmac_sha256` and the keyed idempotency key is a secret each
+gateway process makes for itself and never writes down. Replicas then disagree: a retry sent to
+another replica states a different keyed idempotency key, and a held escalation can be resumed only
+by the process that holds it, because another replica cannot recompute the digest the grant binds.
+
+To make every replica agree, give the tenant a key in custody, the same way as the
+[hold key](#durable-holds):
+
+```yaml
+interception:
+  privacy: facts
+  profile: businesscentral/api/v2
+  digestKeyFile: /var/run/agent-safe/custody/digest-key # 32 bytes, base64 or hex
+```
+
+Every replica that mounts the file derives the same digest key from it (HKDF-SHA-256, with the
+authority tenant as salt), so all of them state the same `request_hmac_sha256` and the same keyed
+idempotency key for the same request, and any replica that shares the [durable holds](#durable-holds)
+can resume a hold. Another tenant mounting the same file derives a different key. The key is read
+once at start and never logged, sent to the authority or written to the report; a file that cannot
+be read, or does not hold 32 bytes, stops the gateway at start with
+`CONFIG_INVALID interception.digestKeyFile`. Use a key of its own rather than the hold key. Without
+`digestKeyFile` nothing changes.
+
+A [retry after `INDETERMINATE`](#retrying-after-indeterminate) is linked on any replica that shares
+the durable holds either way: the gateway compares the key the client sent, not the keyed one.
 
 ## What is forwarded
 
