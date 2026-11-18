@@ -59,3 +59,9 @@ cannot be claimed twice. A client that retries a request creates a new intent, a
 if allowed, a new grant, exactly as it would without the gateway; its own `Idempotency-Key` travels
 to the upstream unchanged so the upstream's idempotency still applies. An indeterminate outcome is
 recorded and reported, never retried by the gateway.
+
+A retry after an indeterminate outcome must carry the same `Idempotency-Key`. The gateway then links
+the new intent to the earlier attempt (`context.retry_of`, and `agentsafe-retry-of` on the answer),
+so the authority decides it knowing a write may already have happened. The same key with a different
+request is refused with `409 IDEMPOTENCY_KEY_REUSED` and never forwarded. See
+[retrying after INDETERMINATE](../gateway/http-interception.md#retrying-after-indeterminate).

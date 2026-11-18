@@ -483,13 +483,18 @@ Use a controlled test API and policy, and count effects at that API as well as r
 | Direct call from the agent to the protected API             | Denied by the actual network/provider boundary                                        |
 | Unsupported method, method override or ambiguous write path | Admission refusal; zero effects                                                       |
 | Timeout after dispatch                                      | `INDETERMINATE`; reconcile before retrying the business operation                     |
+| Retry after `INDETERMINATE` with the same `Idempotency-Key` | Decided afresh; `agentsafe-retry-of` names the earlier dossier                        |
+| Same `Idempotency-Key`, different body                      | `409 IDEMPOTENCY_KEY_REUSED`, `NOT_FORWARDED`; zero upstream effects                  |
 | Hosted key missing/wrong or origin unverified               | 401 or 503 with `NOT_FORWARDED`                                                       |
 
 Configure managed Presence and an approver before expecting the generic gateway to resume a
 hold. Follow the returned `resume` endpoint using the `AgentSafe-Resume-Token`; retain it in the
 application's protected state. A 202 is not a successful payment. A stable idempotency key must
 also be enforced by the upstream: a single-use grant is not a universal duplicate-payment ledger.
-Do not blindly retry writes on 502 or timeout. See [response and resume semantics](./http-interception.md#holds-and-resume).
+Do not blindly retry writes on 502 or timeout. On `agentsafe-execution: INDETERMINATE`, check the
+upstream; if it did not act, retry with the same `Idempotency-Key`, never a new one. See
+[retrying after INDETERMINATE](./http-interception.md#retrying-after-indeterminate) and
+[response and resume semantics](./http-interception.md#holds-and-resume).
 
 Measure the whole decision, grant-claim, upstream and finalization lifecycle. The authority
 timeout bounds an individual call, not the complete action; human approval adds a separate wait.
