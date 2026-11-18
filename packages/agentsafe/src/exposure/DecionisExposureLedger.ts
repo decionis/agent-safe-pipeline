@@ -6,6 +6,7 @@ import {
   type ExposureAnswer,
   type ExposureLedger,
   type ExposureLimit,
+  type ExposureSubjectUsage,
   type ExposureReservationRequest,
 } from "./ExposureLedger.js";
 
@@ -24,6 +25,17 @@ const LimitSchema = z.object({
   action_types: z.array(z.string().max(64)).max(16),
   actor_types: z.array(z.string().max(40)).max(16).optional(),
   steps: z.array(z.string().max(40)).max(8).optional(),
+  caps: z
+    .array(
+      z.object({ currency: z.string().regex(/^[A-Z]{3}$/), max_amount: z.number().int().min(0) }),
+    )
+    .max(32)
+    .optional(),
+  subject_usage: z
+    .array(z.object({ currency: z.string().regex(/^[A-Z]{3}$/), used: z.number().int().min(0) }))
+    .max(32)
+    .nullable()
+    .optional(),
 });
 const LimitsSchema = z.object({ limits: z.array(LimitSchema).max(64) });
 const AnswerSchema = z.object({
@@ -73,7 +85,28 @@ export class DecionisExposureLedger implements ExposureLedger {
       actionTypes: limit.action_types,
       ...(limit.actor_types === undefined ? {} : { actorTypes: limit.actor_types }),
       ...(limit.steps === undefined ? {} : { steps: limit.steps }),
+      ...(limit.caps === undefined
+        ? {}
+        : {
+            caps: limit.caps.map((cap) => ({ currency: cap.currency, maxAmount: cap.max_amount })),
+          }),
     }));
+  }
+
+  /**
+   * `GET /v1/commerce/exposure?subject_kind&subject_digest`: the subject's usage of each limit,
+   * read-only. The only call a hosted gateway's shadow key may make to the ledger.
+   */
+  public async subjectUsage(
+    kind: string,
+    idDigest: string,
+  ): Promise<ReadonlyMap<string, readonly ExposureSubjectUsage[] | null>> {
+    if (!/^[a-z]+$/.test(kind) || !/^[0-9a-f]{64}$/.test(idDigest))
+      throw new ExposureUnavailable("EXPOSURE_SUBJECT_INVALID", false);
+    const query = `?subject_kind=${encodeURIComponent(kind)}&subject_digest=${idDigest}`;
+    const parsed = LimitsSchema.safeParse(await this.call("GET", `${EXPOSURE_PATH}${query}`));
+    if (!parsed.success) throw new ExposureUnavailable("EXPOSURE_LIMITS_MALFORMED", false);
+    return new Map(parsed.data.limits.map((limit) => [limit.key, limit.subject_usage ?? null]));
   }
 
   public async reserve(
