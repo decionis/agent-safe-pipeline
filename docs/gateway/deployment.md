@@ -474,18 +474,18 @@ resume after a restart is `404 ESCALATION_NOT_HELD` with nothing executed. See
 
 Use a controlled test API and policy, and count effects at that API as well as reading responses:
 
-| Test                                                        | Expected evidence                                                                     |
-| ----------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| ALLOW in enforcement                                        | One valid claim before one upstream effect; decision/intent/dossier bindings recorded |
-| BLOCK                                                       | 403 and `NOT_FORWARDED`; zero upstream effects                                        |
-| ESCALATE                                                    | 202 and `HELD`; zero effects until required approval and a fresh ALLOW                |
-| Authority unavailable with fail closed                      | 503 `AUTHORITY_UNAVAILABLE`; zero effects                                             |
-| Direct call from the agent to the protected API             | Denied by the actual network/provider boundary                                        |
-| Unsupported method, method override or ambiguous write path | Admission refusal; zero effects                                                       |
-| Timeout after dispatch                                      | `INDETERMINATE`; reconcile before retrying the business operation                     |
-| Retry after `INDETERMINATE` with the same `Idempotency-Key` | Decided afresh; `agentsafe-retry-of` names the earlier dossier                        |
-| Same `Idempotency-Key`, different body                      | `409 IDEMPOTENCY_KEY_REUSED`, `NOT_FORWARDED`; zero upstream effects                  |
-| Hosted key missing/wrong or origin unverified               | 401 or 503 with `NOT_FORWARDED`                                                       |
+| Test                                                        | Expected evidence                                                                               |
+| ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| ALLOW in enforcement                                        | One valid claim before one upstream effect; decision/intent/dossier bindings recorded           |
+| BLOCK                                                       | 403 and `NOT_FORWARDED`; zero upstream effects                                                  |
+| ESCALATE                                                    | 202 and `HELD`; zero effects until required approval and a fresh ALLOW                          |
+| Authority unavailable with fail closed                      | 503 `AUTHORITY_UNAVAILABLE`; zero effects                                                       |
+| Direct call from the agent to the protected API             | Denied by the actual network/provider boundary                                                  |
+| Unsupported method, method override or ambiguous write path | Admission refusal; zero effects                                                                 |
+| Timeout after dispatch                                      | `INDETERMINATE`; reconcile before retrying the business operation                               |
+| Retry after `INDETERMINATE` with the same `Idempotency-Key` | Decided afresh; `agentsafe-retry-of` names the earlier dossier; cumulative limits count it once |
+| Same `Idempotency-Key`, different body                      | `409 IDEMPOTENCY_KEY_REUSED`, `NOT_FORWARDED`; zero upstream effects                            |
+| Hosted key missing/wrong or origin unverified               | 401 or 503 with `NOT_FORWARDED`                                                                 |
 
 Configure managed Presence and an approver before expecting the generic gateway to resume a
 hold. Follow the returned `resume` endpoint using the `AgentSafe-Resume-Token`; retain it in the

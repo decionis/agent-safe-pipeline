@@ -141,6 +141,19 @@ describe("the exposure gate", () => {
     expect(ledger.reserves[2]?.request.request_digest).not.toBe(first?.request_digest);
   });
 
+  it("reserves a retry under the key of the attempt it retries, and only a well-formed one", () => {
+    const earlier = `agentsafe:${"cd".repeat(32)}`;
+    const own = `agentsafe:${"ab".repeat(32)}`;
+    expect(ExposureGate.reservationKey({ ...binding, retryOf: earlier })).toBe(earlier);
+    // Shadow never takes an enforced key; a malformed record is never used.
+    expect(ExposureGate.reservationKey({ ...binding, retryOf: earlier }, true)).toBe(
+      `agentsafe-shadow:${"ab".repeat(32)}`,
+    );
+    for (const retryOf of [`agentsafe-shadow:${"cd".repeat(32)}`, "agentsafe:short", ""]) {
+      expect(ExposureGate.reservationKey({ ...binding, retryOf })).toBe(own);
+    }
+  });
+
   it("states the actor and the step for a sequence limit, and skips one it cannot", async () => {
     const ledger = new ScriptedLedger([
       limit({

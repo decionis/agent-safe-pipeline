@@ -95,6 +95,30 @@ the window passes it, as an unsettled reservation does in the ledger: the ledger
 cap, and the evidence names the reservation so it can be settled or released by hand once the
 outcome is known.
 
+### A retry of an unknown payment
+
+A retry with the same `Idempotency-Key` and the same request is the same payment, so it is counted
+once. The gateway remembers the reservation key of the unknown attempt with the attempt itself, and
+the retry reserves under that key. The ledger answers with the reservations the first attempt kept
+(`replayed`), never a second draw, and the retry's own outcome ends them:
+
+| The retry               | What the first attempt kept                  |
+| ----------------------- | -------------------------------------------- |
+| committed               | settled                                      |
+| refused by the upstream | released                                     |
+| unknown again           | kept, under the same key, for the next retry |
+
+Its `EXPOSURE_RESERVED` line carries `retry_of: true` and the limits whose reservation was
+`replayed`. Two cases still draw afresh, under the retry's own key:
+
+- **Released by hand.** The kept reservation was released because someone found the payment did
+  not happen.
+- **Older than a day.** The attempt is remembered for a day (`ATTEMPT_TTL_MS`); after that, a retry
+  is not linked to it.
+
+A reservation settled by hand stays settled. A retry the upstream then refuses records
+`EXPOSURE_RELEASE_FAILED` for it, so the contradiction is in the evidence.
+
 A settle or release that fails is retried, up to three attempts with a short backoff, and a failure
 that remains is a chained `EXPOSURE_SETTLE_FAILED` or `EXPOSURE_RELEASE_FAILED` line naming the
 limit and the reservation, and `agentsafe_exposure_total{outcome="SETTLE_FAILED"}`. It never
@@ -186,7 +210,7 @@ a forwarded answer `agentsafe-exposure: WITHIN_LIMIT | NOT_APPLICABLE | UNGOVERN
 
 - Payments that bypass the gateway are not recorded; a payment source that reconciles them into the
   ledger is a separate integration.
-- A reservation kept for an unknown outcome is not settled or released when the attempt is later
-  reconciled with the authority.
+- A reservation kept for an unknown outcome that is never retried is not settled or released
+  until someone does so by hand, or the window passes it.
 - Facts-only privacy governs by API profiles alone, and a profile operation cannot declare
   `exposure` yet.

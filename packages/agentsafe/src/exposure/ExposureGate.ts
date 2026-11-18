@@ -4,6 +4,7 @@ import type { ChainFields } from "../audit/HashChain.js";
 import type { ExposureFacts } from "./ExposureFacts.js";
 import {
   ExposureUnavailable,
+  type ExposureAnswer,
   type ExposureLedger,
   type ExposureLimit,
   type ExposureReservationRequest,
@@ -22,6 +23,8 @@ const STEP_OF: Readonly<Record<string, string>> = {
 };
 /** `source.platform` and `source.channel` of every reservation the gateway makes. */
 const SOURCE = { platform: "agentsafe", channel: "gateway" } as const;
+/** An enforced reservation key: what an earlier attempt's record may name. */
+export const RESERVATION_KEY = /^agentsafe:[0-9a-f]{64}$/;
 
 /** One reservation held against one limit. */
 export interface HeldReservation {
@@ -34,6 +37,13 @@ export interface ExposureBinding {
   readonly intentId: string;
   readonly intentHash: string;
   readonly capturedAt: string;
+  /**
+   * The reservation key of the INDETERMINATE attempt this one retries under
+   * the same idempotency key, for the same request. The retry reserves under
+   * it, so the ledger answers with what the earlier attempt kept: one
+   * operation, drawn once, and ended once its outcome is known.
+   */
+  readonly retryOf?: string;
 }
 
 /**
@@ -47,6 +57,8 @@ export type ExposureCheck =
       readonly status: "WITHIN_LIMIT";
       readonly held: readonly HeldReservation[];
       readonly unstated: readonly string[];
+      /** The limits whose reservation the ledger already held under the key: no second draw. */
+      readonly replayed?: readonly string[];
     }
   | {
       readonly status: "EXCEEDED";
@@ -126,8 +138,20 @@ export class ExposureGate {
     );
   }
 
-  /** The reservation key for an intent: the same intent, the same key, on every retry. */
+  /**
+   * The reservation key for an intent: the same intent, the same key, on
+   * every retry. A retry of an INDETERMINATE attempt takes that attempt's
+   * key; a shadow observation never does.
+   */
   public static reservationKey(binding: ExposureBinding, shadow = false): string {
+    if (!shadow && binding.retryOf !== undefined && RESERVATION_KEY.test(binding.retryOf)) {
+      return binding.retryOf;
+    }
+    return ExposureGate.ownKey(binding, shadow);
+  }
+
+  /** The key derived from the intent's own hash. */
+  private static ownKey(binding: ExposureBinding, shadow: boolean): string {
     const hex = binding.intentHash.replace(/^sha256:/, "");
     return `${shadow ? "agentsafe-shadow" : "agentsafe"}:${hex}`;
   }
@@ -142,15 +166,18 @@ export class ExposureGate {
     binding: ExposureBinding,
     failOpen: boolean,
   ): Promise<ExposureCheck> {
-    const check = await this.draw(facts, binding, ExposureGate.reservationKey(binding));
+    const key = ExposureGate.reservationKey(binding);
+    const own = ExposureGate.ownKey(binding, false);
+    const check = await this.draw(facts, binding, key, key === own ? null : own);
     if (check.status === "WITHIN_LIMIT") {
       this.record({
         event: "EXPOSURE_RESERVED",
         intent_id: binding.intentId,
         intent_hash: binding.intentHash,
-        reservation_key: ExposureGate.reservationKey(binding),
+        reservation_key: key,
         limits: check.held.map((entry) => entry.limitKey),
         unstated: [...check.unstated],
+        ...(key === own ? {} : { retry_of: true, replayed: [...(check.replayed ?? [])] }),
       });
       this.options.count?.(check.held.length === 0 ? "NOT_APPLICABLE" : "WITHIN_LIMIT");
       return check;
@@ -246,6 +273,8 @@ export class ExposureGate {
     facts: ExposureFacts,
     binding: ExposureBinding,
     reservationKey: string,
+    /** Reserved under instead where the earlier attempt's reservation was released by hand. */
+    fallbackKey: string | null = null,
   ): Promise<ExposureCheck> {
     let limits: readonly ExposureLimit[];
     try {
@@ -261,6 +290,7 @@ export class ExposureGate {
     }
     const held: HeldReservation[] = [];
     const unstated: string[] = [];
+    const replayed: string[] = [];
     const covering = limits
       .filter((limit) => this.covers(limit, facts))
       .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
@@ -273,7 +303,22 @@ export class ExposureGate {
       try {
         // The same reservation_key and body on a retry: the ledger answers
         // with the reservation it already holds, never a second draw.
-        const answer = await this.retrying(() => this.options.ledger.reserve(limit.key, request));
+        let answer: ExposureAnswer;
+        try {
+          answer = await this.retrying(() => this.options.ledger.reserve(limit.key, request));
+        } catch (error) {
+          // The earlier attempt's reservation was released: someone found its
+          // payment did not happen. This one draws afresh, under its own key.
+          if (
+            fallbackKey === null ||
+            !(error instanceof ExposureUnavailable) ||
+            error.code !== "EXPOSURE_RESERVATION_RELEASED"
+          ) {
+            throw error;
+          }
+          const fresh = this.request(limit, facts, binding, fallbackKey)!;
+          answer = await this.retrying(() => this.options.ledger.reserve(limit.key, fresh));
+        }
         if (answer.decision !== "PROCEED") {
           await this.end(held, "release", binding);
           return {
@@ -286,6 +331,7 @@ export class ExposureGate {
         }
         if (answer.reservationId !== null) {
           held.push({ limitKey: limit.key, reservationId: answer.reservationId });
+          if (answer.replayed) replayed.push(limit.key);
         }
       } catch (error) {
         return {
@@ -297,7 +343,12 @@ export class ExposureGate {
         };
       }
     }
-    return { status: "WITHIN_LIMIT", held, unstated };
+    return {
+      status: "WITHIN_LIMIT",
+      held,
+      unstated,
+      ...(replayed.length === 0 ? {} : { replayed }),
+    };
   }
 
   /** Whether a limit governs this action: its action type, its actor type, and an amount to count. */

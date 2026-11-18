@@ -26,6 +26,12 @@ export interface IndeterminateAttempt {
   readonly intentId: string;
   readonly decisionId: string | null;
   readonly dossierId: string | null;
+  /**
+   * The exposure reservation key the attempt drew under, when its route
+   * releases money: a retry reserves under it, so what the attempt kept is
+   * ended with the retry's outcome rather than drawn a second time.
+   */
+  readonly reservationKey?: string;
   readonly recordedAt: string;
   readonly expiresAt: number;
 }

@@ -44,12 +44,21 @@ function digest(kind: string, id: string): string {
     .digest("hex");
 }
 
-function payment(path = "/payments", amount = 40_000, vendor = VENDOR): InterceptedRequest {
+function payment(
+  path = "/payments",
+  amount = 40_000,
+  vendor = VENDOR,
+  idempotencyKey?: string,
+): InterceptedRequest {
   return {
     method: "POST",
     path,
     search: "",
-    headers: { "content-type": "application/json", "x-agent-id": AGENT },
+    headers: {
+      "content-type": "application/json",
+      "x-agent-id": AGENT,
+      ...(idempotencyKey === undefined ? {} : { "idempotency-key": idempotencyKey }),
+    },
     body: Buffer.from(
       JSON.stringify({ payee_id: vendor, amount_minor: amount, currency: "usd" }),
       "utf8",
@@ -347,6 +356,115 @@ describe("a route that releases money", () => {
     } finally {
       await gateway.close();
     }
+  });
+
+  describe("a retry, under the same idempotency key, of a payment nobody could account for", () => {
+    const KEY = "synthetic-retry-key-1";
+    const keys = (): string[] =>
+      ledger
+        .reservesOf("vendor-daily")
+        .map((call) => (JSON.parse(call.body) as { reservation_key: string }).reservation_key);
+
+    it("ends what the first attempt kept with its own outcome, and never draws twice", async () => {
+      const { gateway, io } = await gatewayFor();
+      try {
+        // 60,000 twice would pass the vendor's 100,000 cap: one payment, counted once, does not.
+        upstream.next.push(500);
+        const first = await gateway.govern(
+          payment("/payments", 60_000, VENDOR, KEY),
+          "payment.release",
+        );
+        expect(header(first, "agentsafe-execution")).toBe("INDETERMINATE");
+        expect(ledger.reservations.map((entry) => entry.state)).toEqual(["RESERVED", "RESERVED"]);
+        const retry = await gateway.govern(
+          payment("/payments", 60_000, VENDOR, KEY),
+          "payment.release",
+        );
+        expect(retry.status).toBe(201);
+        expect(header(retry, "agentsafe-exposure")).toBe("WITHIN_LIMIT");
+        expect(ledger.reservations.map((entry) => entry.state)).toEqual(["SETTLED", "SETTLED"]);
+        expect(ledger.used("vendor-daily")).toBe(60_000);
+        expect(new Set(keys()).size).toBe(1);
+        expect(events(io, "EXPOSURE_RESERVED").at(-1)).toMatchObject({
+          retry_of: true,
+          replayed: ["org-daily", "vendor-daily"],
+        });
+      } finally {
+        await gateway.close();
+      }
+    });
+
+    it("releases what the first attempt kept when the retry is refused", async () => {
+      const { gateway } = await gatewayFor();
+      try {
+        upstream.next.push(500, 422);
+        await gateway.govern(payment("/payments", 40_000, VENDOR, KEY), "payment.release");
+        const retry = await gateway.govern(
+          payment("/payments", 40_000, VENDOR, KEY),
+          "payment.release",
+        );
+        expect(retry.status).toBe(422);
+        expect(ledger.reservations.map((entry) => entry.state)).toEqual(["RELEASED", "RELEASED"]);
+        expect(ledger.used("vendor-daily")).toBe(0);
+      } finally {
+        await gateway.close();
+      }
+    });
+
+    it("keeps one reservation across retries that stay unknown", async () => {
+      const { gateway } = await gatewayFor();
+      try {
+        upstream.next.push(500, 500);
+        await gateway.govern(payment("/payments", 40_000, VENDOR, KEY), "payment.release");
+        await gateway.govern(payment("/payments", 40_000, VENDOR, KEY), "payment.release");
+        const last = await gateway.govern(
+          payment("/payments", 40_000, VENDOR, KEY),
+          "payment.release",
+        );
+        expect(last.status).toBe(201);
+        expect(ledger.reservations.map((entry) => entry.state)).toEqual(["SETTLED", "SETTLED"]);
+        expect(new Set(keys()).size).toBe(1);
+      } finally {
+        await gateway.close();
+      }
+    });
+
+    it("draws afresh, under its own key, where the kept reservation was released by hand", async () => {
+      const { gateway } = await gatewayFor();
+      try {
+        upstream.next.push(500);
+        await gateway.govern(payment("/payments", 40_000, VENDOR, KEY), "payment.release");
+        for (const entry of ledger.reservations) entry.state = "RELEASED";
+        const retry = await gateway.govern(
+          payment("/payments", 40_000, VENDOR, KEY),
+          "payment.release",
+        );
+        expect(retry.status).toBe(201);
+        expect(ledger.reservations.map((entry) => entry.state)).toEqual([
+          "RELEASED",
+          "RELEASED",
+          "SETTLED",
+          "SETTLED",
+        ]);
+        expect(ledger.used("vendor-daily")).toBe(40_000);
+        expect(new Set(keys()).size).toBe(2);
+      } finally {
+        await gateway.close();
+      }
+    });
+
+    it("draws again for another request, or one without a key", async () => {
+      const { gateway } = await gatewayFor();
+      try {
+        upstream.next.push(500);
+        await gateway.govern(payment("/payments", 40_000, VENDOR), "payment.release");
+        await gateway.govern(payment("/payments", 40_000, VENDOR), "payment.release");
+        expect(ledger.used("vendor-daily")).toBe(80_000);
+        expect(new Set(keys()).size).toBe(2);
+      } finally {
+        await gateway.close();
+      }
+    });
   });
 
   it("retries a reservation whose answer was lost under the same key, and draws once", async () => {

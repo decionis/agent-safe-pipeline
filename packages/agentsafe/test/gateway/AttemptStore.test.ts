@@ -83,6 +83,10 @@ describe("FileAttemptStore", () => {
     const second = new FileAttemptStore(dir, key, SCOPE, () => NOW);
     expect(second.find(KEY)).toEqual(attempt());
     expect(second.sweep()).toBe(1);
+    // The reservation key a retry reserves under travels with the record.
+    const reserved = { ...attempt(), reservationKey: `agentsafe:${"e".repeat(64)}` };
+    expect(first.record(KEY, reserved)).toBe(true);
+    expect(second.find(KEY)).toEqual(reserved);
     // The hold store's sweep counts holds only, and leaves the records alone.
     expect(holds.sweep()).toBe(0);
     expect(second.find(KEY)).toBeDefined();

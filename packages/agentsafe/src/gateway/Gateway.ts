@@ -1535,6 +1535,19 @@ export class Gateway {
   }
 
   /**
+   * The reservation key of the INDETERMINATE attempt this request retries:
+   * the same idempotency key and the same request, so the same payment.
+   * Undefined when it retries none, or none that reserved.
+   */
+  private retriedReservation(request: InterceptedRequest): string | undefined {
+    const key = idempotencyKeyOf(request);
+    if (key === null) return undefined;
+    const earlier = this.attempts.find(key);
+    if (earlier === undefined || earlier.requestDigest !== retryDigest(request)) return undefined;
+    return earlier.reservationKey;
+  }
+
+  /**
    * After an enforced execution, what its idempotency key remembers: an
    * INDETERMINATE attempt is recorded for a retry to be linked to; a
    * definite outcome (forwarded and answered, or answered with a refusal)
@@ -1546,6 +1559,7 @@ export class Gateway {
     captured: CapturedIntent,
     decision: DecisionGate,
     outcome: "INDETERMINATE" | "DEFINITE",
+    reservationKey?: string,
   ): void {
     const key = idempotencyKeyOf(request);
     if (key === null) return;
@@ -1560,6 +1574,7 @@ export class Gateway {
       intentId: captured.intent.intentId,
       decisionId: decision.decisionId,
       dossierId: decision.dossierId,
+      ...(reservationKey === undefined ? {} : { reservationKey }),
       recordedAt: new Date(now).toISOString(),
       expiresAt: now + ATTEMPT_TTL_MS,
     });
@@ -2834,10 +2849,12 @@ export class Gateway {
     // and before the send, and ended once the upstream has answered. Read
     // again from the request here, so a resumed hold is checked the same way.
     const money = this.moneyOf(request);
+    const retryOf = money === null ? undefined : this.retriedReservation(request);
     const binding: ExposureBinding = {
       intentId,
       intentHash: captured.intentHash,
       capturedAt: captured.intent.capturedAt,
+      ...(retryOf === undefined ? {} : { retryOf }),
     };
     const reserved: { check: ExposureCheck | null; refused: boolean } = {
       check: null,
@@ -2939,7 +2956,13 @@ export class Gateway {
     if (outcome.outcome === "UNKNOWN_AFTER_DISPATCH") {
       this.metrics.indeterminate.inc();
       this.count("indeterminate");
-      this.settleAttempt(request, captured, decision, "INDETERMINATE");
+      this.settleAttempt(
+        request,
+        captured,
+        decision,
+        "INDETERMINATE",
+        check === null ? undefined : ExposureGate.reservationKey(binding),
+      );
       const codes = [outcome.reason, ...(forward.failure === null ? [] : [forward.failure])];
       this.report({
         ...base,
