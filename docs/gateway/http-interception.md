@@ -263,14 +263,16 @@ When nothing is forwarded, the caller gets JSON with `version: agent-safe.gatewa
 the `verdict`, the `reason_codes`, the `execution`, and the intent, decision and dossier
 identifiers, with the same `agentsafe-state` and `agentsafe-execution` headers:
 
-| State                     | Status  | Execution       | When                                                         |
-| ------------------------- | ------- | --------------- | ------------------------------------------------------------ |
-| `BLOCK`                   | 403     | `NOT_FORWARDED` | the authority refused                                        |
-| `ESCALATE`                | 202     | `HELD`          | a person must decide; `resume` names where to ask again      |
-| `AUTHORITY_UNAVAILABLE`   | 503     | `NOT_FORWARDED` | the authority could not be asked; `Retry-After` is set       |
-| `EXECUTION_FAILED`        | 502     | `NOT_FORWARDED` | the grant was claimed but the handler stopped before sending |
-| `EXECUTION_INDETERMINATE` | 502     | `INDETERMINATE` | the request was sent and no answer came back                 |
-| `ERROR`                   | 400–503 | `NOT_FORWARDED` | the intent could not be bound, or the grant not claimed      |
+| State                     | Status  | Execution       | When                                                               |
+| ------------------------- | ------- | --------------- | ------------------------------------------------------------------ |
+| `BLOCK`                   | 403     | `NOT_FORWARDED` | the authority refused                                              |
+| `ESCALATE`                | 202     | `HELD`          | a person must decide; `resume` names where to ask again            |
+| `AUTHORITY_UNAVAILABLE`   | 503     | `NOT_FORWARDED` | the authority could not be asked; `Retry-After` is set             |
+| `EXECUTION_FAILED`        | 502     | `NOT_FORWARDED` | the grant was claimed but the handler stopped before sending       |
+| `EXECUTION_INDETERMINATE` | 502     | `INDETERMINATE` | the request was sent and no answer came back                       |
+| `ERROR`                   | 400–503 | `NOT_FORWARDED` | the intent could not be bound, or the grant not claimed            |
+| `EXPOSURE_EXCEEDED`       | 409     | `NOT_FORWARDED` | an allowed payment would cross a [cumulative limit](./exposure.md) |
+| `EXPOSURE_UNAVAILABLE`    | 503     | `NOT_FORWARDED` | the exposure ledger could not be asked; `Retry-After` is set       |
 
 A request forwarded unchanged (a passthrough, a request observed in shadow, a fail-open forward)
 that gets no answer is `502` with state `ERROR`. It is `NOT_FORWARDED` only when no connection was

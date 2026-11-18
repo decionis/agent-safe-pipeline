@@ -21,6 +21,8 @@ export interface GatewayMetrics {
   readonly ungoverned: Counter;
   readonly effects: Counter;
   readonly refusalObservations: Counter;
+  /** Money releases by what the exposure ledger said, and how their reservations ended. */
+  readonly exposure: Counter;
   readonly held: Gauge;
   /** 1, labelled with the digest of what this gateway is; the label changes only with a rebuild. */
   readonly fingerprint: Gauge;
@@ -82,6 +84,11 @@ export function gatewayMetrics(registry: Metrics = new Metrics()): GatewayMetric
     refusalObservations: registry.counter(
       "agentsafe_refusal_observations",
       "Refused writes whose target was read again: UNCHANGED, CHANGED or UNREADABLE.",
+      ["outcome"],
+    ),
+    exposure: registry.counter(
+      "agentsafe_exposure",
+      "Money releases checked against cumulative limits, by outcome: WITHIN_LIMIT, EXCEEDED, UNAVAILABLE, UNGOVERNED, SETTLE_FAILED, RELEASE_FAILED and the rest.",
       ["outcome"],
     ),
     held: registry.gauge("agentsafe_escalations_held", "Escalations held for a human answer."),

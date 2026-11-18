@@ -16,7 +16,11 @@ export type GatewayState =
   | "EXECUTION_INDETERMINATE"
   | "ERROR"
   /** The gateway's own refusal of a request for its subject: no authority was asked. */
-  | "REFUSED";
+  | "REFUSED"
+  /** An allowed payment a cumulative limit refused after the claim: nothing was sent. */
+  | "EXPOSURE_EXCEEDED"
+  /** An allowed payment the exposure ledger could not be asked about: nothing was sent. */
+  | "EXPOSURE_UNAVAILABLE";
 
 export type ExecutionDisposition =
   | "FORWARDED"
@@ -28,6 +32,25 @@ export type ExecutionDisposition =
   | "INDETERMINATE"
   /** A read reached the upstream and its answer was not relayed. */
   | "WITHHELD";
+
+/**
+ * What a route that releases money found in the exposure ledger: within
+ * every covering limit, no limit covering it, a limit exceeded, the ledger
+ * unavailable (or, under an explicit fail-open, forwarded ungoverned), or,
+ * in shadow, facts the request did not state. Limit keys and codes only:
+ * never an amount or a subject.
+ */
+export interface ExposureReport {
+  readonly status:
+    "WITHIN_LIMIT" | "NOT_APPLICABLE" | "EXCEEDED" | "UNAVAILABLE" | "UNGOVERNED" | "UNREADABLE";
+  readonly reason_codes: readonly string[];
+  /** The limits reserved against, or the one exceeded. */
+  readonly limits: readonly string[];
+  /** Limits that cover the action but whose subject the route does not state. */
+  readonly unstated: readonly string[];
+  /** What became of the reservations once the upstream answered; null before then, or in shadow. */
+  readonly settlement: "SETTLED" | "RELEASED" | "KEPT" | "NONE" | "FAILED" | null;
+}
 
 export interface InterceptionReport {
   readonly event: "INTERCEPTED";
@@ -59,6 +82,8 @@ export interface InterceptionReport {
     readonly confirmation: "CONFIRMED" | "UNKNOWN" | "PENDING";
     readonly reason_codes: readonly string[];
   };
+  /** A route that releases money: what the exposure ledger said. */
+  readonly exposure?: ExposureReport;
 }
 
 export interface StartedReport {
@@ -150,6 +175,8 @@ const COLORS: Readonly<Record<GatewayState, string>> = {
   EXECUTION_INDETERMINATE: `${ESC}[35m`,
   ERROR: `${ESC}[35m`,
   REFUSED: `${ESC}[31m`,
+  EXPOSURE_EXCEEDED: `${ESC}[31m`,
+  EXPOSURE_UNAVAILABLE: `${ESC}[35m`,
 };
 
 /** The label a state prints under, spaced for reading. */
@@ -288,6 +315,17 @@ export function renderHuman(report: GatewayReport, options: RenderOptions): stri
           row(
             "Effect",
             `${report.effect.confirmation}${why === undefined ? "" : ` (${why})`}`,
+            width,
+          ),
+        );
+      }
+      if (report.exposure !== undefined) {
+        const why = report.exposure.reason_codes[0];
+        const ended = report.exposure.settlement;
+        lines.push(
+          row(
+            "Exposure",
+            `${report.exposure.status}${why === undefined ? "" : ` (${why})`}${ended === null || ended === "NONE" ? "" : `, ${ended}`}`,
             width,
           ),
         );

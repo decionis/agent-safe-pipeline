@@ -109,17 +109,19 @@ linear memory, documented with the module. `EdgeModule` refuses any other ABI.
 
 **Wire operations** (schemas in the Decionis OpenAPI specification):
 
-| Operation                             | Used by                 | Purpose                                                                 |
-| ------------------------------------- | ----------------------- | ----------------------------------------------------------------------- |
-| `POST /v1/authority/enforce-and-bind` | `DecionisGate`          | Evaluate the exact binding; grant only for an enforceable `ALLOW`       |
-| `POST /v1/execution/claim-token`      | `DecionisGrantVerifier` | Revalidate and atomically claim the single-use grant before dispatch    |
-| `POST /v1/execution/finalize-token`   | `DecionisGrantVerifier` | Record the commit outcome so execution evidence joins the dossier chain |
-| `POST /v1/execution/verify-token`     | diagnostics only        | Verify a grant binding without consuming it                             |
-| `GET /v1/edge/policy-bundles/current` | `UrlBundleSource`       | Fetch the organisation's signed policy bundle for the edge evaluator    |
-| `GET /v1/edge/entitlement`            | `UrlEntitlementSource`  | Read the organisation's signed entitlement, to warn and never to gate   |
-| `POST /v1/edge/usage-reports`         | `UrlUsageDelivery`      | Deliver an installation's signed monthly edge usage report              |
-| Policy bundle JWKS                    | `UrlEntitlementSource`  | Verify the entitlement's signature                                      |
-| Decision Dossier JWKS                 | `@decionis/verify`      | Verify production dossier signatures offline                            |
+| Operation                                                                             | Used by                  | Purpose                                                                 |
+| ------------------------------------------------------------------------------------- | ------------------------ | ----------------------------------------------------------------------- |
+| `POST /v1/authority/enforce-and-bind`                                                 | `DecionisGate`           | Evaluate the exact binding; grant only for an enforceable `ALLOW`       |
+| `POST /v1/execution/claim-token`                                                      | `DecionisGrantVerifier`  | Revalidate and atomically claim the single-use grant before dispatch    |
+| `POST /v1/execution/finalize-token`                                                   | `DecionisGrantVerifier`  | Record the commit outcome so execution evidence joins the dossier chain |
+| `POST /v1/execution/verify-token`                                                     | diagnostics only         | Verify a grant binding without consuming it                             |
+| `GET /v1/edge/policy-bundles/current`                                                 | `UrlBundleSource`        | Fetch the organisation's signed policy bundle for the edge evaluator    |
+| `GET /v1/edge/entitlement`                                                            | `UrlEntitlementSource`   | Read the organisation's signed entitlement, to warn and never to gate   |
+| `POST /v1/edge/usage-reports`                                                         | `UrlUsageDelivery`       | Deliver an installation's signed monthly edge usage report              |
+| `GET /v1/commerce/exposure`                                                           | `DecionisExposureLedger` | Read the cumulative limits in the organisation's active policy          |
+| `POST /v1/commerce/exposure/{key}/reservations` (and `/{id}/settle`, `/{id}/release`) | `DecionisExposureLedger` | Reserve a payment before it is sent; settle or release it after         |
+| Policy bundle JWKS                                                                    | `UrlEntitlementSource`   | Verify the entitlement's signature                                      |
+| Decision Dossier JWKS                                                                 | `@decionis/verify`       | Verify production dossier signatures offline                            |
 
 ## Questions a reviewer will ask
 

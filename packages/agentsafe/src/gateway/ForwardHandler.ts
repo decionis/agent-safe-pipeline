@@ -63,6 +63,15 @@ export const EXPECTED_STATE_VERSION_HEADER = "x-agent-safe-expected-state-versio
  */
 export type Landed = (authorization: VerifiedAuthorization) => Promise<void>;
 
+/**
+ * Asked after the grant is claimed and the bytes are checked, immediately
+ * before the point of no return: a last check of the gateway's own (a
+ * payment's cumulative limits) that refuses by throwing a
+ * `PreDispatchRefusal`, so nothing is sent and the attempt is finalized as
+ * not executed.
+ */
+export type BeforeDispatch = (authorization: VerifiedAuthorization) => Promise<void>;
+
 /** What the handler leaves behind for the relay, whichever way the attempt ended. */
 export interface ForwardOutcome {
   readonly response: UpstreamResult | null;
@@ -83,6 +92,7 @@ interface Held {
   readonly request: InterceptedRequest;
   readonly extraHeaders: Readonly<Record<string, string>>;
   readonly landed: Landed | null;
+  readonly before: BeforeDispatch | null;
   outcome: ForwardOutcome;
 }
 
@@ -99,11 +109,13 @@ export class RequestHolder {
     request: InterceptedRequest,
     extraHeaders: Readonly<Record<string, string>>,
     landed: Landed | null = null,
+    before: BeforeDispatch | null = null,
   ): void {
     this.held.set(intentId, {
       request,
       extraHeaders,
       landed,
+      before,
       outcome: { response: null, failure: null },
     });
   }
@@ -158,6 +170,9 @@ export function httpForwardHandler(
       if (request.method.toUpperCase() !== parameters.method || !bound) {
         throw new PreDispatchRefusal("PAYLOAD_BINDING_MISMATCH");
       }
+      // The gateway's own last check runs on the bytes just verified, and
+      // before the dispatch budget is taken, so its time is not the upstream's.
+      if (held.before !== null) await held.before(authorization);
       const precondition = preconditionOf(context);
       const headers = upstream.headersFor(request, {
         ...held.extraHeaders,

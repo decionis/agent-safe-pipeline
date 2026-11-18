@@ -80,6 +80,29 @@ retain the authority's default selection. A direct `Gateway.govern()` caller tha
 route's action gets `400 ROUTE_ACTION_MISMATCH` before any authority call. As with all explicit
 routes, these settings are unavailable in `privacy: facts`, which uses API profiles alone.
 
+## Releasing money
+
+A route may also say that it releases money, and where in the request its amount, currency and
+vendor are. After the authority's `ALLOW` and before the payment is sent, the gateway reserves the
+amount against the organisation's cumulative limits in the Decionis exposure ledger, refuses a
+payment that would cross one, and settles or releases the reservation once the upstream answers:
+
+```yaml
+interception:
+  routes:
+    - path: /vendors/:vendor/payments
+      action: payment.release
+      methods: [POST]
+      exposure:
+        amount: /body/amount_minor
+        currency: /body/currency
+        subjects:
+          vendor: /path/vendor
+```
+
+A route without `exposure` is governed exactly as before. See
+[cumulative limits](./exposure.md) for every setting, the answers, shadow and the evidence.
+
 ## By an API profile
 
 A platform's API can be governed by its API intent profile

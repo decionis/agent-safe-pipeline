@@ -9,6 +9,7 @@ import {
   DecionisGate,
   DecionisGrantVerifier,
   IntentCapture,
+  PreDispatchRefusal,
   SafeExecutor,
   ShadowPipeline,
   type ApiOperationDefinition,
@@ -59,6 +60,20 @@ import { HashChain, type ChainFields } from "../audit/HashChain.js";
 import { EVIDENCE_STREAM, HashChainedAuditSink } from "../audit/HashChainedAuditSink.js";
 import type { LineWriter } from "../audit/LineAuditSink.js";
 import { EgressPolicy } from "../egress/EgressPolicy.js";
+import { DecionisExposureLedger } from "../exposure/DecionisExposureLedger.js";
+import type { ExposureDeclaration } from "../exposure/ExposureDeclaration.js";
+import {
+  readExposureFacts,
+  readSettledAmount,
+  type ExposureFactsResult,
+} from "../exposure/ExposureFacts.js";
+import {
+  ExposureGate,
+  type ExposureBinding,
+  type ExposureCheck,
+  type Settlement,
+} from "../exposure/ExposureGate.js";
+import type { ExposureLedger } from "../exposure/ExposureLedger.js";
 import { EgressError } from "../egress/EgressError.js";
 import {
   CLIENT_CERTIFICATE_REFUSED,
@@ -85,6 +100,7 @@ import {
   httpForwardHandler,
   registerHttpActions,
   RequestHolder,
+  type BeforeDispatch,
   type ForwardOutcome,
 } from "./ForwardHandler.js";
 import {
@@ -118,6 +134,7 @@ import {
   renderHuman,
   renderJson,
   type ExecutionDisposition,
+  type ExposureReport,
   type GatewayReport,
   type GatewayState,
   type InterceptionReport,
@@ -263,6 +280,18 @@ export interface GatewayDependencies {
    * stands then.
    */
   readonly continues?: GatewayContinuation;
+  /**
+   * The exposure ledger a route that releases money reserves against; the
+   * Decionis ledger, through the authority's egress and key, when absent.
+   * Asked only when a route declares `exposure`.
+   */
+  readonly exposureLedger?: ExposureLedger;
+}
+
+/** A money-releasing route's declaration and what the request stated for it. */
+interface MoneyRelease {
+  readonly declaration: ExposureDeclaration;
+  readonly facts: ExposureFactsResult;
 }
 
 /**
@@ -448,6 +477,8 @@ export class Gateway {
   private readonly runs: AcceptanceRuns | null;
   /** The plan write each request a run sent is, by request. */
   private readonly acceptanceWrites = new WeakMap<InterceptedRequest, string>();
+  /** The cumulative-limit check, when a route releases money; null otherwise. */
+  private readonly exposure: ExposureGate | null;
 
   private constructor(
     public readonly config: GatewayConfig,
@@ -478,9 +509,22 @@ export class Gateway {
     /** The digest of the gateway this one replaces, when it replaces one. */
     private readonly replaced: string | null,
     private readonly acceptance: AcceptanceParts | null,
+    exposureLedger: ExposureLedger | null,
   ) {
     this.lastShadowReportAt = clock();
     this.digestKey = Gateway.digestKeyOf(config);
+    this.exposure =
+      exposureLedger === null
+        ? null
+        : new ExposureGate({
+            ledger: exposureLedger,
+            orgId: config.authority.tenantId,
+            actorType: config.actor.type,
+            evidence: (fields) => {
+              this.link(fields);
+            },
+            count: (outcome) => metrics.exposure.inc({ outcome }),
+          });
     this.fingerprint = deploymentFingerprint(config, {
       version,
       imageDigest: workload?.digest ?? null,
@@ -757,6 +801,17 @@ export class Gateway {
       },
     });
     const metrics = gatewayMetrics();
+    // The ledger is asked only for a route that releases money, through the
+    // same egress and with the same key as the authority itself.
+    const exposureLedger = !config.interception.routes.some((route) => route.exposure !== undefined)
+      ? null
+      : (dependencies.exposureLedger ??
+        new DecionisExposureLedger({
+          baseUrl: authorityUrl,
+          apiKey: typeof apiKey === "string" ? () => apiKey : apiKey,
+          fetch: egress.fetch,
+          timeoutMs: config.authority.timeoutMs,
+        }));
     // Evidence lines: always in JSON mode; in human mode to the terminal only
     // when asked, and to the journal directory's file whenever there is one.
     const evidenceFile =
@@ -955,6 +1010,7 @@ export class Gateway {
       effects,
       continues?.fingerprint ?? null,
       acceptance,
+      exposureLedger,
     );
     jwks?.start();
     // The first look at the proof starts once nothing can refuse the gateway;
@@ -1398,6 +1454,19 @@ export class Gateway {
     const target = await this.targetPlan(request, action);
     if (target !== null && "reasonCodes" in target) {
       return this.targetUnreadable(request, action, target);
+    }
+    // A payment whose amount, currency or subject cannot be read cannot be
+    // counted, so it is refused before anyone is asked; in shadow it goes
+    // through as everything does, and the observation says so.
+    const money = this.moneyOf(request);
+    if (money !== null && !money.facts.ok && this.shadow === null) {
+      this.metrics.exposure.inc({ outcome: "UNREADABLE" });
+      return this.own(400, {
+        state: "ERROR",
+        verdict: null,
+        reason_codes: [money.facts.code],
+        execution: "NOT_FORWARDED",
+      });
     }
     let captured: CapturedIntent;
     try {
@@ -1871,7 +1940,9 @@ export class Gateway {
     // policy pin. The HTTP listener already uses the route's action.
     if (
       route !== null &&
-      (route.policyId !== undefined || route.policyVersion !== undefined) &&
+      (route.policyId !== undefined ||
+        route.policyVersion !== undefined ||
+        route.exposure !== undefined) &&
       route.action !== action
     ) {
       throw new Error("ROUTE_ACTION_MISMATCH");
@@ -2521,9 +2592,11 @@ export class Gateway {
       answer = this.failed(failure);
     }
     // The observation settles on its own bound and is reported when it does;
-    // the client's response never waits for the authority.
-    void run.observation.then((observation: ShadowObservation) => {
+    // the client's response never waits for the authority, nor the ledger.
+    const money = this.moneyOf(request);
+    const settled = (observation: ShadowObservation, exposure: ExposureReport | null): void => {
       this.metrics.shadowDecisions.inc({ verdict: observation.verdict ?? "NONE" });
+      if (exposure !== null) this.ledger.recordExposure(exposure.status);
       this.count("shadow");
       this.ledger.record(
         captured.intent.action,
@@ -2548,8 +2621,22 @@ export class Gateway {
         upstream_status: upstreamStatus,
         finalization: null,
         authority_ms: observation.durationMs,
+        ...(exposure === null ? {} : { exposure }),
       });
       this.shadowReportOnCadence();
+    };
+    void run.observation.then((observation: ShadowObservation) => {
+      // The ledger is asked only after an ALLOW, as it would be in enforcement.
+      if (money === null || observation.verdict !== "ALLOW") {
+        settled(observation, null);
+        return;
+      }
+      const probing = this.observeExposure(money, captured).then(
+        (exposure) => settled(observation, exposure),
+        () => settled(observation, null),
+      );
+      this.observing.add(probing);
+      void probing.finally(() => this.observing.delete(probing));
     });
     return answer;
   }
@@ -2743,6 +2830,19 @@ export class Gateway {
   ): Promise<GatewayResponse> {
     const intentId = captured.intent.intentId;
     const plan = this.plans.get(captured) ?? null;
+    // A route that releases money: its reservations, made after the claim
+    // and before the send, and ended once the upstream has answered. Read
+    // again from the request here, so a resumed hold is checked the same way.
+    const money = this.moneyOf(request);
+    const binding: ExposureBinding = {
+      intentId,
+      intentHash: captured.intentHash,
+      capturedAt: captured.intent.capturedAt,
+    };
+    const reserved: { check: ExposureCheck | null; refused: boolean } = {
+      check: null,
+      refused: false,
+    };
     // What the read after the write said, when the upstream answered 2xx and
     // the grant committed to an effect: registered for the finalization, and
     // kept for the report. Neither the read nor the comparison throws, so
@@ -2760,6 +2860,7 @@ export class Gateway {
             observed = await reader.effect(plan, effect);
             this.effects.attach(authorization, observed.record);
           },
+      this.beforeDispatch(money, binding, reserved),
     );
     const forwardStarted = this.clock();
     let outcome: SafeExecutionResult<UpstreamResult>;
@@ -2770,19 +2871,41 @@ export class Gateway {
       forward = this.holder.release(intentId);
     }
     this.metrics.observeForwardLatency(this.clock() - forwardStarted);
+    const check = reserved.check;
+    const settlement =
+      check === null || this.exposure === null
+        ? null
+        : await this.exposure.conclude(
+            check,
+            outcome.outcome === "COMPLETED"
+              ? "COMMITTED"
+              : outcome.outcome === "UNKNOWN_AFTER_DISPATCH"
+                ? "INDETERMINATE"
+                : "NOT_EXECUTED",
+            binding,
+            outcome.outcome === "COMPLETED" && money !== null && money.facts.ok
+              ? readSettledAmount(money.declaration, money.facts.facts, outcome.result)
+              : null,
+          );
+    const exposure = Gateway.exposureReport(check, settlement);
     const base = {
       ...this.interception(request, captured, startedAt),
       verdict: "ALLOW" as const,
       decision_id: decision.decisionId,
       dossier_id: decision.dossierId,
       authority_ms: authorityMs,
+      ...(exposure === null ? {} : { exposure }),
     };
     const finalization = "finalization" in outcome ? outcome.finalization : null;
     const evidenceHeaders = {
       "agentsafe-decision": "ALLOW",
       ...(decision.dossierId === null ? {} : { "agentsafe-dossier-id": decision.dossierId }),
       "agentsafe-intent-hash": captured.intentHash,
+      ...(exposure === null ? {} : { "agentsafe-exposure": exposure.status }),
     };
+    if (check !== null && reserved.refused) {
+      return this.exposureRefused(captured, decision, base, check, finalization);
+    }
     if (outcome.outcome === "COMPLETED") {
       this.settleAttempt(request, captured, decision, "DEFINITE");
       const said = this.effectOf(captured, plan, observed);
@@ -2871,6 +2994,161 @@ export class Gateway {
       dossier_id: decision.dossierId,
       finalization,
     });
+  }
+
+  /**
+   * The route's money declaration and what the request states for it, when
+   * the request is governed by a route that releases money; null otherwise,
+   * and always null for a gateway with no such route.
+   */
+  private moneyOf(request: InterceptedRequest): MoneyRelease | null {
+    if (this.exposure === null) return null;
+    const plan = this.plan(request.method, request.path, request.search);
+    const route = plan.kind === "GOVERN" ? plan.route : null;
+    if (route?.exposure === undefined) return null;
+    return {
+      declaration: route.exposure,
+      facts: readExposureFacts(route.exposure, request, route.path, this.config.actor.id),
+    };
+  }
+
+  /**
+   * The check run after the grant is claimed and before the payment is sent:
+   * reserve against every covering limit, and refuse, sending nothing, when
+   * one would be exceeded or, unless the route fails open, when the ledger
+   * cannot be asked. What it found is left in `reserved` for the outcome.
+   */
+  private beforeDispatch(
+    money: MoneyRelease | null,
+    binding: ExposureBinding,
+    reserved: { check: ExposureCheck | null; refused: boolean },
+  ): BeforeDispatch | null {
+    const exposure = this.exposure;
+    if (money === null || exposure === null) return null;
+    return async () => {
+      if (!money.facts.ok) throw new PreDispatchRefusal(money.facts.code);
+      const failOpen = money.declaration.failurePolicy === "FAIL_OPEN";
+      const check = await exposure.reserve(money.facts.facts, binding, failOpen);
+      reserved.check = check;
+      reserved.refused =
+        check.status === "EXCEEDED" || (check.status === "UNAVAILABLE" && !failOpen);
+      if (check.status === "EXCEEDED") throw new PreDispatchRefusal(check.reasonCode);
+      if (reserved.refused) throw new PreDispatchRefusal("EXPOSURE_UNAVAILABLE");
+    };
+  }
+
+  /** What a report and an answer say about a payment's reservations; null for a route that releases none. */
+  private static exposureReport(
+    check: ExposureCheck | null,
+    settlement: Settlement | null,
+  ): ExposureReport | null {
+    if (check === null) return null;
+    switch (check.status) {
+      case "WITHIN_LIMIT":
+        return {
+          status: check.held.length === 0 ? "NOT_APPLICABLE" : "WITHIN_LIMIT",
+          reason_codes: check.unstated.length === 0 ? [] : ["EXPOSURE_SUBJECT_UNSTATED"],
+          limits: check.held.map((entry) => entry.limitKey),
+          unstated: [...check.unstated],
+          settlement,
+        };
+      case "EXCEEDED":
+        return {
+          status: "EXCEEDED",
+          reason_codes: [check.reasonCode, `EXPOSURE_ON_EXCEED_${check.onExceed}`],
+          limits: [check.limitKey],
+          unstated: [...check.unstated],
+          settlement,
+        };
+      case "UNAVAILABLE":
+        return {
+          // Forwarded only when the route explicitly fails open.
+          status: check.ungoverned ? "UNGOVERNED" : "UNAVAILABLE",
+          reason_codes: ["EXPOSURE_UNAVAILABLE", check.code],
+          limits: check.held.map((entry) => entry.limitKey),
+          unstated: [...check.unstated],
+          settlement,
+        };
+    }
+  }
+
+  /**
+   * The gateway's answer to a payment its cumulative limits refused: the
+   * authority allowed it and its grant was claimed, but nothing was sent.
+   * A limit that escalates is refused as one that holds: the claimed grant
+   * cannot be held for a person, so the answer names the limit and its
+   * `on_exceed`, and a new request is decided afresh once the limit allows.
+   */
+  private exposureRefused(
+    captured: CapturedIntent,
+    decision: DecisionGate,
+    base: Omit<
+      InterceptionReport,
+      "state" | "reason_codes" | "execution" | "upstream_status" | "finalization"
+    >,
+    check: ExposureCheck,
+    finalization: string | null,
+  ): GatewayResponse {
+    const exceeded = check.status === "EXCEEDED";
+    const state: GatewayState = exceeded ? "EXPOSURE_EXCEEDED" : "EXPOSURE_UNAVAILABLE";
+    const reasonCodes =
+      check.status === "EXCEEDED"
+        ? [check.reasonCode, `EXPOSURE_ON_EXCEED_${check.onExceed}`]
+        : ["EXPOSURE_UNAVAILABLE", check.status === "UNAVAILABLE" ? check.code : "EXPOSURE_FAILED"];
+    this.report({
+      ...base,
+      state,
+      reason_codes: reasonCodes,
+      execution: "NOT_FORWARDED",
+      upstream_status: null,
+      finalization,
+    });
+    return this.own(
+      exceeded ? 409 : 503,
+      {
+        state,
+        verdict: "ALLOW",
+        reason_codes: reasonCodes,
+        execution: "NOT_FORWARDED",
+        intent_id: captured.intent.intentId,
+        intent_hash: captured.intentHash,
+        decision_id: decision.decisionId,
+        dossier_id: decision.dossierId,
+        finalization,
+        ...(check.status === "EXCEEDED"
+          ? { exposure: { limit_key: check.limitKey, on_exceed: check.onExceed } }
+          : {}),
+      },
+      exceeded ? {} : { "retry-after": String(RETRY_AFTER_SECONDS) },
+    );
+  }
+
+  /**
+   * In shadow, after the authority would have allowed a payment: what the
+   * ledger would have said, without counting it.
+   */
+  private async observeExposure(
+    money: MoneyRelease,
+    captured: CapturedIntent,
+  ): Promise<ExposureReport> {
+    if (!money.facts.ok) {
+      this.metrics.exposure.inc({ outcome: "SHADOW_UNREADABLE" });
+      return {
+        status: "UNREADABLE",
+        reason_codes: [money.facts.code],
+        limits: [],
+        unstated: [],
+        settlement: null,
+      };
+    }
+    const check = await (this.exposure as ExposureGate).observe(money.facts.facts, {
+      intentId: captured.intent.intentId,
+      intentHash: captured.intentHash,
+      capturedAt: captured.intent.capturedAt,
+    });
+    const report = Gateway.exposureReport(check, null) as ExposureReport;
+    this.metrics.exposure.inc({ outcome: `SHADOW_${report.status}` });
+    return report;
   }
 
   /**

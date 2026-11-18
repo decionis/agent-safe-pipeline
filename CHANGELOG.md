@@ -3,6 +3,23 @@
 Releases of `@decionis/agent-safe-pipeline` (the library) and `@decionis/agentsafe` (the runtime).
 Each entry names what an adopter can rely on and what they must do, if anything.
 
+## Runtime (unreleased): cumulative limits on the payments a gateway forwards
+
+A Decionis finance policy can cap the money released per vendor, per agent or per organisation over
+a rolling window. A gateway route can now say it releases money, and where its amount, currency and
+vendor are (`exposure` on the route). After the authority's `ALLOW` and the claim of its grant, and
+before the payment is sent, the gateway reserves the amount against every covering limit in the
+Decionis exposure ledger; a payment over a limit is not sent (`409 EXPOSURE_EXCEEDED`), and one the
+ledger cannot be asked about fails closed (`503 EXPOSURE_UNAVAILABLE`) unless the route says
+`failurePolicy: failOpen`. A committed payment is settled, one not executed is released, and one
+whose outcome is unknown keeps its reservation. Subjects reach the ledger only as SHA-256 digests.
+In shadow the gateway reports what the ledger would have said, counting nothing
+([cumulative limits](docs/gateway/exposure.md)).
+
+**Nothing to do** unless you want it: a route without `exposure` is governed exactly as before, and
+a gateway with no such route never calls the ledger. A money route needs a Decionis key with
+`decision:write`, `decision:*` or `org:*`; a hosted gateway's confined key cannot reach the ledger.
+
 ## Library (unreleased): a signed signal at the claim, and a mandate another institution withdraws
 
 The loopback authority (`@decionis/agent-safe-pipeline/testing`) now re-checks a signed standing

@@ -81,6 +81,20 @@ describe("the shadow ledger", () => {
     });
   });
 
+  it("counts what the exposure ledger would have said about payments, only once one was asked", () => {
+    const ledger = new ShadowLedger();
+    ledger.record("payment.release", "ALLOW", "2026-09-19T10:00:00.000Z", 201);
+    expect(ledger.summary()).not.toHaveProperty("exposure");
+    expect(renderShadowReport(report(ledger), { color: false })).not.toContain("Limits");
+    ledger.recordExposure("WITHIN_LIMIT");
+    ledger.recordExposure("EXCEEDED");
+    ledger.recordExposure("EXCEEDED");
+    expect(ledger.summary().exposure).toEqual({ WITHIN_LIMIT: 1, EXCEEDED: 2 });
+    expect(renderShadowReport(report(ledger), { color: false })).toContain(
+      "Limits       exceeded 2  within limit 1",
+    );
+  });
+
   it("keeps the action names bounded, folding the rest into one bucket", () => {
     const ledger = new ShadowLedger();
     for (let index = 0; index < 1_005; index += 1) {

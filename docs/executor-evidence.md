@@ -114,6 +114,13 @@ against it ([deployment fingerprint](./deployment-fingerprint.md)):
 Both are reports: neither line is written in place of a decision, and a line that cannot be written
 leaves the decision as it was.
 
+A route that releases money writes its reservations against the organisation's cumulative limits
+([cumulative limits](./gateway/exposure.md)): `EXPOSURE_RESERVED`, `EXPOSURE_EXCEEDED`,
+`EXPOSURE_UNAVAILABLE` or `EXPOSURE_UNGOVERNED`, then `EXPOSURE_SETTLED`, `EXPOSURE_RELEASED` or
+`EXPOSURE_KEPT`, `EXPOSURE_SETTLE_FAILED` or `EXPOSURE_RELEASE_FAILED` where an end did not take,
+and in shadow `EXPOSURE_OBSERVED`. Each names the intent, limit keys, reservation ids and codes;
+never an amount or a subject's identifier.
+
 A gateway that serves [acceptance runs](./deployment/acceptance.md) writes three more, each naming
 the run by a digest of its id and never the id itself, which admits a run's requests:
 

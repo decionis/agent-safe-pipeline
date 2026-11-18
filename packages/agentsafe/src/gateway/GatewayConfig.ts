@@ -8,6 +8,11 @@ import {
 } from "../config/ExecutorConfig.js";
 import { parseTarget, type ContainmentTarget } from "../containment/ContainmentProbe.js";
 import { EgressPolicy } from "../egress/EgressPolicy.js";
+import {
+  exposureDeclaration,
+  RouteExposureSchema,
+  type ExposureDeclaration,
+} from "../exposure/ExposureDeclaration.js";
 import type { SecretName } from "../secrets/SecretStore.js";
 import { HOSTED_DEFAULT_RATE_LIMIT, type RateLimit } from "./RateLimit.js";
 import { PolicyIdSchema, PolicyVersionSchema } from "./PolicySelector.js";
@@ -133,6 +138,13 @@ export interface RouteConfig {
   readonly policyId?: string;
   /** An exact published policy version; when both selectors are set, both must match. */
   readonly policyVersion?: string;
+  /**
+   * The route releases money: where its amount, currency and subjects are,
+   * so each payment is reserved against the organisation's cumulative limits
+   * before it is forwarded (docs/gateway/exposure.md). Absent, the route is
+   * governed exactly as before.
+   */
+  readonly exposure?: ExposureDeclaration;
 }
 
 /**
@@ -351,6 +363,7 @@ const RouteSchema = z.strictObject({
   methods: z.array(method).min(1).max(4).optional(),
   policyId: z.string().trim().toLowerCase().pipe(PolicyIdSchema).optional(),
   policyVersion: z.string().trim().pipe(PolicyVersionSchema).optional(),
+  exposure: RouteExposureSchema.optional(),
 });
 
 const AuthoritySchema = z.strictObject({
@@ -1029,6 +1042,7 @@ export class GatewayConfigLoader {
       methods: route.methods ?? [...CONSEQUENTIAL_METHODS],
       ...(route.policyId === undefined ? {} : { policyId: route.policyId }),
       ...(route.policyVersion === undefined ? {} : { policyVersion: route.policyVersion }),
+      ...(route.exposure === undefined ? {} : { exposure: exposureDeclaration(route.exposure) }),
     }));
     sources["interception.routes"] = file?.interception?.routes === undefined ? "default" : "file";
     const unmatched = resolve<UnmatchedPolicy>(
