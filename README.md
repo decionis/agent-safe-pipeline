@@ -139,7 +139,7 @@ agentsafe proxy --upstream http://localhost:3000 --port 8080
 ```
 
 ```text
-AgentSafe 0.7.0
+AgentSafe 0.8.0
 
 Gateway      http://127.0.0.1:8080
 Upstream     http://localhost:3000
@@ -261,7 +261,7 @@ Every install page ends at the same place: send your first governed action.
 
 Govern, the workflow gate, ships with the same releases as one static binary per platform:
 `curl -fsSL https://raw.githubusercontent.com/decionis/agent-safe-pipeline/master/govern/install.sh | sh`,
-`brew install govern` from the same tap, or `go install github.com/decionis/agent-safe-pipeline/govern/v2/cmd/govern@v2.1.0`;
+`brew install govern` from the same tap, or `go install github.com/decionis/agent-safe-pipeline/govern/v2/cmd/govern@v2.1.1`;
 [its README](./govern/README.md#install) has the rest.
 
 ## Golden adversarial demo

@@ -24,7 +24,7 @@
 # never guessed from the version.
 #
 # Settings, all optional:
-#   GOVERN_VERSION         a govern version such as 2.1.0; the latest release's otherwise
+#   GOVERN_VERSION         a govern version such as 2.1.1; the latest release's otherwise
 #   GOVERN_RELEASE_TAG     the release the archive lives in, for a mirror or a test that has no listing
 #   GOVERN_INSTALL_PREFIX  where bin/govern and lib/govern/<version> go
 #   GOVERN_RELEASE_BASE    the release download base, for a mirror or a test

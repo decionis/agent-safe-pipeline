@@ -3,7 +3,14 @@
 Releases of `@decionis/agent-safe-pipeline` (the library) and `@decionis/agentsafe` (the runtime).
 Each entry names what an adopter can rely on and what they must do, if anything.
 
-## Runtime (unreleased): shadow previews cumulative limits read-only
+## Library 0.6.0, runtime 0.8.0 — 2026-11-19
+
+This release packages the features below, unreleased since 2026-10-27. The runtime, container and
+Helm chart share version 0.8.0; the library and release tag use 0.6.0. Govern is 2.1.1: it ships the
+array-index fix below, so its intent hash matches the authority's. Transitive dependencies are
+pinned past new advisories (hono, `@hono/node-server`, katex).
+
+### Runtime: shadow previews cumulative limits read-only
 
 In shadow, a money route no longer reserves and releases to learn what the exposure ledger would
 have said. It reads the subject's usage from Decionis
@@ -14,7 +21,7 @@ previewed and are named in `unpreviewed` on `EXPOSURE_OBSERVED`. A custom `Expos
 `subjectUsage` keeps the reserve-and-release preview.
 **Nothing to do**; this needs the Decionis read (decionis/Decionis#1704).
 
-## Runtime (unreleased): a retry of an unknown payment is counted once
+### Runtime: a retry of an unknown payment is counted once
 
 When a payment's outcome was unknown, its cumulative-limit reservations were kept, and a retry under
 the same `Idempotency-Key` drew the amount a second time. That could refuse the retry of a payment
@@ -24,7 +31,7 @@ settles or releases it. A reservation released by hand, or an attempt older than
 `EXPOSURE_RESERVED` carries `retry_of` and `replayed` for a retry.
 **Nothing to do.**
 
-## Runtime (unreleased): cumulative limits on the payments a gateway forwards
+### Runtime: cumulative limits on the payments a gateway forwards
 
 A Decionis finance policy can cap the money released per vendor, per agent or per organisation over
 a rolling window. A gateway route can now say it releases money, and where its amount, currency and
@@ -41,7 +48,55 @@ In shadow the gateway reports what the ledger would have said, counting nothing
 a gateway with no such route never calls the ledger. A money route needs a Decionis key with
 `decision:write`, `decision:*` or `org:*`; a hosted gateway's confined key cannot reach the ledger.
 
-## Library (unreleased): a signed signal at the claim, and a mandate another institution withdraws
+### Runtime: a retry links to the INDETERMINATE attempt it repeats
+
+In enforcement, the gateway now remembers each `INDETERMINATE` attempt that carried an
+`Idempotency-Key`, by tenant and key, for 24 hours: beside the durable holds when `holds` is set
+(sealed under the hold key), in memory otherwise. A request with the same key and the same method,
+path, query, content type and body is decided afresh; its intent carries
+`context.retry_of: { dossier_id, outcome: "INDETERMINATE" }` and every answer adds
+`agentsafe-retry-of`. The same key with another request is refused with
+`409 IDEMPOTENCY_KEY_REUSED`, sending nothing. A retry the upstream answers settles the key.
+**Nothing to do**; send a stable `Idempotency-Key` to get the link
+([retrying after INDETERMINATE](docs/gateway/http-interception.md)).
+
+### Runtime: facts-only digests keyed from the tenant's key in custody
+
+Under facts-only privacy, each gateway process keyed `request_hmac_sha256` and the keyed
+idempotency key with a secret of its own, so replicas disagreed: a retry on another replica stated
+another key, and a durable hold resumed elsewhere failed its binding check
+(`PAYLOAD_BINDING_MISMATCH`). `interception.digestKeyFile` names a 32-byte key in the tenant's
+custody; every replica derives the same digest key from it (HKDF-SHA-256, the tenant as salt). It
+needs `privacy: facts` and an absolute path; an unreadable or wrong-sized key stops the gateway at
+start. **Nothing to do** for one replica; set it when facts-only replicas share durable holds.
+
+### Runtime: the would-be verdict on a shadow answer
+
+A shadow answer now carries `agentsafe-shadow-verdict`: `ALLOW`, `ESCALATE` or `BLOCK` (with
+`agentsafe-decision-id`) when the observation settled by the time the upstream answered, `NONE`
+when it settled without a verdict, `PENDING` when it had not. By default nothing waits, so shadow
+adds no latency; `shadow.verdictWaitMs` (`AGENTSAFE_SHADOW_VERDICT_WAIT_MS`, 0 to 2000) lets the
+answer wait that long. The header is never a grant. **Nothing to do.**
+
+### Runtime: durable holds any replica can resume, for up to seven days
+
+A held request lived in the memory of the pod that held it, for at most five minutes, and a restart
+lost it. With `holds: { dir, keyFile, ttlSeconds }`, each hold is a file in a directory every
+replica mounts, sealed with AES-256-GCM under the mounted key and bound to the tenant and intent. It
+keeps only the resume token's SHA-256 and none of the gateway's or the upstream's credentials. A
+resume takes the hold by renaming its file, so two replicas resuming one hold forward it once
+(`409 ESCALATION_ALREADY_RESUMED` for the other). A `ttlSeconds` over 300, up to seven days, needs
+managed Presence without an `approverId`. **Nothing to do**; without `holds`, holds stay in memory.
+
+### Runtime: the policy names a managed escalation's approver
+
+A gateway with `presence.managed: true` no longer needs an `approverId`. Without one, it asks
+Decionis for a managed ceremony with no approver constraint, so the approvers the escalating rule
+names are asked. `approverId` and `approverRole` stay optional and only narrow that; Decionis
+refuses an approver the policy does not name. **Nothing to do**; an existing `approverId` keeps
+working.
+
+### Library: a signed signal at the claim, and a mandate another institution withdraws
 
 The loopback authority (`@decionis/agent-safe-pipeline/testing`) now re-checks a signed standing
 signal at the claim, as the hosted claim does. A grant keeps who signed each signal it was decided
@@ -60,7 +115,7 @@ run now reads 24 attempts, 0 stale commits, and 16 counterparts each completed o
 **Nothing to do** unless a test of yours claims a grant after a signed signal it carried has run
 out: that claim is now refused, as it is hosted.
 
-## Runtime (unreleased): an acceptance run, signed by the gateway it tested
+### Runtime: an acceptance run, signed by the gateway it tested
 
 A deployment could say what one decision established, and what this repository's build did, but
 not what the installed gateway governs, on what evidence, for how long, and where that stops.
@@ -99,7 +154,7 @@ A report establishes the named writes, targets and window, under the fingerprint
 nothing else. It lists what no run establishes: grants after issuance (the zone never holds one),
 lost outcomes and restarts, downstream consequences, host integrity, node and kernel isolation.
 
-## Library and runtime (unreleased): the deployment fingerprint, and action-space drift
+### Library and runtime: the deployment fingerprint, and action-space drift
 
 A gateway now says what it is, as one versioned document with one digest, and reports when the
 policy release that decided for it was checked against another action space than the one it
@@ -132,7 +187,7 @@ own manifest attached (`agentsafe actions manifest --gateway --config agentsafe.
   zone must not reach directly, as `name=host:port`; the gateway never dials them.
 - [Deployment fingerprint](docs/deployment-fingerprint.md).
 
-## Library and runtime (unreleased): the gateway reads the target a profiled write names
+### Library and runtime: the gateway reads the target a profiled write names
 
 On the gateway path a forwarded `2xx` was the upstream's acknowledgement and nothing more. For a
 write whose [API profile](spec/profiles/api/v1/README.md) operation names its precondition read,
@@ -169,7 +224,7 @@ Central's `customers.update`) now reads before it asks. Hold the upstream creden
 refuses the write. To reach `CONFIRMED`, set `evidence.observer` to the identity your authority's
 trusted-observer allowlist lists. No published vector changes: none covers a profiled gateway write.
 
-## Library and runtime (unreleased): array-index keys, in the intent hash and the payload digest
+### Library and runtime: array-index keys, in the intent hash and the payload digest
 
 A key that is an array index (`"0"` to `"4294967294"`, no sign, no leading zero), such as a line
 number, sorts differently in the two canonical forms the contract uses. The intent hash puts it
@@ -194,7 +249,7 @@ had authorized it:
 evidence or journal record written before this release with such keys in a digested value keeps the
 digest it was written with; it is not recomputed.
 
-## Runtime (unreleased): a token the gateway sends its upstream
+### Runtime: a token the gateway sends its upstream
 
 `gateway.gatewayToken: { file }` (`AGENTSAFE_GATEWAY_TOKEN_FILE`) makes the gateway send
 `AgentSafe-Gateway-Token` on every request it forwards, with the contents of the file as its value,

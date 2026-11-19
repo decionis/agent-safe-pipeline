@@ -18,7 +18,7 @@ refusal, and the command does not run.
 > [`decionis/agent-safe-pipeline`](https://github.com/decionis/agent-safe-pipeline).
 > [`decionis/govern`](https://github.com/decionis/govern) is the address GitHub workflows use
 > (`uses: decionis/govern@v2`; `v1` is the earlier node20 action, which spoke the evaluate-decision
-> API) and the Marketplace listing. The version here is `2.1.0` ([`VERSION`](./VERSION)).
+> API) and the Marketplace listing. The version here is `2.1.1` ([`VERSION`](./VERSION)).
 
 ## What one governed step is
 
@@ -117,14 +117,14 @@ twice on its own platform and shipped only when the two builds are the same byte
 is listed in the release's `SHA256SUMS` and attested by the release workflow, and
 `govern-<version>.cdx.json` is the release's CycloneDX SBOM, read from the shipped executables'
 own build information (the modules linked in, the toolchain, the build settings, each archive's
-checksum) and attested beside them. A `GOVERN_VERSION` such as `2.1.0` pins a version, and the
+checksum) and attested beside them. A `GOVERN_VERSION` such as `2.1.1` pins a version, and the
 installer otherwise takes the newest release that carries one.
 
 | How            | Command                                                                                                                                 |
 | -------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | Installer      | `curl -fsSL https://raw.githubusercontent.com/decionis/agent-safe-pipeline/master/govern/install.sh \| sh`                              |
 | Homebrew       | `brew tap decionis/agent-safe https://github.com/decionis/agent-safe-pipeline && brew trust decionis/agent-safe && brew install govern` |
-| Go             | `go install github.com/decionis/agent-safe-pipeline/govern/v2/cmd/govern@v2.1.0`                                                        |
+| Go             | `go install github.com/decionis/agent-safe-pipeline/govern/v2/cmd/govern@v2.1.1`                                                        |
 | By hand        | download the archive and `SHA256SUMS` from the release, `shasum -a 256 -c SHA256SUMS`, extract, put `govern` on the path                |
 | Windows        | download `govern-<version>-windows-x64.zip` and `SHA256SUMS`, check the zip against the list, unpack, put `govern.exe` on the path      |
 | GitHub Actions | `uses: decionis/govern@v2` (the action builds or fetches the binary itself, on Windows runners too)                                     |

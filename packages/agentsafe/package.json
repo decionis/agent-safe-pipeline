@@ -1,6 +1,6 @@
 {
   "name": "@decionis/agentsafe",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "The AgentSafe gateway and trusted executor: every action your AI agents and workflows take is authorized by Decionis before it commits, then runs once on a single-use grant, waits for a person, or is refused, with chained evidence of each.",
   "keywords": [
     "execution-authority",
