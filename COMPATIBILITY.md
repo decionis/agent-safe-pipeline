@@ -1,20 +1,20 @@
 # Compatibility
 
-What release `v0.5.0` runs on, and which versions of its specification and tools go together. The
+What release `v0.6.0` runs on, and which versions of its specification and tools go together. The
 runtime is the same in every distribution; only the packaging differs
 ([cross-runtime conformance](./conformance/runtime/README.md)). A release that changes a runtime
 requirement or a supported configuration updates this page in the same pull request
 ([MAINTENANCE.md](./MAINTENANCE.md#change-and-documentation-policy)).
 
-## The runtime, `agentsafe` 0.7.0
+## The runtime, `agentsafe` 0.8.0
 
 | Distribution                                    | Runs on                                                     | Needs                                  | Details                                                                                         |
 | ----------------------------------------------- | ----------------------------------------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | Executable: Homebrew, the archive, `install.sh` | macOS on Apple silicon and Intel; Linux on x86_64 and arm64 | Nothing else: it carries a pinned Node | [macOS](./docs/install/macos.md), [Linux](./docs/install/linux.md)                              |
 | `.deb` and `.rpm`                               | Linux on x86_64 and arm64                                   | Nothing else                           | [Linux](./docs/install/linux.md)                                                                |
 | Container image                                 | `linux/amd64` and `linux/arm64`                             | A container runtime                    | [Docker](./docs/install/docker.md)                                                              |
-| Helm chart 0.7.0                                | Kubernetes 1.27 or later (`kubeVersion: ">=1.27.0-0"`)      | The container image above              | [Kubernetes](./docs/install/kubernetes.md), [`charts/agentsafe`](./charts/agentsafe/Chart.yaml) |
-| npm: `@decionis/agentsafe` 0.7.0                | Node.js                                                     | Node.js 22.14.0 or later               | [`packages/agentsafe`](./packages/agentsafe/package.json)                                       |
+| Helm chart 0.8.0                                | Kubernetes 1.27 or later (`kubeVersion: ">=1.27.0-0"`)      | The container image above              | [Kubernetes](./docs/install/kubernetes.md), [`charts/agentsafe`](./charts/agentsafe/Chart.yaml) |
+| npm: `@decionis/agentsafe` 0.8.0                | Node.js                                                     | Node.js 22.14.0 or later               | [`packages/agentsafe`](./packages/agentsafe/package.json)                                       |
 
 There is no Windows build of the runtime. The hosted fleet, `{id}.decionisedge.com`, supports
 enforcement for opted-in tenants on dedicated gateways; shared gateways run in shadow. Decionis
@@ -24,16 +24,16 @@ onboards tenants, and there is no self-serve sign-up yet ([hosted](./docs/instal
 
 | Package                               | Needs                    | Details                                                                                    |
 | ------------------------------------- | ------------------------ | ------------------------------------------------------------------------------------------ |
-| `@decionis/agent-safe-pipeline` 0.5.0 | Node.js 22.14.0 or later | [`packages/pipeline`](./packages/pipeline/package.json)                                    |
+| `@decionis/agent-safe-pipeline` 0.6.0 | Node.js 22.14.0 or later | [`packages/pipeline`](./packages/pipeline/package.json)                                    |
 | Released `@decionis/commerce` 0.1.6   | Node.js 20 or later      | [Released-source index](./packages/mcp/README.md); ongoing development belongs to Commerce |
 
-## Govern 2.1.0
+## Govern 2.1.1
 
 | Platform                       | Distribution                                                                           |
 | ------------------------------ | -------------------------------------------------------------------------------------- |
-| macOS, Apple silicon and Intel | Homebrew, the archive, `govern/install.sh`, `go install …/govern/v2/cmd/govern@v2.1.0` |
+| macOS, Apple silicon and Intel | Homebrew, the archive, `govern/install.sh`, `go install …/govern/v2/cmd/govern@v2.1.1` |
 | Linux, x86_64 and arm64        | Homebrew, the archive, `govern/install.sh`, `go install`                               |
-| Windows x64                    | `govern-2.1.0-windows-x64.zip`, checked against `SHA256SUMS`; no installer             |
+| Windows x64                    | `govern-2.1.1-windows-x64.zip`, checked against `SHA256SUMS`; no installer             |
 
 The GitHub Action, `uses: decionis/govern@v2`, fetches or builds the binary itself, on Windows
 runners too ([govern/README.md](./govern/README.md)).
