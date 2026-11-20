@@ -79,6 +79,32 @@ const managedEscalationPendingStatuses = new Set<string>([
   "REAUTHORIZING",
 ]);
 
+// Non-authorizing progress from Decionis. Counts never replace a grant, and
+// these closed shapes must not admit proof material or new execution semantics.
+const managedApprovalProgress = {
+  approval_tier: z
+    .object({
+      tier: z.number().int().min(1).max(5),
+      tier_count: z.number().int().min(1).max(5),
+      principal_id: boundedIdentifier,
+    })
+    .strict()
+    .refine((value) => value.tier <= value.tier_count, { message: "APPROVAL_TIER_INVALID" })
+    .optional(),
+  approval_chain: z
+    .object({
+      // Empty until Presence creates the chain, including a failed creation.
+      chain_id: z.union([z.literal(""), boundedIdentifier]),
+      tier_count: z.number().int().min(1).max(5),
+      tiers_approved: z.number().int().min(0).max(5),
+    })
+    .strict()
+    .refine((value) => value.tiers_approved <= value.tier_count, {
+      message: "APPROVAL_CHAIN_PROGRESS_INVALID",
+    })
+    .optional(),
+};
+
 const ManagedEscalationWireSchema = z
   .object({
     outcome: z.enum(["ESCALATE_PENDING", "ALLOW", "BLOCK", "ERROR"]),
@@ -87,6 +113,7 @@ const ManagedEscalationWireSchema = z
     status: z.enum(managedEscalationStatuses),
     expires_at: z.string().datetime(),
     reason_codes: reasonCodes,
+    ...managedApprovalProgress,
   })
   .strict()
   .superRefine((value, context) => {
@@ -190,6 +217,7 @@ const ManagedEscalationStatusResponseSchema = z
     expires_at: z.string().datetime(),
     reason_codes: reasonCodes,
     decision: AuthorityResponseSchema.nullable(),
+    ...managedApprovalProgress,
   })
   .strict();
 
