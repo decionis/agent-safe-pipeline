@@ -3,7 +3,13 @@
 Releases of `@decionis/agent-safe-pipeline` (the library) and `@decionis/agentsafe` (the runtime).
 Each entry names what an adopter can rely on and what they must do, if anything.
 
-## Runtime (unreleased): a route that changes a vendor's bank details
+## Library 0.6.1, runtime 0.9.0 — 2026-11-20
+
+This release packages one runtime feature. The runtime, container and Helm chart share version
+0.9.0. The library is unchanged; it moves to 0.6.1 only so the release tag moves with it. Govern
+stays at 2.1.1.
+
+### Runtime: a route that changes a vendor's bank details
 
 A route's `exposure` may now declare `actionType: VENDOR_BANK_CHANGE` without `amount` or
 `currency`, because the change moves no money. The gateway reserves it as the vendor's
