@@ -467,6 +467,100 @@ describe("a route that releases money", () => {
     });
   });
 
+  describe("a change of a vendor's bank details, then a payment to that vendor", () => {
+    const BANK_FILE = {
+      version: 1,
+      interception: {
+        routes: [
+          {
+            path: "/vendors/:vendor/bank-account",
+            action: "vendor.bank.change",
+            methods: ["PUT"],
+            exposure: { actionType: "VENDOR_BANK_CHANGE", subjects: { vendor: "/path/vendor" } },
+          },
+          {
+            path: "/payments",
+            action: "payment.release",
+            methods: ["POST"],
+            exposure: { ...exposure, subjects: { vendor: "/body/payee_id" } },
+          },
+        ],
+      },
+    };
+    const change = (vendor = VENDOR): InterceptedRequest => ({
+      method: "PUT",
+      path: `/vendors/${vendor}/bank-account`,
+      search: "",
+      headers: { "content-type": "application/json" },
+      body: Buffer.from(JSON.stringify({ iban: "GB00SYNTHETIC0000" }), "utf8"),
+      remoteAddress: "127.0.0.1",
+      encrypted: false,
+    });
+
+    beforeEach(() => {
+      ledger = new ExposureLedgerDouble([
+        { key: "vendor-daily", subject: "vendor", caps: { USD: 100_000 } },
+        {
+          key: "vendor-bank-cooling",
+          kind: "sequence",
+          subject: "vendor",
+          caps: {},
+          steps: ["vendor_bank_change", "payment_release"],
+          action_types: ["VENDOR_BANK_CHANGE", "PAYMENT_RELEASE"],
+          cooling_off_seconds: 259_200,
+          on_exceed: "HOLD",
+        },
+      ]);
+    });
+
+    it("records the change as the vendor's step, with no amount, and settles it once it happened", async () => {
+      const { gateway } = await gatewayFor("enforcement", BANK_FILE);
+      try {
+        const response = await gateway.govern(change(), "vendor.bank.change");
+        expect(response.status).toBe(201);
+        const [reserve] = ledger.reservesOf("vendor-bank-cooling");
+        expect(JSON.parse(reserve!.body)).toMatchObject({
+          subject: { kind: "vendor", id_digest: digest("vendor", VENDOR) },
+          amount: 0,
+          currency: "XXX",
+          action_type: "VENDOR_BANK_CHANGE",
+          step: "vendor_bank_change",
+        });
+        // No amount limit counts a change that moves no money.
+        expect(ledger.reservesOf("vendor-daily")).toHaveLength(0);
+        expect(ledger.reservations.map((entry) => [entry.limitKey, entry.state])).toEqual([
+          ["vendor-bank-cooling", "SETTLED"],
+        ]);
+      } finally {
+        await gateway.close();
+      }
+    });
+
+    it("then holds a payment to that vendor, sends nothing, and lets another vendor's through", async () => {
+      const { gateway } = await gatewayFor("enforcement", BANK_FILE);
+      try {
+        await gateway.govern(change(), "vendor.bank.change");
+        const sent = upstream.seen.length;
+        const held = await gateway.govern(payment(), "payment.release");
+        expect(held.status).toBe(409);
+        expect(header(held, "agentsafe-execution")).toBe("NOT_FORWARDED");
+        expect(json(held.body)).toMatchObject({
+          state: "EXPOSURE_EXCEEDED",
+          reason_codes: ["SOD_COOLING_OFF", "EXPOSURE_ON_EXCEED_HOLD"],
+          exposure: { limit_key: "vendor-bank-cooling", on_exceed: "HOLD" },
+        });
+        expect(upstream.seen).toHaveLength(sent);
+        const other = await gateway.govern(
+          payment("/payments", 40_000, "Vendor-OTHER-7"),
+          "payment.release",
+        );
+        expect(other.status).toBe(201);
+      } finally {
+        await gateway.close();
+      }
+    });
+  });
+
   it("retries a reservation whose answer was lost under the same key, and draws once", async () => {
     ledger.failReservesAfterWrite = 1;
     const { gateway } = await gatewayFor();

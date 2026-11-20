@@ -59,6 +59,8 @@ const THREE_DECIMALS: ReadonlySet<string> = new Set([
   "TND",
 ]);
 const CURRENCY = /^[A-Z]{3}$/;
+/** ISO 4217's code for "no currency": what a step that moves no money states to the ledger. */
+const NO_CURRENCY = "XXX";
 const INDEX = /^(?:0|[1-9]\d{0,8})$/;
 const MINOR = /^\d{1,16}$/;
 const MAJOR = /^(\d{1,16})(?:\.(\d{1,3}))?$/;
@@ -185,6 +187,16 @@ export function readExposureFacts(
   };
   const body = bodyRoot(request);
   if (body !== undefined) root["body"] = body;
+  // A step that moves no money (a change of a vendor's bank details): no
+  // amount, and ISO 4217's "no currency", so only a sequence limit counts it.
+  if (declaration.amount === null || declaration.currency === null) {
+    const subjects = readSubjects(declaration, root, actorId);
+    if (subjects === null) return { ok: false, code: "EXPOSURE_SUBJECT_UNREADABLE" };
+    return {
+      ok: true,
+      facts: { actionType: declaration.actionType, amount: 0, currency: NO_CURRENCY, subjects },
+    };
+  }
   const currency = (
     declaration.currency.startsWith("/")
       ? (scalar(walkPointer(root, declaration.currency)) ?? "")
@@ -199,22 +211,31 @@ export function readExposureFacts(
     currency,
   );
   if (amount === null) return { ok: false, code: "EXPOSURE_AMOUNT_UNREADABLE" };
+  const subjects = readSubjects(declaration, root, actorId);
+  if (subjects === null) return { ok: false, code: "EXPOSURE_SUBJECT_UNREADABLE" };
+  return {
+    ok: true,
+    facts: { actionType: declaration.actionType, amount, currency, subjects },
+  };
+}
+
+/** Each declared subject from the request; the agent defaults to the gateway's actor. Null when one cannot be read. */
+function readSubjects(
+  declaration: ExposureDeclaration,
+  root: { [key: string]: Json },
+  actorId: string,
+): Partial<Record<ExposureRouteSubject, string>> | null {
   const subjects: Partial<Record<ExposureRouteSubject, string>> = {};
   for (const [kind, pointer] of Object.entries(declaration.subjects) as [
     ExposureRouteSubject,
     string,
   ][]) {
     const value = scalar(walkPointer(root, pointer))?.trim();
-    if (value === undefined || value === "" || value.length > MAX_SUBJECT_LENGTH) {
-      return { ok: false, code: "EXPOSURE_SUBJECT_UNREADABLE" };
-    }
+    if (value === undefined || value === "" || value.length > MAX_SUBJECT_LENGTH) return null;
     subjects[kind] = value;
   }
   subjects.agent ??= actorId;
-  return {
-    ok: true,
-    facts: { actionType: declaration.actionType, amount, currency, subjects },
-  };
+  return subjects;
 }
 
 /**
@@ -228,7 +249,8 @@ export function readSettledAmount(
   facts: ExposureFacts,
   answer: { readonly headers: readonly (readonly [string, string])[]; readonly body: Buffer },
 ): number | null {
-  if (declaration.settledAmount === null || answer.body.length === 0) return null;
+  if (declaration.settledAmount === null || declaration.amount === null || answer.body.length === 0)
+    return null;
   const type = answer.headers.find(([name]) => name.toLowerCase() === "content-type")?.[1] ?? "";
   if (!/json/i.test(type)) return null;
   let body: Json;

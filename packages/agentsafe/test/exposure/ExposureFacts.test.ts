@@ -121,6 +121,62 @@ describe("reading what a payment states", () => {
   });
 });
 
+describe("a step that moves no money: a change of a vendor's bank details", () => {
+  const change = declare({
+    actionType: "vendor_bank_change",
+    subjects: { vendor: "/path/vendor" },
+  });
+
+  it("states no amount and no currency, and reads its subjects", () => {
+    expect(change).toMatchObject({
+      actionType: "VENDOR_BANK_CHANGE",
+      amount: null,
+      currency: null,
+    });
+    const result = readExposureFacts(
+      change,
+      request({ iban: "GB00 0000" }, { path: "/vendors/v-9/bank-account" }),
+      "/vendors/:vendor/bank-account",
+      "configured-actor",
+    );
+    expect(result).toEqual({
+      ok: true,
+      facts: {
+        actionType: "VENDOR_BANK_CHANGE",
+        amount: 0,
+        currency: "XXX",
+        subjects: { vendor: "v-9", agent: "configured-actor" },
+      },
+    });
+  });
+
+  it("still refuses a vendor the request does not state", () => {
+    expect(
+      readExposureFacts(
+        declare({ actionType: "VENDOR_BANK_CHANGE", subjects: { vendor: "/body/vendor" } }),
+        request({}),
+        "/vendors/:vendor/payments",
+        "actor",
+      ),
+    ).toEqual({ ok: false, code: "EXPOSURE_SUBJECT_UNREADABLE" });
+  });
+
+  it("is the only kind that may omit them: a payment states both, a step both or neither", () => {
+    for (const raw of [
+      { subjects: { vendor: "/path/vendor" } },
+      { amount: "/body/amount" },
+      { currency: "USD", actionType: "REFUND_REQUEST" },
+      { actionType: "VENDOR_BANK_CHANGE", amount: "/body/amount" },
+      { actionType: "VENDOR_BANK_CHANGE", settledAmount: "/body/settled" },
+    ])
+      expect(RouteExposureSchema.safeParse(raw).success, JSON.stringify(raw)).toBe(false);
+    // A bank change that does state an amount reads it as before.
+    expect(
+      declare({ actionType: "VENDOR_BANK_CHANGE", amount: "/body/amount", currency: "USD" }),
+    ).toMatchObject({ amount: "/body/amount", currency: "USD" });
+  });
+});
+
 describe("pointers and amounts", () => {
   it("follows own keys and decimal indexes only, never a prototype", () => {
     const root = { body: { list: [{ "a/b": 1, "c~d": 2 }] } };

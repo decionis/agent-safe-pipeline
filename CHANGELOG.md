@@ -3,6 +3,16 @@
 Releases of `@decionis/agent-safe-pipeline` (the library) and `@decionis/agentsafe` (the runtime).
 Each entry names what an adopter can rely on and what they must do, if anything.
 
+## Runtime (unreleased): a route that changes a vendor's bank details
+
+A route's `exposure` may now declare `actionType: VENDOR_BANK_CHANGE` without `amount` or
+`currency`, because the change moves no money. The gateway reserves it as the vendor's
+`vendor_bank_change` step (amount `0`, currency `XXX`), settles it when the change happened and
+releases it when it did not. A Decionis sequence limit with a cooling-off then holds payments to that
+vendor (`SOD_COOLING_OFF`). Every other route still states both, as before; a bank-change route
+states both or neither. **Nothing to do** unless you want it
+([a change of a vendor's bank details](docs/gateway/exposure.md#a-change-of-a-vendors-bank-details)).
+
 ## Library 0.6.0, runtime 0.8.0 — 2026-11-19
 
 This release packages the features below, unreleased since 2026-10-27. The runtime, container and
