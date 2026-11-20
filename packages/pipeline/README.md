@@ -428,6 +428,11 @@ signed record itself, fetched with the run's own key from `GET /v1/protocol/doss
 artifacts it covers, and the issuer tier, `provisional_anonymous` for a workspace without an
 account. `fetchSignedDossier`, `summarizeDossier` and `printSignedDossier` are the parts.
 
+Managed Presence responses may include bounded `approval_tier` or `approval_chain` progress.
+`DecionisGate` validates these fields on the initial response and status reads. Progress never
+authorizes execution: a completed count still needs a valid, intent-bound grant. Unknown fields,
+invalid counts, and unexpected proof material fail closed.
+
 ## Local testing
 
 `@decionis/agent-safe-pipeline/testing` ships `LocalPresence` and `LocalAuthority`: loopback doubles
