@@ -48,6 +48,28 @@ is asked, with `400` and `EXPOSURE_AMOUNT_UNREADABLE`, `EXPOSURE_CURRENCY_UNREAD
 `EXPOSURE_SUBJECT_UNREADABLE`: a payment that cannot be counted is never counted on a guess.
 Nothing is rounded: `12.345` USD is unreadable, not `1235`.
 
+### A change of a vendor's bank details
+
+A route that changes a vendor's bank details moves no money, so it states no `amount` and no
+`currency`. It is the only kind of route that may omit them, and it states both or neither:
+
+```yaml
+- path: /vendors/:vendor/bank-account
+  action: vendor.bank.change
+  methods: [PUT]
+  exposure:
+    actionType: VENDOR_BANK_CHANGE
+    subjects:
+      vendor: /path/vendor
+```
+
+The gateway reserves it as the vendor's `vendor_bank_change` step with amount `0` and currency
+`XXX`, ISO 4217's "no currency", so only a sequence limit counts it. It is settled when the change
+happened, released when it did not, and kept when nobody can say. A sequence limit with a
+cooling-off then holds a payment to that vendor for the cooling-off, whoever releases it
+(`SOD_COOLING_OFF`, Decionis); the payment is answered `409` and not sent. The same limit keeps one
+agent, or one principal chain, from both changing a vendor's bank details and paying it.
+
 The agent, when the route names no pointer for it, is the gateway's own `actor.id`, which the
 caller cannot choose. A pointer into a header the agent sets is the agent's own statement of who
 it is; name one only where the header is set by something the agent does not control.

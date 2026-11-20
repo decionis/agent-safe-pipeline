@@ -11,6 +11,8 @@ export interface DoubleLimit {
   readonly actor_types?: readonly string[];
   readonly steps?: readonly string[];
   readonly max_steps?: number;
+  /** Decionis#1722: a payment step to a vendor with a bank change on record inside it is held. */
+  readonly cooling_off_seconds?: number;
 }
 
 /** One reservation the double holds. */
@@ -228,7 +230,38 @@ export class ExposureLedgerDouble {
         replayed: true,
       });
     }
-    const cap = limit.caps[currency];
+    if ((limit.kind ?? "payment_release") === "sequence") {
+      // The ledger's sequence rule, as far as the gateway sees it: a step
+      // proceeds and is recorded, except a payment to a vendor whose bank
+      // change is on record (not released) under a limit with a cooling-off.
+      const step = typeof request["step"] === "string" ? request["step"] : null;
+      const changed =
+        limit.cooling_off_seconds !== undefined &&
+        step === "payment_release" &&
+        this.reservations.some(
+          (entry) =>
+            entry.limitKey === limit.key &&
+            entry.subjectDigest === subjectDigest &&
+            entry.step === "vendor_bank_change" &&
+            entry.state !== "RELEASED",
+        );
+      if (changed)
+        return ExposureLedgerDouble.json(200, {
+          ...base,
+          decision: limit.on_exceed ?? "ESCALATE",
+          reason_code: "SOD_COOLING_OFF",
+          reservation_id: null,
+          state: null,
+          used: 0,
+          cap: null,
+          remaining: null,
+          replayed: false,
+        });
+    }
+    const cap =
+      (limit.kind ?? "payment_release") === "sequence"
+        ? Number.MAX_SAFE_INTEGER
+        : limit.caps[currency];
     const used = this.reservations
       .filter(
         (entry) =>

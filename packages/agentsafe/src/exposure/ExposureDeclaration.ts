@@ -45,19 +45,30 @@ const lower = <T extends readonly [string, ...string[]]>(values: T) =>
   );
 
 /**
+ * The action types that move no money: a step a sequence limit counts, never
+ * an amount. A route of one of these may omit `amount` and `currency`.
+ */
+export const EXPOSURE_STEP_ONLY_ACTION_TYPES: readonly ExposureActionType[] = [
+  "VENDOR_BANK_CHANGE",
+];
+
+/**
  * A route's `exposure` section in `agentsafe.yaml`: the route releases money,
  * and says where in the request the amount, the currency and the subjects
  * are. The values are read from the request the authority evaluated and the
- * gateway forwards, never from a header the gateway adds.
+ * gateway forwards, never from a header the gateway adds. A route whose action
+ * moves no money (a change of a vendor's bank details) states no amount: the
+ * ledger records it as a step of the vendor's segregation of duties, which is
+ * what starts the hold on payments to that vendor.
  */
-export const RouteExposureSchema = z.strictObject({
+const RouteExposureObject = z.strictObject({
   actionType: z
     .preprocess(
       (value) => (typeof value === "string" ? value.trim().toUpperCase() : value),
       z.enum(EXPOSURE_ACTION_TYPES),
     )
     .optional(),
-  amount: requestPointer,
+  amount: requestPointer.optional(),
   amountUnit: lower(["minor", "major"]).optional(),
   /** A pointer into the request, or a fixed ISO 4217 code for a route in one currency. */
   currency: z
@@ -68,7 +79,8 @@ export const RouteExposureSchema = z.strictObject({
     .refine(
       (value) => CURRENCY_CODE.test(value) || REQUEST_POINTER.test(value),
       "an ISO 4217 code or a pointer into the request",
-    ),
+    )
+    .optional(),
   subjects: z
     .strictObject({
       vendor: requestPointer.optional(),
@@ -83,15 +95,41 @@ export const RouteExposureSchema = z.strictObject({
   failurePolicy: lower(["failclosed", "failopen"]).optional(),
 });
 
+export const RouteExposureSchema = RouteExposureObject.superRefine((value, context) => {
+  const stepOnly = EXPOSURE_STEP_ONLY_ACTION_TYPES.includes(
+    value.actionType ?? DEFAULT_EXPOSURE_ACTION_TYPE,
+  );
+  const stated = Number(value.amount !== undefined) + Number(value.currency !== undefined);
+  if (!stepOnly && stated < 2)
+    context.addIssue({
+      code: "custom",
+      path: [value.amount === undefined ? "amount" : "currency"],
+      message: "a route that moves money states its amount and currency",
+    });
+  if (stepOnly && stated === 1)
+    context.addIssue({
+      code: "custom",
+      path: [value.amount === undefined ? "amount" : "currency"],
+      message: "state both the amount and the currency, or neither",
+    });
+  if (value.settledAmount !== undefined && value.amount === undefined)
+    context.addIssue({
+      code: "custom",
+      path: ["settledAmount"],
+      message: "a settled amount needs the amount it settles",
+    });
+});
+
 export type RouteExposureFile = z.infer<typeof RouteExposureSchema>;
 
 /** A route's money declaration, resolved: every default applied. */
 export interface ExposureDeclaration {
   readonly actionType: ExposureActionType;
-  readonly amount: string;
+  /** Null for a step-only action, which moves no money. */
+  readonly amount: string | null;
   readonly amountUnit: ExposureAmountUnit;
-  /** A pointer (it starts with `/`) or an upper-case ISO 4217 code. */
-  readonly currency: string;
+  /** A pointer (it starts with `/`) or an upper-case ISO 4217 code; null with the amount. */
+  readonly currency: string | null;
   readonly subjects: Readonly<Partial<Record<ExposureRouteSubject, string>>>;
   readonly settledAmount: string | null;
   readonly failurePolicy: "FAIL_CLOSED" | "FAIL_OPEN";
@@ -106,9 +144,14 @@ export function exposureDeclaration(file: RouteExposureFile): ExposureDeclaratio
   }
   return {
     actionType: file.actionType ?? DEFAULT_EXPOSURE_ACTION_TYPE,
-    amount: file.amount,
+    amount: file.amount ?? null,
     amountUnit: file.amountUnit === "major" ? "MAJOR" : "MINOR",
-    currency: file.currency.startsWith("/") ? file.currency : file.currency.toUpperCase(),
+    currency:
+      file.currency === undefined
+        ? null
+        : file.currency.startsWith("/")
+          ? file.currency
+          : file.currency.toUpperCase(),
     subjects,
     settledAmount: file.settledAmount ?? null,
     failurePolicy: file.failurePolicy === "failopen" ? "FAIL_OPEN" : "FAIL_CLOSED",
