@@ -48,3 +48,34 @@ describe("agentsafe cards holds-schema", () => {
     expect(none.exits).toEqual([2]);
   });
 });
+
+describe("agentsafe cards stripe-bridge", () => {
+  const env = {
+    STRIPE_BRIDGE_LIVEMODE: "false",
+    STRIPE_BRIDGE_STRIPE_VERSION: "2025-03-31.basil",
+    STRIPE_BRIDGE_WEBHOOK_SECRETS_FILE: "/secrets/stripe",
+    STRIPE_BRIDGE_EXECUTOR_URL: "https://executor.example",
+    STRIPE_BRIDGE_EXECUTOR_TOKEN_FILE: "/secrets/operator",
+  };
+
+  it("refuses to start without its settings, naming the one that is missing", async () => {
+    const io = fakeProcess({ env: { ...env, STRIPE_BRIDGE_LIVEMODE: undefined } });
+    await runCards(io, ["stripe-bridge"]);
+    expect(io.exits).toEqual([2]);
+    expect(lastJson(io.err)).toEqual({
+      event: "STRIPE_BRIDGE_CONFIG",
+      code: "STRIPE_BRIDGE_LIVEMODE_REQUIRED",
+    });
+  });
+
+  it("refuses a secrets file it cannot read, and never prints a secret", async () => {
+    const io = fakeProcess({ env, files: { "/secrets/operator": "operator-token" } });
+    await runCards(io, ["stripe-bridge"]);
+    expect(io.exits).toEqual([2]);
+    expect(lastJson(io.err)).toEqual({
+      event: "STRIPE_BRIDGE_CONFIG",
+      code: "STRIPE_BRIDGE_FILE_UNREADABLE",
+    });
+    expect(io.err.join("")).not.toContain("operator-token");
+  });
+});

@@ -2,6 +2,8 @@
 
 The runtime's own guide to the card flow, from the agent's proposal through the cardholder's tap to
 the issuer's authorization and result, is [card-authorization.md](./card-authorization.md).
+Cards issued on Stripe Issuing reach that hook through the Stripe bridge,
+[stripe-issuing.md](./stripe-issuing.md).
 
 The two revised PDFs are generated from editable text and vector diagram code in
 [BuildBankingPdfs.py](../../scripts/docs/BuildBankingPdfs.py):

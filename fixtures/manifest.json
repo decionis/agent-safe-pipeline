@@ -669,6 +669,12 @@
       "containsCustomerData": false
     },
     {
+      "path": "packages/agentsafe/test/adapters/stripe/StripeIssuingBridge.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
       "path": "packages/agentsafe/test/audit/ChainJournal.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
@@ -1522,6 +1528,12 @@
     },
     {
       "path": "packages/agentsafe/test/service/Principals.test.ts",
+      "family": "Unit-test fixture",
+      "source": "synthetic",
+      "containsCustomerData": false
+    },
+    {
+      "path": "packages/agentsafe/test/service/StripeIssuingFlow.test.ts",
       "family": "Unit-test fixture",
       "source": "synthetic",
       "containsCustomerData": false

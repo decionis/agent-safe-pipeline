@@ -15,6 +15,9 @@ walks the flow in the order the parties meet it and names what each one owns.
 | Koard     | Proves the cardholder tapped their own card, and signs that over the intent.             |
 | Issuer    | Takes the final card decision, enforces card controls, reports the result.               |
 
+For cards issued on Stripe Issuing, `agentsafe cards stripe-bridge` connects Stripe's real-time
+authorization webhook to this hook: [stripe-issuing.md](./stripe-issuing.md).
+
 The decision is taken before the card is submitted, because an authorization has seconds and a
 person has minutes. The authorization itself is matched to the grant in milliseconds.
 

@@ -1127,6 +1127,10 @@ never a card reference, an amount or a merchant. The card path's own cost is mea
 `test/performance`; what the hook's latency is in a deployment is in
 [the card authorization guide](../../docs/banking/card-authorization.md#latency).
 
+`agentsafe cards stripe-bridge` connects Stripe Issuing's real-time authorization webhook to this
+hook, configured from `STRIPE_BRIDGE_*`. It runs in shadow until told to enforce. See
+[docs/banking/stripe-issuing.md](../../docs/banking/stripe-issuing.md).
+
 With `EXECUTOR_CARD_OUTCOMES=record` or `publish`, each card purchase's decision, a person's answer
 to its escalation, the claim and the issuer's result are kept as facts in
 `EXECUTOR_CARD_OUTCOMES_DIR` once each answer has been given, and `publish` states them on a timer
