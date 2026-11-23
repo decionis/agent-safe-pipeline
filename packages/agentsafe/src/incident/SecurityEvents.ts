@@ -148,6 +148,11 @@ export const SecurityEventSchema = z.discriminatedUnion("event", [
   z.strictObject({ event: z.literal("CARD_AUTHORIZATION_INCREMENTED"), intent_id: identifier }),
   z.strictObject({ event: z.literal("CARD_CLAIM_RECORD_FAILED"), intent_id: identifier }),
   z.strictObject({ event: z.literal("CARD_AUTHORIZATION_PENDING"), intent_id: identifier }),
+  // The issuer named the card's holder and the deployment did not take it: the commit actor decided.
+  z.strictObject({
+    event: z.literal("CARD_ISSUER_ACTOR_IGNORED"),
+    reason: z.enum(["NOT_ENABLED", "TYPE_NOT_ALLOWED"]),
+  }),
   z.strictObject({
     event: z.literal("CARD_AUTHORIZATION_NO_MATCH"),
     intent_id: identifier.nullable(),

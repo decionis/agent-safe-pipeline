@@ -1893,6 +1893,26 @@ export class TrustedExecutorService {
   }
 
   /**
+   * The card's holder as the issuer's hook named it, when the deployment accepts that and the
+   * type is one it allows; otherwise null, and the commit actor decides. A name the deployment
+   * does not accept is not an error, since the authorization is still decided, but it is said.
+   */
+  private issuerActor(
+    request: CardAuthorizationRequest,
+    accepted: { readonly types: ReadonlySet<string> } | null,
+  ): { readonly id: string; readonly type: string } | null {
+    if (request.actor === undefined) return null;
+    if (accepted === null || !accepted.types.has(request.actor.type)) {
+      this.events.emit({
+        event: "CARD_ISSUER_ACTOR_IGNORED",
+        reason: accepted === null ? "NOT_ENABLED" : "TYPE_NOT_ALLOWED",
+      });
+      return null;
+    }
+    return { id: request.actor.id, type: request.actor.type };
+  }
+
+  /**
    * The commit boundary: the authorization becomes the intent, captured as
    * the commit actor the deployment names and evaluated now, with the
    * authorization's id in the intent's context so the dossier says what it
@@ -1925,10 +1945,11 @@ export class TrustedExecutorService {
       },
       idempotency_key: TrustedExecutorService.commitIdempotencyKey(request.authorization_id),
     };
+    const named = this.issuerActor(request, commit.issuerActor);
     const identity: CaptureIdentity = {
       id: callerId,
       tenantId: commit.tenantId,
-      actor: commit.actor,
+      actor: named ?? commit.actor,
     };
     let captured: CapturedIntent;
     try {
@@ -1938,7 +1959,12 @@ export class TrustedExecutorService {
         await this.cards.velocity(request.card_token_ref),
         {
           commit_boundary: "ISSUER_HOOK",
-          card_authorization: { authorization_id: request.authorization_id },
+          card_authorization: {
+            authorization_id: request.authorization_id,
+            // Whose purchase policy decided: the card's holder as the issuer named it, or the
+            // deployment's commit actor.
+            actor_source: named === null ? "deployment" : "issuer",
+          },
         },
       );
     } catch (error) {

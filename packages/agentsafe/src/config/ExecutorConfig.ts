@@ -215,6 +215,14 @@ export interface CardsConfig {
   readonly commit: {
     readonly tenantId: string;
     readonly actor: { readonly id: string; readonly type: string };
+    /**
+     * Whether the issuer hook may name the card's own actor (the employee or agent the card was
+     * issued to), and of which types. Null (the default) means every evaluation is the commit
+     * actor's, whatever the hook says. The hook's operator is trusted to name the card's holder
+     * truthfully, as it is trusted to report the authorization; enable it only for an issuer
+     * whose card records the company controls.
+     */
+    readonly issuerActor: { readonly types: ReadonlySet<string> } | null;
   } | null;
   readonly outcomes: CardOutcomesConfig;
 }
@@ -366,6 +374,8 @@ const CARD_COMMIT_KEYS = [
   "EXECUTOR_CARD_COMMIT_TENANT_ID",
   "EXECUTOR_CARD_COMMIT_ACTOR_ID",
   "EXECUTOR_CARD_COMMIT_ACTOR_TYPE",
+  "EXECUTOR_CARD_ACTOR_FROM_ISSUER",
+  "EXECUTOR_CARD_ISSUER_ACTOR_TYPES",
 ] as const;
 const CARD_OUTCOMES_PUBLISH_KEYS = [
   "EXECUTOR_CARD_OUTCOMES_ORG_ID",
@@ -509,6 +519,11 @@ const EnvironmentSchema = z.object({
   EXECUTOR_CARD_COMMIT_TENANT_ID: z.string().uuid().optional(),
   EXECUTOR_CARD_COMMIT_ACTOR_ID: identifier.optional(),
   EXECUTOR_CARD_COMMIT_ACTOR_TYPE: identifier.optional(),
+  EXECUTOR_CARD_ACTOR_FROM_ISSUER: z.enum(["on", "off"]).optional(),
+  EXECUTOR_CARD_ISSUER_ACTOR_TYPES: z
+    .string()
+    .regex(/^[a-z][\w.-]{0,39}(?:,[a-z][\w.-]{0,39}){0,7}$/i)
+    .optional(),
   EXECUTOR_CARD_OUTCOMES: z.enum(["off", "record", "publish"]).optional(),
   EXECUTOR_CARD_OUTCOMES_DIR: absolutePath.optional(),
   EXECUTOR_CARD_OUTCOMES_ORG_ID: z.string().uuid().optional(),
@@ -978,6 +993,12 @@ export class ExecutorConfigLoader {
         `CONFIG_INVALID: ${missing.join(", ")} (required to evaluate at the commit boundary)`,
       );
     }
+    const fromIssuer = (values.EXECUTOR_CARD_ACTOR_FROM_ISSUER ?? "off") === "on";
+    if (!fromIssuer && values.EXECUTOR_CARD_ISSUER_ACTOR_TYPES !== undefined) {
+      throw new Error(
+        "CONFIG_INVALID: EXECUTOR_CARD_ISSUER_ACTOR_TYPES (without EXECUTOR_CARD_ACTOR_FROM_ISSUER=on)",
+      );
+    }
     return {
       noGrant,
       commit: {
@@ -986,6 +1007,11 @@ export class ExecutorConfigLoader {
           id: values.EXECUTOR_CARD_COMMIT_ACTOR_ID ?? "",
           type: values.EXECUTOR_CARD_COMMIT_ACTOR_TYPE ?? "SYSTEM",
         },
+        issuerActor: fromIssuer
+          ? {
+              types: new Set((values.EXECUTOR_CARD_ISSUER_ACTOR_TYPES ?? "human,agent").split(",")),
+            }
+          : null,
       },
     };
   }

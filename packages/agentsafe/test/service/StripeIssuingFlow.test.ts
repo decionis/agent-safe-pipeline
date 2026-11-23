@@ -53,7 +53,11 @@ const PRESENTING_APP: Principal = {
   scopes: new Set(["escalations.resume"]),
 } as unknown as Principal;
 
-function executor(mode: "ENFORCEMENT" | "SHADOW"): TrustedExecutorService {
+function executor(
+  mode: "ENFORCEMENT" | "SHADOW",
+  extra: Record<string, string> = {},
+  security: string[] = [],
+): TrustedExecutorService {
   const env: Record<string, string> = {
     ...loopbackEnvironment({ authority, providerBaseUrl: "http://127.0.0.1:9" }, mode, "NONE"),
     DOWNSTREAM_SYSTEM: "stripe-issuing",
@@ -62,9 +66,10 @@ function executor(mode: "ENFORCEMENT" | "SHADOW"): TrustedExecutorService {
     EXECUTOR_CARD_NO_GRANT: "evaluate",
     EXECUTOR_CARD_COMMIT_TENANT_ID: "00000000-0000-4000-8000-000000000002",
     EXECUTOR_CARD_COMMIT_ACTOR_ID: "synthetic-stripe-commit",
+    ...extra,
   };
   const config = ExecutorConfigLoader.load(env);
-  const events = collectedEvents([]);
+  const events = collectedEvents(security);
   return TrustedExecutorService.create(config, openSecrets(env, config, events), cardHandlers(), {
     emit: () => undefined,
     security: events,
@@ -118,6 +123,7 @@ function stripe(
     readonly card: string;
     readonly amount: number;
     readonly approved?: boolean;
+    readonly metadata?: Readonly<Record<string, string>>;
   },
 ): { readonly body: Buffer; readonly signature: string } {
   const id = input.id ?? `iauth_fixture_${String(++sequence).padStart(4, "0")}`;
@@ -135,7 +141,11 @@ function stripe(
           approved: decided ? (input.approved ?? true) : false,
           amount: decided && (input.approved ?? true) ? input.amount : 0,
           currency: "usd",
-          card: { id: input.card, cardholder: { name: "Jenny Rosen" } },
+          card: {
+            id: input.card,
+            cardholder: { name: "Jenny Rosen" },
+            ...(input.metadata === undefined ? {} : { metadata: input.metadata }),
+          },
           merchant_data: { category_code: "5734", network_id: "1234567890" },
           pending_request: decided ? null : { amount: input.amount, currency: "usd" },
           request_history: decided
@@ -261,6 +271,76 @@ describe("Stripe Issuing through the bridge, decided by policy at the executor's
       decision: "NO_MATCH",
       code: "SHADOW_OBSERVED",
     });
+    service.close();
+  });
+});
+
+describe("the card's holder, named by the company on the card", () => {
+  const holder = { decionis_actor_id: "synthetic-employee-jenny", decionis_actor_type: "human" };
+
+  /** The intent the authority decided: the escalation hands back the exact intent. */
+  async function decidedIntent(service: TrustedExecutorService, card: string) {
+    const { bridge } = bridgeOver(service, "enforce");
+    const asked = stripe("issuing_authorization.request", {
+      card,
+      amount: 50_000,
+      metadata: holder,
+    });
+    const reply = await bridge.authorizationRequest(asked.body, asked.signature);
+    expect(answer(reply)).toMatchObject({
+      approved: false,
+      metadata: { decionis_decision: "PENDING" },
+    });
+    // Re-presented before any approval, the same intent answers again: nothing is decided twice.
+    const pending = await service.authorizeCard(
+      {
+        authorization_id: JSON.parse(asked.body.toString()).data.object.id as string,
+        card_token_ref: card,
+        amount_minor: 50_000,
+        currency: "USD",
+        merchant_id: "1234567890",
+        mcc: "5734",
+        actor: { id: "synthetic-employee-jenny", type: "human" },
+      },
+      BRIDGE,
+    );
+    if (pending.decision !== "PENDING") throw new Error("expected the pending answer");
+    return JSON.parse(JSON.stringify(pending.escalation.intent)) as {
+      actor: { id: string; type: string };
+      context: { card_authorization: { actor_source: string } };
+    };
+  }
+
+  it("decides the purchase as the named holder when the deployment takes names from the issuer", async () => {
+    const service = executor("ENFORCEMENT", { EXECUTOR_CARD_ACTOR_FROM_ISSUER: "on" });
+    const intent = await decidedIntent(service, "ic_fixture_named");
+    expect(intent.actor).toMatchObject({ id: "synthetic-employee-jenny", type: "human" });
+    expect(intent.context.card_authorization.actor_source).toBe("issuer");
+    service.close();
+  });
+
+  it("decides as the deployment's actor, and says so, when names from the issuer are off", async () => {
+    const security: string[] = [];
+    const service = executor("ENFORCEMENT", {}, security);
+    const intent = await decidedIntent(service, "ic_fixture_unnamed");
+    expect(intent.actor).toMatchObject({ id: "synthetic-stripe-commit", type: "SYSTEM" });
+    expect(intent.context.card_authorization.actor_source).toBe("deployment");
+    expect(security.join("\n")).toContain(
+      '"event":"CARD_ISSUER_ACTOR_IGNORED","reason":"NOT_ENABLED"',
+    );
+    service.close();
+  });
+
+  it("decides as the deployment's actor when the holder's type is not one it allows", async () => {
+    const security: string[] = [];
+    const service = executor(
+      "ENFORCEMENT",
+      { EXECUTOR_CARD_ACTOR_FROM_ISSUER: "on", EXECUTOR_CARD_ISSUER_ACTOR_TYPES: "agent" },
+      security,
+    );
+    const intent = await decidedIntent(service, "ic_fixture_wrong_type");
+    expect(intent.actor.id).toBe("synthetic-stripe-commit");
+    expect(security.join("\n")).toContain('"reason":"TYPE_NOT_ALLOWED"');
     service.close();
   });
 });
