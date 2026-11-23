@@ -44,6 +44,16 @@ export const CardPurchaseSchema = z.strictObject({
 
 export type CardPurchase = z.infer<typeof CardPurchaseSchema>;
 
+/**
+ * The card's own holder, as the issuer's records name it: the employee or agent the card was
+ * issued to. Used at the commit boundary only where the deployment enables it.
+ */
+export const CardActorSchema = z.strictObject({
+  id: reference,
+  type: z.string().regex(/^[a-z][\w.-]{0,39}$/i),
+});
+export type CardActor = z.infer<typeof CardActorSchema>;
+
 /** What the issuer's real-time authorization hook asks. */
 export const CardAuthorizationRequestSchema = z.strictObject({
   authorization_id: reference,
@@ -52,6 +62,7 @@ export const CardAuthorizationRequestSchema = z.strictObject({
   currency: z.string().regex(CURRENCY),
   merchant_id: reference,
   mcc: z.string().regex(MCC).optional(),
+  actor: CardActorSchema.optional(),
 });
 
 export type CardAuthorizationRequest = z.infer<typeof CardAuthorizationRequestSchema>;

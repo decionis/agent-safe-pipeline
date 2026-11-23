@@ -230,6 +230,57 @@ describe("the Stripe authorization, as the bridge keeps it", () => {
     expect(() => cardAuthorizationFromStripe(view, "pending")).toThrow(code);
   });
 
+  /** A card whose metadata the company set when it issued the card. */
+  const cardWith = (metadata: Readonly<Record<string, string>>) => ({
+    card: {
+      id: "ic_fixture_card_0042",
+      last4: "8693",
+      metadata: {
+        cost_centre: "fixture-cc-7",
+        employee_email: "jenny.rosen@example.com",
+        ...metadata,
+      },
+    },
+  });
+
+  it("names the card's holder from the card's metadata, and copies no other metadata", () => {
+    const view = stripeAuthorizationOf(
+      event(
+        "issuing_authorization.request",
+        cardWith({ decionis_actor_id: "fixture_usr_jenny", decionis_actor_type: "human" }),
+      ),
+    );
+    expect(cardAuthorizationFromStripe(view, "pending")).toMatchObject({
+      actor: { id: "fixture_usr_jenny", type: "human" },
+    });
+    const kept = JSON.stringify(view);
+    expect(kept).not.toContain("cost_centre");
+    expect(kept).not.toContain("jenny.rosen");
+  });
+
+  it("decides as the deployment's actor when the card names no holder", () => {
+    const view = stripeAuthorizationOf(event("issuing_authorization.request", cardWith({})));
+    expect(cardAuthorizationFromStripe(view, "pending")).not.toHaveProperty("actor");
+  });
+
+  it.each([
+    ["half a name", { decionis_actor_id: "fixture_usr_jenny" }, "STRIPE_CARD_ACTOR_INCOMPLETE"],
+    ["a type and no id", { decionis_actor_type: "human" }, "STRIPE_CARD_ACTOR_INCOMPLETE"],
+    [
+      "an id the hook would refuse",
+      { decionis_actor_id: "jenny rosen", decionis_actor_type: "human" },
+      "STRIPE_CARD_ACTOR_INVALID",
+    ],
+    [
+      "a type the hook would refuse",
+      { decionis_actor_id: "fixture_usr_jenny", decionis_actor_type: "1human" },
+      "STRIPE_CARD_ACTOR_INVALID",
+    ],
+  ])("refuses %s rather than deciding it as someone else", (_, metadata, code) => {
+    const view = stripeAuthorizationOf(event("issuing_authorization.request", cardWith(metadata)));
+    expect(() => cardAuthorizationFromStripe(view, "pending")).toThrow(code);
+  });
+
   it("leaves out a category code that is not four digits", () => {
     const view = stripeAuthorizationOf(
       event("issuing_authorization.request", {

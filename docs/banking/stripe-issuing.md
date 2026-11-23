@@ -63,6 +63,34 @@ matches that hold and is approved. Tell cardholders to retry after approval.
 **Zero-amount authorizations** (account verifications) move no money and are not a purchase the
 hook can decide. The undecided rule below answers them.
 
+## Whose purchase it is
+
+By default, every authorization is decided as the executor's commit actor
+(`EXECUTOR_CARD_COMMIT_*`), the same actor for every card. To have policy decide each purchase as
+the person or agent the card belongs to, so that per-person limits apply and Presence refuses
+self-approval, name the holder on the card and let the executor take that name:
+
+1. When you issue the card, set two Stripe card metadata keys: `decionis_actor_id` (the holder's
+   id, for a person their Decionis Account user id) and `decionis_actor_type` (for example `human`
+   or `agent`). The bridge reads these two keys and no other metadata.
+2. Run the executor with `EXECUTOR_CARD_ACTOR_FROM_ISSUER=on`. `EXECUTOR_CARD_ISSUER_ACTOR_TYPES`
+   lists the types it accepts (`human,agent` by default).
+
+**Trust.** Whoever can write card metadata in your Stripe account decides whose purchase an
+authorization is. That is the same group who already issues the cards and sets their spending
+controls. Keep the setting off for any issuer whose card records you do not control.
+
+**What each case does:**
+
+- **Named and accepted:** the intent's actor is the named holder, and its context records
+  `card_authorization.actor_source: "issuer"`.
+- **No name on the card:** the commit actor decides (`actor_source: "deployment"`).
+- **Named, but not accepted** (the setting is off, or the type is not listed): the commit actor
+  decides, and the executor emits `CARD_ISSUER_ACTOR_IGNORED` with `NOT_ENABLED` or
+  `TYPE_NOT_ALLOWED`.
+- **Half a name, or a value the hook would refuse** (`STRIPE_CARD_ACTOR_INCOMPLETE`,
+  `STRIPE_CARD_ACTOR_INVALID`): this is undecided, not quietly decided as someone else.
+
 ## The deadline and when nothing is decided
 
 Stripe waits 2 seconds, then applies the account's timeout setting or Autopilot. The bridge keeps
@@ -132,9 +160,6 @@ then `stripe trigger issuing_authorization.request`.
 
 ## Not yet
 
-- **Who the card belongs to.** Every authorization is decided as the executor's configured commit
-  actor (`EXECUTOR_CARD_COMMIT_*`). Naming the employee or agent per card (for example from the
-  card's metadata), so per-person limits and segregation of duties apply, is the next slice.
 - **Partial approval.** `pending_request.is_amount_controllable` and the `amount` answer field are
   not used.
 - **Incremental authorizations and reversals.** These come through `issuing_authorization.updated`,

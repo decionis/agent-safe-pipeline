@@ -169,6 +169,34 @@ describe("card authorization requests", () => {
     }
   });
 
+  it("reads the card's holder when the issuer names one, and refuses a malformed name whole", () => {
+    const named = { ...authorization, actor: { id: "fixture_holder_jenny", type: "human" } };
+    expect(cardAuthorizationOf(named)).toEqual(named);
+    // The type's first character, every character after it, and its length are all held.
+    for (const type of ["1human", "human!", "hu man", "h".repeat(41), ""]) {
+      expect(
+        codeOf(() =>
+          cardAuthorizationOf({ ...authorization, actor: { id: "fixture_holder_jenny", type } }),
+        ),
+      ).toBe("CARD_AUTHORIZATION_INVALID");
+    }
+    expect(
+      cardAuthorizationOf({
+        ...authorization,
+        actor: { id: "fixture_holder_jenny", type: "h".repeat(40) },
+      }),
+    ).toMatchObject({ actor: { type: "h".repeat(40) } });
+    for (const actor of [
+      { id: "fixture holder", type: "human" },
+      { id: "fixture_holder_jenny" },
+      { id: "fixture_holder_jenny", type: "human", runtime: "x" },
+    ]) {
+      expect(codeOf(() => cardAuthorizationOf({ ...authorization, actor }))).toBe(
+        "CARD_AUTHORIZATION_INVALID",
+      );
+    }
+  });
+
   it("reads a result and refuses anything else", () => {
     expect(cardAuthorizationResultOf({ status: "DECLINED" })).toEqual({ status: "DECLINED" });
     expect(

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { isSupportedCurrency } from "../banking/Currency.js";
 import {
+  CardActorSchema,
   cardAuthorizationOf,
   CardActionError,
   type CardAuthorizationRequest,
@@ -38,7 +39,14 @@ const AuthorizationSchema = z.object({
   approved: z.boolean(),
   amount: z.number().int().nonnegative(),
   currency: z.string(),
-  card: z.union([z.string(), z.object({ id: z.string() })]),
+  card: z.union([
+    z.string(),
+    z.object({
+      id: z.string(),
+      // Only the two keys below are read from the card's metadata; the rest is never copied.
+      metadata: z.record(z.string(), z.string()).nullish(),
+    }),
+  ]),
   merchant_data: z.object({
     category_code: z.string().nullish(),
     network_id: z.string().nullish(),
@@ -63,6 +71,11 @@ export interface StripeAuthorizationView {
   readonly livemode: boolean;
   readonly authorizationId: string;
   readonly cardId: string;
+  /**
+   * The card's holder as the company recorded it when issuing the card: Stripe card metadata
+   * `decionis_actor_id` and `decionis_actor_type`, exactly as written. Null when neither is set.
+   */
+  readonly cardActor: { readonly id: string | null; readonly type: string | null } | null;
   readonly approved: boolean;
   /** The amount Stripe approved or declined, in the cardholder's currency (minor units). */
   readonly amount: number;
@@ -78,6 +91,30 @@ export interface StripeAuthorizationView {
     readonly approved: boolean;
     readonly reason: string;
   } | null;
+}
+
+/** The two metadata keys that name a card's holder, and nothing else from the card. */
+function cardActorOf(
+  card: string | { readonly metadata?: Readonly<Record<string, string>> | null | undefined },
+): StripeAuthorizationView["cardActor"] {
+  if (typeof card === "string" || card.metadata == null) return null;
+  const id = card.metadata.decionis_actor_id ?? null;
+  const type = card.metadata.decionis_actor_type ?? null;
+  return id === null && type === null ? null : { id, type };
+}
+
+/**
+ * The hook's `actor`, when the card names its holder. Half a name, or one the hook would refuse,
+ * is refused here rather than dropped: deciding a named person's card as the deployment's
+ * default actor would quietly lose the limits and the self-approval check that name carries.
+ */
+function actorOf(view: StripeAuthorizationView): { actor?: { id: string; type: string } } {
+  if (view.cardActor === null) return {};
+  const { id, type } = view.cardActor;
+  if (id === null || type === null) throw new StripeEventError("STRIPE_CARD_ACTOR_INCOMPLETE");
+  const parsed = CardActorSchema.safeParse({ id, type });
+  if (!parsed.success) throw new StripeEventError("STRIPE_CARD_ACTOR_INVALID");
+  return { actor: parsed.data };
 }
 
 /** Parses an event already proven to be Stripe's. Anything but an authorization is refused. */
@@ -101,6 +138,7 @@ export function stripeAuthorizationOf(body: Buffer): StripeAuthorizationView {
     livemode: envelope.data.livemode,
     authorizationId: authorization.id,
     cardId: typeof authorization.card === "string" ? authorization.card : authorization.card.id,
+    cardActor: cardActorOf(authorization.card),
     approved: authorization.approved,
     amount: authorization.amount,
     currency: authorization.currency.toUpperCase(),
@@ -154,6 +192,7 @@ export function cardAuthorizationFromStripe(
     currency: asked.currency,
     merchant_id: view.merchantNetworkId,
     ...(view.mcc !== null && /^\d{4}$/.test(view.mcc) ? { mcc: view.mcc } : {}),
+    ...actorOf(view),
   };
   try {
     // The hook's own schema, PAN refusal included: the bridge sends nothing it would refuse.

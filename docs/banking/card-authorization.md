@@ -303,7 +303,12 @@ With `EXECUTOR_CARD_NO_GRANT=evaluate`, the hook's answer gains a third shape. A
 with no hold for its card and merchant is captured as a `card.purchase` intent of the commit
 actor the deployment names (`EXECUTOR_CARD_COMMIT_TENANT_ID`, `EXECUTOR_CARD_COMMIT_ACTOR_ID`,
 `EXECUTOR_CARD_COMMIT_ACTOR_TYPE`, `SYSTEM` by default), with the hook's principal, the
-authorization's id and the card's velocity in its context, and evaluated now:
+authorization's id and the card's velocity in its context, and evaluated now. The hook may also
+name the card's own holder (`actor: { id, type }`). With `EXECUTOR_CARD_ACTOR_FROM_ISSUER=on`, and
+a type in `EXECUTOR_CARD_ISSUER_ACTOR_TYPES` (`human,agent` by default), the intent is that
+holder's instead. Otherwise the name is ignored, and `CARD_ISSUER_ACTOR_IGNORED` says why. The
+context's `card_authorization.actor_source` records which actor decided. See
+[Stripe Issuing](./stripe-issuing.md#whose-purchase-it-is).
 
 | Policy says | The hook answers                                                                                                                                                                                                                                                              |
 | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

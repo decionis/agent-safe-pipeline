@@ -1030,4 +1030,39 @@ describe("the commit-boundary evaluation configuration", () => {
       "CONFIG_INVALID: EXECUTOR_CARD_NO_GRANT",
     );
   });
+
+  it("takes the card's holder from the issuer only when asked, and only of the types it allows", () => {
+    const base = offlineEnvironment();
+    const evaluate = {
+      ...base,
+      EXECUTOR_CARD_NO_GRANT: "evaluate",
+      EXECUTOR_CARD_COMMIT_TENANT_ID: "00000000-0000-4000-8000-000000000002",
+      EXECUTOR_CARD_COMMIT_ACTOR_ID: "synthetic-commit",
+    };
+    expect(ExecutorConfigLoader.load(evaluate).cards.commit?.issuerActor).toBeNull();
+    const on = ExecutorConfigLoader.load({ ...evaluate, EXECUTOR_CARD_ACTOR_FROM_ISSUER: "on" });
+    expect([...(on.cards.commit?.issuerActor?.types ?? [])]).toEqual(["human", "agent"]);
+    const agents = ExecutorConfigLoader.load({
+      ...evaluate,
+      EXECUTOR_CARD_ACTOR_FROM_ISSUER: "on",
+      EXECUTOR_CARD_ISSUER_ACTOR_TYPES: "agent",
+    });
+    expect([...(agents.cards.commit?.issuerActor?.types ?? [])]).toEqual(["agent"]);
+    expect(refusal({ ...evaluate, EXECUTOR_CARD_ISSUER_ACTOR_TYPES: "human" })).toBe(
+      "CONFIG_INVALID: EXECUTOR_CARD_ISSUER_ACTOR_TYPES (without EXECUTOR_CARD_ACTOR_FROM_ISSUER=on)",
+    );
+    expect(refusal({ ...base, EXECUTOR_CARD_ACTOR_FROM_ISSUER: "on" })).toBe(
+      "CONFIG_INVALID: EXECUTOR_CARD_NO_GRANT (no_match with EXECUTOR_CARD_ACTOR_FROM_ISSUER)",
+    );
+    expect(refusal({ ...evaluate, EXECUTOR_CARD_ACTOR_FROM_ISSUER: "yes" })).toBe(
+      "CONFIG_INVALID: EXECUTOR_CARD_ACTOR_FROM_ISSUER",
+    );
+    expect(
+      refusal({
+        ...evaluate,
+        EXECUTOR_CARD_ACTOR_FROM_ISSUER: "on",
+        EXECUTOR_CARD_ISSUER_ACTOR_TYPES: "human,,agent",
+      }),
+    ).toBe("CONFIG_INVALID: EXECUTOR_CARD_ISSUER_ACTOR_TYPES");
+  });
 });
